@@ -667,6 +667,7 @@ finalDamage = (baseDamage * gearMultiplier) * (1 - targetDefense) * critMultipli
       boss-fortress.js  // Fortress boss (Room 20)
       boss-fractalcore.js // Fractal Core boss (Room 25)
       boss-vortex.js    // Vortex boss (Room 30)
+    debug.js            // Debug panel for testing (warp to rooms)
   /css
     style.css
 ```
@@ -698,6 +699,19 @@ The enemy system uses a modular inheritance pattern:
 - **Room Backgrounds:** Different colors per zone
 
 ---
+
+## Debug Tools
+
+### Debug Panel
+A developer tool accessible from the browser console for testing and debugging:
+- **Toggle:** `DebugPanel.toggle()` in console or `Ctrl+D` keyboard shortcut
+- **Features:**
+  - Current room number display
+  - Quick warp buttons for rooms 1, 5, 10, 15, 20, 25, 30 (boss rooms highlighted in orange)
+  - Custom room input field (1-100)
+  - Warp button to jump to any room number
+- **Usage:** Opens a panel in the top-right corner with green terminal-style UI
+- **Purpose:** Quickly test boss encounters and room progression without playing through earlier rooms
 
 ## Testing Criteria
 

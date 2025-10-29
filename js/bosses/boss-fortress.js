@@ -83,7 +83,7 @@ class BossFortress extends BossBase {
             if (this.slamCooldown <= 0 && distance < 120) {
                 this.chargingSlam = true;
             } else if (this.spikeCooldown <= 0) {
-                this.cornerSpikes();
+                this.activateCornerSpikes();
                 this.spikeCooldown = 6.0;
             } else if (this.wallPushCooldown <= 0 && distance < 200) {
                 this.wallPush();
@@ -170,7 +170,7 @@ class BossFortress extends BossBase {
         }
     }
     
-    cornerSpikes() {
+    activateCornerSpikes() {
         // Extend spikes from 4 corners
         this.cornerSpikes = [true, true, true, true];
         this.spikeTimer = 0.8;
@@ -198,7 +198,7 @@ class BossFortress extends BossBase {
     }
     
     fullSpikeBurst() {
-        this.cornerSpikes();
+        this.activateCornerSpikes();
         // All spikes extend and spin
         for (let i = 0; i < 8; i++) {
             const angle = (Math.PI * 2 / 8) * i;

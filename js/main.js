@@ -271,6 +271,11 @@ const Game = {
         // Update door pulse animation
         this.doorPulse += deltaTime;
         
+        // Update debug panel if visible
+        if (typeof DebugPanel !== 'undefined') {
+            DebugPanel.update();
+        }
+        
         // Remove dead enemies and track kills
         this.enemies = this.enemies.filter(enemy => {
             if (!enemy.alive) {
