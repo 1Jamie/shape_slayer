@@ -1,0 +1,14 @@
+{
+  "name": "shape-slayer",
+  "version": "1.0.0",
+  "description": "A skill-based 2D top-down ARPG",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": ["game", "arpg", "canvas"],
+  "author": "",
+  "license": "MIT"
+}
+
+

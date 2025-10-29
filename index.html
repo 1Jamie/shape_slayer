@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shape Slayer</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #0a0a0a;
+            font-family: Arial, sans-serif;
+        }
+        #gameCanvas {
+            border: 2px solid #333;
+            background-color: #1a1a2e;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    
+    <!-- Load scripts in dependency order -->
+    <script src="js/utils.js"></script>
+    <script src="js/render.js"></script>
+    <script src="js/input.js"></script>
+    <script src="js/gear.js"></script>
+    <script src="js/player.js"></script>
+    <script src="js/enemy-base.js"></script>
+    <script src="js/enemy-basic.js"></script>
+    <script src="js/enemy-star.js"></script>
+    <script src="js/enemy-diamond.js"></script>
+    <script src="js/enemy-rectangle.js"></script>
+    <script src="js/enemy-octagon.js"></script>
+    <script src="js/level.js"></script>
+    <script src="js/combat.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
