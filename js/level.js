@@ -27,6 +27,14 @@ function initializeRoom(roomNumber = 1) {
 function generateRoom(roomNumber) {
     const room = new Room(roomNumber);
     
+    // Check if this is a boss room (every 5 rooms starting at room 10)
+    if ((roomNumber % 5 === 0) && (roomNumber >= 10)) {
+        room.type = 'boss';
+        const boss = generateBoss(roomNumber);
+        room.enemies.push(boss);
+        return room;
+    }
+    
     // Calculate enemy count based on room number
     const enemyCount = 3 + Math.floor(roomNumber * 0.5);
     
@@ -153,5 +161,108 @@ function getDoorPosition() {
         width: 50,
         height: 100
     };
+}
+
+// Generate boss based on room number
+function generateBoss(roomNumber) {
+    // Boss spawns at center of room
+    const spawnX = 400;
+    const spawnY = 300;
+    
+    let boss = null;
+    
+    // Determine which boss to spawn based on room number
+    if (roomNumber === 10) {
+        // Swarm King
+        boss = new BossSwarmKing(spawnX, spawnY);
+    } else if (roomNumber === 15) {
+        // Twin Prism
+        boss = new BossTwinPrism(spawnX, spawnY);
+    } else if (roomNumber === 20) {
+        // Fortress
+        boss = new BossFortress(spawnX, spawnY);
+    } else if (roomNumber === 25) {
+        // Fractal Core
+        boss = new BossFractalCore(spawnX, spawnY);
+    } else if (roomNumber === 30) {
+        // Vortex
+        boss = new BossVortex(spawnX, spawnY);
+    } else {
+        // Default fallback for future boss rooms (35, 40, etc.)
+        console.warn(`No boss defined for room ${roomNumber} - using placeholder`);
+        boss = createPlaceholderBoss(spawnX, spawnY, `Boss ${roomNumber}`);
+    }
+    
+    // Apply room scaling to boss stats
+    if (boss) {
+        const enemyScale = 1 + (roomNumber * 0.15);
+        boss.maxHp = Math.floor(boss.maxHp * enemyScale);
+        boss.hp = boss.maxHp;
+        boss.damage = boss.damage * enemyScale;
+    }
+    
+    return boss;
+}
+
+// Placeholder boss class for testing (will be replaced by actual boss implementations)
+function createPlaceholderBoss(x, y, name) {
+    const boss = new BossBase(x, y);
+    boss.bossName = name;
+    boss.color = '#ff0044';
+    
+    // Basic placeholder rendering
+    boss.render = function(ctx) {
+        // Draw large circle as placeholder
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Draw border
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        
+        // Draw health bar
+        this.renderHealthBar(ctx);
+        
+        // Draw weak points
+        this.renderWeakPoints(ctx);
+    };
+    
+    // Basic placeholder update
+    boss.update = function(deltaTime, player) {
+        if (!this.introComplete) return; // Don't update during intro
+        
+        // Check phase transitions
+        this.checkPhaseTransition();
+        
+        // Update hazards
+        this.updateHazards(deltaTime);
+        
+        // Update weak points
+        this.updateWeakPoints(deltaTime);
+        
+        // Simple chase behavior for placeholder
+        if (player && player.alive) {
+            const dx = player.x - this.x;
+            const dy = player.y - this.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance > 100) {
+                const speed = this.moveSpeed * deltaTime;
+                this.x += (dx / distance) * speed * 0.3; // Slow movement
+                this.y += (dy / distance) * speed * 0.3;
+            }
+        }
+        
+        // Keep in bounds
+        this.keepInBounds();
+    };
+    
+    // Add a test weak point
+    boss.addWeakPoint(20, 20, 8, 0);
+    
+    return boss;
 }
 

@@ -2,11 +2,12 @@
 
 // Damage number class for floating damage text
 class DamageNumber {
-    constructor(x, y, damage, isCrit = false) {
+    constructor(x, y, damage, isCrit = false, isWeakPoint = false) {
         this.x = x;
         this.y = y;
         this.damage = damage;
         this.isCrit = isCrit;
+        this.isWeakPoint = isWeakPoint;
         this.life = 1.5; // fade over 1.5s
         this.maxLife = 1.5;
         this.alpha = 1.0;
@@ -28,9 +29,21 @@ class DamageNumber {
         ctx.save();
         ctx.globalAlpha = this.alpha;
         
-        // Larger, bolder text for crits
-        const fontSize = this.isCrit ? 28 : 20;
-        const color = this.isCrit ? '#ffaa00' : '#ffffff';
+        // Styling based on damage type
+        let fontSize, color;
+        if (this.isWeakPoint) {
+            // Weak point hits: cyan, large
+            fontSize = 32;
+            color = '#00ffff';
+        } else if (this.isCrit) {
+            // Crits: orange, medium-large
+            fontSize = 28;
+            color = '#ffaa00';
+        } else {
+            // Normal: white, medium
+            fontSize = 20;
+            color = '#ffffff';
+        }
         
         ctx.fillStyle = color;
         ctx.font = `bold ${fontSize}px Arial`;
@@ -53,11 +66,11 @@ class DamageNumber {
 }
 
 // Create damage number
-function createDamageNumber(x, y, damage, isCrit = false) {
+function createDamageNumber(x, y, damage, isCrit = false, isWeakPoint = false) {
     if (typeof Game === 'undefined') return;
     if (!Game.damageNumbers) Game.damageNumbers = [];
     
-    Game.damageNumbers.push(new DamageNumber(x, y, damage, isCrit));
+    Game.damageNumbers.push(new DamageNumber(x, y, damage, isCrit, isWeakPoint));
 }
 
 // Update damage numbers

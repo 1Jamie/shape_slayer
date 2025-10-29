@@ -105,6 +105,107 @@ Simple geometric shapes with clear visual hierarchy. Every element should be eas
 
 ---
 
+## Boss System
+
+### Boss Architecture
+Bosses extend `BossBase`, which extends `EnemyBase`. This inheritance pattern provides:
+- Common boss functionality (phase system, weak points, environmental hazards)
+- Base enemy systems (knockback, health bars, targeting, death logic)
+- Unique boss implementations with specialized attacks and mechanics
+
+### Boss Stat Scaling
+All bosses are scaled relative to normal enemies:
+- **HP:** 5x base HP × 1.3 (30% bonus) = 6.5x base HP (before room scaling)
+- **Size:** 2x base size (visual and collision)
+- **Damage:** 1.5x base damage
+- **XP Value:** 3x normal enemy of same type
+
+**Boss Base HP Values:**
+- Swarm King: 195 base HP (final: 975 HP)
+- Twin Prism: 156 base HP (final: 780 HP)
+- Fortress: 234 base HP (final: 1,170 HP)
+- Fractal Core: 195 base HP (final: 975 HP)
+- Vortex: 260 base HP (final: 1,300 HP)
+
+### 3-Phase Combat System
+Each boss has three phases that change at HP thresholds:
+- **Phase 1:** 100% - 50% HP - Opening moves, basic patterns
+- **Phase 2:** 50% - 25% HP - Increased aggression, new attacks
+- **Phase 3:** 25% - 0% HP - Maximum intensity, ultimate attacks
+
+Phase transitions trigger visual/audio feedback and unlock new attack patterns.
+
+### Weak Point System
+- **Purpose:** Strategic targeting reward (not required to defeat boss)
+- **Damage Multiplier:** 3x damage when hitting weak points
+- **Visibility:** Weak points glow with cyan/white indicators
+- **Accessibility:** Positioned in hard-to-reach locations (behind rotating body, at spike bases, center core behind pull field, etc.)
+- **Collision Detection:** Weak points checked before normal body collision in damage calculations
+
+### Environmental Hazards
+Bosses create persistent environmental hazards during combat:
+- **Shockwave:** Expanding rings from ground slams, persist 0.5-1s
+- **Damage Zone:** Persistent area dealing damage (dash trails, spike zones)
+- **Pull Field:** Constant force toward boss, reduces player movement speed
+- **Debris:** Temporary collision zones from boss destruction/attacks
+
+Hazards update each frame, check player collision, and auto-remove when expired.
+
+### Boss Intro System
+- **Trigger:** When boss room is entered and boss spawns
+- **Duration:** 3 seconds total
+- **Sequence:**
+  - Dark overlay (80% opacity black)
+  - Boss slides in from spawn position
+  - Boss name displays with fade-in/scale-up text effect
+  - "Press any key to continue" appears after 2 seconds
+- **Skip:** Any key press after 2 seconds skips remaining intro time
+- **State:** Boss frozen during intro, normal updates begin after intro completes
+
+### Individual Boss Descriptions
+
+#### Swarm King (Room 10)
+- **Shape:** Large star (~60px radius) with concave inward-bending spikes
+- **Weak Points:** 3 small glowing points at base of spikes (hard to hit during rotation)
+- **Phase 1:** Spike barrage, chase lunge, minion spawn (2-3), spike slam with shockwave
+- **Phase 2:** Faster attacks, spinning spike wheel, multi-barrage (3 waves), more minions (4-5)
+- **Phase 3:** Constant rotation with extended spikes, explosive finale when HP < 10%
+- **Environmental Hazards:** Shockwaves from spike slams, explosive spike particles
+
+#### Twin Prism (Room 15)
+- **Shape:** Two overlapping diamonds forming concave hourglass (~50px each)
+- **Weak Points:** Single weak point at center connection (requires precise timing)
+- **Phase 1:** Dual dash pattern, rotation attack, color swap position swap, synchronized strike
+- **Phase 2:** Faster rotation, split attack (separate to edges), more frequent swaps
+- **Phase 3:** Frenzy mode (constant spinning + dashing), merged form slam, orbital frenzy
+- **Environmental Hazards:** Dash trails (damage zones), rotation barrier damage zone
+
+#### Fortress (Room 20)
+- **Shape:** Large rectangle (~100px × 80px) with concave crenellations
+- **Weak Points:** 2 weak points at top corners (protected by spike attacks)
+- **Phase 1:** Charging slam (1.5s windup), corner spikes (cardinal directions), wall push, summon guards
+- **Phase 2:** Multiple slams (2-3 chain), full spike burst (all corners), room division
+- **Phase 3:** Rampage mode (constant charging), fortress storm (projectiles while moving), collapse attack (splits into 4), earthquake (repeated slams)
+- **Environmental Hazards:** Persistent shockwaves from slams (grow then fade 1s), spike damage zones, crumbling debris
+
+#### Fractal Core (Room 25)
+- **Shape:** Octagon (~70px) with inward-bending concave sides
+- **Weak Points:** 4 weak points at concave indentations (only visible when fragments separate)
+- **Phase 1:** Fragment spawn (4 orbiting octagons), phase dash teleport, rotation blast, summon elite
+- **Phase 2:** Multi-fragment (6 fragments), phase chain (3 teleports), expanding pulse ring, fragment barrage
+- **Phase 3:** Chaos mode (constant splitting/reforming), super fragment storm (8 fragments), core explosion, final blast (screen-wide)
+- **Environmental Hazards:** Phase dash damage trails, expanding pulse rings, fragment collision zones
+
+#### Vortex (Room 30)
+- **Shape:** Circle (~80px) with concave indentations (gear-like)
+- **Weak Points:** 1 weak point at center core (requires getting past pull effect)
+- **Phase 1:** Vortex pull (suction reduces movement), rotating teeth (contact damage), spin projectiles (spiral pattern), swarm summon (orbiting enemies)
+- **Phase 2:** Stronger pull effect, tooth barrage (rapid extend/retract), double spin (opposite spirals), more orbiting minions
+- **Phase 3:** Maximum pull (very strong suction), teeth expansion (all teeth extend max), final vortex (contracts then explosive burst), death spiral (rapid contraction then explosion)
+- **Environmental Hazards:** Pull force field (constant velocity toward boss), tooth damage zones, explosion debris
+
+---
+
 ## Combat System
 
 ### Control Scheme
@@ -280,12 +381,22 @@ All attacks are telegraphed:
 - Large open space
 - Many enemies at once
 
-#### Boss Room (Every 5 rooms)
-- Single elite enemy
-- Giant version of regular enemy
-- Multiple attack phases
-- Guaranteed high-tier loot
-- Boss intro screen
+#### Boss Room (Every 5 rooms, starting at room 10)
+- Boss rooms spawn when: `roomNumber % 5 === 0 AND roomNumber >= 10`
+- Single unique boss enemy with 3-phase combat system
+- **5 Unique Bosses:**
+  - Room 10: Swarm King (Large star, spike attacks, minion spawning)
+  - Room 15: Twin Prism (Two overlapping diamonds, alternating dash patterns)
+  - Room 20: Fortress (Large rectangle, slam attacks, shockwaves)
+  - Room 25: Fractal Core (Octagon, fragment splitting, teleportation)
+  - Room 30: Vortex (Circle with indentations, pull mechanics, rotating teeth)
+- Boss scaling: 5x HP, 2x size, 1.5x damage vs normal enemies
+- Multiple attack phases (Phase 1: 100-50% HP, Phase 2: 50-25% HP, Phase 3: 25-0% HP)
+- Weak point system (3x damage multiplier for strategic targeting)
+- Environmental hazards (shockwaves, damage zones, pull fields, debris)
+- Guaranteed rare+ loot drop (2-3 items per boss)
+- Boss XP = 3x normal enemy of same type
+- Boss intro screen (3 second sequence, skippable after 2s)
 
 ### Room Progression
 - Room number displays on screen
@@ -534,12 +645,6 @@ finalDamage = (baseDamage * gearMultiplier) * (1 - targetDefense) * critMultipli
   /js
     main.js           // Game loop
     player.js         // Player class
-    enemy-base.js     // Base enemy class with shared functionality
-    enemy-basic.js    // Basic circle enemy (Swarmer)
-    enemy-star.js     // Star enemy (Ranged)
-    enemy-diamond.js  // Diamond enemy (Assassin)
-    enemy-rectangle.js // Rectangle enemy (Brute)
-    enemy-octagon.js  // Octagon enemy (Elite)
     combat.js         // Combat system
     gear.js           // Loot & equipment
     level.js          // Room generation
@@ -547,6 +652,21 @@ finalDamage = (baseDamage * gearMultiplier) * (1 - targetDefense) * critMultipli
     input.js          // Input handling
     render.js         // Drawing functions
     utils.js          // Helper functions
+    /enemies          // Enemy classes
+      enemy-base.js     // Base enemy class with shared functionality
+      enemy-basic.js    // Basic circle enemy (Swarmer)
+      enemy-star.js     // Star enemy (Ranged)
+      enemy-diamond.js  // Diamond enemy (Assassin)
+      enemy-rectangle.js // Rectangle enemy (Brute)
+      enemy-octagon.js  // Octagon enemy (Elite)
+    /bosses            // Boss classes and systems
+      hazards.js        // Environmental hazard system
+      boss-base.js      // Base boss class extending EnemyBase
+      boss-swarmking.js // Swarm King boss (Room 10)
+      boss-twinprism.js // Twin Prism boss (Room 15)
+      boss-fortress.js  // Fortress boss (Room 20)
+      boss-fractalcore.js // Fractal Core boss (Room 25)
+      boss-vortex.js    // Vortex boss (Room 30)
   /css
     style.css
 ```
@@ -555,7 +675,9 @@ finalDamage = (baseDamage * gearMultiplier) * (1 - targetDefense) * critMultipli
 The enemy system uses a modular inheritance pattern:
 - `EnemyBase`: Common functionality (knockback, health bars, targeting, death logic)
 - Individual enemy files: Each enemy type extends the base class with unique AI and visuals
-- Benefits: Easy to add new enemies, reduce code duplication, maintainable structure
+- `BossBase`: Extends `EnemyBase` with boss-specific systems (phases, weak points, environmental hazards)
+- Individual boss files: Each boss extends `BossBase` with unique attacks and mechanics
+- Benefits: Easy to add new enemies/bosses, reduce code duplication, maintainable structure
 
 ---
 

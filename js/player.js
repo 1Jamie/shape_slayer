@@ -173,6 +173,11 @@ class Player {
         this.blinkKnockbackVx = 0;
         this.blinkKnockbackVy = 0;
         
+        // Pull force system (for boss effects like Vortex)
+        this.pullForceVx = 0;
+        this.pullForceVy = 0;
+        this.pullDecay = 0.85; // Per second decay rate
+        
         // Initialize effective stats (will be calculated based on base + gear)
         this.damage = this.baseDamage;
         this.defense = this.baseDefense;
@@ -270,6 +275,9 @@ class Player {
             this.vx = 0;
             this.vy = 0;
         }
+        
+        // Process pull forces (apply before normal movement)
+        this.processPullForces(deltaTime);
         
         // Apply blink knockback if active
         if (this.blinkKnockbackVx !== 0 || this.blinkKnockbackVy !== 0) {
@@ -1894,6 +1902,39 @@ class Player {
         this.updateEffectiveStats();
         
         return oldGear;
+    }
+    
+    // Apply pull force from boss/environmental hazard
+    applyPullForce(sourceX, sourceY, strength, radius) {
+        const dx = sourceX - this.x;
+        const dy = sourceY - this.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance < radius && distance > 0) {
+            // Inverse square law: stronger when closer
+            const pullPower = strength * (1 - (distance / radius));
+            const dirX = dx / distance;
+            const dirY = dy / distance;
+            
+            this.pullForceVx += dirX * pullPower;
+            this.pullForceVy += dirY * pullPower;
+        }
+    }
+    
+    // Process pull forces each frame (similar to knockback)
+    processPullForces(deltaTime) {
+        if (this.pullForceVx !== 0 || this.pullForceVy !== 0) {
+            this.x += this.pullForceVx * deltaTime;
+            this.y += this.pullForceVy * deltaTime;
+            
+            // Decay pull forces over time
+            this.pullForceVx *= Math.pow(this.pullDecay, deltaTime);
+            this.pullForceVy *= Math.pow(this.pullDecay, deltaTime);
+            
+            // Stop if very small
+            if (Math.abs(this.pullForceVx) < 0.1) this.pullForceVx = 0;
+            if (Math.abs(this.pullForceVy) < 0.1) this.pullForceVy = 0;
+        }
     }
     
     // Get current stats as object

@@ -45,6 +45,10 @@ const Game = {
     levelUpMessageActive: false,
     levelUpMessageTime: 0,
     
+    // Boss intro system
+    bossIntroActive: false,
+    bossIntroData: null, // { boss, name, duration, elapsedTime, skipAvailable }
+    
     // FPS tracking
     fps: 0,
     lastFpsUpdate: 0,
@@ -82,6 +86,12 @@ const Game = {
         
         // Handle pause toggle with ESC
         document.addEventListener('keydown', (e) => {
+            // Handle boss intro skip
+            if (this.bossIntroActive && this.bossIntroData && this.bossIntroData.skipAvailable) {
+                this.skipBossIntro();
+                return;
+            }
+            
             if (e.key === 'Escape') {
                 if (this.state === 'PLAYING') {
                     this.togglePause();
@@ -92,6 +102,15 @@ const Game = {
             if (e.key === 'r' || e.key === 'R') {
                 if (this.player && this.player.dead) {
                     this.restart();
+                }
+            }
+            if (e.key === 'm' || e.key === 'M') {
+                if (this.player && this.player.dead) {
+                    this.state = 'MENU';
+                    this.player = null;
+                    this.enemies = [];
+                    this.projectiles = [];
+                    this.selectedClass = null;
                 }
             }
         });
@@ -180,6 +199,13 @@ const Game = {
         // Only update if in PLAYING state
         if (this.state !== 'PLAYING') return;
         
+        // Update boss intro if active (before normal updates)
+        if (this.bossIntroActive) {
+            this.updateBossIntro(deltaTime);
+            // Don't update normal game logic during intro
+            return;
+        }
+        
         // Update screen shake
         this.updateScreenShake(deltaTime);
         
@@ -206,9 +232,13 @@ const Game = {
             this.player.update(deltaTime, Input);
         }
         
-        // Update enemies
+        // Update enemies (skip if boss intro is active - boss is frozen)
         this.enemies.forEach(enemy => {
             if (enemy.alive) {
+                // Skip update if this is a boss and intro not complete
+                if (enemy.isBoss && !enemy.introComplete) {
+                    return;
+                }
                 enemy.update(deltaTime, this.player);
             }
         });
@@ -239,7 +269,7 @@ const Game = {
         }
         
         // Update door pulse animation
-        this.doorPulse += deltaTime * 2;
+        this.doorPulse += deltaTime;
         
         // Remove dead enemies and track kills
         this.enemies = this.enemies.filter(enemy => {
@@ -248,6 +278,108 @@ const Game = {
             }
             return enemy.alive;
         });
+    },
+    
+    // Start boss intro sequence
+    startBossIntro(boss) {
+        if (!boss || !boss.isBoss) {
+            console.error('startBossIntro called with invalid boss');
+            return;
+        }
+        
+        this.bossIntroActive = true;
+        this.bossIntroData = {
+            boss: boss,
+            name: boss.bossName || 'BOSS',
+            duration: 3.0, // 3 seconds total
+            elapsedTime: 0,
+            skipAvailable: false
+        };
+        
+        // Mark boss intro as started (boss will freeze during intro)
+        boss.introComplete = false;
+        
+        console.log(`Boss intro started for ${boss.bossName}`);
+    },
+    
+    // Update boss intro sequence
+    updateBossIntro(deltaTime) {
+        if (!this.bossIntroData) return;
+        
+        this.bossIntroData.elapsedTime += deltaTime;
+        
+        // Enable skip after 2 seconds
+        if (this.bossIntroData.elapsedTime >= 2.0) {
+            this.bossIntroData.skipAvailable = true;
+        }
+        
+        // End intro after duration or if skipped
+        if (this.bossIntroData.elapsedTime >= this.bossIntroData.duration) {
+            this.endBossIntro();
+        }
+    },
+    
+    // Skip boss intro
+    skipBossIntro() {
+        if (!this.bossIntroData || !this.bossIntroData.skipAvailable) return;
+        
+        this.endBossIntro();
+    },
+    
+    // End boss intro sequence
+    endBossIntro() {
+        if (!this.bossIntroData || !this.bossIntroData.boss) return;
+        
+        // Mark boss intro as complete
+        this.bossIntroData.boss.introComplete = true;
+        
+        this.bossIntroActive = false;
+        this.bossIntroData = null;
+        
+        console.log('Boss intro ended');
+    },
+    
+    // Render boss intro sequence
+    renderBossIntro(ctx) {
+        if (!this.bossIntroData || !this.bossIntroData.boss) return;
+        
+        // Dark overlay (80% opacity)
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+        ctx.fillRect(0, 0, this.config.width, this.config.height);
+        
+        // Calculate fade and scale for boss name text
+        const elapsed = this.bossIntroData.elapsedTime;
+        const nameFadeIn = Math.min(1.0, elapsed / 0.5); // Fade in over 0.5s
+        const nameScale = 0.5 + (nameFadeIn * 0.5); // Scale from 0.5 to 1.0
+        
+        // Render boss (frozen during intro)
+        ctx.save();
+        ctx.globalAlpha = 1.0;
+        this.bossIntroData.boss.render(ctx);
+        ctx.restore();
+        
+        // Boss name text
+        ctx.save();
+        ctx.globalAlpha = nameFadeIn;
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `bold ${48 * nameScale}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(this.bossIntroData.name, this.config.width / 2, this.config.height / 2 - 100);
+        ctx.restore();
+        
+        // "Press any key to continue" text (after 2 seconds)
+        if (this.bossIntroData.skipAvailable) {
+            const skipFade = Math.sin(Date.now() / 200); // Blinking effect
+            ctx.save();
+            ctx.globalAlpha = 0.5 + skipFade * 0.5;
+            ctx.fillStyle = '#ffff00';
+            ctx.font = '20px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('Press any key to continue', this.config.width / 2, this.config.height / 2 + 100);
+            ctx.restore();
+        }
     },
     
     // Check for gear pickup
@@ -329,6 +461,13 @@ const Game = {
             // Update enemies array
             this.enemies = newRoom.enemies;
             
+            // Check if this is a boss room and start intro
+            if (newRoom.type === 'boss' && this.enemies.length > 0 && this.enemies[0].isBoss) {
+                const boss = this.enemies[0];
+                // Start boss intro
+                this.startBossIntro(boss);
+            }
+            
             // Clear ground loot from previous room
             if (typeof groundLoot !== 'undefined') {
                 groundLoot.length = 0;
@@ -338,7 +477,7 @@ const Game = {
             this.player.x = 50;
             this.player.y = 300;
             
-            console.log(`Advanced to Room ${this.roomNumber}`);
+            console.log(`Advanced to Room ${this.roomNumber}${newRoom.type === 'boss' ? ' (BOSS ROOM)' : ''}`);
         }
     },
     
@@ -346,6 +485,12 @@ const Game = {
     render() {
         // Clear canvas
         Renderer.clear(this.ctx, this.config.width, this.config.height);
+        
+        // Render boss intro if active (before anything else)
+        if (this.bossIntroActive) {
+            this.renderBossIntro(this.ctx);
+            return; // Skip normal rendering during intro
+        }
         
         // Apply screen shake
         this.ctx.save();
@@ -652,6 +797,13 @@ const Game = {
         if (typeof initializeRoom !== 'undefined' && (!currentRoom || currentRoom.number === 1)) {
             currentRoom = generateRoom(1);
             this.enemies = currentRoom.enemies;
+            
+            // Check if this is a boss room and start intro
+            if (currentRoom.type === 'boss' && this.enemies.length > 0 && this.enemies[0].isBoss) {
+                const boss = this.enemies[0];
+                // Start boss intro
+                this.startBossIntro(boss);
+            }
         }
         
         console.log(`Room ${this.roomNumber} initialized with ${this.enemies.length} enemies`);

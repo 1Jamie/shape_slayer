@@ -26,15 +26,41 @@ function checkAttacksVsEnemies(player, enemies) {
         enemies.forEach(enemy => {
             if (!enemy.alive || hitbox.hitEnemies.has(enemy)) return;
             
-            if (checkCircleCollision(hitbox.x, hitbox.y, hitbox.radius, enemy.x, enemy.y, enemy.size)) {
-                // Enemy takes damage
-                const damageDealt = Math.min(hitbox.damage, enemy.hp);
-                enemy.takeDamage(hitbox.damage);
+            // Check body collision first
+            const bodyCollision = checkCircleCollision(hitbox.x, hitbox.y, hitbox.radius, enemy.x, enemy.y, enemy.size);
+            
+            if (bodyCollision) {
+                // Check for weak point hit (for bosses only)
+                let hitWeakPoint = false;
+                if (enemy.isBoss && enemy.checkWeakPointHit) {
+                    const weakPoint = enemy.checkWeakPointHit(hitbox.x, hitbox.y, hitbox.radius);
+                    hitWeakPoint = !!weakPoint;
+                }
                 
-                // Create damage number
+                // Pass position and radius for weak point detection (bosses will use this, others will ignore)
+                if (enemy.isBoss && typeof enemy.takeDamage === 'function') {
+                    // Bosses: pass position/radius for weak point detection
+                    enemy.takeDamage(hitbox.damage, hitbox.x, hitbox.y, hitbox.radius);
+                } else {
+                    // Normal enemies: just pass damage
+                    enemy.takeDamage(hitbox.damage);
+                }
+                
+                // Calculate actual damage dealt (accounting for weak point multiplier)
+                const damageDealt = hitWeakPoint ? Math.min(hitbox.damage * 3, enemy.hp) : Math.min(hitbox.damage, enemy.hp);
+                
+                // Create damage number (show different color for weak point hits)
                 if (typeof createDamageNumber !== 'undefined') {
                     const isHeavyAttack = hitbox.heavy || false;
-                    createDamageNumber(enemy.x, enemy.y, damageDealt, isHeavyAttack);
+                    // Position damage number at weak point if hit, otherwise at enemy center
+                    let damageX = enemy.x;
+                    let damageY = enemy.y;
+                    if (hitWeakPoint && enemy.weakPoints && enemy.weakPoints.length > 0) {
+                        // Use first hit weak point position
+                        damageX = enemy.x + enemy.weakPoints[0].offsetX;
+                        damageY = enemy.y + enemy.weakPoints[0].offsetY;
+                    }
+                    createDamageNumber(damageX, damageY, damageDealt, isHeavyAttack, hitWeakPoint);
                 }
                 
                 // Track that we hit this enemy so we don't hit it again with this hitbox
