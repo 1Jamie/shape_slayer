@@ -16,6 +16,12 @@ class EnemyBase {
         // Common properties
         this.alive = true;
         
+        // Squad system
+        this.squad = null;
+        this.squadId = null;
+        this.desiredFormationPos = null;
+        this.isAttacking = false; // Track if currently attacking (for squad queue)
+        
         // Default stats (will be overridden by subclasses)
         this.size = 20;
         this.maxHp = 30;
@@ -95,6 +101,12 @@ class EnemyBase {
     die() {
         this.alive = false;
         
+        // Release attack slot if in squad
+        if (this.squad) {
+            this.squad.releaseAttack(this);
+            this.squad.removeMember(this);
+        }
+        
         // Emit particles on death
         if (typeof createParticleBurst !== 'undefined') {
             createParticleBurst(this.x, this.y, this.color, 12);
@@ -112,6 +124,32 @@ class EnemyBase {
                 groundLoot.push(gear);
             }
         }
+    }
+    
+    // Request attack permission from squad
+    requestAttackPermission() {
+        if (!this.squad) {
+            return true; // No squad = can always attack (early rooms)
+        }
+        
+        return this.squad.requestAttack(this);
+    }
+    
+    // Check if can attack (for squad coordination)
+    canAttack() {
+        if (!this.squad) {
+            return true; // No squad = can always attack
+        }
+        
+        return this.squad.canAttack(this);
+    }
+    
+    // Release attack slot (call when attack ends)
+    releaseAttackPermission() {
+        if (this.squad) {
+            this.squad.releaseAttack(this);
+        }
+        this.isAttacking = false;
     }
     
     // Keep enemy within canvas bounds

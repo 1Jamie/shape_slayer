@@ -136,6 +136,12 @@ function generateRoom(roomNumber) {
         room.enemies.push(enemy);
     }
     
+    // Organize enemies into squads (if coordination is enabled)
+    if (typeof getSquadManager !== 'undefined') {
+        const squadMgr = getSquadManager();
+        squadMgr.organizeEnemiesIntoSquads(room.enemies, roomNumber);
+    }
+    
     return room;
 }
 

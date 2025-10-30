@@ -232,6 +232,12 @@ const Game = {
             this.player.update(deltaTime, Input);
         }
         
+        // Update squad manager (for coordinated enemy behavior)
+        if (typeof getSquadManager !== 'undefined') {
+            const squadMgr = getSquadManager();
+            squadMgr.update(deltaTime, this.player, this.roomNumber);
+        }
+        
         // Update enemies (skip if boss intro is active - boss is frozen)
         this.enemies.forEach(enemy => {
             if (enemy.alive) {

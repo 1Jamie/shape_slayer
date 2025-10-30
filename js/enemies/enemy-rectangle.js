@@ -54,15 +54,49 @@ class RectangleEnemy extends EnemyBase {
         // AI behavior
         if (this.state === 'chase') {
             if (distance < this.attackRange && this.attackCooldown <= 0) {
-                this.state = 'charge';
-                this.chargeElapsed = 0;
-                this.sizeMultiplier = 1.0;
+                // Request attack permission from squad
+                if (this.requestAttackPermission()) {
+                    this.state = 'charge';
+                    this.chargeElapsed = 0;
+                    this.sizeMultiplier = 1.0;
+                    this.isAttacking = true;
+                } else {
+                    // Can't attack yet, maintain position or move to formation
+                    if (this.squad && this.desiredFormationPos) {
+                        const formDx = this.desiredFormationPos.x - this.x;
+                        const formDy = this.desiredFormationPos.y - this.y;
+                        const formDist = Math.sqrt(formDx * formDx + formDy * formDy);
+                        if (formDist > 10) {
+                            this.x += (formDx / formDist) * this.moveSpeed * 0.3 * deltaTime;
+                            this.y += (formDy / formDist) * this.moveSpeed * 0.3 * deltaTime;
+                        }
+                    }
+                }
             } else {
-                // Slow chase toward player
-                const dirX = dx / distance;
-                const dirY = dy / distance;
-                this.x += dirX * this.moveSpeed * deltaTime;
-                this.y += dirY * this.moveSpeed * deltaTime;
+                // Slow chase toward player or formation
+                if (this.squad && this.desiredFormationPos) {
+                    const formDx = this.desiredFormationPos.x - this.x;
+                    const formDy = this.desiredFormationPos.y - this.y;
+                    const formDist = Math.sqrt(formDx * formDx + formDy * formDy);
+                    if (formDist > 20) {
+                        const blendX = (dx / distance * 0.3) + (formDx / formDist * 0.7);
+                        const blendY = (dy / distance * 0.3) + (formDy / formDist * 0.7);
+                        const blendDist = Math.sqrt(blendX * blendX + blendY * blendY);
+                        this.x += (blendX / blendDist) * this.moveSpeed * deltaTime;
+                        this.y += (blendY / blendDist) * this.moveSpeed * deltaTime;
+                    } else {
+                        const dirX = dx / distance;
+                        const dirY = dy / distance;
+                        this.x += dirX * this.moveSpeed * deltaTime;
+                        this.y += dirY * this.moveSpeed * deltaTime;
+                    }
+                } else {
+                    // Slow chase toward player
+                    const dirX = dx / distance;
+                    const dirY = dy / distance;
+                    this.x += dirX * this.moveSpeed * deltaTime;
+                    this.y += dirY * this.moveSpeed * deltaTime;
+                }
             }
         } else if (this.state === 'charge') {
             // Grow larger during charge
@@ -77,6 +111,8 @@ class RectangleEnemy extends EnemyBase {
                         player.takeDamage(this.damage);
                     }
                 }
+                // Release attack permission
+                this.releaseAttackPermission();
                 this.state = 'cooldown';
                 this.attackCooldown = 3.0;
                 this.chargeElapsed = 0;

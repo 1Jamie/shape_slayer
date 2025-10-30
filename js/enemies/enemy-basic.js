@@ -57,12 +57,55 @@ class Enemy extends EnemyBase {
         if (this.state === 'chase') {
             // Normal chase behavior
             if (distance < this.attackRange && this.attackCooldown <= 0) {
-                // Start telegraph
-                this.state = 'telegraph';
-                this.telegraphElapsed = 0;
+                // Request attack permission from squad
+                if (this.requestAttackPermission()) {
+                    // Start telegraph
+                    this.state = 'telegraph';
+                    this.telegraphElapsed = 0;
+                    this.isAttacking = true;
+                } else {
+                    // Can't attack yet, back off slightly or maintain position
+                    // Move toward formation position if in squad
+                    if (this.squad && this.desiredFormationPos) {
+                        const formDx = this.desiredFormationPos.x - this.x;
+                        const formDy = this.desiredFormationPos.y - this.y;
+                        const formDist = Math.sqrt(formDx * formDx + formDy * formDy);
+                        if (formDist > 10) {
+                            this.x += (formDx / formDist) * this.moveSpeed * 0.5 * deltaTime;
+                            this.y += (formDy / formDist) * this.moveSpeed * 0.5 * deltaTime;
+                        }
+                    } else {
+                        // Back off slightly if can't attack
+                        const backOffX = -dx / distance;
+                        const backOffY = -dy / distance;
+                        this.x += backOffX * this.moveSpeed * 0.3 * deltaTime;
+                        this.y += backOffY * this.moveSpeed * 0.3 * deltaTime;
+                    }
+                }
             } else {
-                // Continue chasing
-                this.moveTowardPlayer(deltaTime, dx, dy, distance);
+                // Continue chasing or move to formation
+                if (this.squad && this.desiredFormationPos) {
+                    const formDx = this.desiredFormationPos.x - this.x;
+                    const formDy = this.desiredFormationPos.y - this.y;
+                    const formDist = Math.sqrt(formDx * formDx + formDy * formDy);
+                    if (formDist > 20) {
+                        // Blend between formation and direct chase
+                        const towardPlayer = 0.3; // 30% toward player, 70% toward formation
+                        const chaseDx = dx / distance;
+                        const chaseDy = dy / distance;
+                        const blendX = (chaseDx * towardPlayer) + (formDx / formDist * (1 - towardPlayer));
+                        const blendY = (chaseDy * towardPlayer) + (formDy / formDist * (1 - towardPlayer));
+                        const blendDist = Math.sqrt(blendX * blendX + blendY * blendY);
+                        this.x += (blendX / blendDist) * this.moveSpeed * deltaTime;
+                        this.y += (blendY / blendDist) * this.moveSpeed * deltaTime;
+                    } else {
+                        // Close enough to formation, just face player
+                        this.moveTowardPlayer(deltaTime, dx, dy, distance);
+                    }
+                } else {
+                    // Continue chasing
+                    this.moveTowardPlayer(deltaTime, dx, dy, distance);
+                }
             }
         } else if (this.state === 'telegraph') {
             // Telegraph state - flash red
@@ -82,7 +125,8 @@ class Enemy extends EnemyBase {
             this.y += lungeDirY * deltaTime;
             
             if (this.lungeElapsed >= this.lungeDuration) {
-                // End lunge
+                // End lunge - release attack permission
+                this.releaseAttackPermission();
                 this.state = 'cooldown';
                 this.attackCooldown = this.attackCooldownTime;
                 this.telegraphElapsed = 0;
