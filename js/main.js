@@ -6,7 +6,7 @@ const Game = {
     ctx: null,
     
     // Game state
-    state: 'MENU', // 'MENU', 'PLAYING', 'PAUSED'
+    state: 'NEXUS', // 'NEXUS', 'PLAYING', 'PAUSED'
     paused: false,
     lastTime: 0,
     
@@ -15,10 +15,14 @@ const Game = {
     mouse: { x: 0, y: 0 },
     clickHandled: false,
     
+    // Currency system
+    currentCurrency: 0,
+    currencyEarned: 0, // Currency earned from current run
+    
     // Game config
     config: {
-        width: 800,
-        height: 600,
+        width: 1280,
+        height: 720,
         targetFPS: 60,
         fpsInterval: 1000 / 60
     },
@@ -81,8 +85,22 @@ const Game = {
         // Initialize input system
         Input.init(this.canvas);
         
+        // Load save data
+        if (typeof SaveSystem !== 'undefined') {
+            const saveData = SaveSystem.load();
+            this.currentCurrency = saveData.currency || 0;
+            this.selectedClass = saveData.selectedClass || null;
+        }
+        
         // Player will be created after class selection
         this.player = null;
+        
+        // Handle click on death screen
+        this.canvas.addEventListener('click', (e) => {
+            if (this.player && this.player.dead && this.state === 'PLAYING') {
+                this.returnToNexus();
+            }
+        });
         
         // Handle pause toggle with ESC
         document.addEventListener('keydown', (e) => {
@@ -106,11 +124,7 @@ const Game = {
             }
             if (e.key === 'm' || e.key === 'M') {
                 if (this.player && this.player.dead) {
-                    this.state = 'MENU';
-                    this.player = null;
-                    this.enemies = [];
-                    this.projectiles = [];
-                    this.selectedClass = null;
+                    this.returnToNexus();
                 }
             }
         });
@@ -158,6 +172,10 @@ const Game = {
         // Update and render based on state
         if (this.state === 'PLAYING') {
             this.update(deltaTime);
+        } else if (this.state === 'NEXUS') {
+            if (typeof updateNexus !== 'undefined') {
+                updateNexus(this.ctx, deltaTime);
+            }
         }
         
         this.render();
@@ -488,25 +506,27 @@ const Game = {
     
     // Render everything
     render() {
-        // Clear canvas
-        Renderer.clear(this.ctx, this.config.width, this.config.height);
-        
         // Render boss intro if active (before anything else)
         if (this.bossIntroActive) {
+            // Clear with dark background for boss intro
+            Renderer.clear(this.ctx, this.config.width, this.config.height);
             this.renderBossIntro(this.ctx);
             return; // Skip normal rendering during intro
         }
         
-        // Apply screen shake
-        this.ctx.save();
-        this.ctx.translate(this.screenShakeOffset.x, this.screenShakeOffset.y);
-        
         // Render based on game state
-        if (this.state === 'MENU') {
-            if (typeof renderClassSelection !== 'undefined') {
-                renderClassSelection(this.ctx);
+        if (this.state === 'NEXUS') {
+            if (typeof renderNexus !== 'undefined') {
+                renderNexus(this.ctx);
             }
         } else if (this.state === 'PAUSED') {
+            // Render room background
+            if (typeof renderRoomBackground !== 'undefined') {
+                renderRoomBackground(this.ctx, this.roomNumber);
+            } else {
+                Renderer.clear(this.ctx, this.config.width, this.config.height);
+            }
+            
             // Draw game world in background (dimmed)
             if (this.player && this.player.alive) {
                 this.ctx.globalAlpha = 0.3;
@@ -519,6 +539,16 @@ const Game = {
                 renderPauseMenu(this.ctx);
             }
         } else {
+            // Render room background with biome styling
+            if (typeof renderRoomBackground !== 'undefined') {
+                renderRoomBackground(this.ctx, this.roomNumber);
+            } else {
+                Renderer.clear(this.ctx, this.config.width, this.config.height);
+            }
+            
+            // Apply screen shake
+            this.ctx.save();
+            this.ctx.translate(this.screenShakeOffset.x, this.screenShakeOffset.y);
             // Draw player
             if (this.player && this.player.alive) {
                 this.player.render(this.ctx);
@@ -597,9 +627,10 @@ const Game = {
             
             // Draw FPS
             if (this.player && !this.player.dead) {
-                this.ctx.fillStyle = '#ffffff';
-                this.ctx.font = '12px monospace';
-                this.ctx.fillText(`FPS: ${this.fps}`, 10, 70);
+                this.ctx.fillStyle = '#888888';
+                this.ctx.font = 'bold 14px monospace';
+                this.ctx.textAlign = 'left';
+                this.ctx.fillText(`FPS: ${this.fps}`, 30, this.config.height - 20);
             }
         }
         
@@ -697,6 +728,59 @@ const Game = {
         }
     },
     
+    // Return to nexus after death
+    returnToNexus() {
+        // Calculate and save currency earned (if not already saved)
+        if (this.player && this.player.dead && this.currencyEarned > 0) {
+            if (typeof SaveSystem !== 'undefined') {
+                SaveSystem.addCurrency(this.currencyEarned);
+                const saveData = SaveSystem.load();
+                this.currentCurrency = saveData.currency || 0;
+            }
+            this.currencyEarned = 0;
+        }
+        
+        // Reset game state
+        this.state = 'NEXUS';
+        this.enemies = [];
+        this.projectiles = [];
+
+        // Reset player but keep it for nexus navigation
+        if (this.player) {
+            this.player.dead = false;
+            this.player.alive = true;
+            // Position will be set by initNexus
+        }
+        
+        this.enemiesKilled = 0;
+        this.roomNumber = 1;
+        
+        // Clear ground loot
+        if (typeof groundLoot !== 'undefined') {
+            groundLoot.length = 0;
+        }
+        
+        // Initialize nexus if needed
+        if (typeof initNexus !== 'undefined') {
+            initNexus();
+        }
+    },
+    
+    // Calculate currency earned from run
+    calculateCurrency() {
+        if (!this.player) return 0;
+        
+        const roomsCleared = Math.max(0, this.roomNumber - 1);
+        const enemiesKilled = this.enemiesKilled || 0;
+        const levelReached = this.player.level || 1;
+        
+        const base = 10 * roomsCleared;
+        const bonus = 2 * enemiesKilled;
+        const levelBonus = 1 * levelReached;
+        
+        return base + bonus + levelBonus;
+    },
+    
     // Start game after class selection
     startGame() {
         if (!this.selectedClass) {
@@ -706,8 +790,8 @@ const Game = {
         
         console.log('Starting game with class:', this.selectedClass);
         
-        // Create player with selected class
-        this.player = new Player(this.config.width / 2, this.config.height / 2);
+        // Create player with selected class (start at left side of screen)
+        this.player = new Player(100, this.config.height / 2);
         this.player.setClass(this.selectedClass);
         
         // Initialize room system
@@ -745,8 +829,8 @@ const Game = {
     
     // Restart game
     restart() {
-        // Create new player with same class
-        this.player = new Player(this.config.width / 2, this.config.height / 2);
+        // Create new player with same class (start at left side of screen)
+        this.player = new Player(100, this.config.height / 2);
         
         // Re-initialize player with selected class
         if (this.selectedClass && this.player) {

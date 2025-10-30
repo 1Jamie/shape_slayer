@@ -27,6 +27,9 @@ class DiamondEnemy extends EnemyBase {
         this.attackRange = 180; // Dash when within this range (10% less)
         this.dashSpeed = 600; // Faster dash
         this.circleAngle = 0; // Angle for circling movement
+        this.weaveTimer = Math.random() * Math.PI * 2; // Random starting phase for weaving
+        this.weaveSpeed = 3.0; // Speed of F weaving motion
+        this.weaveAmplitude = 30; // How far to weave perpendicular to movement
     }
     
     update(deltaTime, player) {
@@ -52,6 +55,9 @@ class DiamondEnemy extends EnemyBase {
         // Apply knockback first
         this.processKnockback(deltaTime);
         
+        // Get enemies array for AI behaviors
+        const enemies = (typeof Game !== 'undefined' && Game.enemies) ? Game.enemies : [];
+        
         // AI behavior based on state
         if (this.state === 'circle') {
             // Check if close enough to attack
@@ -60,8 +66,9 @@ class DiamondEnemy extends EnemyBase {
                 this.state = 'telegraph';
                 this.telegraphElapsed = 0;
             } else {
-                // Circle around player - move smoothly toward orbit position
+                // Circle around player with zigzag weaving and attack avoidance
                 this.circleAngle += deltaTime * 0.8; // Slower rotation around player
+                this.weaveTimer += deltaTime * this.weaveSpeed; // Update weaving timer
                 
                 const orbitDistance = 150; // Orbit further from player
                 const angle = this.circleAngle;
@@ -70,14 +77,49 @@ class DiamondEnemy extends EnemyBase {
                 const desiredX = targetX + Math.cos(angle) * orbitDistance;
                 const desiredY = targetY + Math.sin(angle) * orbitDistance;
                 
-                // Move toward the orbit position smoothly but slower
+                // Move toward the orbit position
                 const toOrbitX = desiredX - this.x;
                 const toOrbitY = desiredY - this.y;
                 const toOrbitDist = Math.sqrt(toOrbitX * toOrbitX + toOrbitY * toOrbitY);
                 
                 if (toOrbitDist > 1) {
-                    this.x += (toOrbitX / toOrbitDist) * this.moveSpeed * deltaTime;
-                    this.y += (toOrbitY / toOrbitDist) * this.moveSpeed * deltaTime;
+                    // Base movement toward orbit
+                    let moveX = toOrbitX / toOrbitDist;
+                    let moveY = toOrbitY / toOrbitDist;
+                    
+                    // Add perpendicular weaving (sine wave perpendicular to movement direction)
+                    const perpX = -moveY; // Perpendicular vector
+                    const perpY = moveX;
+                    const weaveOffset = Math.sin(this.weaveTimer) * this.weaveAmplitude;
+                    
+                    // Apply attack avoidance
+                    const avoidance = this.avoidPlayerAttacks(player, 80);
+                    const avoidDist = Math.sqrt(avoidance.x * avoidance.x + avoidance.y * avoidance.y);
+                    
+                    if (avoidDist > 0) {
+                        const avoidNormX = avoidance.x / avoidDist;
+                        const avoidNormY = avoidance.y / avoidDist;
+                        const avoidStrength = Math.min(avoidDist, 150) / 150;
+                        
+                        // Blend movement with avoidance (70% movement, 30% avoidance)
+                        moveX = moveX * 0.7 + avoidNormX * 0.3 * avoidStrength;
+                        moveY = moveY * 0.7 + avoidNormY * 0.3 * avoidStrength;
+                        
+                        // Renormalize
+                        const moveDist = Math.sqrt(moveX * moveX + moveY * moveY);
+                        if (moveDist > 0) {
+                            moveX /= moveDist;
+                            moveY /= moveDist;
+                        }
+                    }
+                    
+                    // Apply movement with weaving
+                    this.x += moveX * this.moveSpeed * deltaTime;
+                    this.y += moveY * this.moveSpeed * deltaTime;
+                    
+                    // Add perpendicular weaving offset
+                    this.x += perpX * weaveOffset * deltaTime * 0.3;
+                    this.y += perpY * weaveOffset * deltaTime * 0.3;
                 }
             }
         } else if (this.state === 'telegraph') {
@@ -88,10 +130,27 @@ class DiamondEnemy extends EnemyBase {
                 this.dashElapsed = 0;
             }
         } else if (this.state === 'dash') {
-            // Dash toward player
+            // Dash toward predicted player position
             this.dashElapsed += deltaTime;
-            const dashDirX = dx / distance;
-            const dashDirY = dy / distance;
+            
+            // Predict where player will be when dash completes
+            const timeToReach = this.dashDuration - this.dashElapsed;
+            const predictedPos = this.predictPlayerPosition(player, timeToReach);
+            
+            // Calculate direction to predicted position
+            const predDx = predictedPos.x - this.x;
+            const predDy = predictedPos.y - this.y;
+            const predDist = Math.sqrt(predDx * predDx + predDy * predDy);
+            
+            // Use predicted direction, fallback to current direction if invalid
+            let dashDirX, dashDirY;
+            if (predDist > 0) {
+                dashDirX = predDx / predDist;
+                dashDirY = predDy / predDist;
+            } else {
+                dashDirX = dx / distance;
+                dashDirY = dy / distance;
+            }
             
             // Check if player has active shield blocking the dash
             let newX = this.x + dashDirX * this.dashSpeed * deltaTime;
@@ -147,6 +206,11 @@ class DiamondEnemy extends EnemyBase {
                 this.x += awayDirX * this.moveSpeed * 0.5 * deltaTime;
                 this.y += awayDirY * this.moveSpeed * 0.5 * deltaTime;
             }
+        }
+        
+        // Resolve stacking with other enemies
+        if (enemies.length > 0) {
+            this.resolveStacking(enemies);
         }
         
         // Keep within bounds

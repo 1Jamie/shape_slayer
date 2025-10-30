@@ -197,10 +197,20 @@ class Player {
         this.playerClass = classType;
         const classDef = CLASS_DEFINITIONS[classType];
         
-        // Set stats
-        this.baseDamage = classDef.damage;
-        this.baseMoveSpeed = classDef.speed;
-        this.baseDefense = classDef.defense;
+        // Load upgrades from save system
+        let upgradeBonuses = { damage: 0, defense: 0, speed: 0 };
+        if (typeof SaveSystem !== 'undefined') {
+            const upgrades = SaveSystem.getUpgrades(classType);
+            // Calculate bonuses: damage +2/level, defense +0.02/level, speed +10/level
+            upgradeBonuses.damage = upgrades.damage * 2;
+            upgradeBonuses.defense = upgrades.defense * 0.02;
+            upgradeBonuses.speed = upgrades.speed * 10;
+        }
+        
+        // Set base stats (class stats + upgrade bonuses)
+        this.baseDamage = classDef.damage + upgradeBonuses.damage;
+        this.baseMoveSpeed = classDef.speed + upgradeBonuses.speed;
+        this.baseDefense = classDef.defense + upgradeBonuses.defense;
         this.maxHp = classDef.hp;
         this.hp = classDef.hp;
         this.critChance = classDef.critChance;
@@ -279,7 +289,14 @@ class Player {
         // Process pull forces (apply before normal movement)
         this.processPullForces(deltaTime);
         
-        // Apply blink knockback if active
+        // Update position (skip during thrust as it's handled by thrust animation)
+        // NOTE: Apply normal movement BEFORE blink knockback to avoid position conflicts
+        if (!this.thrustActive) {
+            this.x += this.vx * deltaTime;
+            this.y += this.vy * deltaTime;
+        }
+        
+        // Apply blink knockback if active (after normal movement)
         if (this.blinkKnockbackVx !== 0 || this.blinkKnockbackVy !== 0) {
             this.x += this.blinkKnockbackVx * deltaTime;
             this.y += this.blinkKnockbackVy * deltaTime;
@@ -290,12 +307,6 @@ class Player {
             
             if (Math.abs(this.blinkKnockbackVx) < 1) this.blinkKnockbackVx = 0;
             if (Math.abs(this.blinkKnockbackVy) < 1) this.blinkKnockbackVy = 0;
-        }
-        
-        // Update position (skip during thrust as it's handled by thrust animation)
-        if (!this.thrustActive) {
-        this.x += this.vx * deltaTime;
-        this.y += this.vy * deltaTime;
         }
         
         // Check for dodge collision with enemies (for Triangle class)
@@ -1056,7 +1067,7 @@ class Player {
                 const dy = newY - closestEnemy.y;
                 const dist = Math.sqrt(dx * dx + dy * dy);
                 if (dist > 0) {
-                    knockbackAngle = Math.atan2(dy, dist);
+                    knockbackAngle = Math.atan2(dy, dx); // Fixed: should be dx, not dist
                 }
             }
         }
@@ -1066,9 +1077,15 @@ class Player {
         this.blinkKnockbackVx = Math.cos(knockbackAngle) * knockbackSpeed;
         this.blinkKnockbackVy = Math.sin(knockbackAngle) * knockbackSpeed;
         
-        // Teleport player
-        this.x = newX;
-        this.y = newY;
+        // Teleport player (ensure valid position)
+        // Clamp to bounds immediately to prevent out-of-bounds issues
+        if (typeof Game !== 'undefined' && Game.canvas) {
+            this.x = clamp(newX, this.size, Game.canvas.width - this.size);
+            this.y = clamp(newY, this.size, Game.canvas.height - this.size);
+        } else {
+            this.x = newX;
+            this.y = newY;
+        }
         
         // Create decoy at old position
         this.blinkDecoyActive = true;
@@ -1800,9 +1817,11 @@ class Player {
             this.dead = true;
             this.alive = false;
             
-            // Record end time for death screen
+            // Record end time for death screen and calculate currency
             if (typeof Game !== 'undefined') {
                 Game.endTime = Date.now();
+                // Calculate currency earned from this run
+                Game.currencyEarned = Game.calculateCurrency();
             }
             
             console.log('Player died!');

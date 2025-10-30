@@ -107,6 +107,130 @@ function renderParticles(ctx) {
     });
 }
 
+// Biome definitions for different room ranges
+const BIOMES = {
+    // Rooms 1-10: Swarm King biome (insect/swarm theme)
+    swarm: {
+        baseColor: '#1a2518',
+        gridColor: 'rgba(150, 200, 100, 0.12)',
+        gridSize: 50,
+        accentColor: '#8fcc66',
+        pattern: 'grid'
+    },
+    // Rooms 11-15: Twin Prism biome (crystal/prism theme)
+    prism: {
+        baseColor: '#1a1525',
+        gridColor: 'rgba(150, 200, 255, 0.15)',
+        gridSize: 60,
+        accentColor: '#6699ff',
+        pattern: 'grid'
+    },
+    // Rooms 16-20: Fortress biome (stone/defensive theme)
+    fortress: {
+        baseColor: '#25201a',
+        gridColor: 'rgba(180, 160, 140, 0.1)',
+        gridSize: 40,
+        accentColor: '#cc9966',
+        pattern: 'grid'
+    },
+    // Rooms 21-25: Fractal Core biome (geometric/fractal theme)
+    fractal: {
+        baseColor: '#151a25',
+        gridColor: 'rgba(255, 150, 255, 0.18)',
+        gridSize: 55,
+        accentColor: '#ff66ff',
+        pattern: 'diagonal'
+    },
+    // Rooms 26-30: Vortex biome (dark/void theme)
+    vortex: {
+        baseColor: '#0f0a15',
+        gridColor: 'rgba(150, 100, 200, 0.1)',
+        gridSize: 45,
+        accentColor: '#9966cc',
+        pattern: 'grid'
+    },
+    // Rooms 31+: Endless (darker, more intense)
+    endless: {
+        baseColor: '#0a0a15',
+        gridColor: 'rgba(200, 150, 255, 0.12)',
+        gridSize: 50,
+        accentColor: '#cc99ff',
+        pattern: 'grid'
+    }
+};
+
+// Get biome for a room number
+function getBiomeForRoom(roomNumber) {
+    if (roomNumber <= 10) return BIOMES.swarm;
+    if (roomNumber <= 15) return BIOMES.prism;
+    if (roomNumber <= 20) return BIOMES.fortress;
+    if (roomNumber <= 25) return BIOMES.fractal;
+    if (roomNumber <= 30) return BIOMES.vortex;
+    return BIOMES.endless;
+}
+
+// Render room background with biome styling
+function renderRoomBackground(ctx, roomNumber) {
+    const canvasWidth = Game ? Game.config.width : 1280;
+    const canvasHeight = Game ? Game.config.height : 720;
+    const biome = getBiomeForRoom(roomNumber);
+    
+    // Base background color
+    ctx.fillStyle = biome.baseColor;
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    
+    // Render grid pattern
+    ctx.strokeStyle = biome.gridColor;
+    ctx.lineWidth = 1;
+    
+    if (biome.pattern === 'grid') {
+        // Standard grid pattern
+        for (let x = 0; x < canvasWidth; x += biome.gridSize) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, canvasHeight);
+            ctx.stroke();
+        }
+        for (let y = 0; y < canvasHeight; y += biome.gridSize) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(canvasWidth, y);
+            ctx.stroke();
+        }
+    } else if (biome.pattern === 'diagonal') {
+        // Diagonal grid pattern for fractal biome
+        const spacing = biome.gridSize;
+        for (let i = -canvasHeight; i < canvasWidth + canvasHeight; i += spacing) {
+            ctx.beginPath();
+            ctx.moveTo(i, 0);
+            ctx.lineTo(i + canvasHeight, canvasHeight);
+            ctx.stroke();
+        }
+        for (let i = -canvasWidth; i < canvasWidth + canvasHeight; i += spacing) {
+            ctx.beginPath();
+            ctx.moveTo(0, i);
+            ctx.lineTo(canvasWidth, i + canvasWidth);
+            ctx.stroke();
+        }
+    }
+    
+    // Add subtle accent overlay for boss rooms
+    if (roomNumber % 5 === 0 && roomNumber >= 10) {
+        // Boss room - add subtle pulsing effect
+        const pulseTime = Date.now() * 0.001;
+        const pulseAlpha = 0.05 + Math.sin(pulseTime) * 0.02;
+        
+        // Parse hex color to RGB
+        const hex = biome.accentColor.replace('#', '');
+        const r = parseInt(hex.substring(0, 2), 16);
+        const g = parseInt(hex.substring(2, 4), 16);
+        const b = parseInt(hex.substring(4, 6), 16);
+        
+        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${pulseAlpha})`;
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    }
+}
+
 const Renderer = {
     // Draw circle
     circle(ctx, x, y, radius, color, fill = true) {

@@ -144,6 +144,139 @@ class EnemyBase {
         ctx.strokeRect(barX, barY, barWidth, barHeight);
     }
     
+    // AI Behavior Methods - Shared across all enemies
+    
+    // Calculate separation force to avoid crowding with other enemies
+    getSeparationForce(enemies, separationRadius = 40, separationStrength = 150) {
+        if (!enemies || enemies.length === 0) return { x: 0, y: 0 };
+        
+        let separationX = 0;
+        let separationY = 0;
+        let count = 0;
+        
+        enemies.forEach(other => {
+            if (other === this || !other.alive) return;
+            
+            const dx = this.x - other.x;
+            const dy = this.y - other.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            if (dist > 0 && dist < separationRadius) {
+                const strength = separationStrength / (dist + 1);
+                separationX += (dx / dist) * strength;
+                separationY += (dy / dist) * strength;
+                count++;
+            }
+        });
+        
+        if (count > 0) {
+            return { x: separationX, y: separationY };
+        }
+        return { x: 0, y: 0 };
+    }
+    
+    // Calculate avoidance force to dodge player attacks
+    avoidPlayerAttacks(player, avoidanceRadius = 60) {
+        if (!player || !player.attackHitboxes || player.attackHitboxes.length === 0) {
+            return { x: 0, y: 0 };
+        }
+        
+        let avoidanceX = 0;
+        let avoidanceY = 0;
+        
+        player.attackHitboxes.forEach(hitbox => {
+            const dx = this.x - hitbox.x;
+            const dy = this.y - hitbox.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            if (dist < avoidanceRadius && dist > 0) {
+                const strength = (avoidanceRadius - dist) / avoidanceRadius * 200;
+                avoidanceX += (dx / dist) * strength;
+                avoidanceY += (dy / dist) * strength;
+            }
+        });
+        
+        return { x: avoidanceX, y: avoidanceY };
+    }
+    
+    // Predict where player will be based on current velocity
+    predictPlayerPosition(player, timeToReach) {
+        if (!player || !player.alive) return { x: this.x, y: this.y };
+        
+        // If player isn't moving, return current position
+        if (!player.vx && !player.vy) {
+            return { x: player.x, y: player.y };
+        }
+        
+        // Predict based on current velocity (with damping for accuracy)
+        const predictedX = player.x + player.vx * timeToReach * 0.7;
+        const predictedY = player.y + player.vy * timeToReach * 0.7;
+        
+        return { x: predictedX, y: predictedY };
+    }
+    
+    // Find center of nearby group of enemies (for swarming behavior)
+    getGroupCenter(enemies, maxRadius = 150, sameTypeOnly = false) {
+        if (!enemies || enemies.length === 0) return null;
+        
+        let centerX = 0;
+        let centerY = 0;
+        let count = 0;
+        
+        enemies.forEach(other => {
+            if (other === this || !other.alive) return;
+            
+            // Check if same type if required
+            if (sameTypeOnly && other.constructor !== this.constructor) return;
+            
+            const dx = this.x - other.x;
+            const dy = this.y - other.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            if (dist < maxRadius) {
+                centerX += other.x;
+                centerY += other.y;
+                count++;
+            }
+        });
+        
+        if (count > 0) {
+            return { x: centerX / count, y: centerY / count };
+        }
+        return null;
+    }
+    
+    // Resolve stacking/overlapping with other enemies (post-movement correction)
+    resolveStacking(enemies, minDistance = null) {
+        if (!enemies || enemies.length === 0) return;
+        
+        // Default minDistance is sum of radii + padding
+        if (minDistance === null) {
+            minDistance = this.size * 2 + 5; // 5px padding
+        }
+        
+        enemies.forEach(other => {
+            if (other === this || !other.alive) return;
+            
+            const dx = this.x - other.x;
+            const dy = this.y - other.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            // If too close, push apart
+            if (dist > 0 && dist < minDistance) {
+                const overlap = minDistance - dist;
+                const pushStrength = overlap * 0.5; // Gentle push to avoid jitter
+                
+                const pushX = (dx / dist) * pushStrength;
+                const pushY = (dy / dist) * pushStrength;
+                
+                // Only move this enemy (other will handle its own separation)
+                this.x += pushX;
+                this.y += pushY;
+            }
+        });
+    }
+    
     // Abstract methods - subclasses must implement
     update(deltaTime, player) {
         throw new Error('EnemyBase.update() must be implemented by subclass');

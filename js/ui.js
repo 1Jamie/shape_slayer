@@ -89,61 +89,127 @@ function renderDamageNumbers(ctx) {
 
 // Render health bar
 function renderHealthBar(ctx, player) {
-    const barX = 20;
-    const barY = 20;
-    const barWidth = 200;
-    const barHeight = 20;
+    const barX = 30;
+    const barY = 30;
+    const barWidth = 320;
+    const barHeight = 36;
     
-    // Draw background (dark red/gray)
-    ctx.fillStyle = '#333333';
+    // Panel background
+    const panelGradient = ctx.createLinearGradient(barX - 10, barY - 10, barX - 10, barY + barHeight + 10);
+    panelGradient.addColorStop(0, 'rgba(20, 20, 30, 0.85)');
+    panelGradient.addColorStop(1, 'rgba(10, 10, 20, 0.85)');
+    ctx.fillStyle = panelGradient;
+    ctx.fillRect(barX - 10, barY - 10, barWidth + 20, barHeight + 20);
+    
+    // Panel border
+    ctx.strokeStyle = 'rgba(100, 150, 255, 0.4)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(barX - 10, barY - 10, barWidth + 20, barHeight + 20);
+    
+    // Background with gradient
+    const bgGradient = ctx.createLinearGradient(barX, barY, barX, barY + barHeight);
+    bgGradient.addColorStop(0, '#2a1a1a');
+    bgGradient.addColorStop(1, '#1a0a0a');
+    ctx.fillStyle = bgGradient;
     ctx.fillRect(barX, barY, barWidth, barHeight);
     
-    // Draw foreground (green) scaled by HP/maxHP
+    // Draw foreground (green/orange/red) scaled by HP/maxHP with gradient
     const hpPercent = player.hp / player.maxHp;
-    ctx.fillStyle = hpPercent > 0.5 ? '#4caf50' : hpPercent > 0.25 ? '#ff9800' : '#f44336';
-    ctx.fillRect(barX, barY, barWidth * hpPercent, barHeight);
+    const hpGradient = ctx.createLinearGradient(barX, barY, barX, barY + barHeight);
+    
+    if (hpPercent > 0.5) {
+        hpGradient.addColorStop(0, '#66ff66');
+        hpGradient.addColorStop(1, '#00cc00');
+    } else if (hpPercent > 0.25) {
+        hpGradient.addColorStop(0, '#ffaa44');
+        hpGradient.addColorStop(1, '#cc6600');
+    } else {
+        hpGradient.addColorStop(0, '#ff6666');
+        hpGradient.addColorStop(1, '#cc0000');
+    }
+    
+    ctx.fillStyle = hpGradient;
+    ctx.fillRect(barX + 2, barY + 2, (barWidth - 4) * hpPercent, barHeight - 4);
+    
+    // Inner highlight
+    if (hpPercent > 0) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.fillRect(barX + 2, barY + 2, (barWidth - 4) * hpPercent, (barHeight - 4) * 0.4);
+    }
     
     // Draw border
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 2;
     ctx.strokeRect(barX, barY, barWidth, barHeight);
     
-    // Draw text centered on bar
+    // Draw text centered on bar with shadow
     ctx.fillStyle = '#ffffff';
-    ctx.font = '14px Arial';
+    ctx.font = 'bold 18px Arial';
     ctx.textAlign = 'center';
+    ctx.shadowBlur = 3;
+    ctx.shadowColor = '#000000';
     const healthText = `${Math.floor(player.hp)}/${Math.floor(player.maxHp)}`;
-    ctx.fillText(healthText, barX + barWidth / 2, barY + 15);
+    ctx.fillText(healthText, barX + barWidth / 2, barY + 24);
+    ctx.shadowBlur = 0;
     ctx.textAlign = 'left'; // Reset alignment
 }
 
 // Render XP bar
 function renderXPBar(ctx, player) {
-    const barX = (800 - 700) / 2; // Center the bar
-    const barY = 570;
-    const barWidth = 700;
-    const barHeight = 15;
+    const canvasWidth = Game ? Game.config.width : 1280;
+    const canvasHeight = Game ? Game.config.height : 720;
+    const barWidth = Math.min(1200, canvasWidth - 80);
+    const barX = (canvasWidth - barWidth) / 2; // Center the bar
+    const barY = canvasHeight - 55;
+    const barHeight = 28;
     
-    // Draw background (dark)
-    ctx.fillStyle = '#222222';
+    // Panel background
+    const panelGradient = ctx.createLinearGradient(barX - 10, barY - 10, barX - 10, barY + barHeight + 10);
+    panelGradient.addColorStop(0, 'rgba(20, 20, 30, 0.85)');
+    panelGradient.addColorStop(1, 'rgba(10, 10, 20, 0.85)');
+    ctx.fillStyle = panelGradient;
+    ctx.fillRect(barX - 10, barY - 10, barWidth + 20, barHeight + 20);
+    
+    // Panel border
+    ctx.strokeStyle = 'rgba(100, 150, 255, 0.4)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(barX - 10, barY - 10, barWidth + 20, barHeight + 20);
+    
+    // Background with gradient
+    const bgGradient = ctx.createLinearGradient(barX, barY, barX, barY + barHeight);
+    bgGradient.addColorStop(0, '#1a1a2a');
+    bgGradient.addColorStop(1, '#0a0a1a');
+    ctx.fillStyle = bgGradient;
     ctx.fillRect(barX, barY, barWidth, barHeight);
     
-    // Draw foreground (cyan) scaled by XP/xpToNext
+    // Draw foreground (cyan) scaled by XP/xpToNext with gradient
     const xpPercent = player.xp / player.xpToNext;
-    ctx.fillStyle = '#00ffff';
-    ctx.fillRect(barX, barY, barWidth * xpPercent, barHeight);
+    const xpGradient = ctx.createLinearGradient(barX, barY, barX, barY + barHeight);
+    xpGradient.addColorStop(0, '#66ffff');
+    xpGradient.addColorStop(1, '#00cccc');
+    ctx.fillStyle = xpGradient;
+    ctx.fillRect(barX + 2, barY + 2, (barWidth - 4) * xpPercent, barHeight - 4);
+    
+    // Inner highlight
+    if (xpPercent > 0) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.fillRect(barX + 2, barY + 2, (barWidth - 4) * xpPercent, (barHeight - 4) * 0.4);
+    }
     
     // Draw border
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 2;
     ctx.strokeRect(barX, barY, barWidth, barHeight);
     
-    // Draw text
+    // Draw text with shadow
     ctx.fillStyle = '#ffffff';
-    ctx.font = '12px Arial';
+    ctx.font = 'bold 16px Arial';
+    ctx.shadowBlur = 3;
+    ctx.shadowColor = '#000000';
     const text = `Level ${player.level} - ${Math.floor(player.xp)}/${player.xpToNext} XP`;
     const textWidth = ctx.measureText(text).width;
-    ctx.fillText(text, barX + (barWidth - textWidth) / 2, barY + 12);
+    ctx.fillText(text, barX + (barWidth - textWidth) / 2, barY + 20);
+    ctx.shadowBlur = 0;
 }
 
 // Render death screen
@@ -158,38 +224,83 @@ function renderDeathScreen(ctx, player) {
     const minutes = Math.floor(timePlayed / 60);
     const seconds = (timePlayed % 60).toFixed(1);
     
+    // Calculate currency breakdown
+    const roomsCleared = Math.max(0, Game.roomNumber - 1);
+    const enemiesKilled = Game.enemiesKilled || 0;
+    const levelReached = player.level || 1;
+    
+    const baseCurrency = 10 * roomsCleared;
+    const bonusCurrency = 2 * enemiesKilled;
+    const levelCurrency = 1 * levelReached;
+    const totalEarned = baseCurrency + bonusCurrency + levelCurrency;
+    
     // Dark overlay
+    const canvasWidth = Game ? Game.config.width : 1280;
+    const canvasHeight = Game ? Game.config.height : 720;
     ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
-    ctx.fillRect(0, 0, 800, 600);
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    
+    const centerX = canvasWidth / 2;
+    const centerY = canvasHeight / 2;
     
     // Title
     ctx.fillStyle = '#ff0000';
     ctx.font = 'bold 60px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('GAME OVER', 400, 120);
+    ctx.fillText('GAME OVER', centerX, centerY - 280);
     
     // Stats
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 28px Arial';
+    ctx.font = 'bold 24px Arial';
     
     const stats = [
-        `Level Reached: ${player.level}`,
-        `Rooms Cleared: ${Game.roomNumber - 1}`,
-        `Enemies Killed: ${Game.enemiesKilled || 0}`,
+        `Level Reached: ${levelReached}`,
+        `Rooms Cleared: ${roomsCleared}`,
+        `Enemies Killed: ${enemiesKilled}`,
         `Time Played: ${minutes}:${seconds}`
     ];
     
     stats.forEach((stat, index) => {
-        ctx.fillText(stat, 400, 220 + (index * 50));
+        ctx.fillText(stat, centerX, centerY - 200 + (index * 35));
     });
+    
+    // Currency breakdown
+    ctx.font = 'bold 20px Arial';
+    ctx.fillStyle = '#ffff00';
+    ctx.fillText('Currency Earned:', centerX, centerY - 30);
+    
+    ctx.font = '18px Arial';
+    ctx.fillStyle = '#cccccc';
+    ctx.textAlign = 'left';
+    
+    const currencyBreakdown = [
+        `Rooms: 10 × ${roomsCleared} = ${baseCurrency}`,
+        `Enemies: 2 × ${enemiesKilled} = ${bonusCurrency}`,
+        `Level: 1 × ${levelReached} = ${levelCurrency}`
+    ];
+    
+    currencyBreakdown.forEach((line, index) => {
+        ctx.fillText(line, centerX - 200, centerY + (index * 25));
+    });
+    
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#00ff00';
+    ctx.font = 'bold 22px Arial';
+    ctx.fillText(`Total Earned: ${totalEarned}`, centerX, centerY + 90);
+    
+    // Current total currency
+    const currentTotal = typeof SaveSystem !== 'undefined' ? SaveSystem.getCurrency() : 0;
+    ctx.fillStyle = '#ffff00';
+    ctx.font = 'bold 20px Arial';
+    ctx.fillText(`Total Currency: ${currentTotal}`, centerX, centerY + 130);
     
     // Instructions
     ctx.font = 'bold 24px Arial';
     ctx.fillStyle = '#ffff00';
-    ctx.fillText('Press R to Restart', 400, 480);
-    ctx.fillStyle = '#aaaaaa';
-    ctx.font = '18px Arial';
-    ctx.fillText('Press M for Main Menu', 400, 520);
+    ctx.fillText('Press R to Restart', centerX, centerY + 200);
+    ctx.fillStyle = '#00ffff';
+    ctx.font = 'bold 20px Arial';
+    ctx.fillText('Press M or Click to Continue to Nexus', centerX, centerY + 240);
 }
 
 // Render gear tooltip when near gear
@@ -268,17 +379,49 @@ function getGearStatString(gear, slot) {
 function renderRoomNumber(ctx) {
     if (typeof Game === 'undefined' || !Game.roomNumber) return;
     
+    const centerX = Game ? Game.config.width / 2 : 640;
+    const panelWidth = 280;
+    const panelHeight = 70;
+    const panelX = centerX - panelWidth / 2;
+    const panelY = 15;
+    
+    // Modern panel background with gradient
+    const panelGradient = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelHeight);
+    panelGradient.addColorStop(0, 'rgba(30, 30, 50, 0.9)');
+    panelGradient.addColorStop(1, 'rgba(20, 20, 40, 0.9)');
+    ctx.fillStyle = panelGradient;
+    ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
+    
+    // Panel border with glow
+    ctx.strokeStyle = '#6666ff';
+    ctx.lineWidth = 2;
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = '#6666ff';
+    ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
+    ctx.shadowBlur = 0;
+    
+    // Inner border
+    ctx.strokeStyle = 'rgba(150, 150, 255, 0.3)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(panelX + 1, panelY + 1, panelWidth - 2, panelHeight - 2);
+    
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 24px Arial';
+    ctx.font = 'bold 38px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText(`Room ${Game.roomNumber}`, 400, 40);
+    ctx.shadowBlur = 2;
+    ctx.shadowColor = '#000000';
+    ctx.fillText(`Room ${Game.roomNumber}`, centerX, panelY + 42);
+    ctx.shadowBlur = 0;
     
     // Draw enemy count if room not cleared
     if (typeof currentRoom !== 'undefined' && currentRoom && !currentRoom.cleared) {
         const enemyCount = currentRoom.enemies.filter(e => e.alive).length;
-        ctx.font = '14px Arial';
+        ctx.font = 'bold 18px Arial';
         ctx.fillStyle = '#ffaaaa';
-        ctx.fillText(`Enemies: ${enemyCount}`, 400, 60);
+        ctx.shadowBlur = 2;
+        ctx.shadowColor = '#000000';
+        ctx.fillText(`Enemies: ${enemyCount}`, centerX, panelY + 65);
+        ctx.shadowBlur = 0;
     }
 }
 
@@ -435,174 +578,190 @@ function renderClassSelection(ctx) {
 function renderCooldownIndicators(ctx, player) {
     if (!player || player.dead) return;
     
-    const barY = 540; // Position near bottom
-    const barWidth = 100;
-    const barHeight = 8;
-    const spacing = 110;
+    const canvasHeight = Game ? Game.config.height : 720;
+    const barY = canvasHeight - 90; // Position near bottom, above XP bar
+    const barWidth = 140;
+    const barHeight = 14;
+    const spacing = 160;
+    const startX = 30; // Left side of screen
+    
+    // Helper function to render a cooldown bar
+    const renderCooldownBar = (x, y, width, height, cooldown, maxCooldown, label) => {
+        // Background with gradient
+        const bgGradient = ctx.createLinearGradient(x, y, x, y + height);
+        bgGradient.addColorStop(0, '#2a2a2a');
+        bgGradient.addColorStop(1, '#1a1a1a');
+        ctx.fillStyle = bgGradient;
+        ctx.fillRect(x, y, width, height);
+        
+        // Cooldown fill with gradient
+        if (cooldown > 0) {
+            const cooldownPercent = cooldown / maxCooldown;
+            const fillGradient = ctx.createLinearGradient(x, y, x, y + height);
+            fillGradient.addColorStop(0, '#ff4444');
+            fillGradient.addColorStop(1, '#cc0000');
+            ctx.fillStyle = fillGradient;
+            ctx.fillRect(x, y, width * cooldownPercent, height);
+        } else {
+            const readyGradient = ctx.createLinearGradient(x, y, x, y + height);
+            readyGradient.addColorStop(0, '#44ff44');
+            readyGradient.addColorStop(1, '#00cc00');
+            ctx.fillStyle = readyGradient;
+            ctx.fillRect(x, y, width, height);
+        }
+        
+        // Inner highlight
+        if (cooldown <= 0) {
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.fillRect(x, y, width, height * 0.4);
+        }
+        
+        // Label with shadow
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 14px Arial';
+        ctx.textAlign = 'center';
+        ctx.shadowBlur = 2;
+        ctx.shadowColor = '#000000';
+        ctx.fillText(label, x + width / 2, y - 6);
+        ctx.shadowBlur = 0;
+    };
     
     // Dodge cooldown indicator
     if (player.playerClass === 'triangle') {
         // Show all charges for Triangle
         const charges = player.dodgeChargeCooldowns.length;
         for (let i = 0; i < charges; i++) {
-            const barX = 50 + i * (spacing * 0.3);
+            const barX = startX + i * 45;
             const cooldown = player.dodgeChargeCooldowns[i];
             const maxCooldown = player.dodgeCooldownTime;
-            
-            // Background
-            ctx.fillStyle = '#333333';
-            ctx.fillRect(barX, barY, barWidth * 0.3, barHeight);
-            
-            // Cooldown fill
-            if (cooldown > 0) {
-                const cooldownPercent = cooldown / maxCooldown;
-                ctx.fillStyle = '#ff6666';
-                ctx.fillRect(barX, barY, (barWidth * 0.3) * cooldownPercent, barHeight);
-            } else {
-                ctx.fillStyle = '#66ff66';
-                ctx.fillRect(barX, barY, barWidth * 0.3, barHeight);
-            }
-            
-            // Label
-            ctx.fillStyle = '#ffffff';
-            ctx.font = '10px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText('D', barX + (barWidth * 0.15), barY - 5);
+            renderCooldownBar(barX, barY, 40, barHeight, cooldown, maxCooldown, 'D');
         }
     } else {
         // Single dodge cooldown for other classes
-        const barX = 50;
         const cooldown = player.dodgeCooldown;
         const maxCooldown = player.dodgeCooldownTime;
-        
-        // Background
-        ctx.fillStyle = '#333333';
-        ctx.fillRect(barX, barY, barWidth, barHeight);
-        
-        // Cooldown fill
-        if (cooldown > 0) {
-            const cooldownPercent = cooldown / maxCooldown;
-            ctx.fillStyle = '#ff6666';
-            ctx.fillRect(barX, barY, barWidth * cooldownPercent, barHeight);
-        } else {
-            ctx.fillStyle = '#66ff66';
-            ctx.fillRect(barX, barY, barWidth, barHeight);
-        }
-        
-        // Label
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '10px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('Dodge', barX + barWidth / 2, barY - 5);
+        renderCooldownBar(startX, barY, barWidth, barHeight, cooldown, maxCooldown, 'Dodge');
     }
     
     // Special ability cooldown indicator
-    // For triangle, position after the 3 dodge charges, for others after single dodge
-    const specialBarX = player.playerClass === 'triangle' ? 50 + 120 : 50 + spacing;
+    const specialBarX = player.playerClass === 'triangle' ? startX + 150 : startX + spacing;
     const specialCooldown = player.specialCooldown;
     const specialMaxCooldown = player.specialCooldownTime;
-    
-    // Background
-    ctx.fillStyle = '#333333';
-    ctx.fillRect(specialBarX, barY, barWidth, barHeight);
-    
-    // Cooldown fill
-    if (specialCooldown > 0) {
-        const cooldownPercent = specialCooldown / specialMaxCooldown;
-        ctx.fillStyle = '#ff6666';
-        ctx.fillRect(specialBarX, barY, barWidth * cooldownPercent, barHeight);
-    } else {
-        ctx.fillStyle = '#66ff66';
-        ctx.fillRect(specialBarX, barY, barWidth, barHeight);
-    }
-    
-    // Label
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '10px Arial';
-    ctx.textAlign = 'center';
     const abilityName = player.playerClass === 'triangle' ? 'Clones' :
                        player.playerClass === 'square' ? 'Whirlwind' : 
                        player.playerClass === 'pentagon' ? 'Shield' : 'Blink';
-    ctx.fillText(abilityName, specialBarX + barWidth / 2, barY - 5);
+    renderCooldownBar(specialBarX, barY, barWidth, barHeight, specialCooldown, specialMaxCooldown, abilityName);
     
     // Heavy attack cooldown indicator
-    // For triangle, position well after special to avoid overlap (special extends to ~270, so start heavy at ~280)
-    const heavyBarX = player.playerClass === 'triangle' ? 50 + spacing * 2.7 : 50 + spacing * 2.2;
+    const heavyBarX = player.playerClass === 'triangle' ? startX + spacing * 2.5 : startX + spacing * 2;
     const heavyCooldown = player.heavyAttackCooldown || 0;
     const heavyMaxCooldown = player.heavyAttackCooldownTime || 1.5;
-    
-    // Background
-    ctx.fillStyle = '#333333';
-    ctx.fillRect(heavyBarX, barY, barWidth, barHeight);
-    
-    // Cooldown fill
-    if (heavyCooldown > 0) {
-        const cooldownPercent = heavyCooldown / heavyMaxCooldown;
-        ctx.fillStyle = '#ff6600';
-        ctx.fillRect(heavyBarX, barY, barWidth * cooldownPercent, barHeight);
-    } else {
-        ctx.fillStyle = '#66ff66';
-        ctx.fillRect(heavyBarX, barY, barWidth, barHeight);
-    }
-    
-    // Label
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '10px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('Heavy', heavyBarX + barWidth / 2, barY - 5);
+    renderCooldownBar(heavyBarX, barY, barWidth, barHeight, heavyCooldown, heavyMaxCooldown, 'Heavy');
 }
 
 // Render pause menu
 function renderPauseMenu(ctx) {
-    // Dark overlay
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillRect(0, 0, 800, 600);
+    const canvasWidth = Game ? Game.config.width : 1280;
+    const canvasHeight = Game ? Game.config.height : 720;
+    const centerX = canvasWidth / 2;
+    const centerY = canvasHeight / 2;
     
-    // Title
+    // Dark overlay with gradient effect
+    const gradient = ctx.createLinearGradient(0, 0, 0, canvasHeight);
+    gradient.addColorStop(0, 'rgba(0, 0, 0, 0.95)');
+    gradient.addColorStop(1, 'rgba(20, 10, 40, 0.95)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    
+    // Main menu panel with modern styling
+    const panelWidth = 900;
+    const panelHeight = 580;
+    const panelX = (canvasWidth - panelWidth) / 2;
+    const panelY = (canvasHeight - panelHeight) / 2;
+    
+    // Panel background with gradient and glow
+    const panelGradient = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelHeight);
+    panelGradient.addColorStop(0, 'rgba(30, 30, 50, 0.95)');
+    panelGradient.addColorStop(0.5, 'rgba(20, 20, 40, 0.95)');
+    panelGradient.addColorStop(1, 'rgba(15, 15, 35, 0.95)');
+    ctx.fillStyle = panelGradient;
+    ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
+    
+    // Panel border with glow
+    ctx.strokeStyle = '#6666ff';
+    ctx.lineWidth = 4;
+    ctx.shadowBlur = 20;
+    ctx.shadowColor = '#6666ff';
+    ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
+    ctx.shadowBlur = 0;
+    
+    // Inner border
+    ctx.strokeStyle = 'rgba(150, 150, 255, 0.5)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(panelX + 2, panelY + 2, panelWidth - 4, panelHeight - 4);
+    
+    // Title with glow effect
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 48px Arial';
+    ctx.font = 'bold 80px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('PAUSED', 400, 140);
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = '#6666ff';
+    ctx.fillText('PAUSED', centerX, panelY + 80);
+    ctx.shadowBlur = 0;
     
-    // Options
-    ctx.font = '24px Arial';
-    
+    // Options with hover-like styling
+    ctx.font = 'bold 28px Arial';
     const options = [
-        { text: 'Press ESC to Resume', y: 220 },
-        { text: 'Press R to Restart', y: 260 },
-        { text: 'Press M for Menu', y: 300 }
+        { text: 'Press ESC to Resume', y: panelY + 160 },
+        { text: 'Press R to Restart', y: panelY + 210 },
+        { text: 'Press M for Nexus', y: panelY + 260 }
     ];
     
     options.forEach(option => {
-        ctx.fillText(option.text, 400, option.y);
+        ctx.fillStyle = '#e0e0e0';
+        ctx.fillText(option.text, centerX, option.y);
     });
     
-    // Controls info box
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
-    ctx.fillRect(150, 340, 500, 200);
-    ctx.strokeStyle = '#ffffff';
+    // Controls info box with modern styling
+    const boxWidth = 820;
+    const boxHeight = 280;
+    const boxX = (canvasWidth - boxWidth) / 2;
+    const boxY = panelY + 300;
+    
+    // Box background with subtle gradient
+    const boxGradient = ctx.createLinearGradient(boxX, boxY, boxX, boxY + boxHeight);
+    boxGradient.addColorStop(0, 'rgba(40, 40, 60, 0.8)');
+    boxGradient.addColorStop(1, 'rgba(30, 30, 50, 0.8)');
+    ctx.fillStyle = boxGradient;
+    ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+    
+    // Box border
+    ctx.strokeStyle = '#8888ff';
     ctx.lineWidth = 2;
-    ctx.strokeRect(150, 340, 500, 200);
+    ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
     
+    // Controls title
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 22px Arial';
+    ctx.font = 'bold 28px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('CONTROLS', 400, 370);
+    ctx.fillText('CONTROLS', centerX, boxY + 35);
     
-    ctx.font = '16px Arial';
+    // Controls list with better spacing
+    ctx.font = 'bold 18px Arial';
     ctx.textAlign = 'left';
+    ctx.fillStyle = '#cccccc';
     
     const controls = [
-        { x: 180, y: 400, text: 'WASD - Move' },
-        { x: 180, y: 425, text: 'Mouse - Aim' },
-        { x: 180, y: 450, text: 'Left Click - Basic Attack' },
-        { x: 180, y: 475, text: 'Right Click - Heavy Attack' },
-        { x: 180, y: 500, text: 'Shift - Dodge Roll' },
-        { x: 180, y: 525, text: 'Space - Special Ability' },
-        { x: 480, y: 400, text: 'G - Pickup Gear' },
-        { x: 480, y: 425, text: 'Esc - Pause' },
-        { x: 480, y: 450, text: 'R - Restart' },
-        { x: 480, y: 475, text: 'M - Main Menu' }
+        { x: boxX + 50, y: boxY + 75, text: 'WASD - Move' },
+        { x: boxX + 50, y: boxY + 110, text: 'Mouse - Aim' },
+        { x: boxX + 50, y: boxY + 145, text: 'Left Click - Basic Attack' },
+        { x: boxX + 50, y: boxY + 180, text: 'Right Click - Heavy Attack' },
+        { x: boxX + 50, y: boxY + 215, text: 'Shift - Dodge Roll' },
+        { x: boxX + 50, y: boxY + 250, text: 'Space - Special Ability' },
+        { x: boxX + 430, y: boxY + 75, text: 'G - Pickup Gear' },
+        { x: boxX + 430, y: boxY + 110, text: 'Esc - Pause' },
+        { x: boxX + 430, y: boxY + 145, text: 'R - Restart' },
+        { x: boxX + 430, y: boxY + 180, text: 'M - Nexus' }
     ];
     
     controls.forEach(control => {
@@ -616,11 +775,7 @@ function renderPauseMenu(ctx) {
         Game.restart();
     }
     if (Input && Input.getKeyState('m')) {
-        Game.state = 'MENU';
-        Game.player = null;
-        Game.enemies = [];
-        Game.projectiles = [];
-        Game.selectedClass = null;
+        Game.returnToNexus();
     }
 }
 
@@ -636,22 +791,24 @@ function renderLevelUpMessage(ctx) {
     ctx.globalAlpha = alpha;
     
     // Draw centered "LEVEL UP!" message
-    ctx.font = 'bold 72px Arial';
+    const centerX = Game ? Game.config.width / 2 : 640;
+    const centerY = Game ? Game.config.height / 2 : 360;
+    ctx.font = 'bold 96px Arial';
     ctx.textAlign = 'center';
     
     // Draw outline first (thinner for better readability)
     ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 3;
-    ctx.strokeText('LEVEL UP!', 400, 100);
+    ctx.lineWidth = 5;
+    ctx.strokeText('LEVEL UP!', centerX, centerY - 250);
     
     // Draw filled text on top
     ctx.fillStyle = '#00ffff';
-    ctx.fillText('LEVEL UP!', 400, 100);
+    ctx.fillText('LEVEL UP!', centerX, centerY - 250);
     
     // Add glow effect
-    ctx.shadowBlur = 30;
+    ctx.shadowBlur = 40;
     ctx.shadowColor = '#00ffff';
-    ctx.fillText('LEVEL UP!', 400, 100);
+    ctx.fillText('LEVEL UP!', centerX, centerY - 250);
     ctx.shadowBlur = 0;
     
     ctx.restore();

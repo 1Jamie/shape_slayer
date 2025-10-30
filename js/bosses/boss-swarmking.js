@@ -35,10 +35,10 @@ class BossSwarmKing extends BossBase {
         
         // Override base stats for star boss (before BossBase multiplies them)
         this.size = 60; // Large star (BossBase will multiply by 2, so final size is 120)
-        this.maxHp = 195; // BossBase will multiply by 5 (150 * 1.3 = 195 for 30% increase)
+        this.maxHp = 210; // BossBase will multiply by 5 (increased from 195 for more health)
         this.hp = this.maxHp;
         this.damage = 8; // BossBase will multiply by 1.5
-        this.moveSpeed = 80; // Slow movement
+        this.moveSpeed = 85; // Increased from 80 for better speed
         this.color = '#ff6b00'; // Orange-red
         
         // Add weak points at spike bases (3 weak points)

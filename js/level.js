@@ -5,8 +5,10 @@ class Room {
     constructor(number) {
         this.number = number;
         this.type = 'normal'; // normal, arena, boss
-        this.width = 800;
-        this.height = 600;
+        const roomWidth = typeof Game !== 'undefined' ? Game.config.width : 1280;
+        const roomHeight = typeof Game !== 'undefined' ? Game.config.height : 720;
+        this.width = roomWidth;
+        this.height = roomHeight;
         this.enemies = [];
         this.loot = [];
         this.cleared = false;
@@ -55,9 +57,11 @@ function generateRoom(roomNumber) {
         let attempts = 0;
         let validPosition = false;
         
+        const roomWidth = typeof Game !== 'undefined' ? Game.config.width : 1280;
+        const roomHeight = typeof Game !== 'undefined' ? Game.config.height : 720;
         while (!validPosition && attempts < 100) {
-            x = random(margin, 800 - margin);
-            y = random(margin, 600 - margin);
+            x = random(margin, roomWidth - margin);
+            y = random(margin, roomHeight - margin);
             
             // Check distance from spawn zone
             const dx = x - spawnZoneX;
@@ -155,9 +159,11 @@ function checkRoomCleared() {
 
 // Get door position and size for collision
 function getDoorPosition() {
+    const roomWidth = typeof Game !== 'undefined' ? Game.config.width : 1280;
+    const roomHeight = typeof Game !== 'undefined' ? Game.config.height : 720;
     return {
-        x: 750,
-        y: 250,
+        x: roomWidth - 100,
+        y: roomHeight / 2 - 50,
         width: 50,
         height: 100
     };
@@ -166,8 +172,10 @@ function getDoorPosition() {
 // Generate boss based on room number
 function generateBoss(roomNumber) {
     // Boss spawns at center of room
-    const spawnX = 400;
-    const spawnY = 300;
+    const roomWidth = typeof Game !== 'undefined' ? Game.config.width : 1280;
+    const roomHeight = typeof Game !== 'undefined' ? Game.config.height : 720;
+    const spawnX = roomWidth / 2;
+    const spawnY = roomHeight / 2;
     
     let boss = null;
     

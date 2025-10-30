@@ -29,6 +29,8 @@ class OctagonEnemy extends EnemyBase {
         this.minionSummonCooldown = 5.0;
         this.minionSummonElapsed = 0;
         this.attackRange = 75;
+        this.postAttackPause = 0; // Brief pause after attacks
+        this.postAttackPauseTime = 0.3;
     }
     
     update(deltaTime, player) {
@@ -39,6 +41,10 @@ class OctagonEnemy extends EnemyBase {
         }
         if (this.shootCooldown > 0) {
             this.shootCooldown -= deltaTime;
+        }
+        
+        if (this.postAttackPause > 0) {
+            this.postAttackPause -= deltaTime;
         }
         
         this.minionSummonElapsed += deltaTime;
@@ -57,28 +63,133 @@ class OctagonEnemy extends EnemyBase {
         // Apply knockback
         this.processKnockback(deltaTime);
         
-        // AI behavior - combination attacks
+        // Get enemies array for AI behaviors
+        const enemies = (typeof Game !== 'undefined' && Game.enemies) ? Game.enemies : [];
+        
+        // AI behavior - state-based priority system
         if (this.state === 'chase') {
+            // Skip decision making during post-attack pause
+            if (this.postAttackPause > 0) {
+                // Just move with separation during pause
+                const separation = this.getSeparationForce(enemies, 50, 120);
+                const dirX = dx / distance;
+                const dirY = dy / distance;
+                
+                let moveX = dirX;
+                let moveY = dirY;
+                
+                // Apply separation
+                const sepDist = Math.sqrt(separation.x * separation.x + separation.y * separation.y);
+                if (sepDist > 0) {
+                    const sepNormX = separation.x / sepDist;
+                    const sepNormY = separation.y / sepDist;
+                    const sepStrength = Math.min(sepDist, 100) / 100;
+                    
+                    moveX = moveX * 0.85 + sepNormX * 0.15 * sepStrength;
+                    moveY = moveY * 0.85 + sepNormY * 0.15 * sepStrength;
+                    
+                    const finalDist = Math.sqrt(moveX * moveX + moveY * moveY);
+                    if (finalDist > 0) {
+                        moveX /= finalDist;
+                        moveY /= finalDist;
+                    }
+                }
+                
+                this.x += moveX * this.moveSpeed * deltaTime;
+                this.y += moveY * this.moveSpeed * deltaTime;
+                return;
+            }
+            
+            // State-based priority decision making
+            const healthPercent = this.hp / this.maxHp;
+            const playerAttacking = player.attackHitboxes && player.attackHitboxes.length > 0;
+            
+            // Count nearby enemies (same type) for group tactics
+            let nearbyEnemyCount = 0;
+            enemies.forEach(other => {
+                if (other !== this && other.alive && other.constructor === this.constructor) {
+                    const otherDx = other.x - this.x;
+                    const otherDy = other.y - this.y;
+                    const otherDist = Math.sqrt(otherDx * otherDx + otherDy * otherDy);
+                    if (otherDist < 100) {
+                        nearbyEnemyCount++;
+                    }
+                }
+            });
+            
+            // Priority 1: Low HP → prioritize summoning
+            if (healthPercent < 0.4 && this.minionSummonElapsed >= this.minionSummonCooldown) {
+                this.summonMinions();
+                this.minionSummonElapsed = 0;
+                this.postAttackPause = this.postAttackPauseTime;
+                return;
+            }
+            
+            // Priority 2: Player attacking → prioritize shooting (safer)
+            if (playerAttacking && this.shootCooldown <= 0) {
+                this.shootRapidProjectiles(targetX, targetY);
+                this.shootCooldown = this.shootCooldownTime;
+                this.postAttackPause = this.postAttackPauseTime;
+                return;
+            }
+            
+            // Priority 3: Multiple nearby enemies → use spin attack (group coordination)
+            if (nearbyEnemyCount >= 2 && distance < this.attackRange && this.attackCooldown <= 0) {
+                this.state = 'spin';
+                this.spinElapsed = 0;
+                return;
+            }
+            
+            // Priority 4: Close range → spin attack
+            if (distance < this.attackRange && this.attackCooldown <= 0) {
+                this.state = 'spin';
+                this.spinElapsed = 0;
+                return;
+            }
+            
+            // Priority 5: Can summon and not in danger → summon
+            if (this.minionSummonElapsed >= this.minionSummonCooldown && healthPercent > 0.5) {
+                this.summonMinions();
+                this.minionSummonElapsed = 0;
+                this.postAttackPause = this.postAttackPauseTime;
+                return;
+            }
+            
+            // Priority 6: Can shoot → shoot
+            if (this.shootCooldown <= 0) {
+                this.shootRapidProjectiles(targetX, targetY);
+                this.shootCooldown = this.shootCooldownTime;
+                this.postAttackPause = this.postAttackPauseTime;
+                return;
+            }
+            
+            // Normal chase with separation
+            const separation = this.getSeparationForce(enemies, 50, 120);
             const dirX = dx / distance;
             const dirY = dy / distance;
             
-            this.x += dirX * this.moveSpeed * deltaTime;
-            this.y += dirY * this.moveSpeed * deltaTime;
+            let moveX = dirX;
+            let moveY = dirY;
             
-            // Try different attacks
-            if (distance < this.attackRange && this.attackCooldown <= 0 && Math.random() < 0.3) {
-                // 30% chance to spin attack
-                this.state = 'spin';
-                this.spinElapsed = 0;
-            } else if (this.minionSummonElapsed >= this.minionSummonCooldown && Math.random() < 0.5) {
-                // Summon minions
-                this.summonMinions();
-                this.minionSummonElapsed = 0;
-            } else if (this.shootCooldown <= 0 && Math.random() < 0.3) {
-                // Shoot projectiles
-                this.shootRapidProjectiles(targetX, targetY);
-                this.shootCooldown = this.shootCooldownTime;
+            // Apply separation
+            const sepDist = Math.sqrt(separation.x * separation.x + separation.y * separation.y);
+            if (sepDist > 0) {
+                const sepNormX = separation.x / sepDist;
+                const sepNormY = separation.y / sepDist;
+                const sepStrength = Math.min(sepDist, 100) / 100;
+                
+                moveX = moveX * 0.85 + sepNormX * 0.15 * sepStrength;
+                moveY = moveY * 0.85 + sepNormY * 0.15 * sepStrength;
+                
+                const finalDist = Math.sqrt(moveX * moveX + moveY * moveY);
+                if (finalDist > 0) {
+                    moveX /= finalDist;
+                    moveY /= finalDist;
+                }
             }
+            
+            this.x += moveX * this.moveSpeed * deltaTime;
+            this.y += moveY * this.moveSpeed * deltaTime;
         } else if (this.state === 'spin') {
             this.spinElapsed += deltaTime;
             
@@ -104,6 +215,7 @@ class OctagonEnemy extends EnemyBase {
                 this.attackCooldown = this.attackCooldownTime;
                 this.spinElapsed = 0;
                 this.chargeElapsed = 0;
+                this.postAttackPause = this.postAttackPauseTime;
             }
         } else if (this.state === 'cooldown') {
             // Chase during cooldown
@@ -116,6 +228,11 @@ class OctagonEnemy extends EnemyBase {
             if (this.attackCooldown <= 0) {
                 this.state = 'chase';
             }
+        }
+        
+        // Resolve stacking with other enemies
+        if (enemies.length > 0) {
+            this.resolveStacking(enemies);
         }
         
         // Keep within bounds
