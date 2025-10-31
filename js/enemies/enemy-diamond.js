@@ -6,10 +6,11 @@ class DiamondEnemy extends EnemyBase {
         
         // Stats
         this.size = 18;
-        this.maxHp = 25;
-        this.hp = 25;
+        this.maxHp = 35;
+        this.hp = 35;
         this.damage = 6;
         this.moveSpeed = 100; // Slower movement
+        this.baseMoveSpeed = 100; // Store for stun system
         
         // Properties
         this.color = '#00ffff'; // Cyan
@@ -35,9 +36,20 @@ class DiamondEnemy extends EnemyBase {
     update(deltaTime, player) {
         if (!this.alive || !player.alive) return;
         
-        // Update attack cooldown
+        // Process stun first
+        this.processStun(deltaTime);
+        
+        // Apply stun slow factor to movement speed
+        if (this.stunned) {
+            this.moveSpeed = this.baseMoveSpeed * this.stunSlowFactor;
+        } else {
+            this.moveSpeed = this.baseMoveSpeed;
+        }
+        
+        // Update attack cooldown (slower when stunned)
         if (this.attackCooldown > 0) {
-            this.attackCooldown -= deltaTime;
+            const cooldownDelta = this.stunned ? deltaTime * this.stunSlowFactor : deltaTime;
+            this.attackCooldown -= cooldownDelta;
         }
         
         // Get target (handles decoy/clone logic)
@@ -120,6 +132,11 @@ class DiamondEnemy extends EnemyBase {
                     // Add perpendicular weaving offset
                     this.x += perpX * weaveOffset * deltaTime * 0.3;
                     this.y += perpY * weaveOffset * deltaTime * 0.3;
+                    
+                    // Update rotation to face movement direction
+                    if (moveX !== 0 || moveY !== 0) {
+                        this.rotation = Math.atan2(moveY, moveX);
+                    }
                 }
             }
         } else if (this.state === 'telegraph') {
@@ -189,6 +206,9 @@ class DiamondEnemy extends EnemyBase {
             this.x = newX;
             this.y = newY;
             
+            // Update rotation to face dash direction
+            this.rotation = Math.atan2(dashDirY, dashDirX);
+            
             if (this.dashElapsed >= this.dashDuration) {
                 this.state = 'cooldown';
                 this.attackCooldown = this.attackCooldownTime;
@@ -205,6 +225,9 @@ class DiamondEnemy extends EnemyBase {
                 const awayDirY = -dy / distance;
                 this.x += awayDirX * this.moveSpeed * 0.5 * deltaTime;
                 this.y += awayDirY * this.moveSpeed * 0.5 * deltaTime;
+                
+                // Update rotation to face movement direction
+                this.rotation = Math.atan2(awayDirY, awayDirX);
             }
         }
         
@@ -240,6 +263,16 @@ class DiamondEnemy extends EnemyBase {
         ctx.restore();
         
         this.renderHealthBar(ctx);
+        
+        // Draw facing direction indicator (white dot)
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(
+            this.x + Math.cos(this.rotation) * (this.size + 5),
+            this.y + Math.sin(this.rotation) * (this.size + 5),
+            5, 0, Math.PI * 2
+        );
+        ctx.fill();
     }
 }
 

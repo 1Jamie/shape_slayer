@@ -50,7 +50,7 @@ class BossTwinPrism extends BossBase {
         this.splitTargetSeparation = 60; // Target separation for smooth animation
         this.splitDashTarget1 = null; // Target position for diamond 1 dash
         this.splitDashTarget2 = null; // Target position for diamond 2 dash
-        this.splitDashSpeed = 800; // Speed for dash animation (pixels per second)
+        this.splitDashSpeed = 856; // Speed for dash animation (pixels per second)
         this.splitDashTrail1 = []; // Motion trail positions for diamond 1
         this.splitDashTrail2 = []; // Motion trail positions for diamond 2
         
@@ -71,10 +71,10 @@ class BossTwinPrism extends BossBase {
         
         // Override base stats
         this.size = 50; // Each diamond is 50px (doubled to 100 for collision)
-        this.maxHp = 156; // BossBase will multiply by 5 (120 * 1.3 = 156 for 30% increase)
+        this.maxHp = 1842; // Increased base HP (~3.68x) to match Swarm King change
         this.hp = this.maxHp;
         this.damage = 10;
-        this.moveSpeed = 220; // Increased from 150 for assassin-like speed
+        this.moveSpeed = 235.4; // Increased from 150 for assassin-like speed
         this.color = '#ff00ff'; // Magenta
         
         // Prism beam cooldown
@@ -1065,7 +1065,7 @@ class BossTwinPrism extends BossBase {
         
         if (distance > 0) {
             const baseAngle = Math.atan2(dy, dx);
-            const projectileSpeed = 280;
+            const projectileSpeed = 299.6;
             const count = 5; // 5 projectiles in spread
             
             // Fire from both diamonds for double the threat
@@ -1095,7 +1095,7 @@ class BossTwinPrism extends BossBase {
         if (typeof Game === 'undefined') return;
         
         const spiralAngle = Date.now() / 200; // Slower rotation for visibility
-        const projectileSpeed = 250;
+        const projectileSpeed = 267.5;
         const count = 12; // 12 projectiles in full circle
         
         // Fire spiral from center
@@ -1142,7 +1142,7 @@ class BossTwinPrism extends BossBase {
         
         // Use turret tracking angle instead of direct angle to player
         const trackingAngle = diamond1 ? this.trackingAngle1 : this.trackingAngle2;
-        const dashSpeed = 700; // Increased from 500
+        const dashSpeed = 749; // Increased from 500
         const dashX = Math.cos(trackingAngle) * dashSpeed;
         const dashY = Math.sin(trackingAngle) * dashSpeed;
         
@@ -1234,7 +1234,7 @@ class BossTwinPrism extends BossBase {
         if (typeof Game === 'undefined') return;
         
         // Use turret tracking angles instead of direct angles to player
-        const beamSpeed = 350;
+        const beamSpeed = 374.5;
         const beam1StartX = this.diamond1.x;
         const beam1StartY = this.diamond1.y;
         const beam2StartX = this.diamond2.x;

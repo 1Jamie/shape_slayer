@@ -41,7 +41,7 @@ function generateRoom(roomNumber) {
     const enemyCount = 3 + Math.floor(roomNumber * 0.5);
     
     // Calculate enemy stat scaling
-    const enemyScale = 1 + (roomNumber * 0.15);
+    const enemyScale = 1 + (roomNumber * 0.19);
     
     // Spawn enemies with buffer from player spawn area
     const minDistance = 200; // Increased from 150 to 200 for better safety buffer
@@ -136,6 +136,7 @@ function generateRoom(roomNumber) {
         enemy.maxHp = Math.floor(enemy.maxHp * enemyScale);
         enemy.hp = enemy.maxHp;
         enemy.damage = enemy.damage * enemyScale;
+        enemy.xpValue = Math.floor(enemy.xpValue * enemyScale);
         
         room.enemies.push(enemy);
     }
@@ -203,7 +204,7 @@ function generateBoss(roomNumber) {
     
     // Apply room scaling to boss stats
     if (boss) {
-        const enemyScale = 1 + (roomNumber * 0.15);
+        const enemyScale = 1 + (roomNumber * 0.165);
         boss.maxHp = Math.floor(boss.maxHp * enemyScale);
         boss.hp = boss.maxHp;
         boss.damage = boss.damage * enemyScale;

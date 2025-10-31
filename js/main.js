@@ -1,6 +1,14 @@
 // Main game loop and initialization
 
 const Game = {
+    // Version tracking (from version.js)
+    get VERSION() {
+        return typeof GameVersion !== 'undefined' ? GameVersion.VERSION : '1.0.0';
+    },
+    get UPDATE_MESSAGES() {
+        return typeof GameVersion !== 'undefined' ? GameVersion.UPDATE_MESSAGES : { '1.0.0': 'Initial release!' };
+    },
+    
     // Canvas and context
     canvas: null,
     ctx: null,
@@ -8,7 +16,12 @@ const Game = {
     // Game state
     state: 'NEXUS', // 'NEXUS', 'PLAYING', 'PAUSED'
     paused: false,
+    pausedFromState: null, // Track where we paused from ('PLAYING' or 'NEXUS')
     lastTime: 0,
+    
+    // Modal states
+    launchModalVisible: false,
+    updateModalVisible: false,
     
     // Class selection
     selectedClass: null,
@@ -60,6 +73,8 @@ const Game = {
     
     // Input state tracking
     lastGKeyState: false,
+    lastRKeyState: false,
+    lastMKeyState: false,
     
     // Time tracking for death screen
     startTime: 0,
@@ -78,29 +93,191 @@ const Game = {
         
         this.ctx = this.canvas.getContext('2d');
         
-        // Set canvas dimensions
+        // Set internal canvas dimensions (game resolution)
         this.canvas.width = this.config.width;
         this.canvas.height = this.config.height;
         
+        // Setup responsive scaling
+        this.setupResponsiveCanvas();
+        
         // Initialize input system
         Input.init(this.canvas);
+        
+        // Load fullscreen preference
+        if (typeof SaveSystem !== 'undefined') {
+            this.fullscreenEnabled = SaveSystem.getFullscreenPreference();
+        }
+        
+        // Setup fullscreen API event listeners
+        this.setupFullscreenListeners();
+        
+        // Handle window resize
+        const handleResize = () => {
+            this.setupResponsiveCanvas();
+            // Force a reflow to ensure bounding rect is updated
+            if (this.canvas) {
+                void this.canvas.offsetWidth;
+            }
+            // Reinitialize touch controls with new canvas size after a brief delay
+            if (typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode()) {
+                setTimeout(() => {
+                    if (this.canvas && typeof Input !== 'undefined' && Input.initTouchControls) {
+                        Input.initTouchControls(this.canvas);
+                    }
+                }, 50);
+            }
+        };
+        
+        window.addEventListener('resize', handleResize);
+        
+        // Also listen to visualViewport resize (for mobile system UI changes)
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', handleResize);
+            window.visualViewport.addEventListener('scroll', () => {
+                // Prevent scrolling and ensure canvas is positioned correctly
+                window.scrollTo(0, 0);
+            });
+        }
+        
+        // Handle orientation change
+        window.addEventListener('orientationchange', () => {
+            setTimeout(() => {
+                this.setupResponsiveCanvas();
+                if (typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode()) {
+                    Input.initTouchControls(this.canvas);
+                }
+            }, 100);
+        });
         
         // Load save data
         if (typeof SaveSystem !== 'undefined') {
             const saveData = SaveSystem.load();
             this.currentCurrency = saveData.currency || 0;
             this.selectedClass = saveData.selectedClass || null;
+            
+            // Check if launch modal should show (first time ever)
+            if (!SaveSystem.getHasSeenLaunchModal()) {
+                this.launchModalVisible = true;
+            }
+            
+            // Check if update modal should show (version changed)
+            if (SaveSystem.shouldShowUpdateModal()) {
+                this.updateModalVisible = true;
+            }
         }
         
         // Player will be created after class selection
         this.player = null;
         
-        // Handle click on death screen
+        // Handle click/touch on canvas (for pause menu buttons, pause button, and interaction button)
         this.canvas.addEventListener('click', (e) => {
+            const rect = this.canvas.getBoundingClientRect();
+            const gameCoords = this.screenToGame(e.clientX, e.clientY);
+            
+            // Check modal close button first (highest priority when modals are visible)
+            if (this.launchModalVisible || this.updateModalVisible) {
+                if (typeof checkModalCloseButtonClick === 'function') {
+                    if (checkModalCloseButtonClick(e.clientX, e.clientY)) {
+                        return;
+                    }
+                }
+            }
+            
+            // Check pause menu buttons first if paused (highest priority)
+            if (this.state === 'PAUSED') {
+                if (typeof checkPauseMenuButtonClick === 'function') {
+                    if (checkPauseMenuButtonClick(e.clientX, e.clientY)) {
+                        return;
+                    }
+                }
+            }
+            
+            // Check pause button overlay if playing or in nexus (before other UI elements)
+            if (this.state === 'PLAYING' || this.state === 'NEXUS') {
+                if (typeof handlePauseButtonClick === 'function') {
+                    if (handlePauseButtonClick(gameCoords.x, gameCoords.y)) {
+                        return;
+                    }
+                }
+            }
+            
+            // Check interaction button (if in touch mode)
+            if (typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode()) {
+                if (typeof handleInteractionButtonClick === 'function') {
+                    if (handleInteractionButtonClick(gameCoords.x, gameCoords.y)) {
+                        return;
+                    }
+                }
+            }
+            
+            // Handle click on death screen
             if (this.player && this.player.dead && this.state === 'PLAYING') {
                 this.returnToNexus();
             }
         });
+        
+        // Handle touch events for pause menu, pause button, and interaction button
+        // IMPORTANT: This must run BEFORE Input.handleTouchStart to intercept UI touches
+        this.canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length > 0) {
+                const touch = e.touches[0];
+                // Always get fresh bounding rect for accurate coordinate conversion
+                const rect = this.canvas.getBoundingClientRect();
+                const gameCoords = this.screenToGame(touch.clientX, touch.clientY);
+                
+                // Check modal close button first (highest priority when modals are visible)
+                if (this.launchModalVisible || this.updateModalVisible) {
+                    if (typeof checkModalCloseButtonClick === 'function') {
+                        if (checkModalCloseButtonClick(touch.clientX, touch.clientY)) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            return;
+                        }
+                    }
+                }
+                
+                // Check pause menu buttons first (highest priority) if paused
+                if (this.state === 'PAUSED') {
+                    if (typeof checkPauseMenuButtonClick === 'function') {
+                        if (checkPauseMenuButtonClick(touch.clientX, touch.clientY)) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            return;
+                        }
+                    }
+                }
+                
+                // Check pause button overlay if playing or in nexus (before touch controls)
+                if (this.state === 'PLAYING' || this.state === 'NEXUS') {
+                    if (typeof handlePauseButtonClick === 'function') {
+                        if (handlePauseButtonClick(gameCoords.x, gameCoords.y)) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            return;
+                        }
+                    }
+                }
+                
+                // Check interaction button (if in touch mode)
+                if (typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode()) {
+                    if (typeof handleInteractionButtonClick === 'function') {
+                        if (handleInteractionButtonClick(gameCoords.x, gameCoords.y)) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            return;
+                        }
+                    }
+                }
+                
+                // Handle touch on death screen (return to nexus)
+                if (this.player && this.player.dead && this.state === 'PLAYING') {
+                    this.returnToNexus();
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                }
+            }
+        }, { capture: true }); // Use capture phase to run before other handlers
         
         // Handle pause toggle with ESC
         document.addEventListener('keydown', (e) => {
@@ -111,7 +288,24 @@ const Game = {
             }
             
             if (e.key === 'Escape') {
-                if (this.state === 'PLAYING') {
+                // Close modals first if visible
+                if (this.launchModalVisible) {
+                    this.launchModalVisible = false;
+                    if (typeof SaveSystem !== 'undefined') {
+                        SaveSystem.setHasSeenLaunchModal(true);
+                    }
+                    return;
+                }
+                if (this.updateModalVisible) {
+                    this.updateModalVisible = false;
+                    if (typeof SaveSystem !== 'undefined' && this.VERSION) {
+                        SaveSystem.setLastRunVersion(this.VERSION);
+                    }
+                    return;
+                }
+                
+                // Normal pause handling
+                if (this.state === 'PLAYING' || this.state === 'NEXUS') {
                     this.togglePause();
                 } else if (this.state === 'PAUSED') {
                     this.togglePause(); // Resume
@@ -131,6 +325,282 @@ const Game = {
         
         console.log('Game initialized successfully');
         this.start();
+    },
+    
+    // Setup responsive canvas scaling
+    setupResponsiveCanvas() {
+        if (!this.canvas) return;
+        
+        const gameAspect = this.config.width / this.config.height;
+        
+        // Use actual available viewport - in fullscreen on mobile, this accounts for system UI
+        // Use visualViewport if available (better for mobile with system UI bars)
+        let availableWidth, availableHeight;
+        if (window.visualViewport) {
+            availableWidth = window.visualViewport.width;
+            availableHeight = window.visualViewport.height;
+        } else {
+            availableWidth = window.innerWidth;
+            availableHeight = window.innerHeight;
+        }
+        
+        const windowAspect = availableWidth / availableHeight;
+        
+        let scale, displayWidth, displayHeight;
+        
+        // Calculate scale to fit screen while maintaining aspect ratio
+        // This ensures consistent game world coordinates across all devices
+        if (windowAspect > gameAspect) {
+            // Window is wider - fit to height (minimize top/bottom borders)
+            scale = availableHeight / this.config.height;
+            displayHeight = availableHeight;
+            displayWidth = this.config.width * scale;
+        } else {
+            // Window is taller - fit to width (minimize left/right borders)
+            scale = availableWidth / this.config.width;
+            displayWidth = availableWidth;
+            displayHeight = this.config.height * scale;
+        }
+        
+        // Set CSS size (these are display pixels, not game world pixels)
+        this.canvas.style.width = displayWidth + 'px';
+        this.canvas.style.height = displayHeight + 'px';
+        
+        // Reset margins (flexbox will center it)
+        this.canvas.style.marginLeft = '0';
+        this.canvas.style.marginTop = '0';
+        
+        // Force a reflow to ensure the canvas is positioned
+        void this.canvas.offsetWidth;
+        
+        // Get the actual bounding rect after positioning
+        const rect = this.canvas.getBoundingClientRect();
+        
+        // Store scale for coordinate conversion
+        // Scale factor: game world pixels per display pixel
+        this.scale = scale;
+        
+        // Calculate offset for coordinate conversion based on actual rect position
+        // In fullscreen with system UI, rect.left/top may not be 0
+        this.offsetX = rect.left;
+        this.offsetY = rect.top;
+        
+        // Store the ACTUAL game area dimensions (what we calculated, not what the browser reports)
+        // The browser might stretch the canvas element, but the game renders only in displayWidth x displayHeight
+        this.actualGameWidth = displayWidth;
+        this.actualGameHeight = displayHeight;
+        
+        // Calculate where the game area actually starts (centered within the canvas element)
+        // The canvas element might be larger due to CSS stretching, but the game renders centered
+        const gameAreaLeft = rect.left + (rect.width - displayWidth) / 2;
+        const gameAreaTop = rect.top + (rect.height - displayHeight) / 2;
+        
+        this.gameAreaOffsetX = gameAreaLeft;
+        this.gameAreaOffsetY = gameAreaTop;
+        
+        // Store viewport info for multiplayer consistency
+        this.viewport = {
+            width: displayWidth,
+            height: displayHeight,
+            scale: scale,
+            offsetX: this.offsetX,
+            offsetY: this.offsetY,
+            gameWidth: this.config.width,
+            gameHeight: this.config.height,
+            actualRect: {
+                width: rect.width,
+                height: rect.height,
+                left: rect.left,
+                top: rect.top
+            },
+            gameArea: {
+                width: displayWidth,
+                height: displayHeight,
+                left: gameAreaLeft,
+                top: gameAreaTop
+            }
+        };
+        
+        console.log(`Canvas scaled: ${displayWidth.toFixed(0)}x${displayHeight.toFixed(0)} (scale: ${scale.toFixed(2)}, game: ${this.config.width}x${this.config.height})`);
+        console.log(`Canvas element rect: ${rect.width.toFixed(0)}x${rect.height.toFixed(0)} at (${rect.left.toFixed(0)}, ${rect.top.toFixed(0)})`);
+        console.log(`Actual game area: ${displayWidth.toFixed(0)}x${displayHeight.toFixed(0)} at (${gameAreaLeft.toFixed(0)}, ${gameAreaTop.toFixed(0)})`);
+        console.log(`Viewport: ${availableWidth.toFixed(0)}x${availableHeight.toFixed(0)}`);
+    },
+    
+    // Convert screen coordinates to game coordinates
+    screenToGame(x, y) {
+        // Use the ACTUAL game area dimensions we calculated, not the canvas element's bounding rect
+        // The canvas element might be stretched by CSS, but the game renders only in actualGameWidth x actualGameHeight
+        if (!this.actualGameWidth || !this.actualGameHeight) {
+            // Fallback to bounding rect if not initialized yet
+            const rect = this.canvas.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) {
+                console.warn('[screenToGame] Invalid dimensions, using fallback');
+                return { x: 0, y: 0 };
+            }
+            const scaleX = this.config.width / rect.width;
+            const scaleY = this.config.height / rect.height;
+            return {
+                x: (x - rect.left) * scaleX,
+                y: (y - rect.top) * scaleY
+            };
+        }
+        
+        // Get fresh bounding rect to find where the canvas element is
+        const rect = this.canvas.getBoundingClientRect();
+        
+        // Calculate where the actual game area starts (centered within canvas element)
+        // If canvas is stretched, the game area is centered
+        const gameAreaLeft = rect.left + (rect.width - this.actualGameWidth) / 2;
+        const gameAreaTop = rect.top + (rect.height - this.actualGameHeight) / 2;
+        
+        // Convert from screen pixels to game world pixels
+        // Use the actual game area dimensions, not the stretched canvas element
+        const scaleX = this.config.width / this.actualGameWidth;
+        const scaleY = this.config.height / this.actualGameHeight;
+        
+        // Subtract game area offset to get position relative to game area (accounting for letterboxing)
+        const relativeX = x - gameAreaLeft;
+        const relativeY = y - gameAreaTop;
+        
+        // Scale to game coordinates (0-1280 for x, 0-720 for y)
+        const gameX = relativeX * scaleX;
+        const gameY = relativeY * scaleY;
+        
+        // Clamp to game bounds to prevent out-of-range coordinates
+        const clampedX = Math.max(0, Math.min(this.config.width, gameX));
+        const clampedY = Math.max(0, Math.min(this.config.height, gameY));
+        
+        // Debug logging in fullscreen mode
+        if (this.fullscreenEnabled) {
+            console.log(`[screenToGame] Screen: (${x.toFixed(0)}, ${y.toFixed(0)})`);
+            console.log(`  Canvas element rect: ${rect.width.toFixed(0)}x${rect.height.toFixed(0)} at (${rect.left.toFixed(0)}, ${rect.top.toFixed(0)})`);
+            console.log(`  Game area: ${this.actualGameWidth.toFixed(0)}x${this.actualGameHeight.toFixed(0)} at (${gameAreaLeft.toFixed(0)}, ${gameAreaTop.toFixed(0)})`);
+            console.log(`  Relative to game area: (${relativeX.toFixed(0)}, ${relativeY.toFixed(0)})`);
+            console.log(`  Scale: ${scaleX.toFixed(3)}x${scaleY.toFixed(3)}`);
+            console.log(`  Game coords: (${gameX.toFixed(0)}, ${gameY.toFixed(0)}) -> clamped: (${clampedX.toFixed(0)}, ${clampedY.toFixed(0)})`);
+        }
+        
+        return { x: clampedX, y: clampedY };
+    },
+    
+    // Setup fullscreen API listeners
+    setupFullscreenListeners() {
+        // Listen for fullscreen changes
+        const fullscreenChange = () => {
+            const isFullscreen = !!(document.fullscreenElement || 
+                                  document.webkitFullscreenElement || 
+                                  document.mozFullScreenElement || 
+                                  document.msFullscreenElement);
+            this.fullscreenEnabled = isFullscreen;
+            
+            console.log(`[FULLSCREEN] Changed to: ${isFullscreen}`);
+            
+            // Update save preference
+            if (typeof SaveSystem !== 'undefined') {
+                SaveSystem.setFullscreenPreference(isFullscreen);
+            }
+            
+            // Recalculate canvas size after fullscreen change
+            // Use multiple requestAnimationFrame calls to ensure canvas has fully updated
+            // Fullscreen transitions can take time, especially on mobile devices
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        // Force canvas resize
+                        this.setupResponsiveCanvas();
+                        
+                        // Force multiple reflows to ensure everything is updated
+                        if (this.canvas) {
+                            void this.canvas.offsetWidth;
+                            void this.canvas.offsetHeight;
+                            // Get fresh rect to verify
+                            const rect = this.canvas.getBoundingClientRect();
+                            console.log(`[FULLSCREEN] Canvas rect after resize: ${rect.width.toFixed(0)}x${rect.height.toFixed(0)} at (${rect.left.toFixed(0)}, ${rect.top.toFixed(0)})`);
+                        }
+                        
+                        if (typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode()) {
+                            // Clear all existing touch controls and active touches
+                            if (Input.touchJoysticks) {
+                                // End all active joysticks first
+                                for (const joystick of Object.values(Input.touchJoysticks)) {
+                                    if (joystick && joystick.active && joystick.touchId !== null) {
+                                        joystick.endTouch(joystick.touchId);
+                                    }
+                                }
+                                Input.touchJoysticks = {};
+                            }
+                            if (Input.touchButtons) {
+                                // End all active buttons first
+                                for (const button of Object.values(Input.touchButtons)) {
+                                    if (button && button.active && button.touchId !== null) {
+                                        button.endTouch(button.touchId);
+                                    }
+                                }
+                                Input.touchButtons = {};
+                            }
+                            if (Input.activeTouches) {
+                                Input.activeTouches = {};
+                            }
+                            Input.touchActive = false;
+                            
+                            // Reinitialize with correct positions after a brief delay
+                            // This ensures the canvas bounding rect is fully updated
+                            setTimeout(() => {
+                                if (this.canvas && typeof Input !== 'undefined' && Input.initTouchControls) {
+                                    // Force one more reflow before reinitializing
+                                    void this.canvas.offsetWidth;
+                                    const rect = this.canvas.getBoundingClientRect();
+                                    console.log(`[FULLSCREEN] Reinitializing controls, rect: ${rect.width.toFixed(0)}x${rect.height.toFixed(0)}`);
+                                    Input.initTouchControls(this.canvas);
+                                    console.log('[FULLSCREEN] Touch controls reinitialized');
+                                }
+                            }, 100); // Increased delay for mobile devices
+                        }
+                    });
+                });
+            });
+        };
+        
+        document.addEventListener('fullscreenchange', fullscreenChange);
+        document.addEventListener('webkitfullscreenchange', fullscreenChange);
+        document.addEventListener('mozfullscreenchange', fullscreenChange);
+        document.addEventListener('MSFullscreenChange', fullscreenChange);
+    },
+    
+    // Toggle fullscreen
+    toggleFullscreen() {
+        if (!this.canvas) return;
+        
+        const isFullscreen = !!(document.fullscreenElement || 
+                              document.webkitFullscreenElement || 
+                              document.mozFullScreenElement || 
+                              document.msFullscreenElement);
+        
+        if (isFullscreen) {
+            // Exit fullscreen
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen();
+            } else if (document.mozCancelFullScreen) {
+                document.mozCancelFullScreen();
+            } else if (document.msExitFullscreen) {
+                document.msExitFullscreen();
+            }
+        } else {
+            // Enter fullscreen
+            const element = this.canvas;
+            if (element.requestFullscreen) {
+                element.requestFullscreen();
+            } else if (element.webkitRequestFullscreen) {
+                element.webkitRequestFullscreen();
+            } else if (element.mozRequestFullScreen) {
+                element.mozRequestFullScreen();
+            } else if (element.msRequestFullscreen) {
+                element.msRequestFullscreen();
+            }
+        }
     },
     
     // Start the game loop
@@ -245,9 +715,16 @@ const Game = {
             }
         }
         
-        // Update player
+        // Update player FIRST (before resetting button states)
+        // This allows player to read justPressed/justReleased flags
         if (this.player && this.player.alive) {
             this.player.update(deltaTime, Input);
+        }
+        
+        // Update input system (for touch controls) AFTER player reads button states
+        // This resets justPressed/justReleased flags for next frame
+        if (typeof Input !== 'undefined' && Input.update) {
+            Input.update(deltaTime);
         }
         
         // Update enemies (skip if boss intro is active - boss is frozen)
@@ -407,33 +884,40 @@ const Game = {
     
     // Check for gear pickup
     checkGearPickup() {
-        if (!Input || !Input.keys) return;
+        if (!Input) return;
         
-        // Check if G key just pressed
-        if (!this.lastGKeyState && Input.keys['g']) {
+        let shouldPickup = false;
+        
+        // Check keyboard input (or interaction button simulated G key)
+        if (Input.keys && !this.lastGKeyState && Input.keys['g']) {
             this.lastGKeyState = true;
-            
+            shouldPickup = true;
+        } else if (Input.keys && Input.keys['g'] === false) {
+            this.lastGKeyState = false;
+        }
+        
+        if (shouldPickup) {
             // Find closest gear within pickup range
             let closestGear = null;
             let closestDistance = 50; // pickup range
             
-            groundLoot.forEach(gear => {
-                const dx = gear.x - this.player.x;
-                const dy = gear.y - this.player.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
+            if (typeof groundLoot !== 'undefined') {
+                groundLoot.forEach(gear => {
+                    const dx = gear.x - this.player.x;
+                    const dy = gear.y - this.player.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < closestDistance) {
+                        closestDistance = distance;
+                        closestGear = gear;
+                    }
+                });
                 
-                if (distance < closestDistance) {
-                    closestDistance = distance;
-                    closestGear = gear;
+                // Pick up the gear if found
+                if (closestGear) {
+                    this.pickupGear(closestGear);
                 }
-            });
-            
-            // Pick up the gear if found
-            if (closestGear) {
-                this.pickupGear(closestGear);
             }
-        } else if (Input.keys['g'] === false) {
-            this.lastGKeyState = false;
         }
     },
     
@@ -520,18 +1004,27 @@ const Game = {
                 renderNexus(this.ctx);
             }
         } else if (this.state === 'PAUSED') {
-            // Render room background
-            if (typeof renderRoomBackground !== 'undefined') {
-                renderRoomBackground(this.ctx, this.roomNumber);
-            } else {
-                Renderer.clear(this.ctx, this.config.width, this.config.height);
-            }
-            
-            // Draw game world in background (dimmed)
-            if (this.player && this.player.alive) {
+            // Render background based on where we paused from
+            if (this.pausedFromState === 'NEXUS') {
+                // Draw nexus in background (dimmed)
                 this.ctx.globalAlpha = 0.3;
-                this.renderGameWorld(this.ctx);
+                if (typeof renderNexus !== 'undefined') {
+                    renderNexus(this.ctx);
+                }
                 this.ctx.globalAlpha = 1.0;
+            } else {
+                // Draw game world in background (dimmed)
+                if (typeof renderRoomBackground !== 'undefined') {
+                    renderRoomBackground(this.ctx, this.roomNumber);
+                } else {
+                    Renderer.clear(this.ctx, this.config.width, this.config.height);
+                }
+                
+                if (this.player && this.player.alive) {
+                    this.ctx.globalAlpha = 0.3;
+                    this.renderGameWorld(this.ctx);
+                    this.ctx.globalAlpha = 1.0;
+                }
             }
             
             // Draw pause menu
@@ -572,7 +1065,7 @@ const Game = {
                     const angle = Math.atan2(projectile.vy, projectile.vx);
                     this.ctx.rotate(angle);
                     
-                    this.ctx.fillStyle = projectile.color || '#e24ace';
+                    this.ctx.fillStyle = projectile.color || '#ff1493';
                     this.ctx.beginPath();
                     this.ctx.moveTo(projectile.size, 0); // Point forward
                     this.ctx.lineTo(-projectile.size / 2, -projectile.size / 2);
@@ -583,7 +1076,7 @@ const Game = {
                     this.ctx.restore();
                 } else if (projectile.type === 'magic') {
                     // Draw magic bolt as glowing circle
-                    this.ctx.fillStyle = projectile.color || '#9c27b0';
+                    this.ctx.fillStyle = projectile.color || '#673ab7';
                     this.ctx.beginPath();
                     this.ctx.arc(projectile.x, projectile.y, projectile.size, 0, Math.PI * 2);
                     this.ctx.fill();
@@ -636,6 +1129,13 @@ const Game = {
         
         // Restore context after screen shake
         this.ctx.restore();
+        
+        // Render modals on top of everything (launch modal takes priority)
+        if (this.launchModalVisible && typeof renderLaunchModal !== 'undefined') {
+            renderLaunchModal(this.ctx);
+        } else if (this.updateModalVisible && typeof renderUpdateModal !== 'undefined') {
+            renderUpdateModal(this.ctx);
+        }
     },
     
     // Render game world (player, enemies, etc.)
@@ -663,7 +1163,7 @@ const Game = {
                 ctx.translate(projectile.x, projectile.y);
                 const angle = Math.atan2(projectile.vy, projectile.vx);
                 ctx.rotate(angle);
-                ctx.fillStyle = projectile.color || '#e24ace';
+                ctx.fillStyle = projectile.color || '#ff1493';
                 ctx.beginPath();
                 ctx.moveTo(projectile.size, 0);
                 ctx.lineTo(-projectile.size / 2, -projectile.size / 2);
@@ -672,7 +1172,7 @@ const Game = {
                 ctx.fill();
                 ctx.restore();
             } else if (projectile.type === 'magic') {
-                ctx.fillStyle = projectile.color || '#9c27b0';
+                ctx.fillStyle = projectile.color || '#673ab7';
                 ctx.beginPath();
                 ctx.arc(projectile.x, projectile.y, projectile.size, 0, Math.PI * 2);
                 ctx.fill();
@@ -720,10 +1220,18 @@ const Game = {
         if (this.state === 'PLAYING') {
             this.state = 'PAUSED';
             this.paused = true;
+            this.pausedFromState = 'PLAYING'; // Remember where we paused from
             console.log('Game paused');
+        } else if (this.state === 'NEXUS') {
+            this.state = 'PAUSED';
+            this.paused = true;
+            this.pausedFromState = 'NEXUS'; // Remember where we paused from
+            console.log('Nexus paused');
         } else if (this.state === 'PAUSED') {
-            this.state = 'PLAYING';
+            // Resume to the state we paused from
+            this.state = this.pausedFromState || 'PLAYING';
             this.paused = false;
+            this.pausedFromState = null;
             console.log('Game resumed');
         }
     },
@@ -774,9 +1282,9 @@ const Game = {
         const enemiesKilled = this.enemiesKilled || 0;
         const levelReached = this.player.level || 1;
         
-        const base = 10 * roomsCleared;
-        const bonus = 2 * enemiesKilled;
-        const levelBonus = 1 * levelReached;
+        const base = 9 * roomsCleared; // Reduced from 10
+        const bonus = 1.8 * enemiesKilled; // Reduced from 2
+        const levelBonus = 0.9 * levelReached; // Reduced from 1
         
         return base + bonus + levelBonus;
     },
@@ -935,9 +1443,63 @@ const Game = {
                         projectile.x, projectile.y, projectile.size,
                         enemy.x, enemy.y, enemy.size
                     )) {
-                        // Hit enemy
-                        const damageDealt = Math.min(projectile.damage, enemy.hp);
-                        enemy.takeDamage(projectile.damage);
+                        // Check for backstab (Rogue passive: player must be behind enemy when projectile hits)
+                        let isBackstab = false;
+                        let finalDamage = projectile.damage;
+                        
+                        // Check for range bonus (Mage passive: increased damage at range)
+                        if (projectile.type === 'magic' && this.player && this.player.playerClass === 'hexagon') {
+                            // Calculate distance from player to enemy
+                            const dx = enemy.x - this.player.x;
+                            const dy = enemy.y - this.player.y;
+                            const distance = Math.sqrt(dx * dx + dy * dy);
+                            
+                            // Apply range-based damage multiplier
+                            // 1.0x at 0-100px, 1.5x at 100-200px, 2.0x at 200px+
+                            let rangeMultiplier = 1.0;
+                            if (distance >= 200) {
+                                rangeMultiplier = 2.0;
+                            } else if (distance >= 100) {
+                                // Linear interpolation between 100 and 200
+                                rangeMultiplier = 1.0 + ((distance - 100) / 100) * 1.0; // 1.0 to 2.0
+                            }
+                            
+                            finalDamage = projectile.damage * rangeMultiplier;
+                        }
+                        
+                        if (projectile.type === 'knife' && projectile.playerClass === 'triangle') {
+                            // Use stored player position when projectile was created
+                            const playerX = projectile.playerX !== undefined ? projectile.playerX : this.player.x;
+                            const playerY = projectile.playerY !== undefined ? projectile.playerY : this.player.y;
+                            
+                            // Calculate vector from enemy to player (when knife was thrown)
+                            const enemyToPlayerX = playerX - enemy.x;
+                            const enemyToPlayerY = playerY - enemy.y;
+                            const enemyToPlayerDist = Math.sqrt(enemyToPlayerX * enemyToPlayerX + enemyToPlayerY * enemyToPlayerY);
+                            
+                            if (enemyToPlayerDist > 0) {
+                                // Normalize enemy-to-player vector
+                                const enemyToPlayerNormX = enemyToPlayerX / enemyToPlayerDist;
+                                const enemyToPlayerNormY = enemyToPlayerY / enemyToPlayerDist;
+                                
+                                // Enemy forward direction
+                                const enemyForwardX = Math.cos(enemy.rotation);
+                                const enemyForwardY = Math.sin(enemy.rotation);
+                                
+                                // Dot product: negative means player is behind enemy
+                                const dot = enemyToPlayerNormX * enemyForwardX + enemyToPlayerNormY * enemyForwardY;
+                                isBackstab = dot < 0; // Player was behind enemy
+                                
+                                if (isBackstab) {
+                                    finalDamage *= 2; // 2x damage for backstab
+                                }
+                            }
+                        }
+                        
+                        // Hit enemy with final damage (including backstab multiplier)
+                        const damageDealt = Math.min(finalDamage, enemy.hp);
+                        enemy.takeDamage(finalDamage);
+                        
                         // Damage numbers for player projectiles (rogue knives, mage bolts)
                         if (typeof createDamageNumber !== 'undefined') {
                             const isHeavy = false;

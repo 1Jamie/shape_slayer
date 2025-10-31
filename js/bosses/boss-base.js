@@ -22,8 +22,8 @@ class BossBase extends EnemyBase {
         this.introComplete = false;
         this.introTime = 0;
         
-        // Scale boss stats (5x HP, 2x size, 1.5x damage)
-        this.maxHp = this.maxHp * 5;
+        // Scale boss stats (15x HP, 2x size, 1.5x damage)
+        this.maxHp = this.maxHp * 15;
         this.hp = this.maxHp;
         this.size = this.size * 2;
         this.damage = this.damage * 1.5;

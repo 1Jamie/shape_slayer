@@ -6,10 +6,11 @@ class Enemy extends EnemyBase {
         
         // Stats
         this.size = 20;
-        this.maxHp = 30;
-        this.hp = 30;
+        this.maxHp = 40;
+        this.hp = 40;
         this.damage = 5;
         this.moveSpeed = 100;
+        this.baseMoveSpeed = 100; // Store for stun system
         
         // Properties
         this.color = '#ff6b6b';
@@ -37,9 +38,20 @@ class Enemy extends EnemyBase {
     update(deltaTime, player) {
         if (!this.alive || !player.alive) return;
         
-        // Update attack cooldown
+        // Process stun first
+        this.processStun(deltaTime);
+        
+        // Apply stun slow factor to movement speed
+        if (this.stunned) {
+            this.moveSpeed = this.baseMoveSpeed * this.stunSlowFactor;
+        } else {
+            this.moveSpeed = this.baseMoveSpeed;
+        }
+        
+        // Update attack cooldown (slower when stunned)
         if (this.attackCooldown > 0) {
-            this.attackCooldown -= deltaTime;
+            const cooldownDelta = this.stunned ? deltaTime * this.stunSlowFactor : deltaTime;
+            this.attackCooldown -= cooldownDelta;
         }
         
         // Get target (handles decoy/clone logic)
@@ -120,6 +132,11 @@ class Enemy extends EnemyBase {
                 this.vy = moveY * this.moveSpeed;
                 this.x += this.vx * deltaTime;
                 this.y += this.vy * deltaTime;
+                
+                // Update rotation to face movement direction
+                if (this.vx !== 0 || this.vy !== 0) {
+                    this.rotation = Math.atan2(this.vy, this.vx);
+                }
             }
         } else if (this.state === 'telegraph') {
             // Telegraph state - flash red
@@ -137,6 +154,9 @@ class Enemy extends EnemyBase {
             
             this.x += lungeDirX * deltaTime;
             this.y += lungeDirY * deltaTime;
+            
+            // Update rotation to face lunge direction
+            this.rotation = Math.atan2(lungeDirY, lungeDirX);
             
             if (this.lungeElapsed >= this.lungeDuration) {
                 // End lunge
@@ -217,6 +237,16 @@ class Enemy extends EnemyBase {
         
         // Draw health bar
         this.renderHealthBar(ctx);
+        
+        // Draw facing direction indicator (white dot)
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(
+            this.x + Math.cos(this.rotation) * (this.size + 5),
+            this.y + Math.sin(this.rotation) * (this.size + 5),
+            5, 0, Math.PI * 2
+        );
+        ctx.fill();
     }
 }
 

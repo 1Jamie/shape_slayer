@@ -35,10 +35,10 @@ class BossSwarmKing extends BossBase {
         
         // Override base stats for star boss (before BossBase multiplies them)
         this.size = 60; // Large star (BossBase will multiply by 2, so final size is 120)
-        this.maxHp = 210; // BossBase will multiply by 5 (increased from 195 for more health)
+        this.maxHp = 1510; // BossBase will multiply by 5 (increased from 195 for more health)
         this.hp = this.maxHp;
         this.damage = 8; // BossBase will multiply by 1.5
-        this.moveSpeed = 85; // Increased from 80 for better speed
+        this.moveSpeed = 90.95; // Increased from 80 for better speed
         this.color = '#ff6b00'; // Orange-red
         
         // Add weak points at spike bases (3 weak points)
@@ -291,7 +291,7 @@ class BossSwarmKing extends BossBase {
     spikeBarrage() {
         if (typeof Game === 'undefined') return;
         
-        const projectileSpeed = 200;
+        const projectileSpeed = 214;
         for (let i = 0; i < 8; i++) {
             const angle = this.rotationAngle + (Math.PI * 2 / 8) * i;
             Game.projectiles.push({
@@ -378,7 +378,7 @@ class BossSwarmKing extends BossBase {
         if (typeof Game === 'undefined') return;
         
         // Fire projectiles in all directions
-        const projectileSpeed = 250;
+        const projectileSpeed = 267.5;
         for (let i = 0; i < 16; i++) {
             const angle = (Math.PI * 2 / 16) * i;
             Game.projectiles.push({

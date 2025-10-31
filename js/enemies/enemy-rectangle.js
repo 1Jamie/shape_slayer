@@ -8,10 +8,11 @@ class RectangleEnemy extends EnemyBase {
         this.width = 25;
         this.height = 40;
         this.size = Math.max(this.width, this.height);
-        this.maxHp = 60;
-        this.hp = 60;
+        this.maxHp = 75;
+        this.hp = 75;
         this.damage = 8;
         this.moveSpeed = 60;
+        this.baseMoveSpeed = 60; // Store for stun system
         
         // Properties
         this.color = '#cd7f32'; // Bronze
@@ -33,8 +34,20 @@ class RectangleEnemy extends EnemyBase {
     update(deltaTime, player) {
         if (!this.alive || !player.alive) return;
         
+        // Process stun first
+        this.processStun(deltaTime);
+        
+        // Apply stun slow factor to movement speed
+        if (this.stunned) {
+            this.moveSpeed = this.baseMoveSpeed * this.stunSlowFactor;
+        } else {
+            this.moveSpeed = this.baseMoveSpeed;
+        }
+        
+        // Update attack cooldown (slower when stunned)
         if (this.attackCooldown > 0) {
-            this.attackCooldown -= deltaTime;
+            const cooldownDelta = this.stunned ? deltaTime * this.stunSlowFactor : deltaTime;
+            this.attackCooldown -= cooldownDelta;
         }
         
         // Get target (handles decoy/clone logic)
@@ -81,6 +94,11 @@ class RectangleEnemy extends EnemyBase {
                     
                     this.x += moveX * this.moveSpeed * deltaTime;
                     this.y += moveY * this.moveSpeed * deltaTime;
+                    
+                    // Update rotation to face movement direction
+                    if (moveX !== 0 || moveY !== 0) {
+                        this.rotation = Math.atan2(moveY, moveX);
+                    }
                 } else {
                     // No player attacks nearby (or very weak), start charge normally
                     this.state = 'charge';
@@ -115,6 +133,11 @@ class RectangleEnemy extends EnemyBase {
                 
                 this.x += moveX * this.moveSpeed * deltaTime;
                 this.y += moveY * this.moveSpeed * deltaTime;
+                
+                // Update rotation to face movement direction
+                if (moveX !== 0 || moveY !== 0) {
+                    this.rotation = Math.atan2(moveY, moveX);
+                }
             }
         } else if (this.state === 'charge') {
             // Grow larger during charge
@@ -214,6 +237,16 @@ class RectangleEnemy extends EnemyBase {
         }
         
         this.renderHealthBar(ctx);
+        
+        // Draw facing direction indicator (white dot)
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(
+            this.x + Math.cos(this.rotation) * (this.size + 5),
+            this.y + Math.sin(this.rotation) * (this.size + 5),
+            5, 0, Math.PI * 2
+        );
+        ctx.fill();
     }
 }
 

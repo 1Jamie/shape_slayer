@@ -6,7 +6,7 @@ const CLASS_DEFINITIONS = {
         name: 'Warrior',
         hp: 100,
         damage: 14,
-        speed: 200,
+        speed: 230,
         defense: 0.1,
         critChance: 0,
         color: '#4a90e2',
@@ -16,20 +16,20 @@ const CLASS_DEFINITIONS = {
         name: 'Rogue',
         hp: 75,
         damage: 12,
-        speed: 250,
+        speed: 287.5,
         defense: 0,
         critChance: 0.25,
         dodgeCharges: 3,
         dodgeCooldown: 1.0,
         dodgeSpeed: 720,
-        color: '#e24ace',
+        color: '#ff1493', // Deep pink/hot pink - more distinct from mage
         shape: 'triangle'
     },
     pentagon: {
         name: 'Tank',
         hp: 150,
         damage: 8,
-        speed: 150,
+        speed: 172.5,
         defense: 0.2,
         critChance: 0,
         color: '#c72525',
@@ -39,10 +39,10 @@ const CLASS_DEFINITIONS = {
         name: 'Mage',
         hp: 80,
         damage: 20,
-        speed: 180,
+        speed: 207,
         defense: 0,
         critChance: 0,
-        color: '#9c27b0',
+        color: '#673ab7', // Purple-blue - more distinct from rogue pink
         shape: 'hexagon'
     }
 };
@@ -75,6 +75,9 @@ class Player {
         this.attackDuration = 0.1; // How long attack hitbox exists
         this.isAttacking = false;
         this.attackHitboxes = [];
+        
+        // Tank hammer swing system
+        this.hammerSwingDirection = -1; // -1 for left, 1 for right (alternates each attack)
         
         // Dodge system
         this.dodgeCooldown = 0;
@@ -127,10 +130,16 @@ class Player {
         // Pentagon shield
         this.shieldActive = false;
         this.shieldElapsed = 0;
-        this.shieldDuration = 1.5;
+        this.shieldDuration = 2.1; // Increased from 1.5 (90% longer)
         this.shieldWaveActive = false;
         this.shieldWaveElapsed = 0;
         this.shieldWaveDuration = 0.5;
+        this.shieldDirection = 0; // Store shield direction for wave
+        
+        // Square block stance
+        this.blockStanceActive = false;
+        this.blockStanceTimer = 0;
+        this.blockStanceActivationTime = 0.25; // Must stand still for 0.25 seconds to activate
         
         // Heavy attack animations
         this.heavyChargeEffectActive = false;
@@ -158,6 +167,23 @@ class Player {
         this.shadowClonesDuration = 3.0;
         this.shadowClones = []; // Array of {x, y} for each clone
         
+        // Triangle dash preview (similar to blink preview)
+        this.dashPreviewActive = false; // Show preview while aiming dash
+        this.dashPreviewX = 0;
+        this.dashPreviewY = 0;
+        this.dashPreviewDistance = 0;
+        
+        // Triangle heavy attack preview (fan of knives cone)
+        this.heavyAttackPreviewActive = false; // Show preview while aiming heavy attack
+        this.heavyAttackPreviewAngle = 0; // Center direction of cone
+        this.heavyAttackPreviewSpread = Math.PI / 3; // 60 degree spread
+        
+        // Square/Warrior heavy attack preview (forward thrust)
+        this.thrustPreviewActive = false; // Show preview while aiming thrust
+        this.thrustPreviewX = 0;
+        this.thrustPreviewY = 0;
+        this.thrustPreviewDistance = 0;
+        
         // Hexagon blink blast
         this.blinkCooldown = 5.0;
         this.blinkDecoyActive = false;
@@ -172,6 +198,10 @@ class Player {
         this.blinkExplosionY = 0;
         this.blinkKnockbackVx = 0;
         this.blinkKnockbackVy = 0;
+        this.blinkPreviewActive = false; // Show preview while aiming
+        this.blinkPreviewX = 0;
+        this.blinkPreviewY = 0;
+        this.blinkPreviewDistance = 0;
         
         // Pull force system (for boss effects like Vortex)
         this.pullForceVx = 0;
@@ -201,10 +231,10 @@ class Player {
         let upgradeBonuses = { damage: 0, defense: 0, speed: 0 };
         if (typeof SaveSystem !== 'undefined') {
             const upgrades = SaveSystem.getUpgrades(classType);
-            // Calculate bonuses: damage +2/level, defense +0.02/level, speed +10/level
-            upgradeBonuses.damage = upgrades.damage * 2;
-            upgradeBonuses.defense = upgrades.defense * 0.02;
-            upgradeBonuses.speed = upgrades.speed * 10;
+            // Calculate bonuses: damage +0.5/level, defense +0.005/level, speed +2/level
+            upgradeBonuses.damage = upgrades.damage * 0.5;
+            upgradeBonuses.defense = upgrades.defense * 0.005;
+            upgradeBonuses.speed = upgrades.speed * 2;
         }
         
         // Set base stats (class stats + upgrade bonuses)
@@ -257,25 +287,11 @@ class Player {
         
         // Handle movement - skip if dodging or thrusting
         if (!this.isDodging && !this.thrustActive) {
-            // Handle movement input (WASD)
-            this.vx = 0;
-            this.vy = 0;
+            // Use unified movement input (works for both keyboard and touch)
+            const moveInput = input.getMovementInput ? input.getMovementInput() : { x: 0, y: 0 };
             
-            // Calculate movement direction based on input
-            let moveX = 0;
-            let moveY = 0;
-            
-            if (input.getKeyState('w')) moveY -= 1;
-            if (input.getKeyState('s')) moveY += 1;
-            if (input.getKeyState('a')) moveX -= 1;
-            if (input.getKeyState('d')) moveX += 1;
-            
-            // Normalize diagonal movement (multiply by 0.707 to maintain speed)
-            const length = Math.sqrt(moveX * moveX + moveY * moveY);
-            if (length > 0) {
-                this.vx = (moveX / length) * this.moveSpeed;
-                this.vy = (moveY / length) * this.moveSpeed;
-            }
+            this.vx = moveInput.x * this.moveSpeed;
+            this.vy = moveInput.y * this.moveSpeed;
         } else if (this.isDodging) {
             // During dodge, use dodge velocity
             this.vx = this.dodgeVx;
@@ -339,8 +355,11 @@ class Player {
             this.y = clamp(this.y, this.size, Game.canvas.height - this.size);
         }
         
-        // Calculate rotation to face mouse
-        if (input.mouse.x !== undefined && input.mouse.y !== undefined) {
+        // Calculate rotation to face aim direction (mouse or joystick)
+        // Both basic attack and heavy attack joysticks update the same rotation variable
+        if (input.getAimDirection) {
+            this.rotation = input.getAimDirection();
+        } else if (input.mouse.x !== undefined && input.mouse.y !== undefined) {
             const dx = input.mouse.x - this.x;
             const dy = input.mouse.y - this.y;
             this.rotation = Math.atan2(dy, dx);
@@ -357,6 +376,46 @@ class Player {
         
         // Handle special abilities (Spacebar)
         this.handleSpecialAbility(input);
+        
+        // Update block stance timer (Warrior passive)
+        if (this.playerClass === 'square') {
+            const velocityMagnitude = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+            if (velocityMagnitude < 10) {
+                // Standing still - increase timer
+                this.blockStanceTimer += deltaTime;
+                if (this.blockStanceTimer >= this.blockStanceActivationTime) {
+                    this.blockStanceActive = true;
+                }
+            } else {
+                // Moving - reset timer and deactivate
+                this.blockStanceTimer = 0;
+                this.blockStanceActive = false;
+            }
+        } else {
+            // Not warrior class - reset block stance
+            this.blockStanceTimer = 0;
+            this.blockStanceActive = false;
+        }
+        
+        // Update blink preview if active
+        if (this.blinkPreviewActive && this.playerClass === 'hexagon') {
+            this.updateBlinkPreview(input);
+        }
+        
+        // Update dash preview if active (triangle on mobile)
+        if (this.dashPreviewActive && this.playerClass === 'triangle') {
+            this.updateDashPreview(input);
+        }
+        
+        // Update heavy attack preview if active (triangle on mobile)
+        if (this.heavyAttackPreviewActive && this.playerClass === 'triangle') {
+            this.updateHeavyAttackPreview(input);
+        }
+        
+        // Update thrust preview if active (square/warrior on mobile)
+        if (this.thrustPreviewActive && this.playerClass === 'square') {
+            this.updateThrustPreview(input);
+        }
         
         // Update attack cooldown
         if (this.attackCooldown > 0) {
@@ -412,12 +471,61 @@ class Player {
         
         // Update heavy attack charge
         if (this.isChargingHeavy) {
-            this.heavyChargeElapsed += deltaTime;
-            if (this.heavyChargeElapsed >= this.heavyAttackWindup) {
-                // Spawn heavy attack hitbox
-                this.createHeavyAttack();
-                this.isChargingHeavy = false;
-                this.heavyChargeElapsed = 0;
+            // Check if this class uses joystick for heavy attack on mobile
+            const usesHeavyJoystick = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode() &&
+                Input.getAbilityInputType && 
+                Input.getAbilityInputType(this.playerClass, 'heavyAttack') === 'joystick-press-release';
+            
+            if (usesHeavyJoystick && (this.playerClass === 'square' || this.playerClass === 'triangle')) {
+                // Warrior/Triangle on mobile: for joystick-press-release mode, check for button release
+                if (Input.touchButtons && Input.touchButtons.heavyAttack) {
+                    const button = Input.touchButtons.heavyAttack;
+                    
+                    // Rotation is already updated by getAimDirection() which checks heavy attack joystick first
+                    // Just update preview
+                    if (this.playerClass === 'triangle') {
+                        // Triangle: update preview angle
+                        if (Input.touchJoysticks && Input.touchJoysticks.heavyAttack) {
+                            const joystick = Input.touchJoysticks.heavyAttack;
+                            if (joystick.active && joystick.getMagnitude() > 0.1) {
+                                // Update preview angle to match rotation
+                                this.heavyAttackPreviewAngle = this.rotation;
+                            }
+                        }
+                    } else if (this.playerClass === 'square') {
+                        // Warrior: show thrust preview
+                        this.thrustPreviewActive = true;
+                    }
+                    
+                    // Fire on release
+                    if (button.justReleased) {
+                        // Rotation already updated above, fire the attack immediately
+                        this.createHeavyAttack();
+                        this.isChargingHeavy = false;
+                        this.heavyChargeElapsed = 0;
+                        // Clear previews
+                        if (this.playerClass === 'triangle') {
+                            this.heavyAttackPreviewActive = false;
+                        } else if (this.playerClass === 'square') {
+                            this.thrustPreviewActive = false;
+                        }
+                    } else {
+                        // Continue charging while button is held
+                        this.heavyChargeElapsed += deltaTime;
+                    }
+                } else {
+                    // Button not found, just continue charging (fallback)
+                    this.heavyChargeElapsed += deltaTime;
+                }
+            } else {
+                // Other classes: wait for windup
+                this.heavyChargeElapsed += deltaTime;
+                if (this.heavyChargeElapsed >= this.heavyAttackWindup) {
+                    // Spawn heavy attack hitbox
+                    this.createHeavyAttack();
+                    this.isChargingHeavy = false;
+                    this.heavyChargeElapsed = 0;
+                }
             }
         }
         
@@ -553,6 +661,11 @@ class Player {
         if (this.shieldActive) {
             this.shieldElapsed += deltaTime;
             
+            // Rotation is already updated by getAimDirection() which checks special ability joystick
+            // Shield always faces forward (front of character) - just use this.rotation
+            // Store shield direction for wave (captured when shield ends)
+            this.shieldDirection = this.rotation;
+            
             // Block enemies from passing through shield
                 if (typeof Game !== 'undefined' && Game.enemies) {
                 const shieldDistance = this.size + 5; // Start of shield
@@ -626,17 +739,18 @@ class Player {
                 this.shieldWaveElapsed = 0;
                 this.shieldWaveHitEnemies = null;
             } else {
-                // Push enemies back as the wave advances
+                    // Push enemies back as the wave advances
                 if (typeof Game !== 'undefined' && Game.enemies) {
-                    const waveDamage = this.damage * 2;
+                    const waveDamage = this.damage * 2.5; // Increased from 2x to 2.5x
                     const waveMaxDistance = 200; // 200px range
                     const waveWidth = 150; // Width of the wave
                     
                     // Calculate current wave front distance
                     const waveProgress = this.shieldWaveElapsed / this.shieldWaveDuration;
                     const currentWaveDistance = waveMaxDistance * waveProgress;
-                    const playerDirX = Math.cos(this.rotation);
-                    const playerDirY = Math.sin(this.rotation);
+                    // Use stored shield direction instead of current rotation (which might be changed by basic attack)
+                    const playerDirX = Math.cos(this.shieldDirection);
+                    const playerDirY = Math.sin(this.shieldDirection);
                     
                     Game.enemies.forEach(enemy => {
                         if (enemy.alive) {
@@ -680,7 +794,7 @@ class Player {
                                         }
                                         
                                         // Apply knockback (wave pushes enemies forward)
-                                        const knockbackForce = 300;
+                                        const knockbackForce = 500; // Increased from 300
                                         enemy.applyKnockback(playerDirX * knockbackForce, playerDirY * knockbackForce);
                                     }
                                 }
@@ -723,12 +837,28 @@ class Player {
     }
     
     handleAttack(input) {
-        // Check for left click (once per press, not held)
-        const mouseJustClicked = input.mouseLeft && !this.lastMouseLeft;
-        this.lastMouseLeft = input.mouseLeft;
+        // Check for attack input (mouse click or touch joystick)
+        let shouldAttack = false;
         
-        // If mouse clicked and cooldown ready
-        if (mouseJustClicked && this.attackCooldown <= 0) {
+        if (input.isTouchMode && input.isTouchMode()) {
+            // Touch mode: check if basic attack joystick is active with magnitude > threshold
+            if (input.isAbilityPressed && input.isAbilityPressed('basicAttack')) {
+                // Fire continuously while joystick is active and cooldown ready
+                if (this.attackCooldown <= 0) {
+                    shouldAttack = true;
+                }
+            }
+        } else {
+            // Keyboard/mouse mode: check for left click (once per press)
+            const mouseJustClicked = input.mouseLeft && !this.lastMouseLeft;
+            this.lastMouseLeft = input.mouseLeft;
+            
+            if (mouseJustClicked && this.attackCooldown <= 0) {
+                shouldAttack = true;
+            }
+        }
+        
+        if (shouldAttack) {
             this.executeAttack(input);
         }
     }
@@ -741,8 +871,8 @@ class Player {
             // Rogue: Throw knife
             this.throwKnife(input);
         } else if (this.playerClass === 'pentagon') {
-            // Tank: Cone slam attack
-            this.coneAttack();
+            // Tank: Hammer swing attack
+            this.hammerSwingAttack();
         } else {
             // Square (Warrior): Standard melee
             this.meleeAttack();
@@ -785,94 +915,168 @@ class Player {
         }
     }
     
-    coneAttack() {
-        // Tank: Wide cone slam attack
-        const coneDamage = this.damage * 0.8; // 80% of base damage (since it hits many times)
+    hammerSwingAttack() {
+        // Tank: Hammer swing in 130-degree arc
+        const hammerDamage = this.damage;
+        const hammerDistance = 70; // Distance from player center to hammer
+        const arcWidth = (130 * Math.PI) / 180; // 130 degrees in radians
+        const arcHalf = arcWidth / 2; // 65 degrees on each side
         
-        // Create multiple hitboxes in a cone pattern
-        for (let i = -2; i <= 2; i++) {
-            const angle = this.rotation + (Math.PI / 6) * i; // Wider cone
-            const distance = 50 + i * 20;
-            
-            const hitboxX = this.x + Math.cos(angle) * distance;
-            const hitboxY = this.y + Math.sin(angle) * distance;
-            
-            this.attackHitboxes.push({
-                x: hitboxX,
-                y: hitboxY,
-                radius: 40,
-                damage: coneDamage,
-                duration: this.attackDuration,
-                elapsed: 0,
-                hitEnemies: new Set()
-            });
+        // Calculate starting angle based on swing direction
+        // If swinging left (direction = -1), start from right side of arc, sweep to left
+        // If swinging right (direction = 1), start from left side of arc, sweep to right
+        let startAngle;
+        if (this.hammerSwingDirection === -1) {
+            // Swinging left: start from right side (rotation + arcHalf), sweep to left
+            startAngle = this.rotation + arcHalf;
+        } else {
+            // Swinging right: start from left side (rotation - arcHalf), sweep to right
+            startAngle = this.rotation - arcHalf;
         }
+        
+        // Create sweeping hammer hitbox
+        this.attackHitboxes.push({
+            type: 'hammer',
+            x: this.x, // Updated during attack
+            y: this.y, // Updated during attack
+            radius: 35, // Hammer head hitbox size
+            damage: hammerDamage,
+            duration: this.attackDuration,
+            elapsed: 0,
+            hitEnemies: new Set(),
+            
+            // Hammer-specific properties
+            startAngle: startAngle,
+            currentAngle: startAngle,
+            swingDirection: this.hammerSwingDirection,
+            arcWidth: arcWidth,
+            hammerDistance: hammerDistance,
+            trail: [] // Array of {x, y, time} for trail effect
+        });
+        
+        // Alternate swing direction for next attack
+        this.hammerSwingDirection *= -1;
     }
     
     throwKnife(input) {
         // Rogue: Throw knife as projectile
         if (typeof Game === 'undefined') return;
         
-        const mouseX = input.mouse.x || this.x;
-        const mouseY = input.mouse.y || this.y;
-        
-        const dx = mouseX - this.x;
-        const dy = mouseY - this.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        
-        if (distance > 0) {
-            const dirX = dx / distance;
-            const dirY = dy / distance;
-            
-            Game.projectiles.push({
-                x: this.x,
-                y: this.y,
-                vx: dirX * 350,
-                vy: dirY * 350,
-                damage: this.damage,
-                size: 8,
-                lifetime: 1.5,
-                elapsed: 0,
-                type: 'knife',
-                color: this.color
-            });
+        // Get direction from unified input
+        let dirX, dirY;
+        if (input.getAbilityDirection) {
+            const dir = input.getAbilityDirection('basicAttack');
+            dirX = dir.x;
+            dirY = dir.y;
+        } else {
+            // Fallback to mouse
+            const mouseX = input.mouse.x || this.x;
+            const mouseY = input.mouse.y || this.y;
+            const dx = mouseX - this.x;
+            const dy = mouseY - this.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance > 0) {
+                dirX = dx / distance;
+                dirY = dy / distance;
+            } else {
+                dirX = Math.cos(this.rotation);
+                dirY = Math.sin(this.rotation);
+            }
         }
+        
+        Game.projectiles.push({
+            x: this.x,
+            y: this.y,
+            vx: dirX * 350,
+            vy: dirY * 350,
+            damage: this.damage,
+            size: 8,
+            lifetime: 1.5,
+            elapsed: 0,
+            type: 'knife',
+            color: this.color,
+            playerX: this.x, // Store player position for backstab detection
+            playerY: this.y,
+            playerClass: this.playerClass // Store class for backstab check
+        });
     }
     
     shootProjectile(input) {
         // Mage: Shoot magic bolt
         if (typeof Game === 'undefined') return;
         
-        const mouseX = input.mouse.x || this.x;
-        const mouseY = input.mouse.y || this.y;
-        
-        const dx = mouseX - this.x;
-        const dy = mouseY - this.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        
-        if (distance > 0) {
-            const dirX = dx / distance;
-            const dirY = dy / distance;
-            
-            Game.projectiles.push({
-                x: this.x,
-                y: this.y,
-                vx: dirX * 400,
-                vy: dirY * 400,
-                damage: this.damage,
-                size: 10,
-                lifetime: 2.0,
-                elapsed: 0,
-                type: 'magic',
-                color: this.color
-            });
+        // Get direction from unified input
+        let dirX, dirY;
+        if (input.getAbilityDirection) {
+            const dir = input.getAbilityDirection('basicAttack');
+            dirX = dir.x;
+            dirY = dir.y;
+        } else {
+            // Fallback to mouse
+            const mouseX = input.mouse.x || this.x;
+            const mouseY = input.mouse.y || this.y;
+            const dx = mouseX - this.x;
+            const dy = mouseY - this.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance > 0) {
+                dirX = dx / distance;
+                dirY = dy / distance;
+            } else {
+                dirX = Math.cos(this.rotation);
+                dirY = Math.sin(this.rotation);
+            }
         }
+        
+        Game.projectiles.push({
+            x: this.x,
+            y: this.y,
+            vx: dirX * 400,
+            vy: dirY * 400,
+            damage: this.damage,
+            size: 10,
+            lifetime: 2.0,
+            elapsed: 0,
+            type: 'magic',
+            color: this.color
+        });
     }
     
     updateAttackHitboxes(deltaTime) {
         // Update each hitbox and remove expired ones
         this.attackHitboxes = this.attackHitboxes.filter(hitbox => {
             hitbox.elapsed += deltaTime;
+            
+            // Handle hammer swing
+            if (hitbox.type === 'hammer') {
+                const progress = hitbox.elapsed / hitbox.duration; // 0 to 1
+                
+                // Calculate current angle - sweep through the arc
+                // Swing direction determines which way we sweep
+                if (hitbox.swingDirection === -1) {
+                    // Swinging left: start from right, sweep to left (decrease angle)
+                    hitbox.currentAngle = hitbox.startAngle - (hitbox.arcWidth * progress);
+                } else {
+                    // Swinging right: start from left, sweep to right (increase angle)
+                    hitbox.currentAngle = hitbox.startAngle + (hitbox.arcWidth * progress);
+                }
+                
+                // Update hammer position
+                hitbox.x = this.x + Math.cos(hitbox.currentAngle) * hitbox.hammerDistance;
+                hitbox.y = this.y + Math.sin(hitbox.currentAngle) * hitbox.hammerDistance;
+                
+                // Add current position to trail (for visual effect)
+                const trailAge = 0.25; // Trail lasts 0.25 seconds
+                hitbox.trail.push({
+                    x: hitbox.x,
+                    y: hitbox.y,
+                    time: hitbox.elapsed
+                });
+                
+                // Remove old trail entries
+                hitbox.trail = hitbox.trail.filter(trailPoint => {
+                    return (hitbox.elapsed - trailPoint.time) < trailAge;
+                });
+            }
             
             // Handle expanding AoE
             if (hitbox.expanding) {
@@ -888,9 +1092,47 @@ class Player {
     handleDodge(input) {
         if (this.isDodging) return; // Already dodging
         
-        // Check for Shift key press (once per press)
-        const shiftJustPressed = input.getKeyState('shift') && !this.lastShiftState;
-        this.lastShiftState = input.getKeyState('shift');
+        // Check for dodge input (Shift key or touch button/joystick)
+        let dodgeJustPressed = false;
+        let dodgeButtonPressed = false;
+        
+        if (input.isTouchMode && input.isTouchMode()) {
+            // Touch mode: check for dodge button
+            if (input.touchButtons && input.touchButtons.dodge) {
+                const button = input.touchButtons.dodge;
+                dodgeButtonPressed = button.pressed;
+                
+                // Triangle uses joystick: fire on release (press-and-hold-to-aim, release-to-fire)
+                if (this.playerClass === 'triangle') {
+                    dodgeJustPressed = button.justReleased;
+                    
+                    // Update dash preview and rotation while button is pressed and joystick is active
+                    if (button.pressed && input.touchJoysticks && input.touchJoysticks.dodge) {
+                        const joystick = input.touchJoysticks.dodge;
+                        if (joystick.active && joystick.getMagnitude() > 0.1) {
+                            // Update rotation to face joystick direction while aiming
+                            this.rotation = joystick.getAngle();
+                            // Show preview
+                            this.dashPreviewActive = true;
+                        } else {
+                            // Joystick not active, hide preview
+                            this.dashPreviewActive = false;
+                        }
+                    } else if (!button.pressed) {
+                        // Button released, hide preview
+                        this.dashPreviewActive = false;
+                    }
+                } else {
+                    // Other classes: fire on press
+                    dodgeJustPressed = button.justPressed;
+                }
+            }
+        } else {
+            // Keyboard mode: check for Shift key press
+            const shiftJustPressed = input.getKeyState('shift') && !this.lastShiftState;
+            this.lastShiftState = input.getKeyState('shift');
+            dodgeJustPressed = shiftJustPressed;
+        }
         
         // Check if dodge is available
         let canDodge = false;
@@ -904,8 +1146,10 @@ class Player {
             canDodge = this.dodgeCooldown <= 0;
         }
         
-        // If Shift pressed and dodge available
-        if (shiftJustPressed && canDodge) {
+        // If dodge pressed/released and available
+        if (dodgeJustPressed && canDodge) {
+            // Clear preview before starting dodge
+            this.dashPreviewActive = false;
             this.startDodge(input);
         }
     }
@@ -915,28 +1159,57 @@ class Player {
         let dodgeDirX = 0;
         let dodgeDirY = 0;
         
-        // Triangle (Rogue) always dashes in facing direction for offensive use
+        // Triangle (Rogue) uses joystick for directional dash on mobile
         if (this.playerClass === 'triangle') {
-            // Always dash in direction player is facing
-            dodgeDirX = Math.cos(this.rotation) * this.dodgeSpeedBoost;
-            dodgeDirY = Math.sin(this.rotation) * this.dodgeSpeedBoost;
+            if (input.isTouchMode && input.isTouchMode()) {
+                // On mobile: use dodge joystick direction if available
+                const button = input.touchButtons && input.touchButtons.dodge;
+                if (button && button.finalJoystickState) {
+                    // Use stored joystick state from button release
+                    const state = button.finalJoystickState;
+                    if (state.magnitude > 0.1) {
+                        dodgeDirX = state.direction.x * this.dodgeSpeedBoost;
+                        dodgeDirY = state.direction.y * this.dodgeSpeedBoost;
+                        // Clear the stored state after using it
+                        button.finalJoystickState = null;
+                    } else {
+                        // Magnitude too low, use facing direction
+                        dodgeDirX = Math.cos(this.rotation) * this.dodgeSpeedBoost;
+                        dodgeDirY = Math.sin(this.rotation) * this.dodgeSpeedBoost;
+                    }
+                } else if (input.touchJoysticks && input.touchJoysticks.dodge && input.touchJoysticks.dodge.active) {
+                    // Joystick is still active (fallback)
+                    const joystick = input.touchJoysticks.dodge;
+                    const dir = joystick.getDirection();
+                    dodgeDirX = dir.x * this.dodgeSpeedBoost;
+                    dodgeDirY = dir.y * this.dodgeSpeedBoost;
+                } else {
+                    // Fallback: use movement joystick direction
+                    const moveInput = input.getMovementInput ? input.getMovementInput() : { x: 0, y: 0 };
+                    const inputLength = Math.sqrt(moveInput.x * moveInput.x + moveInput.y * moveInput.y);
+                    
+                    if (inputLength > 0) {
+                        dodgeDirX = moveInput.x * this.dodgeSpeedBoost;
+                        dodgeDirY = moveInput.y * this.dodgeSpeedBoost;
+                    } else {
+                        dodgeDirX = Math.cos(this.rotation) * this.dodgeSpeedBoost;
+                        dodgeDirY = Math.sin(this.rotation) * this.dodgeSpeedBoost;
+                    }
+                }
+            } else {
+                // Desktop: always dash in facing direction
+                dodgeDirX = Math.cos(this.rotation) * this.dodgeSpeedBoost;
+                dodgeDirY = Math.sin(this.rotation) * this.dodgeSpeedBoost;
+            }
         } else {
             // Other classes dodge based on movement input
-            let moveX = 0;
-            let moveY = 0;
-            if (input.getKeyState('w')) moveY -= 1;
-            if (input.getKeyState('s')) moveY += 1;
-            if (input.getKeyState('a')) moveX -= 1;
-            if (input.getKeyState('d')) moveX += 1;
-            
-            const inputLength = Math.sqrt(moveX * moveX + moveY * moveY);
+            const moveInput = input.getMovementInput ? input.getMovementInput() : { x: 0, y: 0 };
+            const inputLength = Math.sqrt(moveInput.x * moveInput.x + moveInput.y * moveInput.y);
             
             if (inputLength > 0) {
                 // If player is moving, dodge in movement direction
-                const normalizedX = moveX / inputLength;
-                const normalizedY = moveY / inputLength;
-                dodgeDirX = normalizedX * this.dodgeSpeedBoost;
-                dodgeDirY = normalizedY * this.dodgeSpeedBoost;
+                dodgeDirX = moveInput.x * this.dodgeSpeedBoost;
+                dodgeDirY = moveInput.y * this.dodgeSpeedBoost;
             } else {
                 // If standing still, dodge forward (toward mouse/aiming direction)
                 dodgeDirX = Math.cos(this.rotation) * this.dodgeSpeedBoost;
@@ -970,35 +1243,323 @@ class Player {
     }
     
     handleHeavyAttack(input) {
-        if (this.isChargingHeavy) return; // Already charging
+        // Check for heavy attack input (right click or touch button/joystick)
+        let heavyJustPressed = false;
+        let heavyPressed = false;
         
-        // Check for right click (once per press)
-        const rightJustClicked = input.mouseRight && !this.lastMouseRight;
-        this.lastMouseRight = input.mouseRight;
+        if (input.isTouchMode && input.isTouchMode()) {
+            // Check if this class uses joystick for heavy attack
+            const usesHeavyJoystick = typeof Input !== 'undefined' && 
+                Input.getAbilityInputType && 
+                Input.getAbilityInputType(this.playerClass, 'heavyAttack') === 'joystick-press-release';
+            
+            if (usesHeavyJoystick && (this.playerClass === 'square' || this.playerClass === 'triangle')) {
+                // Warrior/Triangle: use joystick for directional charge attack (press and hold to aim, release to fire)
+                if (input.touchButtons && input.touchButtons.heavyAttack) {
+                    const button = input.touchButtons.heavyAttack;
+                    heavyPressed = button.pressed;
+                    
+                    // Start charging when button is pressed (only if not already charging)
+                    if (button.justPressed && this.heavyAttackCooldown <= 0 && !this.isChargingHeavy) {
+                        this.startHeavyAttack();
+                        // Initialize preview based on class
+                        if (this.playerClass === 'triangle') {
+                            // Triangle: cone preview
+                            this.heavyAttackPreviewAngle = this.rotation;
+                            this.heavyAttackPreviewActive = true;
+                        } else if (this.playerClass === 'square') {
+                            // Warrior: thrust preview
+                            this.thrustPreviewActive = true;
+                        }
+                    }
+                    
+                    // Rotation is already updated by getAimDirection() which checks heavy attack joystick first
+                    // Just update preview
+                    if (this.isChargingHeavy && button.pressed) {
+                        if (this.playerClass === 'triangle') {
+                            // Update preview angle to match current rotation (which is set by getAimDirection)
+                            this.heavyAttackPreviewAngle = this.rotation;
+                            this.heavyAttackPreviewActive = true;
+                        } else if (this.playerClass === 'square') {
+                            // Warrior: show thrust preview
+                            this.thrustPreviewActive = true;
+                        }
+                    } else if (this.isChargingHeavy && !button.pressed) {
+                        // Button released, hide preview
+                        if (this.playerClass === 'triangle') {
+                            this.heavyAttackPreviewActive = false;
+                        } else if (this.playerClass === 'square') {
+                            this.thrustPreviewActive = false;
+                        }
+                    }
+                }
+                // Note: Fire on release is handled in the charge update loop below
+                return; // Heavy attack is handled above for these classes
+            } else {
+                // Other classes: check for heavy attack button release (press-and-release)
+                if (input.touchButtons && input.touchButtons.heavyAttack) {
+                    heavyJustPressed = input.touchButtons.heavyAttack.justReleased;
+                }
+            }
+        } else {
+            // Keyboard/mouse mode: check for right click (once per press)
+            const rightJustClicked = input.mouseRight && !this.lastMouseRight;
+            this.lastMouseRight = input.mouseRight;
+            heavyJustPressed = rightJustClicked;
+        }
         
-        // If right clicked and cooldown ready
-        if (rightJustClicked && this.heavyAttackCooldown <= 0) {
+        // If heavy attack triggered and cooldown ready (for non-warrior/triangle classes)
+        if (heavyJustPressed && this.heavyAttackCooldown <= 0 && !this.isChargingHeavy) {
             this.startHeavyAttack();
         }
     }
     
     handleSpecialAbility(input) {
-        // Check for Spacebar (once per press)
-        const spaceJustPressed = input.getKeyState(' ') && !this.lastSpacebar;
-        this.lastSpacebar = input.getKeyState(' ');
+        // Check for special ability input (Spacebar or touch button)
+        let specialJustPressed = false;
+        let specialPressed = false;
+        
+        if (input.isTouchMode && input.isTouchMode()) {
+            // Touch mode: check for special ability button
+            if (input.touchButtons && input.touchButtons.specialAbility) {
+                const button = input.touchButtons.specialAbility;
+                specialPressed = button.pressed;
+                
+                // Different behavior based on ability type
+                if (this.playerClass === 'pentagon') {
+                    // Shield: press-and-hold (directional, continuous)
+                    // Activate on press, deactivate on release
+                    if (button.justPressed && this.specialCooldown <= 0 && !this.shieldActive && !this.whirlwindActive && !this.shadowClonesActive && !this.blinkDecoyActive) {
+                        this.activateShield(input);
+                    }
+                    // Deactivate shield when button is released
+                    if (button.justReleased && this.shieldActive) {
+                        this.shieldActive = false;
+                        this.shieldElapsed = 0;
+                        // Start wave animation
+                        this.shieldWaveActive = true;
+                        this.shieldWaveElapsed = 0;
+                    }
+                } else if (this.playerClass === 'hexagon') {
+                    // Blink: press-and-release (directional, one-time)
+                    specialJustPressed = button.justReleased;
+                    
+                    // Show preview while holding
+                    if (button.pressed && this.specialCooldown <= 0 && !this.shieldActive && !this.whirlwindActive && !this.shadowClonesActive && !this.blinkDecoyActive) {
+                        this.updateBlinkPreview(input);
+                    }
+                    // Don't clear preview on release - it will be cleared in activateBlink after use
+                } else {
+                    // Whirlwind and Shadow Clones: press-and-release (non-directional)
+                    specialJustPressed = button.justReleased;
+                }
+            }
+        } else {
+            // Keyboard/mouse mode: check for Spacebar
+            const spaceJustPressed = input.getKeyState(' ') && !this.lastSpacebar;
+            this.lastSpacebar = input.getKeyState(' ');
+            specialJustPressed = spaceJustPressed;
+            specialPressed = input.getKeyState(' ');
+            
+            // Handle shield (pentagon) - press and hold
+            if (this.playerClass === 'pentagon') {
+                if (spaceJustPressed && this.specialCooldown <= 0 && !this.shieldActive && !this.whirlwindActive && !this.shadowClonesActive && !this.blinkDecoyActive) {
+                    this.activateShield(input);
+                }
+                // Deactivate shield when spacebar released
+                if (!specialPressed && this.shieldActive) {
+                    this.shieldActive = false;
+                    this.shieldElapsed = 0;
+                    // Start wave animation
+                    this.shieldWaveActive = true;
+                    this.shieldWaveElapsed = 0;
+                }
+            }
+            
+            // Show preview for blink while spacebar held
+            if (this.playerClass === 'hexagon' && specialPressed && this.specialCooldown <= 0 && !this.blinkDecoyActive) {
+                this.updateBlinkPreview(input);
+            } else if (!specialPressed && !specialJustPressed) {
+                // Only clear preview if spacebar was released earlier (not on the frame it's released)
+                this.blinkPreviewActive = false;
+            }
+        }
         
         // Check if cooldown ready and not already using another ability
-        if (spaceJustPressed && this.specialCooldown <= 0 && !this.shieldActive && !this.whirlwindActive && !this.shadowClonesActive) {
+        // Note: Shield (pentagon) is handled above on justPressed, not here
+        if (specialJustPressed && this.specialCooldown <= 0 && !this.shieldActive && !this.whirlwindActive && !this.shadowClonesActive) {
+            // For hexagon blink, update preview one last time before activating
+            // This ensures we capture the final joystick state right before release
+            if (this.playerClass === 'hexagon' && input.isTouchMode && input.isTouchMode()) {
+                // Update preview to capture current joystick state
+                this.updateBlinkPreview(input);
+            }
+            
             if (this.playerClass === 'square') {
                 this.activateWhirlwind();
-            } else if (this.playerClass === 'pentagon') {
-                this.activateShield();
             } else if (this.playerClass === 'hexagon') {
                 this.activateBlink(input);
             } else if (this.playerClass === 'triangle') {
                 this.activateShadowClones();
             }
+            // Pentagon shield is handled above on button press, not here
         }
+    }
+    
+    // Update dash preview (shows where player will dash - triangle on mobile)
+    updateDashPreview(input) {
+        if (this.playerClass !== 'triangle') return;
+        if (!input.isTouchMode || !input.isTouchMode()) return;
+        
+        this.dashPreviewActive = true;
+        
+        // Get target position based on joystick direction
+        let targetX, targetY;
+        let distance = this.dodgeSpeedBoost * this.dodgeDuration; // Dash distance
+        
+        if (input.touchJoysticks && input.touchJoysticks.dodge) {
+            // Touch mode: use joystick direction and magnitude
+            const joystick = input.touchJoysticks.dodge;
+            if (joystick.active && joystick.getMagnitude() > 0.1) {
+                const dir = joystick.getDirection();
+                // Distance scales with magnitude: minimum 50% of max distance, up to full distance
+                const mag = joystick.getMagnitude();
+                const scaledDistance = distance * (0.5 + mag * 0.5); // Range from 50% to 100% of dash distance
+                targetX = this.x + dir.x * scaledDistance;
+                targetY = this.y + dir.y * scaledDistance;
+                this.dashPreviewDistance = scaledDistance;
+            } else {
+                // Joystick not active, use facing direction with minimum distance
+                targetX = this.x + Math.cos(this.rotation) * distance * 0.5;
+                targetY = this.y + Math.sin(this.rotation) * distance * 0.5;
+                this.dashPreviewDistance = distance * 0.5;
+            }
+        } else {
+            // Fallback: use facing direction
+            targetX = this.x + Math.cos(this.rotation) * distance * 0.5;
+            targetY = this.y + Math.sin(this.rotation) * distance * 0.5;
+            this.dashPreviewDistance = distance * 0.5;
+        }
+        
+        // Clamp to bounds
+        if (typeof Game !== 'undefined' && Game.canvas) {
+            targetX = clamp(targetX, this.size, Game.canvas.width - this.size);
+            targetY = clamp(targetY, this.size, Game.canvas.height - this.size);
+        }
+        
+        this.dashPreviewX = targetX;
+        this.dashPreviewY = targetY;
+    }
+    
+    // Update heavy attack preview (shows fan of knives cone - triangle on mobile)
+    updateHeavyAttackPreview(input) {
+        if (this.playerClass !== 'triangle') return;
+        if (!input.isTouchMode || !input.isTouchMode()) return;
+        
+        this.heavyAttackPreviewActive = true;
+        
+        // Get direction from joystick
+        if (input.touchJoysticks && input.touchJoysticks.heavyAttack) {
+            const joystick = input.touchJoysticks.heavyAttack;
+            if (joystick.active && joystick.getMagnitude() > 0.1) {
+                // Update preview angle to match joystick
+                this.heavyAttackPreviewAngle = joystick.getAngle();
+            } else {
+                // Joystick not active, use current rotation
+                this.heavyAttackPreviewAngle = this.rotation;
+            }
+        } else {
+            // Fallback: use current rotation
+            this.heavyAttackPreviewAngle = this.rotation;
+        }
+    }
+    
+    // Update thrust preview (shows forward thrust destination - square/warrior on mobile)
+    updateThrustPreview(input) {
+        if (this.playerClass !== 'square') return;
+        if (!input.isTouchMode || !input.isTouchMode()) return;
+        
+        this.thrustPreviewActive = true;
+        
+        // Calculate thrust destination based on current rotation
+        const thrustDistance = 300; // Same as actual thrust
+        const thrustDirX = Math.cos(this.rotation);
+        const thrustDirY = Math.sin(this.rotation);
+        
+        let targetX = this.x + thrustDirX * thrustDistance;
+        let targetY = this.y + thrustDirY * thrustDistance;
+        
+        // Clamp to bounds
+        if (typeof Game !== 'undefined' && Game.canvas) {
+            targetX = clamp(targetX, this.size, Game.canvas.width - this.size);
+            targetY = clamp(targetY, this.size, Game.canvas.height - this.size);
+        }
+        
+        // Calculate actual distance (may be less if clamped)
+        const dx = targetX - this.x;
+        const dy = targetY - this.y;
+        const actualDistance = Math.sqrt(dx * dx + dy * dy);
+        
+        this.thrustPreviewX = targetX;
+        this.thrustPreviewY = targetY;
+        this.thrustPreviewDistance = actualDistance;
+    }
+    
+    // Update blink preview (shows where player will teleport)
+    updateBlinkPreview(input) {
+        if (this.playerClass !== 'hexagon') return;
+        
+        this.blinkPreviewActive = true;
+        
+        // Get target position based on input method
+        let targetX, targetY;
+        let distance = 400; // Max blink range
+        
+        if (input.isTouchMode && input.isTouchMode() && input.touchJoysticks && input.touchJoysticks.specialAbility) {
+            // Touch mode: use joystick direction and magnitude
+            const joystick = input.touchJoysticks.specialAbility;
+            if (joystick.active && joystick.getMagnitude() > 0.1) {
+                const dir = joystick.getDirection();
+                const mag = joystick.getMagnitude();
+                // Distance scales with magnitude: 0.2 magnitude = 80px, 1.0 magnitude = 400px
+                distance = 80 + (mag * 320); // Range from 80px to 400px
+                targetX = this.x + dir.x * distance;
+                targetY = this.y + dir.y * distance;
+            } else {
+                // Joystick not active, use facing direction with minimum distance
+                targetX = this.x + Math.cos(this.rotation) * 200;
+                targetY = this.y + Math.sin(this.rotation) * 200;
+                distance = 200;
+            }
+        } else {
+            // Mouse mode: use mouse position
+            const mouseX = input.mouse.x || this.x;
+            const mouseY = input.mouse.y || this.y;
+            const dx = mouseX - this.x;
+            const dy = mouseY - this.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            if (dist > 0) {
+                distance = Math.min(400, dist);
+                const angle = Math.atan2(dy, dx);
+                targetX = this.x + Math.cos(angle) * distance;
+                targetY = this.y + Math.sin(angle) * distance;
+            } else {
+                targetX = this.x + Math.cos(this.rotation) * 200;
+                targetY = this.y + Math.sin(this.rotation) * 200;
+                distance = 200;
+            }
+        }
+        
+        // Clamp to bounds
+        if (typeof Game !== 'undefined' && Game.canvas) {
+            targetX = clamp(targetX, this.size, Game.canvas.width - this.size);
+            targetY = clamp(targetY, this.size, Game.canvas.height - this.size);
+        }
+        
+        this.blinkPreviewX = targetX;
+        this.blinkPreviewY = targetY;
+        this.blinkPreviewDistance = distance;
     }
     
     activateWhirlwind() {
@@ -1010,12 +1571,18 @@ class Player {
         console.log('Whirlwind activated!');
     }
     
-    activateShield() {
+    activateShield(input) {
         this.shieldActive = true;
         this.shieldElapsed = 0;
         this.specialCooldown = this.specialCooldownTime;
         this.invulnerable = true;
         this.invulnerabilityTime = 0.2; // 0.2s windup i-frames
+        
+        // Rotation is already updated by getAimDirection() which checks special ability joystick
+        // Shield always faces forward (front of character) - just use this.rotation
+        // Store initial shield direction for wave
+        this.shieldDirection = this.rotation;
+        
         console.log('Shield activated!');
     }
     
@@ -1024,12 +1591,90 @@ class Player {
         const oldX = this.x;
         const oldY = this.y;
         
-        // Get mouse position and teleport there (max 400px range)
-        const mouseX = input.mouse.x || this.x;
-        const mouseY = input.mouse.y || this.y;
+        // Get target position (use preview if available, otherwise calculate)
+        let targetX, targetY;
+        let usedPreview = false;
         
-        const dx = mouseX - this.x;
-        const dy = mouseY - this.y;
+        // For touch mode, prioritize stored joystick state from button release
+        if (input.isTouchMode && input.isTouchMode()) {
+            // Check if button has stored final joystick state (captured on release)
+            const button = input.touchButtons && input.touchButtons.specialAbility;
+            if (button && button.finalJoystickState) {
+                // Use the stored joystick state from when button was released
+                const state = button.finalJoystickState;
+                if (state.magnitude > 0.1) {
+                    const distance = 80 + (state.magnitude * 320);
+                    targetX = this.x + state.direction.x * distance;
+                    targetY = this.y + state.direction.y * distance;
+                    // Clear the stored state after using it
+                    button.finalJoystickState = null;
+                } else {
+                    // Magnitude too low, use preview or fallback
+                    const previewDistance = Math.sqrt(
+                        (this.blinkPreviewX - this.x) ** 2 + 
+                        (this.blinkPreviewY - this.y) ** 2
+                    );
+                    if (this.blinkPreviewActive || previewDistance > 20) {
+                        targetX = this.blinkPreviewX;
+                        targetY = this.blinkPreviewY;
+                        usedPreview = true;
+                    } else {
+                        targetX = this.x + Math.cos(this.rotation) * 200;
+                        targetY = this.y + Math.sin(this.rotation) * 200;
+                    }
+                    button.finalJoystickState = null;
+                }
+            } else {
+                // No stored state, check preview position
+                const previewDistance = Math.sqrt(
+                    (this.blinkPreviewX - this.x) ** 2 + 
+                    (this.blinkPreviewY - this.y) ** 2
+                );
+                
+                if (this.blinkPreviewActive || previewDistance > 20) {
+                    // Use preview position
+                    targetX = this.blinkPreviewX;
+                    targetY = this.blinkPreviewY;
+                    usedPreview = true;
+                } else if (input.touchJoysticks && input.touchJoysticks.specialAbility) {
+                    // Preview not active, try to use current joystick state
+                    const joystick = input.touchJoysticks.specialAbility;
+                    if (joystick.active && joystick.getMagnitude() > 0.1) {
+                        const dir = joystick.getDirection();
+                        const mag = joystick.getMagnitude();
+                        const distance = 80 + (mag * 320);
+                        targetX = this.x + dir.x * distance;
+                        targetY = this.y + dir.y * distance;
+                    } else {
+                        // Fallback: use facing direction with default distance
+                        targetX = this.x + Math.cos(this.rotation) * 200;
+                        targetY = this.y + Math.sin(this.rotation) * 200;
+                    }
+                } else {
+                    // Fallback: use facing direction
+                    targetX = this.x + Math.cos(this.rotation) * 200;
+                    targetY = this.y + Math.sin(this.rotation) * 200;
+                }
+            }
+        } else {
+            // Mouse mode: use preview if available, otherwise mouse position
+            if (this.blinkPreviewActive) {
+                targetX = this.blinkPreviewX;
+                targetY = this.blinkPreviewY;
+                usedPreview = true;
+            } else {
+                const mouseX = input.mouse.x || this.x;
+                const mouseY = input.mouse.y || this.y;
+                targetX = mouseX;
+                targetY = mouseY;
+            }
+        }
+        
+        // Clear preview after using it
+        this.blinkPreviewActive = false;
+        
+        const dx = targetX - this.x;
+        const dy = targetY - this.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
         
         let newX, newY;
@@ -1039,8 +1684,8 @@ class Player {
             newX = this.x + Math.cos(angle) * 400;
             newY = this.y + Math.sin(angle) * 400;
         } else {
-            newX = mouseX;
-            newY = mouseY;
+            newX = targetX;
+            newY = targetY;
         }
         
         // Calculate knockback direction (away from destination if enemies are there)
@@ -1238,6 +1883,9 @@ class Player {
         const thrustDirX = Math.cos(this.rotation);
         const thrustDirY = Math.sin(this.rotation);
         
+        // Clear preview when thrust starts
+        this.thrustPreviewActive = false;
+        
         // Save start position
         this.thrustStartX = this.x;
         this.thrustStartY = this.y;
@@ -1295,8 +1943,8 @@ class Player {
                     const distance = Math.sqrt(dx * dx + dy * dy);
                     
                     if (distance < smashRadius) {
-                        // Push away from player
-                        const pushForce = 250;
+                        // Push away from player with increased force for more meaningful knockback
+                        const pushForce = 375; // Increased from 250 to 375 (50% increase)
                         const pushDirX = dx / distance;
                         const pushDirY = dy / distance;
                         enemy.applyKnockback(pushDirX * pushForce, pushDirY * pushForce);
@@ -1353,7 +2001,59 @@ class Player {
             // Check if this hitbox has successfully hit enemies
             const hasHitEnemies = hitbox.hitEnemies && hitbox.hitEnemies.size > 0;
             
-            if (hitbox.heavy) {
+            if (hitbox.type === 'hammer') {
+                // Draw hammer trail first (oldest to newest for proper layering)
+                hitbox.trail.forEach((trailPoint, index) => {
+                    const trailAge = hitbox.elapsed - trailPoint.time;
+                    const trailMaxAge = 0.25;
+                    const alpha = 1 - (trailAge / trailMaxAge); // Fade from 1 to 0
+                    
+                    ctx.fillStyle = `rgba(139, 90, 43, ${alpha * 0.3})`; // Brown with fading opacity
+                    ctx.beginPath();
+                    ctx.arc(trailPoint.x, trailPoint.y, hitbox.radius * 0.6, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+                
+                // Draw hammer handle/staff (line from player to hammer)
+                ctx.strokeStyle = hasHitEnemies ? 'rgba(80, 50, 20, 0.8)' : 'rgba(101, 67, 33, 0.7)';
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y);
+                ctx.lineTo(hitbox.x, hitbox.y);
+                ctx.stroke();
+                
+                // Draw hammer head at current position
+                ctx.save();
+                ctx.translate(hitbox.x, hitbox.y);
+                ctx.rotate(hitbox.currentAngle + Math.PI / 2); // Rotate hammer perpendicular to swing direction
+                
+                // Hammer head (large rectangle)
+                const hammerWidth = 25;
+                const hammerHeight = 35;
+                ctx.fillStyle = hasHitEnemies ? 'rgba(180, 120, 60, 0.9)' : 'rgba(139, 90, 43, 0.9)';
+                ctx.fillRect(-hammerWidth / 2, -hammerHeight / 2, hammerWidth, hammerHeight);
+                
+                // Hammer head outline
+                ctx.strokeStyle = hasHitEnemies ? 'rgba(255, 200, 0, 0.9)' : 'rgba(101, 67, 33, 0.9)';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(-hammerWidth / 2, -hammerHeight / 2, hammerWidth, hammerHeight);
+                
+                // Hammer head details (dark edge)
+                ctx.fillStyle = 'rgba(80, 50, 20, 0.8)';
+                ctx.fillRect(-hammerWidth / 2, -hammerHeight / 2, hammerWidth, 8);
+                
+                ctx.restore();
+                
+                // Draw hitbox circle (semi-transparent, for debug/collision visualization)
+                ctx.fillStyle = hasHitEnemies ? 'rgba(100, 255, 100, 0.2)' : 'rgba(139, 90, 43, 0.15)';
+                ctx.beginPath();
+                ctx.arc(hitbox.x, hitbox.y, hitbox.radius, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.strokeStyle = hasHitEnemies ? 'rgba(0, 255, 0, 0.6)' : 'rgba(101, 67, 33, 0.5)';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            } else if (hitbox.heavy) {
                 // Heavy attack - orange/red color, green if it hit
                 ctx.fillStyle = hasHitEnemies ? 'rgba(100, 255, 100, 0.4)' : 'rgba(255, 100, 0, 0.4)';
                 ctx.beginPath();
@@ -1429,10 +2129,13 @@ class Player {
             ctx.closePath();
             ctx.fill();
         } else if (shape === 'pentagon') {
-            // Draw pentagon
+            // Draw pentagon - rotated clockwise by 18° so a vertex points forward (0°)
+            // Vertex index 1 (originally at -18°) becomes 0° when rotated +18°
+            // This means a vertex (not a flat edge) points forward - the base is rotated
+            const rotationOffset = 18 * Math.PI / 180; // 18 degrees clockwise
             ctx.beginPath();
             for (let i = 0; i < 5; i++) {
-                const angle = (Math.PI * 2 / 5) * i - Math.PI / 2;
+                const angle = (Math.PI * 2 / 5) * i - Math.PI / 2 + rotationOffset;
                 const px = Math.cos(angle) * this.size;
                 const py = Math.sin(angle) * this.size;
                 if (i === 0) ctx.moveTo(px, py);
@@ -1450,13 +2153,64 @@ class Player {
         // Draw a small indicator showing facing direction
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();
-        ctx.arc(this.size - 10, 0, 5, 0, Math.PI * 2);
+        
+        // For pentagon, align indicator with the front vertex (now at 0° after rotation)
+        if (shape === 'pentagon') {
+            // After rotating the pentagon by +18°, vertex index 1 is at 0° (forward/right)
+            // Calculate the angle for vertex index 1: (2π/5) * 1 - π/2 + 18° = 0°
+            const rotationOffset = 18 * Math.PI / 180; // Same rotation as pentagon
+            const vertexIndex = 1; // The vertex that points forward after rotation
+            const vertexAngle = (Math.PI * 2 / 5) * vertexIndex - Math.PI / 2 + rotationOffset;
+            
+            // Position indicator on the vertex, inside the shape at the tip
+            const indicatorDistance = this.size * 0.7; // Inside the shape, at 70% of size
+            const indicatorX = Math.cos(vertexAngle) * indicatorDistance;
+            const indicatorY = Math.sin(vertexAngle) * indicatorDistance;
+            ctx.arc(indicatorX, indicatorY, 5, 0, Math.PI * 2);
+        } else {
+            // For other shapes, use standard front position
+            ctx.arc(this.size - 10, 0, 5, 0, Math.PI * 2);
+        }
+        
         ctx.fill();
         
         ctx.restore();
         
         // Restore global alpha from dodge transparency
         ctx.restore();
+        
+        // Draw block stance visual (Warrior passive) - light bubble when active
+        // Draw after player shape so it's visible on top
+        if (this.blockStanceActive && this.playerClass === 'square') {
+            // Calculate activation progress for smooth appearance
+            const activationProgress = Math.min(1.0, this.blockStanceTimer / this.blockStanceActivationTime);
+            
+            // Outer glow - pulsing light blue/white bubble
+            const pulseTime = Date.now() * 0.005;
+            const pulseAlpha = 0.3 + Math.sin(pulseTime) * 0.2;
+            const bubbleRadius = this.size + 15 + Math.sin(pulseTime * 2) * 2;
+            
+            // Draw outer glow with gradient
+            const gradient = ctx.createRadialGradient(
+                this.x, this.y, this.size,
+                this.x, this.y, bubbleRadius
+            );
+            gradient.addColorStop(0, `rgba(100, 150, 255, ${pulseAlpha * activationProgress})`);
+            gradient.addColorStop(0.5, `rgba(150, 200, 255, ${pulseAlpha * 0.6 * activationProgress})`);
+            gradient.addColorStop(1, `rgba(200, 250, 255, 0)`);
+            
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, bubbleRadius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Draw border ring
+            ctx.strokeStyle = `rgba(150, 200, 255, ${0.7 * activationProgress})`;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, bubbleRadius, 0, Math.PI * 2);
+            ctx.stroke();
+        }
         
         // Draw weapon orbiting visual
         if (this.weapon) {
@@ -1564,7 +2318,8 @@ class Player {
         if (this.shieldWaveActive) {
             ctx.save();
             ctx.translate(this.x, this.y);
-            ctx.rotate(this.rotation);
+            // Use stored shield direction instead of current rotation
+            ctx.rotate(this.shieldDirection);
             
             // Animate wave progress (0 to 1)
             const waveProgress = this.shieldWaveElapsed / this.shieldWaveDuration;
@@ -1614,6 +2369,185 @@ class Player {
             ctx.restore();
         }
         
+        // Draw dash preview - shows dash destination while aiming (triangle on mobile)
+        if (this.dashPreviewActive && this.playerClass === 'triangle') {
+            ctx.save();
+            
+            // Draw line from player to destination
+            ctx.strokeStyle = 'rgba(226, 74, 206, 0.6)'; // Pink color matching triangle/rogue
+            ctx.lineWidth = 3;
+            ctx.setLineDash([5, 5]); // Dashed line
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            ctx.lineTo(this.dashPreviewX, this.dashPreviewY);
+            ctx.stroke();
+            ctx.setLineDash([]); // Reset dash
+            
+            // Draw destination indicator (pulsing circle)
+            const pulse = Math.sin(Date.now() / 150) * 0.3 + 0.7; // Pulse between 0.4 and 1.0
+            const indicatorRadius = 12 * pulse;
+            
+            // Outer glow
+            ctx.fillStyle = `rgba(226, 74, 206, ${0.4 * pulse})`;
+            ctx.beginPath();
+            ctx.arc(this.dashPreviewX, this.dashPreviewY, indicatorRadius + 5, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Inner circle
+            ctx.fillStyle = `rgba(255, 150, 230, ${0.8 * pulse})`;
+            ctx.beginPath();
+            ctx.arc(this.dashPreviewX, this.dashPreviewY, indicatorRadius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Border
+            ctx.strokeStyle = `rgba(255, 255, 255, ${pulse})`;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            ctx.restore();
+        }
+        
+        // Draw heavy attack preview - shows fan of knives cone (triangle on mobile)
+        if (this.heavyAttackPreviewActive && this.playerClass === 'triangle') {
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            
+            const previewRange = 250; // How far the preview extends
+            const numKnives = 7; // Same as actual fan of knives
+            const spreadAngle = this.heavyAttackPreviewSpread; // 60 degrees
+            const pulse = Math.sin(Date.now() / 150) * 0.2 + 0.8; // Pulse between 0.6 and 1.0
+            
+            // Draw cone outline (outer edges)
+            ctx.strokeStyle = `rgba(226, 74, 206, ${0.6 * pulse})`; // Pink color matching triangle/rogue
+            ctx.lineWidth = 2;
+            ctx.setLineDash([3, 3]); // Dashed line
+            
+            // Left edge of cone
+            const leftAngle = this.heavyAttackPreviewAngle - spreadAngle / 2;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(Math.cos(leftAngle) * previewRange, Math.sin(leftAngle) * previewRange);
+            ctx.stroke();
+            
+            // Right edge of cone
+            const rightAngle = this.heavyAttackPreviewAngle + spreadAngle / 2;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(Math.cos(rightAngle) * previewRange, Math.sin(rightAngle) * previewRange);
+            ctx.stroke();
+            
+            // Draw lines for each knife direction
+            ctx.strokeStyle = `rgba(255, 150, 230, ${0.5 * pulse})`;
+            ctx.lineWidth = 1.5;
+            for (let i = 0; i < numKnives; i++) {
+                const angle = this.heavyAttackPreviewAngle + (i / (numKnives - 1) - 0.5) * spreadAngle;
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(Math.cos(angle) * previewRange, Math.sin(angle) * previewRange);
+                ctx.stroke();
+            }
+            
+            // Draw arc at the end showing spread
+            ctx.strokeStyle = `rgba(226, 74, 206, ${0.4 * pulse})`;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(0, 0, previewRange, leftAngle, rightAngle);
+            ctx.stroke();
+            
+            ctx.setLineDash([]); // Reset dash
+            ctx.restore();
+        }
+        
+        // Draw thrust preview - shows forward thrust destination (square/warrior on mobile)
+        if (this.thrustPreviewActive && this.playerClass === 'square') {
+            ctx.save();
+            
+            // Draw line from player to destination
+            ctx.strokeStyle = 'rgba(100, 150, 255, 0.6)'; // Blue color matching square/warrior
+            ctx.lineWidth = 3;
+            ctx.setLineDash([5, 5]); // Dashed line
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            ctx.lineTo(this.thrustPreviewX, this.thrustPreviewY);
+            ctx.stroke();
+            ctx.setLineDash([]); // Reset dash
+            
+            // Draw destination indicator (pulsing circle)
+            const pulse = Math.sin(Date.now() / 150) * 0.3 + 0.7; // Pulse between 0.4 and 1.0
+            const indicatorRadius = 15 * pulse;
+            
+            // Outer glow
+            ctx.fillStyle = `rgba(100, 150, 255, ${0.4 * pulse})`;
+            ctx.beginPath();
+            ctx.arc(this.thrustPreviewX, this.thrustPreviewY, indicatorRadius + 5, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Inner circle
+            ctx.fillStyle = `rgba(150, 200, 255, ${0.8 * pulse})`;
+            ctx.beginPath();
+            ctx.arc(this.thrustPreviewX, this.thrustPreviewY, indicatorRadius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Border
+            ctx.strokeStyle = `rgba(255, 255, 255, ${pulse})`;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            // Draw distance indicator (small text showing distance)
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.font = 'bold 12px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText(`${Math.round(this.thrustPreviewDistance)}px`, this.thrustPreviewX, this.thrustPreviewY + indicatorRadius + 8);
+            
+            ctx.restore();
+        }
+        
+        // Draw blink preview - shows teleport destination while aiming
+        if (this.blinkPreviewActive && this.playerClass === 'hexagon') {
+            ctx.save();
+            
+            // Draw line from player to destination
+            ctx.strokeStyle = 'rgba(150, 200, 255, 0.6)';
+            ctx.lineWidth = 3;
+            ctx.setLineDash([5, 5]); // Dashed line
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            ctx.lineTo(this.blinkPreviewX, this.blinkPreviewY);
+            ctx.stroke();
+            ctx.setLineDash([]); // Reset dash
+            
+            // Draw destination indicator (pulsing circle)
+            const pulse = Math.sin(Date.now() / 150) * 0.3 + 0.7; // Pulse between 0.4 and 1.0
+            const indicatorRadius = 15 * pulse;
+            
+            // Outer glow
+            ctx.fillStyle = `rgba(150, 200, 255, ${0.4 * pulse})`;
+            ctx.beginPath();
+            ctx.arc(this.blinkPreviewX, this.blinkPreviewY, indicatorRadius + 5, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Inner circle
+            ctx.fillStyle = `rgba(200, 220, 255, ${0.8 * pulse})`;
+            ctx.beginPath();
+            ctx.arc(this.blinkPreviewX, this.blinkPreviewY, indicatorRadius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Border
+            ctx.strokeStyle = `rgba(255, 255, 255, ${pulse})`;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            // Draw distance indicator (small text showing distance)
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.font = 'bold 12px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText(`${Math.round(this.blinkPreviewDistance)}px`, this.blinkPreviewX, this.blinkPreviewY + indicatorRadius + 8);
+            
+            ctx.restore();
+        }
+        
         // Draw blink explosion - expanding circles at destination
         if (this.blinkExplosionActive) {
             const explosionProgress = this.blinkExplosionElapsed / this.blinkExplosionDuration;
@@ -1655,7 +2589,7 @@ class Player {
             // Class-specific charge effects
             if (this.playerClass === 'triangle') {
                 // Rogue: Pink/purple pulsing effect
-                ctx.strokeStyle = '#e24ace';
+                ctx.strokeStyle = '#ff1493';
                 ctx.lineWidth = 3;
                 ctx.beginPath();
                 ctx.arc(this.x, this.y, this.size * pulseSize, 0, Math.PI * 2);
@@ -1670,7 +2604,7 @@ class Player {
                 ctx.stroke();
             } else if (this.playerClass === 'hexagon') {
                 // Mage: Magical build-up circles
-                ctx.strokeStyle = '#9c27b0';
+                ctx.strokeStyle = '#673ab7';
                 ctx.lineWidth = 3;
                 for (let i = 0; i < 3; i++) {
                     const offset = i * 15;
@@ -1793,6 +2727,11 @@ class Player {
     
     takeDamage(damage) {
         if (this.invulnerable || this.dead) return;
+        
+        // Apply block stance (Warrior passive: 50% damage reduction when standing still and active)
+        if (this.playerClass === 'square' && this.blockStanceActive) {
+            damage = damage * 0.5; // 50% damage reduction
+        }
         
         // Apply shield damage reduction if active
         if (this.shieldActive) {

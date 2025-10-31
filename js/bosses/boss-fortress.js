@@ -9,10 +9,10 @@ class BossFortress extends BossBase {
         this.width = 100;
         this.height = 80;
         this.size = Math.max(this.width, this.height);
-        this.maxHp = 234; // BossBase will multiply by 5 (180 * 1.3 = 234 for 30% increase)
+        this.maxHp = 1473; // Increased base HP (~3.68x) to match Swarm King change
         this.hp = this.maxHp;
         this.damage = 12;
-        this.moveSpeed = 80; // Increased from 60 for better mobility
+        this.moveSpeed = 85.6; // Increased from 60 for better mobility
         this.color = '#8b4513';
         
         this.state = 'chase';
@@ -255,8 +255,8 @@ class BossFortress extends BossBase {
                     Game.projectiles.push({
                         x: this.x,
                         y: this.y,
-                        vx: (dx / dist) * 200,
-                        vy: (dy / dist) * 200,
+                        vx: (dx / dist) * 214,
+                        vy: (dy / dist) * 214,
                         damage: this.damage * 0.8,
                         size: 8,
                         lifetime: 2.0,
@@ -345,7 +345,7 @@ class BossFortress extends BossBase {
         const distance = Math.sqrt(dx * dx + dy * dy);
         
         if (distance > 0) {
-            const projectileSpeed = 220;
+            const projectileSpeed = 235.4;
             const count = 3 + Math.floor(Math.random() * 2); // 3-4 projectiles
             
             // Fire from different positions along top edge (crenellations)
@@ -380,7 +380,7 @@ class BossFortress extends BossBase {
         const distance = Math.sqrt(dx * dx + dy * dy);
         
         if (distance > 0) {
-            const projectileSpeed = 200;
+            const projectileSpeed = 214;
             const angle = Math.atan2(dy, dx);
             
             // Fire 2 projectiles in quick succession

@@ -6,10 +6,11 @@ class OctagonEnemy extends EnemyBase {
         
         // Stats
         this.size = 22;
-        this.maxHp = 80;
-        this.hp = 80;
+        this.maxHp = 110;
+        this.hp = 110;
         this.damage = 12;
         this.moveSpeed = 110;
+        this.baseMoveSpeed = 110; // Store for stun system
         
         // Properties
         this.color = '#ffd700'; // Gold
@@ -36,11 +37,23 @@ class OctagonEnemy extends EnemyBase {
     update(deltaTime, player) {
         if (!this.alive || !player.alive) return;
         
+        // Process stun first
+        this.processStun(deltaTime);
+        
+        // Apply stun slow factor to movement speed
+        if (this.stunned) {
+            this.moveSpeed = this.baseMoveSpeed * this.stunSlowFactor;
+        } else {
+            this.moveSpeed = this.baseMoveSpeed;
+        }
+        
+        // Update attack cooldowns (slower when stunned)
+        const cooldownDelta = this.stunned ? deltaTime * this.stunSlowFactor : deltaTime;
         if (this.attackCooldown > 0) {
-            this.attackCooldown -= deltaTime;
+            this.attackCooldown -= cooldownDelta;
         }
         if (this.shootCooldown > 0) {
-            this.shootCooldown -= deltaTime;
+            this.shootCooldown -= cooldownDelta;
         }
         
         if (this.postAttackPause > 0) {
@@ -97,6 +110,11 @@ class OctagonEnemy extends EnemyBase {
                 
                 this.x += moveX * this.moveSpeed * deltaTime;
                 this.y += moveY * this.moveSpeed * deltaTime;
+                
+                // Update rotation to face movement direction
+                if (moveX !== 0 || moveY !== 0) {
+                    this.rotation = Math.atan2(moveY, moveX);
+                }
                 return;
             }
             
@@ -190,6 +208,11 @@ class OctagonEnemy extends EnemyBase {
             
             this.x += moveX * this.moveSpeed * deltaTime;
             this.y += moveY * this.moveSpeed * deltaTime;
+            
+            // Update rotation to face movement direction
+            if (moveX !== 0 || moveY !== 0) {
+                this.rotation = Math.atan2(moveY, moveX);
+            }
         } else if (this.state === 'spin') {
             this.spinElapsed += deltaTime;
             
@@ -210,6 +233,9 @@ class OctagonEnemy extends EnemyBase {
             this.x += dirX * this.moveSpeed * 2 * deltaTime;
             this.y += dirY * this.moveSpeed * 2 * deltaTime;
             
+            // Update rotation to face charge direction
+            this.rotation = Math.atan2(dirY, dirX);
+            
             if (this.chargeElapsed >= this.chargeDuration) {
                 this.state = 'cooldown';
                 this.attackCooldown = this.attackCooldownTime;
@@ -224,6 +250,11 @@ class OctagonEnemy extends EnemyBase {
             
             this.x += dirX * this.moveSpeed * deltaTime;
             this.y += dirY * this.moveSpeed * deltaTime;
+            
+            // Update rotation to face movement direction
+            if (dirX !== 0 || dirY !== 0) {
+                this.rotation = Math.atan2(dirY, dirX);
+            }
             
             if (this.attackCooldown <= 0) {
                 this.state = 'chase';
@@ -330,6 +361,16 @@ class OctagonEnemy extends EnemyBase {
         ctx.restore();
         
         this.renderHealthBar(ctx);
+        
+        // Draw facing direction indicator (white dot)
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(
+            this.x + Math.cos(this.rotation) * (this.size + 5),
+            this.y + Math.sin(this.rotation) * (this.size + 5),
+            5, 0, Math.PI * 2
+        );
+        ctx.fill();
     }
 }
 

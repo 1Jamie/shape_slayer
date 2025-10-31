@@ -37,19 +37,74 @@ function checkAttacksVsEnemies(player, enemies) {
                     hitWeakPoint = !!weakPoint;
                 }
                 
+                // Check for backstab (Rogue passive: player must be behind enemy)
+                let isBackstab = false;
+                if (player.playerClass === 'triangle') {
+                    // Calculate vector from enemy to player
+                    const enemyToPlayerX = player.x - enemy.x;
+                    const enemyToPlayerY = player.y - enemy.y;
+                    const enemyToPlayerDist = Math.sqrt(enemyToPlayerX * enemyToPlayerX + enemyToPlayerY * enemyToPlayerY);
+                    
+                    if (enemyToPlayerDist > 0) {
+                        // Normalize enemy-to-player vector
+                        const enemyToPlayerNormX = enemyToPlayerX / enemyToPlayerDist;
+                        const enemyToPlayerNormY = enemyToPlayerY / enemyToPlayerDist;
+                        
+                        // Enemy forward direction
+                        const enemyForwardX = Math.cos(enemy.rotation);
+                        const enemyForwardY = Math.sin(enemy.rotation);
+                        
+                        // Dot product: negative means player is behind enemy
+                        const dot = enemyToPlayerNormX * enemyForwardX + enemyToPlayerNormY * enemyForwardY;
+                        isBackstab = dot < 0; // Player is behind enemy
+                    }
+                }
+                
+                // Calculate final damage with backstab multiplier
+                let finalDamage = hitbox.damage;
+                if (isBackstab) {
+                    finalDamage *= 2; // 2x damage for backstab
+                }
+                
                 // Pass position and radius for weak point detection (bosses will use this, others will ignore)
                 if (enemy.isBoss && typeof enemy.takeDamage === 'function') {
                     // Bosses: pass position/radius for weak point detection
-                    enemy.takeDamage(hitbox.damage, hitbox.x, hitbox.y, hitbox.radius);
+                    enemy.takeDamage(finalDamage, hitbox.x, hitbox.y, hitbox.radius);
                 } else {
-                    // Normal enemies: just pass damage
-                    enemy.takeDamage(hitbox.damage);
+                    // Normal enemies: pass damage (with backstab multiplier if applicable)
+                    enemy.takeDamage(finalDamage);
                 }
                 
-                // Calculate actual damage dealt (accounting for weak point multiplier)
-                const damageDealt = hitWeakPoint ? Math.min(hitbox.damage * 3, enemy.hp) : Math.min(hitbox.damage, enemy.hp);
+                // Apply hammer-specific effects (knockback and stun)
+                if (hitbox.type === 'hammer') {
+                    // Calculate knockback direction (away from player center)
+                    const knockbackDx = enemy.x - player.x;
+                    const knockbackDy = enemy.y - player.y;
+                    const knockbackDist = Math.sqrt(knockbackDx * knockbackDx + knockbackDy * knockbackDy);
+                    
+                    if (knockbackDist > 0) {
+                        // Moderate knockback force (120-150)
+                        const knockbackForce = 135;
+                        const knockbackX = (knockbackDx / knockbackDist) * knockbackForce;
+                        const knockbackY = (knockbackDy / knockbackDist) * knockbackForce;
+                        enemy.applyKnockback(knockbackX, knockbackY);
+                    }
+                    
+                    // Apply light stun (0.5-0.8 seconds)
+                    const stunDuration = 0.65;
+                    enemy.applyStun(stunDuration);
+                    
+                    // Trigger screen shake on hammer hit
+                    if (typeof Game !== 'undefined') {
+                        Game.triggerScreenShake(0.25, 0.1);
+                    }
+                }
                 
-                // Create damage number (show different color for weak point hits)
+                // Calculate actual damage dealt (accounting for weak point and backstab multipliers)
+                let damageDealt = hitWeakPoint ? finalDamage * 3 : finalDamage;
+                damageDealt = Math.min(damageDealt, enemy.hp);
+                
+                // Create damage number (show different color for weak point hits and backstab)
                 if (typeof createDamageNumber !== 'undefined') {
                     const isHeavyAttack = hitbox.heavy || false;
                     // Position damage number at weak point if hit, otherwise at enemy center
@@ -60,6 +115,7 @@ function checkAttacksVsEnemies(player, enemies) {
                         damageX = enemy.x + enemy.weakPoints[0].offsetX;
                         damageY = enemy.y + enemy.weakPoints[0].offsetY;
                     }
+                    // Show backstab with special color (purple/pink) - pass backstab flag if we add support
                     createDamageNumber(damageX, damageY, damageDealt, isHeavyAttack, hitWeakPoint);
                 }
                 

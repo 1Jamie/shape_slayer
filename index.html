@@ -2,22 +2,42 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Shape Slayer</title>
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            position: fixed;
+            touch-action: none;
+            -webkit-overflow-scrolling: none;
+        }
         body {
             margin: 0;
             padding: 0;
             display: flex;
             justify-content: center;
             align-items: center;
-            min-height: 100vh;
             background-color: #0a0a0a;
             font-family: Arial, sans-serif;
         }
         #gameCanvas {
-            border: 2px solid #333;
+            display: block;
             background-color: #1a1a2e;
+            max-width: 100vw;
+            max-height: 100vh;
+            width: auto;
+            height: auto;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+th            image-rendering: pixelated;
         }
     </style>
 </head>
@@ -27,6 +47,7 @@
     <!-- Load scripts in dependency order -->
     <script src="js/utils.js"></script>
     <script src="js/render.js"></script>
+    <script src="js/touch-controls.js"></script>
     <script src="js/input.js"></script>
     <script src="js/gear.js"></script>
     <script src="js/player.js"></script>
@@ -50,6 +71,7 @@
     <script src="js/ui.js"></script>
     <script src="js/debug.js"></script>
     <script src="js/save.js"></script>
+    <script src="js/version.js"></script>
     <script src="js/nexus.js"></script>
     <script src="js/main.js"></script>
 </body>

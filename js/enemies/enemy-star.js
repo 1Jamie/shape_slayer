@@ -6,10 +6,11 @@ class StarEnemy extends EnemyBase {
         
         // Stats
         this.size = 22;
-        this.maxHp = 40;
-        this.hp = 40;
+        this.maxHp = 55;
+        this.hp = 55;
         this.damage = 8;
         this.moveSpeed = 80;
+        this.baseMoveSpeed = 80; // Store for stun system
         
         // Properties
         this.color = '#ffcc00'; // Yellow
@@ -30,9 +31,20 @@ class StarEnemy extends EnemyBase {
     update(deltaTime, player) {
         if (!this.alive || !player.alive) return;
         
-        // Update attack cooldown
+        // Process stun first
+        this.processStun(deltaTime);
+        
+        // Apply stun slow factor to movement speed
+        if (this.stunned) {
+            this.moveSpeed = this.baseMoveSpeed * this.stunSlowFactor;
+        } else {
+            this.moveSpeed = this.baseMoveSpeed;
+        }
+        
+        // Update attack cooldown (slower when stunned)
         if (this.attackCooldown > 0) {
-            this.attackCooldown -= deltaTime;
+            const cooldownDelta = this.stunned ? deltaTime * this.stunSlowFactor : deltaTime;
+            this.attackCooldown -= cooldownDelta;
         }
         
         // Get target (handles decoy/clone logic)
@@ -97,6 +109,9 @@ class StarEnemy extends EnemyBase {
             // Add strafing offset
             this.x += perpX * strafeOffset * deltaTime * 0.4;
             this.y += perpY * strafeOffset * deltaTime * 0.4;
+            
+            // Update rotation to face movement direction (toward player for shooter)
+            this.rotation = Math.atan2(dy, dx);
         } else if (distance > this.maxRange) {
             // Too far - move closer with separation
             const towardDirX = dx / distance;
@@ -126,6 +141,11 @@ class StarEnemy extends EnemyBase {
             
             this.x += moveX * this.moveSpeed * deltaTime;
             this.y += moveY * this.moveSpeed * deltaTime;
+            
+            // Update rotation to face movement direction
+            if (moveX !== 0 || moveY !== 0) {
+                this.rotation = Math.atan2(moveY, moveX);
+            }
         } else {
             // Right distance - strafe and shoot
             // Strafing movement (perpendicular to player)
@@ -160,6 +180,9 @@ class StarEnemy extends EnemyBase {
             
             this.x += moveX * this.moveSpeed * deltaTime * 0.6; // Slower strafing
             this.y += moveY * this.moveSpeed * deltaTime * 0.6;
+            
+            // Update rotation to face player (shooter faces target)
+            this.rotation = Math.atan2(dy, dx);
             
             // Add slight adjustment toward ideal range
             const rangeDiff = distance - this.shootRange;
@@ -246,6 +269,16 @@ class StarEnemy extends EnemyBase {
         
         // Draw health bar
         this.renderHealthBar(ctx);
+        
+        // Draw facing direction indicator (white dot)
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(
+            this.x + Math.cos(this.rotation) * (this.size + 5),
+            this.y + Math.sin(this.rotation) * (this.size + 5),
+            5, 0, Math.PI * 2
+        );
+        ctx.fill();
     }
 }
 

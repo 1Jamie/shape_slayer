@@ -7,11 +7,18 @@ class EnemyBase {
         this.y = y;
         this.vx = 0;
         this.vy = 0;
+        this.rotation = 0; // Facing direction (in radians, 0 = right)
         
         // Knockback system
         this.knockbackVx = 0;
         this.knockbackVy = 0;
         this.knockbackDecay = 0.5; // Per second decay rate (faster decay = shorter knockback)
+        
+        // Stun system
+        this.stunned = false;
+        this.stunDuration = 0;
+        this.stunSlowFactor = 0.5; // 50% speed reduction when stunned
+        this.baseMoveSpeed = 100; // Store original move speed before stun
         
         // Common properties
         this.alive = true;
@@ -31,6 +38,27 @@ class EnemyBase {
     applyKnockback(forceX, forceY) {
         this.knockbackVx = forceX;
         this.knockbackVy = forceY;
+    }
+    
+    // Apply stun effect
+    applyStun(duration) {
+        this.stunned = true;
+        this.stunDuration = duration;
+        // Store base move speed if not already stored
+        if (this.baseMoveSpeed === undefined || this.baseMoveSpeed === null) {
+            this.baseMoveSpeed = this.moveSpeed;
+        }
+    }
+    
+    // Process stun (should be called in update before movement)
+    processStun(deltaTime) {
+        if (this.stunned && this.stunDuration > 0) {
+            this.stunDuration -= deltaTime;
+            if (this.stunDuration <= 0) {
+                this.stunned = false;
+                this.stunDuration = 0;
+            }
+        }
     }
     
     // Find the target to chase (handles decoy/clone logic)

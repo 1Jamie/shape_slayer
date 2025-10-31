@@ -7,10 +7,10 @@ class BossVortex extends BossBase {
         this.bossName = 'Vortex';
         
         this.size = 80;
-        this.maxHp = 260; // With 30% increase from base 200
+        this.maxHp = 1842; // Increased base HP (~3.68x) to match Swarm King change
         this.hp = this.maxHp;
         this.damage = 16;
-        this.moveSpeed = 110; // Increased from 90 for better mobility
+        this.moveSpeed = 117.7; // Increased from 90 for better mobility
         this.color = '#00ced1';
         
         this.rotationAngle = 0;
@@ -384,7 +384,7 @@ class BossVortex extends BossBase {
         
         // Tighter, faster spiral pattern
         const spiralAngle = Date.now() / 150; // Faster spiral (was 200)
-        const projectileSpeed = 240; // Faster projectiles (increased from 200)
+        const projectileSpeed = 256.8; // Faster projectiles (increased from 200)
         
         for (let i = 0; i < 8; i++) {
             const angle = spiralAngle + (Math.PI * 2 / 8) * i + (spiralAngle * 0.2); // Tighter spiral
@@ -406,7 +406,7 @@ class BossVortex extends BossBase {
         
         // Two waves in opposite spirals (tighter, faster)
         const spiralAngle = Date.now() / 150; // Faster spiral (was 200)
-        const projectileSpeed = 260; // Faster projectiles (increased from 220)
+        const projectileSpeed = 278.2; // Faster projectiles (increased from 220)
         
         for (let wave = 0; wave < 2; wave++) {
             const offset = wave * Math.PI;
@@ -530,7 +530,7 @@ class BossVortex extends BossBase {
             
             if (dist > 0) {
                 // Dash minion toward boss
-                const dashSpeed = 400;
+                const dashSpeed = 428;
                 minion.x += (dx / dist) * dashSpeed * 0.15;
                 minion.y += (dy / dist) * dashSpeed * 0.15;
                 

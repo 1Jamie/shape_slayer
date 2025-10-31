@@ -7,10 +7,10 @@ class BossFractalCore extends BossBase {
         this.bossName = 'Fractal Core';
         
         this.size = 70;
-        this.maxHp = 195; // With 30% increase from base 150 = 150 * 1.3
+        this.maxHp = 917; // Increased base HP (~3.68x) to match Swarm King change
         this.hp = this.maxHp;
         this.damage = 14;
-        this.moveSpeed = 120; // Increased from 100 for better mobility
+        this.moveSpeed = 128.4; // Increased from 100 for better mobility
         this.color = '#9b59b6';
         
         this.fragmented = false;
@@ -438,7 +438,7 @@ class BossFractalCore extends BossBase {
     rotationBlast() {
         if (typeof Game === 'undefined') return;
         
-        const projectileSpeed = 280; // Increased from 220
+        const projectileSpeed = 299.6; // Increased from 220
         for (let i = 0; i < 8; i++) {
             const angle = (Math.PI * 2 / 8) * i;
             Game.projectiles.push({
@@ -491,7 +491,7 @@ class BossFractalCore extends BossBase {
                 const dist = Math.sqrt(dx * dx + dy * dy);
                 if (dist > 0) {
                     // Move fragment toward player (faster in Phase 3)
-                    const chaseSpeed = this.phase === 3 ? 400 : 300;
+                    const chaseSpeed = this.phase === 3 ? 428 : 321;
                     frag.x += (dx / dist) * chaseSpeed * deltaTime;
                     frag.y += (dy / dist) * chaseSpeed * deltaTime;
                     
@@ -524,7 +524,7 @@ class BossFractalCore extends BossBase {
             const dist = Math.sqrt(dx * dx + dy * dy);
             if (dist > 0) {
                 // Dash forward
-                const dashSpeed = 500;
+                const dashSpeed = 535;
                 frag.x += (dx / dist) * dashSpeed * 0.15;
                 frag.y += (dy / dist) * dashSpeed * 0.15;
                 

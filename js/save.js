@@ -14,7 +14,11 @@ const SaveSystem = {
                 pentagon: { damage: 0, defense: 0, speed: 0 },
                 hexagon: { damage: 0, defense: 0, speed: 0 }
             },
-            selectedClass: null
+            selectedClass: null,
+            controlMode: 'auto', // 'auto', 'mobile', 'desktop'
+            fullscreenEnabled: false,
+            lastRunVersion: null,
+            hasSeenLaunchModal: false
         };
     },
     
@@ -34,7 +38,11 @@ const SaveSystem = {
                         pentagon: { ...defaults.upgrades.pentagon, ...(parsed.upgrades?.pentagon || {}) },
                         hexagon: { ...defaults.upgrades.hexagon, ...(parsed.upgrades?.hexagon || {}) }
                     },
-                    selectedClass: parsed.selectedClass || defaults.selectedClass
+                    selectedClass: parsed.selectedClass || defaults.selectedClass,
+                    controlMode: parsed.controlMode || defaults.controlMode,
+                    fullscreenEnabled: parsed.fullscreenEnabled !== undefined ? parsed.fullscreenEnabled : defaults.fullscreenEnabled,
+                    lastRunVersion: parsed.lastRunVersion !== undefined ? parsed.lastRunVersion : defaults.lastRunVersion,
+                    hasSeenLaunchModal: parsed.hasSeenLaunchModal !== undefined ? parsed.hasSeenLaunchModal : defaults.hasSeenLaunchModal
                 };
             }
         } catch (e) {
@@ -127,6 +135,96 @@ const SaveSystem = {
         };
         const baseCost = baseCosts[statType] || 50;
         return Math.floor(baseCost * Math.pow(1.2, currentLevel));
+    },
+    
+    // Get control mode setting (with migration from old values)
+    getControlMode() {
+        const save = this.load();
+        let mode = save.controlMode || 'auto';
+        
+        // Migrate old control mode values
+        if (mode === 'touch') {
+            mode = 'mobile';
+            save.controlMode = mode;
+            this.save(save);
+        } else if (mode === 'keyboard') {
+            mode = 'desktop';
+            save.controlMode = mode;
+            this.save(save);
+        }
+        
+        return mode;
+    },
+    
+    // Set control mode setting
+    setControlMode(mode) {
+        const save = this.load();
+        // Accept new values and migrate old ones
+        if (mode === 'auto' || mode === 'mobile' || mode === 'desktop') {
+            save.controlMode = mode;
+            this.save(save);
+            return true;
+        } else if (mode === 'touch') {
+            // Migrate old 'touch' to 'mobile'
+            save.controlMode = 'mobile';
+            this.save(save);
+            return true;
+        } else if (mode === 'keyboard') {
+            // Migrate old 'keyboard' to 'desktop'
+            save.controlMode = 'desktop';
+            this.save(save);
+            return true;
+        }
+        return false;
+    },
+    
+    // Get fullscreen preference
+    getFullscreenPreference() {
+        const save = this.load();
+        return save.fullscreenEnabled || false;
+    },
+    
+    // Set fullscreen preference
+    setFullscreenPreference(enabled) {
+        const save = this.load();
+        save.fullscreenEnabled = enabled === true;
+        this.save(save);
+        return true;
+    },
+    
+    // Get last run version
+    getLastRunVersion() {
+        const save = this.load();
+        return save.lastRunVersion || null;
+    },
+    
+    // Set last run version
+    setLastRunVersion(version) {
+        const save = this.load();
+        save.lastRunVersion = version;
+        this.save(save);
+        return true;
+    },
+    
+    // Check if update modal should show
+    shouldShowUpdateModal() {
+        if (typeof Game === 'undefined' || !Game.VERSION) return false;
+        const lastVersion = this.getLastRunVersion();
+        return lastVersion !== Game.VERSION;
+    },
+    
+    // Get has seen launch modal
+    getHasSeenLaunchModal() {
+        const save = this.load();
+        return save.hasSeenLaunchModal || false;
+    },
+    
+    // Set has seen launch modal
+    setHasSeenLaunchModal(seen) {
+        const save = this.load();
+        save.hasSeenLaunchModal = seen === true;
+        this.save(save);
+        return true;
     }
 };
 

@@ -40,9 +40,9 @@ let nexusRoom = null;
 // Class stations
 const classStations = [
     { key: 'square', name: 'Warrior', color: '#4a90e2', x: 200, y: 250 },
-    { key: 'triangle', name: 'Rogue', color: '#e24ace', x: 200, y: 350 },
+    { key: 'triangle', name: 'Rogue', color: '#ff1493', x: 200, y: 350 },
     { key: 'pentagon', name: 'Tank', color: '#c72525', x: 200, y: 450 },
-    { key: 'hexagon', name: 'Mage', color: '#9c27b0', x: 200, y: 550 }
+    { key: 'hexagon', name: 'Mage', color: '#673ab7', x: 200, y: 550 }
 ];
 
 // Upgrade stations
@@ -51,6 +51,42 @@ const upgradeStations = [
     { key: 'defense', name: 'Defense', icon: '🛡', x: 980, y: 380 },
     { key: 'speed', name: 'Speed', icon: '⚡', x: 980, y: 510 }
 ];
+
+// Class descriptions for tooltips
+const CLASS_DESCRIPTIONS = {
+    triangle: {
+        name: 'Rogue',
+        playstyle: 'High mobility assassin with critical hits',
+        basic: 'Quick Stab - Fast triangle projectile',
+        heavy: 'Fan of Knives - 7 knives in 60° spread, 2x damage each',
+        special: 'Shadow Clones - Creates 2 decoys for 3 seconds',
+        passive: 'Backstab - 2x damage from behind, 3 dodge charges'
+    },
+    square: {
+        name: 'Warrior',
+        playstyle: 'Balanced melee fighter with defensive options',
+        basic: 'Sword Swing - Wide coverage with 4 hitboxes',
+        heavy: 'Forward Thrust - Rush 300px forward, 2x damage + knockback',
+        special: 'Whirlwind - Spinning blades rotate around player for 2s',
+        passive: 'Block Stance - 50% damage reduction when standing still'
+    },
+    pentagon: {
+        name: 'Tank',
+        playstyle: 'High HP damage sponge with crowd control',
+        basic: 'Cone Slam - Wide cone attack with multiple hitboxes',
+        heavy: 'Ground Smash - AoE ring, 1.1x damage + knockback',
+        special: 'Shield Defense - Block for 1.5s, then wave pulse attack',
+        passive: 'High HP - Slow but extremely durable'
+    },
+    hexagon: {
+        name: 'Mage',
+        playstyle: 'Ranged attacker with AoE and mobility',
+        basic: 'Magic Bolt - Fast projectile attack',
+        heavy: 'AoE Blast - 125px radius, 2.7x damage + knockback',
+        special: 'Blink + Nova - Teleport 400px with i-frames, leaves decoy',
+        passive: 'Range Bonus - Increased damage at range'
+    }
+};
 
 // Initialize nexus
 function initNexus() {
@@ -80,27 +116,19 @@ function updateNexus(ctx, deltaTime) {
         initNexus();
     }
     
+    // Update input system (for touch controls)
+    if (typeof Input !== 'undefined' && Input.update) {
+        Input.update(deltaTime);
+    }
+    
     // Update player movement in nexus
     if (Game.player && Game.player.alive) {
-        // Handle movement input (WASD)
-        Game.player.vx = 0;
-        Game.player.vy = 0;
+        // Use unified movement input
+        const moveInput = Input.getMovementInput ? Input.getMovementInput() : { x: 0, y: 0 };
         
-        let moveX = 0;
-        let moveY = 0;
-        
-        if (Input.getKeyState('w')) moveY -= 1;
-        if (Input.getKeyState('s')) moveY += 1;
-        if (Input.getKeyState('a')) moveX -= 1;
-        if (Input.getKeyState('d')) moveX += 1;
-        
-        // Normalize diagonal movement
-        const length = Math.sqrt(moveX * moveX + moveY * moveY);
-        if (length > 0) {
-            const moveSpeed = 200; // Nexus movement speed
-            Game.player.vx = (moveX / length) * moveSpeed;
-            Game.player.vy = (moveY / length) * moveSpeed;
-        }
+        const moveSpeed = 200; // Nexus movement speed
+        Game.player.vx = moveInput.x * moveSpeed;
+        Game.player.vy = moveInput.y * moveSpeed;
         
         // Update position
         Game.player.x += Game.player.vx * deltaTime;
@@ -110,18 +138,28 @@ function updateNexus(ctx, deltaTime) {
         Game.player.x = clamp(Game.player.x, Game.player.size, nexusRoom.width - Game.player.size);
         Game.player.y = clamp(Game.player.y, Game.player.size, nexusRoom.height - Game.player.size);
         
-        // Calculate rotation to face mouse
-        if (Input.mouse.x !== undefined && Input.mouse.y !== undefined) {
+        // Calculate rotation to face aim direction (mouse or joystick)
+        if (Input.getAimDirection) {
+            Game.player.rotation = Input.getAimDirection();
+        } else if (Input.mouse.x !== undefined && Input.mouse.y !== undefined) {
             const dx = Input.mouse.x - Game.player.x;
             const dy = Input.mouse.y - Game.player.y;
             Game.player.rotation = Math.atan2(dy, dx);
         }
     }
     
-    // Handle G key interactions
+    // Handle interactions (G key or interaction button)
+    let shouldInteract = false;
+    
+    // Check keyboard input (or interaction button simulated G key)
     if (Input.getKeyState('g') && !Game.lastGKeyState) {
         Game.lastGKeyState = true;
-        
+        shouldInteract = true;
+    } else if (!Input.getKeyState('g')) {
+        Game.lastGKeyState = false;
+    }
+    
+    if (shouldInteract) {
         // Check class station interactions
         classStations.forEach(station => {
             const dx = station.x - Game.player.x;
@@ -160,8 +198,143 @@ function updateNexus(ctx, deltaTime) {
             // Start run
             Game.startGame();
         }
-    } else if (!Input.getKeyState('g')) {
-        Game.lastGKeyState = false;
+    }
+}
+
+// Render class station tooltip when player is near
+function renderClassStationTooltip(ctx, player, station) {
+    if (!player || !player.alive || !station || !nexusRoom) return;
+    
+    const dx = station.x - player.x;
+    const dy = station.y - player.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    // Show tooltip within interaction range (50 pixels, same as interaction check)
+    if (distance < 50) {
+        const classDesc = CLASS_DESCRIPTIONS[station.key];
+        if (!classDesc) return;
+        
+        // Calculate tooltip dimensions based on content
+        const padding = 12;
+        const topPadding = 18; // Extra padding at top to avoid cramped text
+        const titleHeight = 24;
+        const playstyleHeight = 18;
+        const abilityHeight = 16;
+        const abilityCount = 4;
+        const spacing = 4;
+        
+        const tooltipHeight = titleHeight + playstyleHeight + (abilityHeight * abilityCount) + (spacing * (abilityCount - 1)) + topPadding + padding;
+        const tooltipWidth = 400; // Wider to fit ability descriptions without overflow
+        
+        // Check if mobile/touch mode
+        const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+        
+        // Calculate initial position (above station)
+        let tooltipX = station.x;
+        // For mobile, position higher and further to the right to avoid joystick
+        if (isMobile) {
+            tooltipX = station.x + 180; // Shift further right to avoid left-side joystick
+            tooltipY = station.y - 60 - 120; // Position even higher on mobile
+        } else {
+            tooltipY = station.y - 60 - 20; // Above station (60 is station height, 20 is gap)
+        }
+        
+        // Check bounds and adjust positioning
+        const minX = tooltipWidth / 2 + padding;
+        const maxX = nexusRoom.width - tooltipWidth / 2 - padding;
+        const minY = tooltipHeight / 2 + padding;
+        // For mobile, reserve space at bottom for joystick (avoid bottom 200px)
+        const maxY = isMobile ? nexusRoom.height - tooltipHeight / 2 - 200 - padding : nexusRoom.height - tooltipHeight / 2 - padding;
+        
+        // Adjust horizontal position to stay within bounds
+        if (tooltipX < minX) {
+            tooltipX = minX;
+        } else if (tooltipX > maxX) {
+            tooltipX = maxX;
+        }
+        
+        // Adjust vertical position - if tooltip would overflow top, position below station (but not on mobile)
+        const stationBottom = station.y + 30; // Station is 60 tall, center at station.y
+        if (tooltipY - tooltipHeight / 2 < minY) {
+            if (!isMobile) {
+                // Position below station instead (desktop only)
+                tooltipY = stationBottom + 20 + tooltipHeight / 2;
+                // Make sure it doesn't overflow bottom either
+                if (tooltipY + tooltipHeight / 2 > maxY) {
+                    tooltipY = maxY;
+                }
+            } else {
+                // On mobile, just clamp to minimum Y
+                tooltipY = minY + tooltipHeight / 2;
+            }
+        } else if (tooltipY + tooltipHeight / 2 > maxY) {
+            // Tooltip would overflow bottom, position it higher
+            tooltipY = maxY;
+        }
+        
+        // Draw tooltip background
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+        ctx.fillRect(tooltipX - tooltipWidth / 2, tooltipY - tooltipHeight / 2, tooltipWidth, tooltipHeight);
+        
+        // Draw border
+        ctx.strokeStyle = station.color;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(tooltipX - tooltipWidth / 2, tooltipY - tooltipHeight / 2, tooltipWidth, tooltipHeight);
+        
+        // Draw text
+        let currentY = tooltipY - tooltipHeight / 2 + topPadding;
+        
+        // Class name (bold, larger)
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 18px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(classDesc.name, tooltipX, currentY);
+        currentY += titleHeight;
+        
+        // Playstyle/description
+        ctx.font = '14px Arial';
+        ctx.fillStyle = '#cccccc';
+        ctx.fillText(classDesc.playstyle, tooltipX, currentY);
+        currentY += playstyleHeight + spacing;
+        
+        // Abilities
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'left';
+        
+        // Basic attack
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 13px Arial';
+        ctx.fillText('Basic:', tooltipX - tooltipWidth / 2 + padding, currentY);
+        ctx.fillStyle = '#aaaaaa';
+        ctx.font = '13px Arial';
+        ctx.fillText(classDesc.basic, tooltipX - tooltipWidth / 2 + padding + 55, currentY);
+        currentY += abilityHeight + spacing;
+        
+        // Heavy attack
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 13px Arial';
+        ctx.fillText('Heavy:', tooltipX - tooltipWidth / 2 + padding, currentY);
+        ctx.fillStyle = '#aaaaaa';
+        ctx.font = '13px Arial';
+        ctx.fillText(classDesc.heavy, tooltipX - tooltipWidth / 2 + padding + 55, currentY);
+        currentY += abilityHeight + spacing;
+        
+        // Special ability
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 13px Arial';
+        ctx.fillText('Special:', tooltipX - tooltipWidth / 2 + padding, currentY);
+        ctx.fillStyle = '#aaaaaa';
+        ctx.font = '13px Arial';
+        ctx.fillText(classDesc.special, tooltipX - tooltipWidth / 2 + padding + 55, currentY);
+        currentY += abilityHeight + spacing;
+        
+        // Passive
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 13px Arial';
+        ctx.fillText('Passive:', tooltipX - tooltipWidth / 2 + padding, currentY);
+        ctx.fillStyle = '#aaaaaa';
+        ctx.font = '13px Arial';
+        ctx.fillText(classDesc.passive, tooltipX - tooltipWidth / 2 + padding + 55, currentY);
     }
 }
 
@@ -301,14 +474,21 @@ function renderNexus(ctx) {
         ctx.textAlign = 'left';
         ctx.fillText(station.name, station.x + 10, station.y + 5);
         
-        // Draw interaction prompt
-        if (isNear) {
+        // Draw interaction prompt (only show in desktop mode, moved down to avoid overlap)
+        if (isNear && typeof Input !== 'undefined' && (!Input.isTouchMode || !Input.isTouchMode())) {
             ctx.fillStyle = '#ffff00';
             ctx.font = '12px Arial';
             ctx.textAlign = 'center';
-            ctx.fillText('Press G to select', station.x, station.y + 35);
+            ctx.fillText('Press G to select', station.x, station.y + 45);
         }
     });
+    
+    // Render class station tooltips (when player is near)
+    if (Game.player && Game.player.alive) {
+        classStations.forEach(station => {
+            renderClassStationTooltip(ctx, Game.player, station);
+        });
+    }
     
     // Render upgrade stations
     if (Game.selectedClass) {
@@ -350,11 +530,11 @@ function renderNexus(ctx) {
             ctx.font = 'bold 12px Arial';
             ctx.fillText(`Cost: ${cost}`, station.x, station.y + 30);
             
-            // Draw interaction prompt
-            if (isNear) {
+            // Draw interaction prompt (only show in desktop mode, moved down to avoid overlap)
+            if (isNear && typeof Input !== 'undefined' && (!Input.isTouchMode || !Input.isTouchMode())) {
                 ctx.fillStyle = '#ffff00';
                 ctx.font = '12px Arial';
-                ctx.fillText('Press G to upgrade', station.x, station.y + 45);
+                ctx.fillText('Press G to upgrade', station.x, station.y + 55);
             }
         });
     }
@@ -390,44 +570,125 @@ function renderNexus(ctx) {
     ctx.arc(nexusRoom.portalPos.x, nexusRoom.portalPos.y, pulseSize, 0, Math.PI * 2);
     ctx.stroke();
     
-    // Portal interaction prompt
-    if (isNearPortal) {
+    // Portal interaction prompt (only show in desktop mode, moved down to avoid overlap)
+    if (isNearPortal && typeof Input !== 'undefined' && (!Input.isTouchMode || !Input.isTouchMode())) {
         if (portalActive) {
             ctx.fillStyle = '#ffff00';
             ctx.font = 'bold 14px Arial';
             ctx.textAlign = 'center';
-            ctx.fillText('Press G to enter portal', nexusRoom.portalPos.x, nexusRoom.portalPos.y + 60);
+            ctx.fillText('Press G to enter portal', nexusRoom.portalPos.x, nexusRoom.portalPos.y + 70);
         } else {
             ctx.fillStyle = '#ff6666';
             ctx.font = '12px Arial';
             ctx.textAlign = 'center';
-            ctx.fillText('Select a class first', nexusRoom.portalPos.x, nexusRoom.portalPos.y + 60);
+            ctx.fillText('Select a class first', nexusRoom.portalPos.x, nexusRoom.portalPos.y + 70);
         }
     }
     
-    // Render player
+    // Render player with class shape
     if (Game.player && Game.player.alive) {
-        // Render player as simple circle in nexus (no class shape needed)
-        ctx.fillStyle = Game.selectedClass ? CLASS_DEFINITIONS[Game.selectedClass].color : '#888888';
-        ctx.beginPath();
-        ctx.arc(Game.player.x, Game.player.y, Game.player.size, 0, Math.PI * 2);
-        ctx.fill();
+        const selectedClass = Game.selectedClass;
+        const classDef = selectedClass ? CLASS_DEFINITIONS[selectedClass] : null;
+        const playerColor = classDef ? classDef.color : '#888888';
+        const playerShape = classDef ? classDef.shape : 'square';
+        const playerSize = Game.player.size;
+        
+        ctx.save();
+        ctx.translate(Game.player.x, Game.player.y);
+        ctx.rotate(Game.player.rotation);
+        ctx.fillStyle = playerColor;
+        
+        // Draw player shape based on class (same as gameplay)
+        if (playerShape === 'triangle') {
+            // Draw triangle with tip pointing right (forward direction)
+            ctx.beginPath();
+            ctx.moveTo(playerSize, 0);  // Tip pointing right
+            ctx.lineTo(-playerSize * 0.5, -playerSize * 0.866);  // Top back
+            ctx.lineTo(-playerSize * 0.5, playerSize * 0.866);  // Bottom back
+            ctx.closePath();
+            ctx.fill();
+        } else if (playerShape === 'hexagon') {
+            // Draw hexagon
+            ctx.beginPath();
+            for (let i = 0; i < 6; i++) {
+                const angle = (Math.PI / 3) * i;
+                const px = Math.cos(angle) * playerSize;
+                const py = Math.sin(angle) * playerSize;
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            ctx.fill();
+        } else if (playerShape === 'pentagon') {
+            // Draw pentagon - rotated clockwise by 18° so a vertex points forward (0°)
+            // Vertex index 1 (originally at -18°) becomes 0° when rotated +18°
+            // This means a vertex (not a flat edge) points forward - the base is rotated
+            const rotationOffset = 18 * Math.PI / 180; // 18 degrees clockwise
+            ctx.beginPath();
+            for (let i = 0; i < 5; i++) {
+                const angle = (Math.PI * 2 / 5) * i - Math.PI / 2 + rotationOffset;
+                const px = Math.cos(angle) * playerSize;
+                const py = Math.sin(angle) * playerSize;
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            ctx.fill();
+        } else {
+            // Default to square/rectangle
+            ctx.beginPath();
+            ctx.rect(-playerSize * 0.8, -playerSize * 0.8, playerSize * 1.6, playerSize * 1.6);
+            ctx.fill();
+        }
         
         // Draw direction indicator
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();
-        ctx.arc(
-            Game.player.x + Math.cos(Game.player.rotation) * (Game.player.size - 5),
-            Game.player.y + Math.sin(Game.player.rotation) * (Game.player.size - 5),
-            5, 0, Math.PI * 2
-        );
+        
+        // For pentagon, align indicator with the front vertex
+        if (playerShape === 'pentagon') {
+            // After rotating the pentagon by +18°, vertex index 1 is at 0° (forward/right)
+            const rotationOffset = 18 * Math.PI / 180;
+            const vertexIndex = 1; // The vertex that points forward after rotation
+            const vertexAngle = (Math.PI * 2 / 5) * vertexIndex - Math.PI / 2 + rotationOffset;
+            
+            // Position indicator on the vertex, inside the shape at the tip
+            const indicatorDistance = playerSize * 0.7; // Inside the shape, at 70% of size
+            const indicatorX = Math.cos(vertexAngle) * indicatorDistance;
+            const indicatorY = Math.sin(vertexAngle) * indicatorDistance;
+            ctx.arc(indicatorX, indicatorY, 5, 0, Math.PI * 2);
+        } else {
+            // For other shapes, use standard front position
+            ctx.arc(
+                Math.cos(0) * (playerSize - 5),
+                Math.sin(0) * (playerSize - 5),
+                5, 0, Math.PI * 2
+            );
+        }
         ctx.fill();
+        
+        ctx.restore();
     }
     
-    // Render currency display (top right)
+    // Render currency display (top left)
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 18px Arial';
-    ctx.textAlign = 'right';
-    ctx.fillText(`Currency: ${Game.currentCurrency}`, nexusRoom.width - 20, 30);
+    ctx.textAlign = 'left';
+    ctx.fillText(`Currency: ${Game.currentCurrency}`, 20, 30);
+    
+    // Render touch controls overlay (same as gameplay)
+    if (typeof renderTouchControls === 'function') {
+        renderTouchControls(ctx);
+    }
+    
+    // Render interaction button (on top of touch controls)
+    if (typeof renderInteractionButton === 'function') {
+        renderInteractionButton(ctx);
+    }
+    
+    // Render pause button (on top of everything)
+    if (typeof renderPauseButton === 'function') {
+        renderPauseButton(ctx);
+    }
 }
 
