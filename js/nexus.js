@@ -94,8 +94,8 @@ function initNexus() {
     
     // Create player for nexus navigation if doesn't exist
     if (!Game.player) {
-        Game.player = new Player(nexusRoom.spawnPos.x, nexusRoom.spawnPos.y);
-        // Player in nexus doesn't need a class initially
+        // Create warrior player for nexus (class doesn't matter in nexus)
+        Game.player = createPlayer('square', nexusRoom.spawnPos.x, nexusRoom.spawnPos.y);
     } else {
         // Reset player position to spawn
         Game.player.x = nexusRoom.spawnPos.x;

@@ -1299,8 +1299,7 @@ const Game = {
         console.log('Starting game with class:', this.selectedClass);
         
         // Create player with selected class (start at left side of screen)
-        this.player = new Player(100, this.config.height / 2);
-        this.player.setClass(this.selectedClass);
+        this.player = createPlayer(this.selectedClass, 100, this.config.height / 2);
         
         // Initialize room system
         if (typeof initializeRoom !== 'undefined') {
@@ -1338,12 +1337,7 @@ const Game = {
     // Restart game
     restart() {
         // Create new player with same class (start at left side of screen)
-        this.player = new Player(100, this.config.height / 2);
-        
-        // Re-initialize player with selected class
-        if (this.selectedClass && this.player) {
-            this.player.setClass(this.selectedClass);
-        }
+        this.player = createPlayer(this.selectedClass, 100, this.config.height / 2);
         
         // Reset arrays
         this.enemies = [];
