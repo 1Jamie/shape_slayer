@@ -212,8 +212,8 @@ function renderXPBar(ctx, player) {
     ctx.shadowBlur = 0;
 }
 
-// Render death screen
-function renderDeathScreen(ctx, player) {
+// Render solo death screen (for solo mode or when all players dead)
+function renderSoloDeathScreen(ctx, player) {
     // Record end time
     if (Game.endTime === 0) {
         Game.endTime = Date.now();
@@ -301,6 +301,187 @@ function renderDeathScreen(ctx, player) {
     ctx.fillStyle = '#00ffff';
     ctx.font = 'bold 20px Arial';
     ctx.fillText('Press M or Click to Continue to Nexus', centerX, centerY + 240);
+}
+
+// Render individual death screen (multiplayer - when player dies)
+function renderIndividualDeathScreen(ctx, player, playerId) {
+    const canvasWidth = Game ? Game.config.width : 1280;
+    const canvasHeight = Game ? Game.config.height : 720;
+    
+    // Get player stats
+    const stats = Game.getPlayerStats ? Game.getPlayerStats(playerId) : null;
+    if (!stats) {
+        renderSoloDeathScreen(ctx, player);
+        return;
+    }
+    
+    // Semi-transparent overlay (can see through if spectating)
+    const alpha = Game.spectateMode ? 0.3 : 0.85;
+    ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    
+    const centerX = canvasWidth / 2;
+    const centerY = canvasHeight / 2;
+    
+    // Title
+    ctx.fillStyle = '#ff6666';
+    ctx.font = 'bold 48px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('YOU DIED', centerX, centerY - 200);
+    
+    // Your Stats
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 28px Arial';
+    ctx.fillText('Your Stats', centerX, centerY - 140);
+    
+    // Stats table
+    ctx.font = '20px Arial';
+    const statLines = [
+        `Damage Dealt: ${Math.floor(stats.damageDealt)}`,
+        `Kills: ${stats.kills}`,
+        `Damage Taken: ${Math.floor(stats.damageTaken)}`,
+        `Rooms Cleared: ${Game.roomNumber - 1}`,
+        `Time Alive: ${formatTime(stats.getTimeAlive())}`
+    ];
+    
+    statLines.forEach((line, index) => {
+        ctx.fillText(line, centerX, centerY - 90 + (index * 30));
+    });
+    
+    // Instructions
+    if (!Game.spectateMode) {
+        ctx.fillStyle = '#ffff00';
+        ctx.font = 'bold 20px Arial';
+        ctx.fillText('Press SPACE to spectate', centerX, centerY + 100);
+    } else {
+        ctx.fillStyle = '#00ff00';
+        ctx.font = 'bold 18px Arial';
+        ctx.fillText('SPECTATING - Press SPACE to show stats', centerX, centerY + 100);
+    }
+}
+
+// Render collective death screen (multiplayer - when all players die)
+function renderCollectiveDeathScreen(ctx, player) {
+    const canvasWidth = Game ? Game.config.width : 1280;
+    const canvasHeight = Game ? Game.config.height : 720;
+    
+    // Dark overlay
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    
+    const centerX = canvasWidth / 2;
+    const centerY = canvasHeight / 2;
+    
+    // Title
+    ctx.fillStyle = '#ff0000';
+    ctx.font = 'bold 52px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('GAME OVER - Final Scores', centerX, centerY - 260);
+    
+    // Get all player stats
+    const allStats = [];
+    if (Game.playerStats) {
+        Game.playerStats.forEach((stats, playerId) => {
+            allStats.push({ playerId, stats });
+        });
+    }
+    
+    // Calculate table dimensions
+    const columns = ['Player', 'Damage', 'Kills', 'Dmg Taken', 'Rooms', 'Time'];
+    const colWidth = 110;
+    const rowHeight = 35;
+    const tableWidth = colWidth * columns.length;
+    const tableX = centerX - tableWidth / 2;
+    const tableY = centerY - 150;
+    
+    // Draw table header
+    ctx.fillStyle = '#444444';
+    ctx.fillRect(tableX, tableY, tableWidth, rowHeight);
+    
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 16px Arial';
+    ctx.textAlign = 'center';
+    columns.forEach((col, i) => {
+        ctx.fillText(col, tableX + (i + 0.5) * colWidth, tableY + 22);
+    });
+    
+    // Draw table rows
+    allStats.forEach((entry, index) => {
+        const rowY = tableY + (index + 1) * rowHeight;
+        const stats = entry.stats;
+        
+        // Alternate row colors
+        ctx.fillStyle = index % 2 === 0 ? '#222222' : '#333333';
+        ctx.fillRect(tableX, rowY, tableWidth, rowHeight);
+        
+        // Player number
+        const playerNum = index + 1;
+        const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
+        const isLocalPlayer = entry.playerId === localPlayerId;
+        
+        ctx.fillStyle = isLocalPlayer ? '#ffff00' : '#ffffff';
+        ctx.font = isLocalPlayer ? 'bold 16px Arial' : '16px Arial';
+        ctx.textAlign = 'center';
+        
+        // Draw cell values
+        const values = [
+            `Player ${playerNum}${isLocalPlayer ? ' (You)' : ''}`,
+            Math.floor(stats.damageDealt).toString(),
+            stats.kills.toString(),
+            Math.floor(stats.damageTaken).toString(),
+            (Game.roomNumber - 1).toString(),
+            formatTime(stats.getTimeAlive())
+        ];
+        
+        values.forEach((val, i) => {
+            ctx.fillText(val, tableX + (i + 0.5) * colWidth, rowY + 22);
+        });
+    });
+    
+    // Draw table border
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(tableX, tableY, tableWidth, rowHeight * (allStats.length + 1));
+    
+    // Instructions
+    const isHost = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.isHost;
+    
+    if (isHost) {
+        ctx.fillStyle = '#00ff00';
+        ctx.font = 'bold 24px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Press M to Return to Nexus', centerX, centerY + 200);
+    } else {
+        ctx.fillStyle = '#ffaa00';
+        ctx.font = 'bold 20px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Waiting for host...', centerX, centerY + 200);
+    }
+}
+
+// Main death screen dispatcher
+function renderDeathScreen(ctx, player) {
+    // Check if in multiplayer mode
+    const inMultiplayer = Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+    
+    if (!inMultiplayer) {
+        // Solo mode - use original death screen
+        renderSoloDeathScreen(ctx, player);
+    } else if (Game.allPlayersDead) {
+        // All players dead - show collective screen
+        renderCollectiveDeathScreen(ctx, player);
+    } else {
+        // Individual player dead - show individual screen
+        const playerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local';
+        renderIndividualDeathScreen(ctx, player, playerId);
+    }
+}
+
+// Helper function to format time
+function formatTime(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
 // Render gear tooltip when near gear
@@ -426,6 +607,43 @@ function renderRoomNumber(ctx) {
         ctx.shadowColor = '#000000';
         ctx.fillText(`Enemies: ${enemyCount}`, centerX, panelY + 65);
         ctx.shadowBlur = 0;
+    }
+    
+    // Multiplayer: Show door waiting message if room is cleared and not all players on door
+    if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen) {
+        if (Game.multiplayerEnabled && Game.playersOnDoor && Game.totalAlivePlayers > 1) {
+            const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
+            const localPlayerOnDoor = Game.playersOnDoor.includes(localPlayerId);
+            const someoneWaiting = Game.playersOnDoor.length > 0 && Game.playersOnDoor.length < Game.totalAlivePlayers;
+            
+            if (someoneWaiting) {
+                const messageY = panelY + panelHeight + 20; // Just below room number panel
+                
+                ctx.textAlign = 'center';
+                ctx.font = 'bold 22px Arial';
+                
+                if (localPlayerOnDoor) {
+                    // Local player is waiting for others
+                    ctx.fillStyle = '#ffaa00';
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = '#000000';
+                    ctx.fillText('Waiting for other players...', centerX, messageY);
+                } else {
+                    // Local player not on door, others are waiting
+                    ctx.fillStyle = '#ff4444';
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = '#000000';
+                    ctx.fillText('Other players are waiting for you!', centerX, messageY);
+                }
+                
+                // Show count
+                ctx.font = 'bold 16px Arial';
+                ctx.fillStyle = '#ffffff';
+                ctx.fillText(`${Game.playersOnDoor.length}/${Game.totalAlivePlayers} on door`, centerX, messageY + 25);
+                
+                ctx.shadowBlur = 0;
+            }
+        }
     }
 }
 
@@ -670,8 +888,23 @@ let pauseMenuButtons = {
     nexus: { x: 0, y: 0, width: 0, height: 0, pressed: false },
     fullscreen: { x: 0, y: 0, width: 0, height: 0, pressed: false },
     controlMode: { x: 0, y: 0, width: 0, height: 0, pressed: false },
-    howToPlay: { x: 0, y: 0, width: 0, height: 0, pressed: false }
+    howToPlay: { x: 0, y: 0, width: 0, height: 0, pressed: false },
+    multiplayer: { x: 0, y: 0, width: 0, height: 0, pressed: false }
 };
+
+// Multiplayer menu state
+let multiplayerMenuVisible = false;
+let multiplayerMenuButtons = {
+    createLobby: { x: 0, y: 0, width: 0, height: 0, pressed: false },
+    joinLobby: { x: 0, y: 0, width: 0, height: 0, pressed: false },
+    leaveLobby: { x: 0, y: 0, width: 0, height: 0, pressed: false },
+    copyCode: { x: 0, y: 0, width: 0, height: 0, pressed: false },
+    pasteCode: { x: 0, y: 0, width: 0, height: 0, pressed: false },
+    back: { x: 0, y: 0, width: 0, height: 0, pressed: false }
+};
+let joinCodeInput = '';
+let multiplayerError = '';
+let copyCodeFeedback = ''; // Feedback message when code is copied
 
 // Update button (circular, side of menu)
 let updateButton = { x: 0, y: 0, radius: 0, pressed: false };
@@ -824,25 +1057,51 @@ function renderPauseMenu(ctx) {
     pauseMenuButtons.resume.height = buttonHeight;
     renderPauseMenuButton(ctx, pauseMenuButtons.resume, 'Resume', true);
     
+    // Show multiplayer button ONLY when paused from nexus
+    if (pausedFromNexus) {
+        pauseMenuButtons.multiplayer.x = centerX - buttonWidth / 2;
+        pauseMenuButtons.multiplayer.y = startY + buttonHeight + buttonSpacing;
+        pauseMenuButtons.multiplayer.width = buttonWidth;
+        pauseMenuButtons.multiplayer.height = buttonHeight;
+        
+        // Show lobby code if in a lobby
+        let mpButtonText = 'Multiplayer';
+        if (typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode) {
+            mpButtonText = `Lobby: ${multiplayerManager.lobbyCode}`;
+        }
+        
+        renderPauseMenuButton(ctx, pauseMenuButtons.multiplayer, mpButtonText, false);
+    }
+    
     // Only show restart and nexus buttons when NOT paused from nexus
     if (!pausedFromNexus) {
-        // Restart button
-        pauseMenuButtons.restart.x = centerX - buttonWidth / 2;
-        pauseMenuButtons.restart.y = startY + buttonHeight + buttonSpacing;
-        pauseMenuButtons.restart.width = buttonWidth;
-        pauseMenuButtons.restart.height = buttonHeight;
-        renderPauseMenuButton(ctx, pauseMenuButtons.restart, 'Restart', false);
+        // Check if in multiplayer
+        const inMultiplayer = Game && Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+        const isHost = inMultiplayer && multiplayerManager.isHost;
         
-        // Return to Nexus button
-        pauseMenuButtons.nexus.x = centerX - buttonWidth / 2;
-        pauseMenuButtons.nexus.y = startY + (buttonHeight + buttonSpacing) * 2;
-        pauseMenuButtons.nexus.width = buttonWidth;
-        pauseMenuButtons.nexus.height = buttonHeight;
-        renderPauseMenuButton(ctx, pauseMenuButtons.nexus, 'Return to Nexus', false);
+        // Restart button (only show for single player or host)
+        if (!inMultiplayer || isHost) {
+            pauseMenuButtons.restart.x = centerX - buttonWidth / 2;
+            pauseMenuButtons.restart.y = startY + buttonHeight + buttonSpacing;
+            pauseMenuButtons.restart.width = buttonWidth;
+            pauseMenuButtons.restart.height = buttonHeight;
+            renderPauseMenuButton(ctx, pauseMenuButtons.restart, 'Restart', false);
+        }
+        
+        // Return to Nexus button (only show for single player or host)
+        if (!inMultiplayer || isHost) {
+            const nexusButtonY = (!inMultiplayer || isHost) ? startY + (buttonHeight + buttonSpacing) * 2 : startY + buttonHeight + buttonSpacing;
+            pauseMenuButtons.nexus.x = centerX - buttonWidth / 2;
+            pauseMenuButtons.nexus.y = nexusButtonY;
+            pauseMenuButtons.nexus.width = buttonWidth;
+            pauseMenuButtons.nexus.height = buttonHeight;
+            renderPauseMenuButton(ctx, pauseMenuButtons.nexus, 'Return to Nexus', false);
+        }
     }
     
     // Fullscreen toggle button (smaller, bottom)
-    const fullscreenY = pausedFromNexus ? startY + buttonHeight + buttonSpacing : startY + (buttonHeight + buttonSpacing) * 3 + 10;
+    // When in nexus, position after multiplayer button; otherwise after nexus button
+    const fullscreenY = pausedFromNexus ? startY + (buttonHeight + buttonSpacing) * 2 : startY + (buttonHeight + buttonSpacing) * 3 + 10;
     pauseMenuButtons.fullscreen.x = centerX - fsButtonWidth / 2;
     pauseMenuButtons.fullscreen.y = fullscreenY;
     pauseMenuButtons.fullscreen.width = fsButtonWidth;
@@ -935,6 +1194,188 @@ function renderPauseMenu(ctx) {
     
     // Handle button clicks/touches
     handlePauseMenuInput();
+    
+    // Render multiplayer submenu if visible
+    if (multiplayerMenuVisible) {
+        renderMultiplayerMenu(ctx);
+    }
+}
+
+// Render multiplayer submenu
+function renderMultiplayerMenu(ctx) {
+    const canvasWidth = Game ? Game.config.width : 1280;
+    const canvasHeight = Game ? Game.config.height : 720;
+    const centerX = canvasWidth / 2;
+    const centerY = canvasHeight / 2;
+    
+    // Overlay
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    
+    // Panel
+    const panelWidth = 500;
+    const panelHeight = 520; // Increased from 450 to accommodate Paste Code button
+    const panelX = (canvasWidth - panelWidth) / 2;
+    const panelY = (canvasHeight - panelHeight) / 2;
+    
+    const panelGradient = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelHeight);
+    panelGradient.addColorStop(0, 'rgba(30, 30, 50, 0.95)');
+    panelGradient.addColorStop(1, 'rgba(15, 15, 35, 0.95)');
+    ctx.fillStyle = panelGradient;
+    ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
+    
+    ctx.strokeStyle = '#6666ff';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
+    
+    // Title
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 48px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('MULTIPLAYER', centerX, panelY + 60);
+    
+    const buttonWidth = 250;
+    const buttonHeight = 60;
+    const buttonSpacing = 20;
+    let startY = panelY + 120;
+    
+    const inLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+    
+    if (!inLobby) {
+        // Create lobby button
+        multiplayerMenuButtons.createLobby.x = centerX - buttonWidth / 2;
+        multiplayerMenuButtons.createLobby.y = startY;
+        multiplayerMenuButtons.createLobby.width = buttonWidth;
+        multiplayerMenuButtons.createLobby.height = buttonHeight;
+        renderPauseMenuButton(ctx, multiplayerMenuButtons.createLobby, 'Create Lobby', false);
+        
+        startY += buttonHeight + buttonSpacing;
+        
+        // Join lobby section
+        ctx.fillStyle = '#aaaaaa';
+        ctx.font = 'bold 20px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('- OR -', centerX, startY + 20);
+        
+        startY += 50;
+        
+        // Join code input
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '18px Arial';
+        ctx.fillText('Enter Join Code:', centerX, startY);
+        
+        startY += 30;
+        
+        // Input box
+        const inputWidth = 200;
+        const inputHeight = 40;
+        const inputX = centerX - inputWidth / 2;
+        const inputY = startY;
+        
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.fillRect(inputX, inputY, inputWidth, inputHeight);
+        ctx.strokeStyle = '#6666ff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(inputX, inputY, inputWidth, inputHeight);
+        
+        // Input text (always display in uppercase)
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 24px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText((joinCodeInput || '_').toUpperCase(), centerX, inputY + inputHeight / 2 + 8);
+        
+        startY += inputHeight + 10;
+        
+        // Paste Code button (small button below input)
+        const pasteButtonWidth = 150;
+        const pasteButtonHeight = 30;
+        multiplayerMenuButtons.pasteCode.x = centerX - pasteButtonWidth / 2;
+        multiplayerMenuButtons.pasteCode.y = startY;
+        multiplayerMenuButtons.pasteCode.width = pasteButtonWidth;
+        multiplayerMenuButtons.pasteCode.height = pasteButtonHeight;
+        renderPauseMenuButton(ctx, multiplayerMenuButtons.pasteCode, '📋 Paste Code', false);
+        
+        startY += pasteButtonHeight + buttonSpacing;
+        
+        // Join button
+        multiplayerMenuButtons.joinLobby.x = centerX - buttonWidth / 2;
+        multiplayerMenuButtons.joinLobby.y = startY;
+        multiplayerMenuButtons.joinLobby.width = buttonWidth;
+        multiplayerMenuButtons.joinLobby.height = buttonHeight;
+        renderPauseMenuButton(ctx, multiplayerMenuButtons.joinLobby, 'Join Lobby', false);
+    } else {
+        // In lobby - show lobby info and leave button
+        ctx.fillStyle = '#00ff00';
+        ctx.font = 'bold 32px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(`Lobby: ${multiplayerManager.lobbyCode}`, centerX, startY);
+        
+        startY += 50;
+        
+        // Copy Code button (small button next to lobby code)
+        const copyButtonWidth = 150;
+        const copyButtonHeight = 35;
+        multiplayerMenuButtons.copyCode.x = centerX - copyButtonWidth / 2;
+        multiplayerMenuButtons.copyCode.y = startY;
+        multiplayerMenuButtons.copyCode.width = copyButtonWidth;
+        multiplayerMenuButtons.copyCode.height = copyButtonHeight;
+        renderPauseMenuButton(ctx, multiplayerMenuButtons.copyCode, '📋 Copy Code', false);
+        
+        // Show feedback message if code was just copied
+        if (copyCodeFeedback) {
+            ctx.fillStyle = '#00ff00';
+            ctx.font = '14px Arial';
+            ctx.fillText(copyCodeFeedback, centerX, startY + copyButtonHeight + 20);
+        }
+        
+        startY += copyButtonHeight + 50;
+        
+        // Player list
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '18px Arial';
+        ctx.fillText(`Players: ${multiplayerManager.players.length}/${MultiplayerConfig.MAX_PLAYERS}`, centerX, startY);
+        
+        startY += 40;
+        
+        // List players
+        if (multiplayerManager.players) {
+            multiplayerManager.players.forEach((player, index) => {
+                const playerText = `${index + 1}. ${player.name} (${player.class})`;
+                const isHost = index === 0;
+                ctx.fillStyle = isHost ? '#ffaa00' : '#aaaaaa';
+                ctx.font = '16px Arial';
+                ctx.textAlign = 'left';
+                ctx.fillText(playerText, panelX + 50, startY + (index * 25));
+                if (isHost) {
+                    ctx.fillText('(Host)', panelX + 350, startY + (index * 25));
+                }
+            });
+        }
+        
+        startY = panelY + panelHeight - 140;
+        
+        // Leave lobby button
+        multiplayerMenuButtons.leaveLobby.x = centerX - buttonWidth / 2;
+        multiplayerMenuButtons.leaveLobby.y = startY;
+        multiplayerMenuButtons.leaveLobby.width = buttonWidth;
+        multiplayerMenuButtons.leaveLobby.height = buttonHeight;
+        renderPauseMenuButton(ctx, multiplayerMenuButtons.leaveLobby, 'Leave Lobby', false);
+    }
+    
+    // Error message
+    if (multiplayerError) {
+        ctx.fillStyle = '#ff0000';
+        ctx.font = '16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(multiplayerError, centerX, panelY + panelHeight - 80);
+    }
+    
+    // Back button
+    multiplayerMenuButtons.back.x = centerX - buttonWidth / 2;
+    multiplayerMenuButtons.back.y = panelY + panelHeight - 50;
+    multiplayerMenuButtons.back.width = buttonWidth;
+    multiplayerMenuButtons.back.height = 40;
+    renderPauseMenuButton(ctx, multiplayerMenuButtons.back, 'Back', false);
 }
 
 // Render a pause menu button
@@ -1008,6 +1449,76 @@ function checkPauseMenuButtonClick(x, y) {
         const gameCoords = Game.screenToGame(x, y);
         x = gameCoords.x;
         y = gameCoords.y;
+    }
+    
+    // CHECK MULTIPLAYER SUBMENU FIRST (highest priority when visible)
+    if (multiplayerMenuVisible) {
+        // Back button
+        if (x >= multiplayerMenuButtons.back.x && x <= multiplayerMenuButtons.back.x + multiplayerMenuButtons.back.width &&
+            y >= multiplayerMenuButtons.back.y && y <= multiplayerMenuButtons.back.y + multiplayerMenuButtons.back.height) {
+            multiplayerMenuButtons.back.pressed = true;
+            setTimeout(() => { multiplayerMenuButtons.back.pressed = false; }, 100);
+            // Just close the multiplayer submenu, keep the pause menu open
+            multiplayerMenuVisible = false;
+            
+            // Don't close the pause menu - just return to main pause menu
+            // The pause menu should remain open showing the main buttons
+            
+            return true;
+        }
+        
+        const inLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+        
+        if (!inLobby) {
+            // Create lobby button
+            if (x >= multiplayerMenuButtons.createLobby.x && x <= multiplayerMenuButtons.createLobby.x + multiplayerMenuButtons.createLobby.width &&
+                y >= multiplayerMenuButtons.createLobby.y && y <= multiplayerMenuButtons.createLobby.y + multiplayerMenuButtons.createLobby.height) {
+                multiplayerMenuButtons.createLobby.pressed = true;
+                setTimeout(() => { multiplayerMenuButtons.createLobby.pressed = false; }, 100);
+                handleCreateLobby();
+                return true;
+            }
+            
+            // Paste Code button
+            if (x >= multiplayerMenuButtons.pasteCode.x && x <= multiplayerMenuButtons.pasteCode.x + multiplayerMenuButtons.pasteCode.width &&
+                y >= multiplayerMenuButtons.pasteCode.y && y <= multiplayerMenuButtons.pasteCode.y + multiplayerMenuButtons.pasteCode.height) {
+                multiplayerMenuButtons.pasteCode.pressed = true;
+                setTimeout(() => { multiplayerMenuButtons.pasteCode.pressed = false; }, 100);
+                handlePasteCode();
+                return true;
+            }
+            
+            // Join lobby button
+            if (x >= multiplayerMenuButtons.joinLobby.x && x <= multiplayerMenuButtons.joinLobby.x + multiplayerMenuButtons.joinLobby.width &&
+                y >= multiplayerMenuButtons.joinLobby.y && y <= multiplayerMenuButtons.joinLobby.y + multiplayerMenuButtons.joinLobby.height) {
+                multiplayerMenuButtons.joinLobby.pressed = true;
+                setTimeout(() => { multiplayerMenuButtons.joinLobby.pressed = false; }, 100);
+                handleJoinLobby();
+                return true;
+            }
+        } else {
+            // Copy Code button
+            if (x >= multiplayerMenuButtons.copyCode.x && x <= multiplayerMenuButtons.copyCode.x + multiplayerMenuButtons.copyCode.width &&
+                y >= multiplayerMenuButtons.copyCode.y && y <= multiplayerMenuButtons.copyCode.y + multiplayerMenuButtons.copyCode.height) {
+                multiplayerMenuButtons.copyCode.pressed = true;
+                setTimeout(() => { multiplayerMenuButtons.copyCode.pressed = false; }, 100);
+                handleCopyCode();
+                return true;
+            }
+            
+            // Leave lobby button
+            if (x >= multiplayerMenuButtons.leaveLobby.x && x <= multiplayerMenuButtons.leaveLobby.x + multiplayerMenuButtons.leaveLobby.width &&
+                y >= multiplayerMenuButtons.leaveLobby.y && y <= multiplayerMenuButtons.leaveLobby.y + multiplayerMenuButtons.leaveLobby.height) {
+                multiplayerMenuButtons.leaveLobby.pressed = true;
+                setTimeout(() => { multiplayerMenuButtons.leaveLobby.pressed = false; }, 100);
+                handleLeaveLobby();
+                return true;
+            }
+        }
+        
+        // If multiplayer menu is visible and we clicked somewhere (but not on a button),
+        // don't check main menu buttons - consume the click
+        return false;
     }
     
     // Check resume button
@@ -1105,7 +1616,212 @@ function checkPauseMenuButtonClick(x, y) {
         }
     }
     
+    // Check multiplayer button (only visible when paused from nexus)
+    if (Game && Game.pausedFromState === 'NEXUS') {
+        if (x >= pauseMenuButtons.multiplayer.x && x <= pauseMenuButtons.multiplayer.x + pauseMenuButtons.multiplayer.width &&
+            y >= pauseMenuButtons.multiplayer.y && y <= pauseMenuButtons.multiplayer.y + pauseMenuButtons.multiplayer.height) {
+            multiplayerMenuVisible = true;
+            multiplayerError = '';
+            return true;
+        }
+    }
+    
     return false;
+}
+
+// Handle create lobby
+async function handleCreateLobby() {
+    try {
+        multiplayerError = 'Connecting...';
+        
+        // Load multiplayer module if not loaded
+        if (Game && !Game.multiplayerModuleLoaded) {
+            await Game.loadMultiplayerModule();
+        }
+        
+        // Initialize multiplayer manager
+        if (typeof initMultiplayer !== 'undefined') {
+            window.multiplayerManager = initMultiplayer();
+        }
+        
+        if (!multiplayerManager) {
+            multiplayerError = 'Failed to initialize multiplayer';
+            return;
+        }
+        
+        // Create lobby
+        await multiplayerManager.createLobby('Player', Game.selectedClass || 'square');
+        
+        if (Game) {
+            Game.multiplayerEnabled = true;
+        }
+        
+        multiplayerError = '';
+    } catch (err) {
+        console.error('[UI] Failed to create lobby:', err);
+        multiplayerError = `Error: ${err.message || 'Failed to connect to server'}`;
+    }
+}
+
+// Handle join lobby
+async function handleJoinLobby() {
+    try {
+        multiplayerError = '';
+        
+        if (!joinCodeInput || joinCodeInput.length < 6) {
+            multiplayerError = 'Enter a valid 6-character code';
+            return;
+        }
+        
+        // Load multiplayer module if not loaded
+        if (Game && !Game.multiplayerModuleLoaded) {
+            await Game.loadMultiplayerModule();
+        }
+        
+        // Initialize multiplayer manager
+        if (typeof initMultiplayer !== 'undefined') {
+            window.multiplayerManager = initMultiplayer();
+        }
+        
+        if (!multiplayerManager) {
+            multiplayerError = 'Failed to initialize multiplayer';
+            return;
+        }
+        
+        // Join lobby (ensure code is uppercase)
+        await multiplayerManager.joinLobby(joinCodeInput.toUpperCase(), 'Player', Game.selectedClass);
+        
+        if (Game) {
+            Game.multiplayerEnabled = true;
+        }
+        
+        joinCodeInput = '';
+        console.log('[UI] Joined lobby');
+    } catch (err) {
+        console.error('[UI] Failed to join lobby:', err);
+        multiplayerError = 'Failed to join lobby';
+    }
+}
+
+// Handle leave lobby
+function handleLeaveLobby() {
+    if (multiplayerManager) {
+        multiplayerManager.leaveLobby();
+    }
+    
+    if (Game) {
+        Game.multiplayerEnabled = false;
+        // Reset pause menu state if it was showing
+        Game.showPauseMenu = false;
+        
+        // If we're in nexus pause menu, close it properly
+        if (Game.state === 'PAUSED' && Game.pausedFromState === 'NEXUS') {
+            if (Game.togglePause) {
+                Game.togglePause(); // Resume from paused state back to nexus
+            }
+        }
+    }
+    
+    multiplayerMenuVisible = false;
+    copyCodeFeedback = '';
+    console.log('[UI] Left lobby');
+}
+
+// Handle copy code to clipboard
+function handleCopyCode() {
+    if (!multiplayerManager || !multiplayerManager.lobbyCode) {
+        return;
+    }
+    
+    const code = multiplayerManager.lobbyCode;
+    
+    // Try to copy to clipboard using modern API
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code)
+            .then(() => {
+                copyCodeFeedback = 'Code copied to clipboard!';
+                console.log('[UI] Copied lobby code to clipboard:', code);
+                
+                // Clear feedback after 3 seconds
+                setTimeout(() => {
+                    copyCodeFeedback = '';
+                }, 3000);
+            })
+            .catch(err => {
+                console.error('[UI] Failed to copy code:', err);
+                copyCodeFeedback = 'Failed to copy code';
+                setTimeout(() => {
+                    copyCodeFeedback = '';
+                }, 3000);
+            });
+    } else {
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = code;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        
+        try {
+            const successful = document.execCommand('copy');
+            if (successful) {
+                copyCodeFeedback = 'Code copied to clipboard!';
+                console.log('[UI] Copied lobby code to clipboard (fallback):', code);
+            } else {
+                copyCodeFeedback = 'Failed to copy code';
+            }
+        } catch (err) {
+            console.error('[UI] Failed to copy code (fallback):', err);
+            copyCodeFeedback = 'Failed to copy code';
+        }
+        
+        document.body.removeChild(textArea);
+        
+        // Clear feedback after 3 seconds
+        setTimeout(() => {
+            copyCodeFeedback = '';
+        }, 3000);
+    }
+}
+
+// Handle paste code from clipboard
+async function handlePasteCode() {
+    try {
+        let pastedText = '';
+        
+        // Try modern clipboard API first
+        if (navigator.clipboard && navigator.clipboard.readText) {
+            pastedText = await navigator.clipboard.readText();
+        } else {
+            // Fallback for older browsers - can't really read clipboard without user paste action
+            multiplayerError = 'Press Ctrl+V to paste';
+            setTimeout(() => {
+                multiplayerError = '';
+            }, 2000);
+            return;
+        }
+        
+        if (pastedText) {
+            // Filter to alphanumeric only, convert to uppercase, limit to 6 characters
+            const filtered = pastedText
+                .split('')
+                .filter(char => /[a-zA-Z0-9]/.test(char))
+                .map(char => char.toUpperCase())
+                .slice(0, 6)
+                .join('');
+            
+            joinCodeInput = filtered;
+            console.log('[UI] Pasted code from clipboard:', filtered);
+        }
+    } catch (err) {
+        console.error('[UI] Failed to read from clipboard:', err);
+        multiplayerError = 'Press Ctrl+V to paste';
+        setTimeout(() => {
+            multiplayerError = '';
+        }, 2000);
+    }
 }
 
 // Render level up message
@@ -1567,17 +2283,26 @@ function renderUI(ctx, player) {
     renderRoomNumber(ctx);
     
     // Render health and XP bars
-    if (!player.dead) {
-        renderHealthBar(ctx, player);
-        renderXPBar(ctx, player);
-        renderCooldownIndicators(ctx, player);
-        
-        // Render gear tooltips
-        if (typeof renderGearTooltips === 'function') {
-            renderGearTooltips(ctx, player);
+    // In multiplayer, only show death screen when ALL players are dead
+    // If local player dead but others alive, just spectate (no death screen overlay)
+    const inMultiplayer = Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+    const showDeathScreen = player.dead && (!inMultiplayer || Game.allPlayersDead);
+    
+    if (!showDeathScreen) {
+        // Render normal UI elements when alive or spectating
+        if (!player.dead) {
+            renderHealthBar(ctx, player);
+            renderXPBar(ctx, player);
+            renderCooldownIndicators(ctx, player);
+            
+            // Render gear tooltips
+            if (typeof renderGearTooltips === 'function') {
+                renderGearTooltips(ctx, player);
+            }
         }
+        // When dead but spectating (multiplayer), no overlay - just show game continuing
     } else {
-        // Render death screen
+        // Only show death screen in solo OR when all players dead in multiplayer
         renderDeathScreen(ctx, player);
     }
     
@@ -2151,5 +2876,204 @@ function checkModalCloseButtonClick(x, y) {
     }
     
     return false;
+}
+
+// Handle keyboard input for multiplayer join code
+// Use capture phase to intercept keys before Input system processes them
+document.addEventListener('keydown', (e) => {
+    if (!multiplayerMenuVisible) return;
+    
+    const inLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+    if (inLobby) return; // Don't handle input when in a lobby
+    
+    // Prevent browser shortcuts and game controls when typing in multiplayer menu
+    // This prevents Shift+R (reload), Ctrl+R (reload), etc.
+    if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) {
+        // Handle Ctrl+V for paste
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+            handlePasteCode();
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+        }
+        
+        // Allow Shift for uppercase letters, but prevent browser shortcuts
+        if (e.key.length === 1 && /[a-zA-Z0-9]/.test(e.key)) {
+            // Allow Shift+letter for uppercase input
+            if (joinCodeInput.length < 6) {
+                joinCodeInput += e.key.toUpperCase();
+            }
+        }
+        // Always prevent default for modifier keys to block browser shortcuts
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+    }
+    
+    // Prevent ALL game controls from triggering while multiplayer menu is open
+    const gameControlKeys = ['w', 'a', 's', 'd', ' ', 'g'];
+    if (gameControlKeys.includes(e.key.toLowerCase())) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+    }
+    
+    // Only handle alphanumeric keys for join code input
+    if (e.key.length === 1 && /[a-zA-Z0-9]/.test(e.key)) {
+        if (joinCodeInput.length < 6) {
+            joinCodeInput += e.key.toUpperCase();
+        }
+        e.preventDefault();
+        e.stopPropagation();
+    } else if (e.key === 'Backspace') {
+        joinCodeInput = joinCodeInput.slice(0, -1);
+        e.preventDefault();
+        e.stopPropagation();
+    } else if (e.key === 'Enter' && joinCodeInput.length === 6) {
+        handleJoinLobby();
+        e.preventDefault();
+        e.stopPropagation();
+    }
+}, { capture: true }); // Use capture phase to run before Input system
+
+// Handle paste event for multiplayer join code (legacy support for actual paste events)
+document.addEventListener('paste', (e) => {
+    if (!multiplayerMenuVisible) return;
+    
+    const inLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+    if (inLobby) return; // Don't handle paste when in a lobby
+    
+    // Get pasted text from clipboard event
+    const pastedText = (e.clipboardData || window.clipboardData).getData('text');
+    
+    if (pastedText) {
+        // Filter to alphanumeric only, convert to uppercase, limit to 6 characters
+        const filtered = pastedText
+            .split('')
+            .filter(char => /[a-zA-Z0-9]/.test(char))
+            .map(char => char.toUpperCase())
+            .slice(0, 6)
+            .join('');
+        
+        joinCodeInput = filtered;
+        console.log('[UI] Pasted code from paste event:', filtered);
+        
+        e.preventDefault();
+        e.stopPropagation();
+    }
+}, { capture: true });
+
+// Multiplayer event callbacks (called by multiplayer.js)
+function onLobbyCreated(data) {
+    console.log('[Multiplayer] Lobby created:', data.code);
+    multiplayerError = ''; // Clear any error
+    
+    // Convert any PAUSED state to multiplayer pause menu
+    if (Game && Game.state === 'PAUSED') {
+        if (Game.pausedFromState === 'NEXUS') {
+            Game.state = 'NEXUS';
+            Game.showPauseMenu = true;
+            Game.paused = false;
+        } else if (Game.pausedFromState === 'PLAYING') {
+            Game.state = 'PLAYING';
+            Game.showPauseMenu = true;
+            Game.paused = false;
+        }
+    }
+}
+
+function onLobbyJoined(data) {
+    console.log('[Multiplayer] Joined lobby:', data.code);
+    multiplayerError = '';
+    
+    // Convert any PAUSED state to multiplayer pause menu
+    if (Game && Game.state === 'PAUSED') {
+        if (Game.pausedFromState === 'NEXUS') {
+            Game.state = 'NEXUS';
+            Game.showPauseMenu = true;
+            Game.paused = false;
+        } else if (Game.pausedFromState === 'PLAYING') {
+            Game.state = 'PLAYING';
+            Game.showPauseMenu = true;
+            Game.paused = false;
+        }
+    }
+}
+
+function onLobbyError(data) {
+    multiplayerError = data.message || 'Unknown error';
+}
+
+function onPlayerJoined(data) {
+    console.log('[Multiplayer] Player joined lobby');
+}
+
+function onPlayerLeft(data) {
+    console.log('[Multiplayer] Player left lobby');
+}
+
+function onHostMigrated(data, wasHost, isHost) {
+    if (isHost && !wasHost) {
+        console.log('[Multiplayer] You are now the host');
+        multiplayerError = 'You are now the host!';
+        setTimeout(() => { multiplayerError = ''; }, 3000);
+    }
+}
+
+function onGameStart(data) {
+    console.log('[Multiplayer] Starting game');
+    
+    // Close any open menus
+    multiplayerMenuVisible = false;
+    
+    // Position reset already handled in handleGameStart in multiplayer.js
+    // Start the game (or transition to PLAYING if already started by host)
+    if (Game) {
+        if (Game.state === 'NEXUS' || Game.state === 'PAUSED') {
+            // Make sure we're unpaused
+            Game.paused = false;
+            Game.pausedFromState = null;
+            
+            // Start game if in nexus
+            if (Game.state === 'NEXUS') {
+                Game.startGame();
+            }
+        }
+    }
+}
+
+function onMultiplayerDisconnect() {
+    multiplayerError = 'Disconnected from server';
+    if (Game) {
+        Game.multiplayerEnabled = false;
+    }
+}
+
+function onReturnToNexus(data) {
+    console.log('[Multiplayer] Returning to nexus');
+    
+    // Return to nexus for this client
+    if (Game) {
+        // Close any open menus
+        multiplayerMenuVisible = false;
+        
+        // Position reset already handled in handleReturnToNexus in multiplayer.js
+        if (Game.returnToNexus) {
+            Game.returnToNexus();
+        }
+        
+        // Make sure client is unpaused and in NEXUS state
+        Game.state = 'NEXUS';
+        Game.paused = false;
+        Game.pausedFromState = null;
+    }
+}
+
+function onRoomTransition(data) {
+    // Position reset already handled in handleRoomTransition in multiplayer.js
+    // Just update room number
+    if (Game) {
+        Game.roomNumber = data.roomNumber;
+    }
 }
 

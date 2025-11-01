@@ -558,5 +558,34 @@ class Tank extends PlayerBase {
             ctx.restore();
         }
     }
+    
+    // Override serialize to include Tank-specific state
+    serialize() {
+        const baseState = super.serialize();
+        return {
+            ...baseState,
+            // Tank-specific abilities
+            shieldActive: this.shieldActive,
+            shieldElapsed: this.shieldElapsed,
+            shieldDirection: this.shieldDirection,
+            shieldWaveActive: this.shieldWaveActive,
+            shieldWaveElapsed: this.shieldWaveElapsed,
+            shieldWaveDuration: this.shieldWaveDuration,
+            groundSmashActive: this.groundSmashActive
+        };
+    }
+    
+    // Override applyState to handle Tank-specific state
+    applyState(state) {
+        super.applyState(state);
+        // Tank-specific properties
+        if (state.shieldActive !== undefined) this.shieldActive = state.shieldActive;
+        if (state.shieldElapsed !== undefined) this.shieldElapsed = state.shieldElapsed;
+        if (state.shieldDirection !== undefined) this.shieldDirection = state.shieldDirection;
+        if (state.shieldWaveActive !== undefined) this.shieldWaveActive = state.shieldWaveActive;
+        if (state.shieldWaveElapsed !== undefined) this.shieldWaveElapsed = state.shieldWaveElapsed;
+        if (state.shieldWaveDuration !== undefined) this.shieldWaveDuration = state.shieldWaveDuration;
+        if (state.groundSmashActive !== undefined) this.groundSmashActive = state.groundSmashActive;
+    }
 }
 

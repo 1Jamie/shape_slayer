@@ -289,6 +289,35 @@ const Renderer = {
         ctx.fill();
         
         ctx.shadowBlur = 0;
+    },
+    
+    // Draw polygon (for pentagon and hexagon shapes)
+    polygon(ctx, x, y, radius, sides, rotation, color) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(rotation);
+        
+        ctx.fillStyle = color;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        
+        ctx.beginPath();
+        for (let i = 0; i < sides; i++) {
+            const angle = (Math.PI * 2 / sides) * i - Math.PI / 2;
+            const px = Math.cos(angle) * radius;
+            const py = Math.sin(angle) * radius;
+            
+            if (i === 0) {
+                ctx.moveTo(px, py);
+            } else {
+                ctx.lineTo(px, py);
+            }
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        
+        ctx.restore();
     }
 };
 

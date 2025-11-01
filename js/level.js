@@ -25,6 +25,73 @@ function initializeRoom(roomNumber = 1) {
     return currentRoom;
 }
 
+// Get multiplayer scaling multipliers based on player count
+// Returns { enemyCount, enemyHP, enemyDamage, bossHP, bossDamage }
+function getMultiplayerScaling() {
+    // Default values for solo play
+    const defaultScaling = {
+        enemyCount: 1.0,
+        enemyHP: 1.0,
+        enemyDamage: 1.0,
+        bossHP: 1.0,
+        bossDamage: 1.0
+    };
+    
+    // Check if multiplayer is enabled
+    if (!Game.multiplayerEnabled || typeof multiplayerManager === 'undefined' || !multiplayerManager) {
+        return defaultScaling;
+    }
+    
+    // Get player count from lobby
+    const playerCount = multiplayerManager.players ? multiplayerManager.players.length : 1;
+    
+    // Solo play - no scaling
+    if (playerCount <= 1) {
+        return defaultScaling;
+    }
+    
+    // Multiplayer scaling based on player count
+    // Designed with 1:1.1 difficulty curve (slightly harder per player than solo)
+    switch (playerCount) {
+        case 2:
+            return {
+                enemyCount: 1.5,    // +50% enemies
+                enemyHP: 1.35,      // +35% HP
+                enemyDamage: 1.08,  // +8% damage
+                bossHP: 1.40,       // +40% boss HP
+                bossDamage: 1.10    // +10% boss damage
+            };
+        
+        case 3:
+            return {
+                enemyCount: 2.0,    // +100% enemies (2x)
+                enemyHP: 1.70,      // +70% HP
+                enemyDamage: 1.12,  // +12% damage
+                bossHP: 1.80,       // +80% boss HP
+                bossDamage: 1.15    // +15% boss damage
+            };
+        
+        case 4:
+            return {
+                enemyCount: 2.5,    // +150% enemies (2.5x)
+                enemyHP: 2.0,       // +100% HP (2x)
+                enemyDamage: 1.15,  // +15% damage
+                bossHP: 2.20,       // +120% boss HP
+                bossDamage: 1.18    // +18% boss damage
+            };
+        
+        default:
+            // For more than 4 players (future-proofing), use 4-player scaling
+            return {
+                enemyCount: 2.5,
+                enemyHP: 2.0,
+                enemyDamage: 1.15,
+                bossHP: 2.20,
+                bossDamage: 1.18
+            };
+    }
+}
+
 // Generate room with enemies
 function generateRoom(roomNumber) {
     const room = new Room(roomNumber);
@@ -37,8 +104,17 @@ function generateRoom(roomNumber) {
         return room;
     }
     
-    // Calculate enemy count based on room number
-    const enemyCount = 3 + Math.floor(roomNumber * 0.5);
+    // Get multiplayer scaling multipliers
+    const mpScaling = getMultiplayerScaling();
+    
+    // Calculate enemy count based on room number and multiplayer scaling
+    const baseEnemyCount = 3 + Math.floor(roomNumber * 0.5);
+    const enemyCount = Math.floor(baseEnemyCount * mpScaling.enemyCount);
+    
+    // Debug logging for multiplayer scaling
+    if (mpScaling.enemyCount > 1.0) {
+        console.log(`[Multiplayer] Room ${roomNumber} scaling: ${baseEnemyCount} → ${enemyCount} enemies (${mpScaling.enemyCount}x), HP: ${mpScaling.enemyHP}x, Damage: ${mpScaling.enemyDamage}x`);
+    }
     
     // Calculate enemy stat scaling
     const enemyScale = 1 + (roomNumber * 0.19);
@@ -132,10 +208,10 @@ function generateRoom(roomNumber) {
             }
         }
         
-        // Scale enemy stats
-        enemy.maxHp = Math.floor(enemy.maxHp * enemyScale);
+        // Scale enemy stats (room progression + multiplayer scaling)
+        enemy.maxHp = Math.floor(enemy.maxHp * enemyScale * mpScaling.enemyHP);
         enemy.hp = enemy.maxHp;
-        enemy.damage = enemy.damage * enemyScale;
+        enemy.damage = enemy.damage * enemyScale * mpScaling.enemyDamage;
         enemy.xpValue = Math.floor(enemy.xpValue * enemyScale);
         
         room.enemies.push(enemy);
@@ -178,6 +254,9 @@ function generateBoss(roomNumber) {
     const spawnX = roomWidth / 2;
     const spawnY = roomHeight / 2;
     
+    // Get multiplayer scaling multipliers
+    const mpScaling = getMultiplayerScaling();
+    
     let boss = null;
     
     // Determine which boss to spawn based on room number
@@ -202,12 +281,18 @@ function generateBoss(roomNumber) {
         boss = createPlaceholderBoss(spawnX, spawnY, `Boss ${roomNumber}`);
     }
     
-    // Apply room scaling to boss stats
+    // Apply room scaling and multiplayer scaling to boss stats
     if (boss) {
         const enemyScale = 1 + (roomNumber * 0.165);
-        boss.maxHp = Math.floor(boss.maxHp * enemyScale);
+        const baseHP = boss.maxHp * enemyScale;
+        boss.maxHp = Math.floor(baseHP * mpScaling.bossHP);
         boss.hp = boss.maxHp;
-        boss.damage = boss.damage * enemyScale;
+        boss.damage = boss.damage * enemyScale * mpScaling.bossDamage;
+        
+        // Debug logging for boss scaling
+        if (mpScaling.bossHP > 1.0) {
+            console.log(`[Multiplayer] Boss ${boss.bossName || 'Unknown'} room ${roomNumber} scaling: HP: ${Math.floor(baseHP)} → ${boss.maxHp} (${mpScaling.bossHP}x), Damage: ${mpScaling.bossDamage}x`);
+        }
     }
     
     return boss;

@@ -14,6 +14,7 @@ class DiamondEnemy extends EnemyBase {
         
         // Properties
         this.color = '#00ffff'; // Cyan
+        this.shape = 'diamond';
         this.xpValue = 15;
         this.lootChance = 0.35;
         

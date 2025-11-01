@@ -116,35 +116,190 @@ function updateNexus(ctx, deltaTime) {
         initNexus();
     }
     
+    // Don't process input if multiplayer menu is visible
+    const mpMenuOpen = typeof multiplayerMenuVisible !== 'undefined' && multiplayerMenuVisible;
+    if (mpMenuOpen) {
+        // Still send multiplayer updates even when menu is open
+        if (Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
+            if (multiplayerManager.isHost) {
+                multiplayerManager.sendGameState();
+            } else {
+                multiplayerManager.sendPlayerState();
+            }
+        }
+        return; // Skip all nexus updates when multiplayer menu is open
+    }
+    
+    // MULTIPLAYER: Snapshot input BEFORE updating (preserves justPressed/justReleased)
+    if (Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && !multiplayerManager.isHost) {
+        // Cache input state before Input.update() resets flags
+        multiplayerManager.cachedInputSnapshot = multiplayerManager.serializeInput();
+    }
+    
     // Update input system (for touch controls)
     if (typeof Input !== 'undefined' && Input.update) {
         Input.update(deltaTime);
     }
     
-    // Update player movement in nexus
-    if (Game.player && Game.player.alive) {
-        // Use unified movement input
-        const moveInput = Input.getMovementInput ? Input.getMovementInput() : { x: 0, y: 0 };
-        
-        const moveSpeed = 200; // Nexus movement speed
-        Game.player.vx = moveInput.x * moveSpeed;
-        Game.player.vy = moveInput.y * moveSpeed;
-        
-        // Update position
-        Game.player.x += Game.player.vx * deltaTime;
-        Game.player.y += Game.player.vy * deltaTime;
-        
-        // Keep player in bounds
-        Game.player.x = clamp(Game.player.x, Game.player.size, nexusRoom.width - Game.player.size);
-        Game.player.y = clamp(Game.player.y, Game.player.size, nexusRoom.height - Game.player.size);
-        
-        // Calculate rotation to face aim direction (mouse or joystick)
-        if (Input.getAimDirection) {
-            Game.player.rotation = Input.getAimDirection();
-        } else if (Input.mouse.x !== undefined && Input.mouse.y !== undefined) {
-            const dx = Input.mouse.x - Game.player.x;
-            const dy = Input.mouse.y - Game.player.y;
-            Game.player.rotation = Math.atan2(dy, dx);
+    // Multiplayer: Send player state updates in Nexus
+    if (Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
+        if (multiplayerManager.isHost) {
+            multiplayerManager.sendGameState();
+        } else {
+            multiplayerManager.sendPlayerState();
+        }
+    }
+    
+    // Update player movement in nexus (host-authoritative in multiplayer)
+    if (Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
+        if (multiplayerManager.isHost) {
+            // HOST: Update local player movement
+            if (Game.player && Game.player.alive) {
+                const moveInput = Input.getMovementInput ? Input.getMovementInput() : { x: 0, y: 0 };
+                
+                const moveSpeed = 200; // Nexus movement speed
+                Game.player.vx = moveInput.x * moveSpeed;
+                Game.player.vy = moveInput.y * moveSpeed;
+                
+                // Update position
+                Game.player.x += Game.player.vx * deltaTime;
+                Game.player.y += Game.player.vy * deltaTime;
+                
+                // Keep player in bounds
+                Game.player.x = clamp(Game.player.x, Game.player.size, nexusRoom.width - Game.player.size);
+                Game.player.y = clamp(Game.player.y, Game.player.size, nexusRoom.height - Game.player.size);
+                
+                // Calculate rotation to face aim direction
+                if (Input.getAimDirection) {
+                    Game.player.rotation = Input.getAimDirection();
+                } else if (Input.mouse.x !== undefined && Input.mouse.y !== undefined) {
+                    const dx = Input.mouse.x - Game.player.x;
+                    const dy = Input.mouse.y - Game.player.y;
+                    Game.player.rotation = Math.atan2(dy, dx);
+                }
+            }
+            
+            // HOST: Simulate remote player movement in nexus
+            if (Game.remotePlayerInstances) {
+                Game.remotePlayerInstances.forEach((playerInstance, playerId) => {
+                    const rawInput = Game.getRemotePlayerInput(playerId);
+                    if (rawInput) {
+                        const inputAdapter = Game.createRemoteInputAdapter(rawInput, playerInstance);
+                        
+                        // Calculate movement based on input type (mobile or desktop)
+                        let moveX = 0, moveY = 0;
+                        
+                        if (rawInput.isTouchMode && rawInput.touchJoysticks && rawInput.touchJoysticks.movement) {
+                            // Touch mode: use movement joystick directly
+                            const joystick = rawInput.touchJoysticks.movement;
+                            if (joystick.active) {
+                                moveX = joystick.direction.x * joystick.magnitude;
+                                moveY = joystick.direction.y * joystick.magnitude;
+                            }
+                        } else {
+                            // Desktop mode: use WASD/arrow keys
+                            if (rawInput.up) moveY -= 1;
+                            if (rawInput.down) moveY += 1;
+                            if (rawInput.left) moveX -= 1;
+                            if (rawInput.right) moveX += 1;
+                            
+                            // Normalize diagonal movement
+                            if (moveX !== 0 && moveY !== 0) {
+                                const len = Math.sqrt(moveX * moveX + moveY * moveY);
+                                moveX /= len;
+                                moveY /= len;
+                            }
+                        }
+                        
+                        const moveSpeed = 200; // Nexus movement speed
+                        playerInstance.vx = moveX * moveSpeed;
+                        playerInstance.vy = moveY * moveSpeed;
+                        playerInstance.x += playerInstance.vx * deltaTime;
+                        playerInstance.y += playerInstance.vy * deltaTime;
+                        
+                        // Bounds checking
+                        playerInstance.x = clamp(playerInstance.x, playerInstance.size || 25, nexusRoom.width - (playerInstance.size || 25));
+                        playerInstance.y = clamp(playerInstance.y, playerInstance.size || 25, nexusRoom.height - (playerInstance.size || 25));
+                        
+                        // Calculate rotation based on input type
+                        if (rawInput.isTouchMode && rawInput.touchJoysticks) {
+                            // Touch mode: use joysticks for aim (same priority as local Input)
+                            const heavyAttack = rawInput.touchJoysticks.heavyAttack;
+                            const specialAbility = rawInput.touchJoysticks.specialAbility;
+                            const basicAttack = rawInput.touchJoysticks.basicAttack;
+                            
+                            if (heavyAttack && heavyAttack.active && heavyAttack.magnitude > 0.1) {
+                                playerInstance.rotation = Math.atan2(heavyAttack.direction.y, heavyAttack.direction.x);
+                                playerInstance.lastAimAngle = playerInstance.rotation;
+                            } else if (specialAbility && specialAbility.active && specialAbility.magnitude > 0.1) {
+                                playerInstance.rotation = Math.atan2(specialAbility.direction.y, specialAbility.direction.x);
+                                playerInstance.lastAimAngle = playerInstance.rotation;
+                            } else if (basicAttack && basicAttack.active && basicAttack.magnitude > 0.1) {
+                                playerInstance.rotation = Math.atan2(basicAttack.direction.y, basicAttack.direction.x);
+                                playerInstance.lastAimAngle = playerInstance.rotation;
+                            } else {
+                                // No joystick active: maintain last rotation
+                                playerInstance.rotation = playerInstance.lastAimAngle || 0;
+                            }
+                        } else {
+                            // Desktop mode: use mouse position
+                            const dx = rawInput.mouse.x - playerInstance.x;
+                            const dy = rawInput.mouse.y - playerInstance.y;
+                            playerInstance.rotation = Math.atan2(dy, dx);
+                        }
+                    }
+                });
+            }
+        } else {
+            // CLIENT: Interpolate positions for smooth rendering
+            // Local player interpolation (position comes from host)
+            if (Game.player && Game.player.alive && Game.player.interpolatePosition) {
+                Game.player.interpolatePosition(deltaTime);
+                
+                // Keep player in bounds (interpolation might push them slightly out)
+                Game.player.x = clamp(Game.player.x, Game.player.size, nexusRoom.width - Game.player.size);
+                Game.player.y = clamp(Game.player.y, Game.player.size, nexusRoom.height - Game.player.size);
+            }
+            
+            // Remote player shadow instances interpolation
+            if (Game.remotePlayerShadowInstances) {
+                Game.remotePlayerShadowInstances.forEach((shadowInstance, playerId) => {
+                    if (shadowInstance && shadowInstance.alive && shadowInstance.interpolatePosition) {
+                        shadowInstance.interpolatePosition(deltaTime);
+                        
+                        // Keep in bounds
+                        const size = shadowInstance.size || 25;
+                        shadowInstance.x = clamp(shadowInstance.x, size, nexusRoom.width - size);
+                        shadowInstance.y = clamp(shadowInstance.y, size, nexusRoom.height - size);
+                    }
+                });
+            }
+        }
+    } else {
+        // SOLO: Update normally
+        if (Game.player && Game.player.alive) {
+            const moveInput = Input.getMovementInput ? Input.getMovementInput() : { x: 0, y: 0 };
+            
+            const moveSpeed = 200; // Nexus movement speed
+            Game.player.vx = moveInput.x * moveSpeed;
+            Game.player.vy = moveInput.y * moveSpeed;
+            
+            // Update position
+            Game.player.x += Game.player.vx * deltaTime;
+            Game.player.y += Game.player.vy * deltaTime;
+            
+            // Keep player in bounds
+            Game.player.x = clamp(Game.player.x, Game.player.size, nexusRoom.width - Game.player.size);
+            Game.player.y = clamp(Game.player.y, Game.player.size, nexusRoom.height - Game.player.size);
+            
+            // Calculate rotation to face aim direction
+            if (Input.getAimDirection) {
+                Game.player.rotation = Input.getAimDirection();
+            } else if (Input.mouse.x !== undefined && Input.mouse.y !== undefined) {
+                const dx = Input.mouse.x - Game.player.x;
+                const dy = Input.mouse.y - Game.player.y;
+                Game.player.rotation = Math.atan2(dy, dx);
+            }
         }
     }
     
@@ -173,6 +328,17 @@ function updateNexus(ctx, deltaTime) {
                     SaveSystem.setSelectedClass(station.key);
                 }
                 console.log(`Selected class: ${station.name}`);
+                
+                // Multiplayer: Send class change to other players
+                if (Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
+                    if (multiplayerManager.isHost) {
+                        // Host: Immediately send state update so clients see class change
+                        multiplayerManager.sendGameState();
+                    } else {
+                        // Client: Send state update so host knows our class
+                        multiplayerManager.sendPlayerState();
+                    }
+                }
             }
         });
         
@@ -195,8 +361,19 @@ function updateNexus(ctx, deltaTime) {
         const portalDistance = Math.sqrt(portalDx * portalDx + portalDy * portalDy);
         
         if (portalDistance < 60 && Game.selectedClass) {
-            // Start run
-            Game.startGame();
+            // Check multiplayer mode
+            const inLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+            
+            if (inLobby) {
+                // Only host can start the game in multiplayer
+                if (multiplayerManager.isHost) {
+                    multiplayerManager.startGame();
+                    Game.startGame();
+                }
+            } else {
+                // Single player - start normally
+                Game.startGame();
+            }
         }
     }
 }
@@ -572,16 +749,71 @@ function renderNexus(ctx) {
     
     // Portal interaction prompt (only show in desktop mode, moved down to avoid overlap)
     if (isNearPortal && typeof Input !== 'undefined' && (!Input.isTouchMode || !Input.isTouchMode())) {
+        const inLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+        
         if (portalActive) {
-            ctx.fillStyle = '#ffff00';
-            ctx.font = 'bold 14px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText('Press G to enter portal', nexusRoom.portalPos.x, nexusRoom.portalPos.y + 70);
+            if (inLobby && !multiplayerManager.isHost) {
+                ctx.fillStyle = '#ff6666';
+                ctx.font = 'bold 14px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('Only host can start', nexusRoom.portalPos.x, nexusRoom.portalPos.y + 70);
+            } else {
+                ctx.fillStyle = '#ffff00';
+                ctx.font = 'bold 14px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('Press G to enter portal', nexusRoom.portalPos.x, nexusRoom.portalPos.y + 70);
+            }
         } else {
             ctx.fillStyle = '#ff6666';
             ctx.font = '12px Arial';
             ctx.textAlign = 'center';
             ctx.fillText('Select a class first', nexusRoom.portalPos.x, nexusRoom.portalPos.y + 70);
+        }
+    }
+    
+    // Render multiplayer lobby status (top of screen)
+    const inLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+    if (inLobby) {
+        const panelWidth = 350;
+        const panelHeight = 120;
+        const panelX = (nexusRoom.width - panelWidth) / 2;
+        const panelY = 20;
+        
+        // Panel background
+        ctx.fillStyle = 'rgba(30, 30, 50, 0.9)';
+        ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
+        
+        // Panel border
+        ctx.strokeStyle = '#00ff00';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
+        
+        // Title
+        ctx.fillStyle = '#00ff00';
+        ctx.font = 'bold 24px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('MULTIPLAYER LOBBY', panelX + panelWidth / 2, panelY + 30);
+        
+        // Lobby code
+        ctx.fillStyle = '#ffff00';
+        ctx.font = 'bold 20px monospace';
+        ctx.fillText(`Code: ${multiplayerManager.lobbyCode}`, panelX + panelWidth / 2, panelY + 60);
+        
+        // Players count
+        const playerCount = multiplayerManager.players ? multiplayerManager.players.length : 1;
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '16px Arial';
+        ctx.fillText(`Players: ${playerCount}/${MultiplayerConfig.MAX_PLAYERS}`, panelX + panelWidth / 2, panelY + 85);
+        
+        // Host indicator
+        if (multiplayerManager.isHost) {
+            ctx.fillStyle = '#ffaa00';
+            ctx.font = 'bold 14px Arial';
+            ctx.fillText('(You are the host)', panelX + panelWidth / 2, panelY + 105);
+        } else {
+            ctx.fillStyle = '#aaaaaa';
+            ctx.font = '14px Arial';
+            ctx.fillText('(Waiting for host...)', panelX + panelWidth / 2, panelY + 105);
         }
     }
     
@@ -668,6 +900,93 @@ function renderNexus(ctx) {
         ctx.fill();
         
         ctx.restore();
+    }
+    
+    // Render remote players (multiplayer) in the Nexus
+    if (Game.remotePlayers && Game.remotePlayers.length > 0) {
+        Game.remotePlayers.forEach(remotePlayer => {
+            // Skip rendering dead players
+            if (remotePlayer.dead) {
+                return;
+            }
+            
+            // Get class definition for remote player
+            const classDef = CLASS_DEFINITIONS[remotePlayer.class] || CLASS_DEFINITIONS.square;
+            const playerColor = classDef.color;
+            const playerShape = classDef.shape;
+            const playerSize = 20; // Standard player size
+            
+            ctx.save();
+            ctx.translate(remotePlayer.x, remotePlayer.y);
+            ctx.rotate(remotePlayer.rotation);
+            ctx.fillStyle = playerColor;
+            
+            // Draw player shape based on class
+            if (playerShape === 'triangle') {
+                ctx.beginPath();
+                ctx.moveTo(playerSize, 0);
+                ctx.lineTo(-playerSize * 0.5, -playerSize * 0.866);
+                ctx.lineTo(-playerSize * 0.5, playerSize * 0.866);
+                ctx.closePath();
+                ctx.fill();
+            } else if (playerShape === 'hexagon') {
+                ctx.beginPath();
+                for (let i = 0; i < 6; i++) {
+                    const angle = (Math.PI / 3) * i;
+                    const px = Math.cos(angle) * playerSize;
+                    const py = Math.sin(angle) * playerSize;
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+                ctx.fill();
+            } else if (playerShape === 'pentagon') {
+                const rotationOffset = 18 * Math.PI / 180;
+                ctx.beginPath();
+                for (let i = 0; i < 5; i++) {
+                    const angle = (Math.PI * 2 / 5) * i - Math.PI / 2 + rotationOffset;
+                    const px = Math.cos(angle) * playerSize;
+                    const py = Math.sin(angle) * playerSize;
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+                ctx.fill();
+            } else {
+                // Default to square
+                ctx.beginPath();
+                ctx.rect(-playerSize * 0.8, -playerSize * 0.8, playerSize * 1.6, playerSize * 1.6);
+                ctx.fill();
+            }
+            
+            // Draw direction indicator
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            if (playerShape === 'pentagon') {
+                const rotationOffset = 18 * Math.PI / 180;
+                const vertexIndex = 1;
+                const vertexAngle = (Math.PI * 2 / 5) * vertexIndex - Math.PI / 2 + rotationOffset;
+                const indicatorDistance = playerSize * 0.7;
+                const indicatorX = Math.cos(vertexAngle) * indicatorDistance;
+                const indicatorY = Math.sin(vertexAngle) * indicatorDistance;
+                ctx.arc(indicatorX, indicatorY, 5, 0, Math.PI * 2);
+            } else {
+                ctx.arc(
+                    Math.cos(0) * (playerSize - 5),
+                    Math.sin(0) * (playerSize - 5),
+                    5, 0, Math.PI * 2
+                );
+            }
+            ctx.fill();
+            
+            ctx.restore();
+            
+            // Draw player name tag above remote player
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 12px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(remotePlayer.name || 'Player', remotePlayer.x, remotePlayer.y - playerSize - 10);
+        });
     }
     
     // Render currency display (top left)

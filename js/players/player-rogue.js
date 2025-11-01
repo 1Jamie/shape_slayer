@@ -1,4 +1,7 @@
 // Rogue class (Triangle) - extends PlayerBase
+// VERSION: 2024-11-01-JOYSTICK-DODGE-v1
+
+console.log('[player-rogue.js] ============ LOADED VERSION 2024-11-01-JOYSTICK-DODGE-v1 ============');
 
 class Rogue extends PlayerBase {
     constructor(x = 400, y = 300) {
@@ -210,15 +213,65 @@ class Rogue extends PlayerBase {
         console.log('Shadow clones activated!');
     }
     
-    // Override startDodge for Rogue facing-direction-only dodge
+    // Override startDodge for Rogue directional dodge
     startDodge(input) {
-        // Rogue: Always dash in facing direction (not movement direction)
-        const dodgeDirX = Math.cos(this.rotation) * this.dodgeSpeedBoost;
-        const dodgeDirY = Math.sin(this.rotation) * this.dodgeSpeedBoost;
+        console.log('[ROGUE DODGE] startDodge called, isTouchMode:', input.isTouchMode ? input.isTouchMode() : false);
+        console.log('[ROGUE DODGE] input.touchButtons:', input.touchButtons);
+        
+        let dodgeDirX = 0;
+        let dodgeDirY = 0;
+        
+        // Mobile: Use joystick direction if available
+        if (input.isTouchMode && input.isTouchMode()) {
+            const button = input.touchButtons && input.touchButtons.dodge;
+            console.log('[ROGUE DODGE] button:', button, 'finalJoystickState:', button?.finalJoystickState);
+            
+            if (button && button.finalJoystickState) {
+                // Use stored joystick direction from button release
+                const state = button.finalJoystickState;
+                console.log('[ROGUE DODGE] Using finalJoystickState - mag:', state.magnitude, 'dir:', state.direction, 'angle:', state.angle);
+                
+                if (state.magnitude > 0.1) {
+                    dodgeDirX = state.direction.x * this.dodgeSpeedBoost;
+                    dodgeDirY = state.direction.y * this.dodgeSpeedBoost;
+                    console.log('[ROGUE DODGE] Direction from joystick:', dodgeDirX, dodgeDirY);
+                    // Clear the stored state after using it
+                    button.finalJoystickState = null;
+                } else {
+                    // Magnitude too low, use facing direction
+                    dodgeDirX = Math.cos(this.rotation) * this.dodgeSpeedBoost;
+                    dodgeDirY = Math.sin(this.rotation) * this.dodgeSpeedBoost;
+                    console.log('[ROGUE DODGE] Magnitude too low, using rotation:', this.rotation);
+                }
+            } else if (input.touchJoysticks && input.touchJoysticks.dodge && input.touchJoysticks.dodge.active) {
+                // Joystick still active (fallback)
+                const joystick = input.touchJoysticks.dodge;
+                const dir = joystick.getDirection();
+                dodgeDirX = dir.x * this.dodgeSpeedBoost;
+                dodgeDirY = dir.y * this.dodgeSpeedBoost;
+                console.log('[ROGUE DODGE] Using active joystick:', dodgeDirX, dodgeDirY);
+            } else {
+                // No joystick data, use facing direction
+                dodgeDirX = Math.cos(this.rotation) * this.dodgeSpeedBoost;
+                dodgeDirY = Math.sin(this.rotation) * this.dodgeSpeedBoost;
+                console.log('[ROGUE DODGE] No joystick, using rotation:', this.rotation);
+            }
+        } else {
+            // Desktop: Always dash in facing direction
+            dodgeDirX = Math.cos(this.rotation) * this.dodgeSpeedBoost;
+            dodgeDirY = Math.sin(this.rotation) * this.dodgeSpeedBoost;
+            console.log('[ROGUE DODGE] Desktop mode, using rotation:', this.rotation);
+        }
         
         // Store dodge velocity
         this.dodgeVx = dodgeDirX;
         this.dodgeVy = dodgeDirY;
+        
+        // Update rotation to face dodge direction
+        this.rotation = Math.atan2(dodgeDirY, dodgeDirX);
+        this.lastAimAngle = this.rotation; // Store for mobile aim retention
+        
+        console.log('[ROGUE DODGE] Final dodge velocity:', this.dodgeVx, this.dodgeVy, 'rotation:', this.rotation);
         
         // Set dodge state
         this.isDodging = true;
@@ -515,6 +568,33 @@ class Rogue extends PlayerBase {
             
             ctx.restore();
         }
+    }
+    
+    // Override serialize to include Rogue-specific state
+    serialize() {
+        const baseState = super.serialize();
+        return {
+            ...baseState,
+            // Rogue-specific abilities
+            shadowClonesActive: this.shadowClonesActive,
+            shadowClonesElapsed: this.shadowClonesElapsed, // For correct fade-out on clients
+            shadowClonesDuration: this.shadowClonesDuration, // For consistency
+            shadowClones: (this.shadowClones || []).map(clone => ({
+                x: clone.x,
+                y: clone.y,
+                rotation: clone.rotation
+            }))
+        };
+    }
+    
+    // Override applyState to handle Rogue-specific state
+    applyState(state) {
+        super.applyState(state);
+        // Rogue-specific properties
+        if (state.shadowClonesActive !== undefined) this.shadowClonesActive = state.shadowClonesActive;
+        if (state.shadowClonesElapsed !== undefined) this.shadowClonesElapsed = state.shadowClonesElapsed;
+        if (state.shadowClonesDuration !== undefined) this.shadowClonesDuration = state.shadowClonesDuration;
+        if (state.shadowClones !== undefined) this.shadowClones = state.shadowClones;
     }
 }
 

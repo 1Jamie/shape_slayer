@@ -235,7 +235,7 @@ class BossBase extends EnemyBase {
     }
     
     // Override takeDamage to check for weak point hits first
-    takeDamage(damage, hitX = null, hitY = null, hitRadius = 0) {
+    takeDamage(damage, hitX = null, hitY = null, hitRadius = 0, attackerId = null) {
         // Check for weak point hit if position provided
         let weakPointHit = null;
         if (hitX !== null && hitY !== null && hitRadius > 0) {
@@ -246,6 +246,16 @@ class BossBase extends EnemyBase {
         const finalDamage = weakPointHit ? damage * 3 : damage;
         
         this.hp -= finalDamage;
+        
+        // Track who dealt the damage (for kill attribution and aggro)
+        if (attackerId) {
+            this.lastAttacker = attackerId;
+            // Add threat for aggro system
+            this.addThreat(attackerId, finalDamage);
+        } else if (typeof Game !== 'undefined' && Game.getLocalPlayerId) {
+            this.lastAttacker = Game.getLocalPlayerId();
+            this.addThreat(Game.getLocalPlayerId(), finalDamage);
+        }
         
         // Visual feedback for weak point hits
         if (weakPointHit) {
@@ -269,6 +279,18 @@ class BossBase extends EnemyBase {
     die() {
         this.alive = false;
         
+        // Only run death effects on host or in solo mode (clients receive loot via game_state)
+        if (typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient()) {
+            // Client: Don't run death logic (host handles it)
+            return;
+        }
+        
+        // Track kill for the last attacker
+        if (this.lastAttacker && typeof Game !== 'undefined' && Game.getPlayerStats) {
+            const stats = Game.getPlayerStats(this.lastAttacker);
+            stats.addStat('kills', 1);
+        }
+        
         // Emit particles on death
         if (typeof createParticleBurst !== 'undefined') {
             createParticleBurst(this.x, this.y, this.color, 30);
@@ -279,7 +301,7 @@ class BossBase extends EnemyBase {
             Game.player.addXP(this.xpValue);
         }
         
-        // Drop guaranteed rare+ loot (2-3 items)
+        // Drop guaranteed rare+ loot (2-3 items) - HOST ONLY
         if (typeof generateGear !== 'undefined' && typeof groundLoot !== 'undefined') {
             const lootCount = 2 + Math.floor(Math.random() * 2); // 2 or 3 items
             for (let i = 0; i < lootCount; i++) {
@@ -297,6 +319,7 @@ class BossBase extends EnemyBase {
                 const offsetY = (Math.random() - 0.5) * 40;
                 const gear = generateGear(this.x + offsetX, this.y + offsetY, tier);
                 groundLoot.push(gear);
+                console.log(`[Host] Boss dropped ${tier} loot`);
             }
         }
     }
@@ -412,6 +435,26 @@ class BossBase extends EnemyBase {
     
     render(ctx) {
         throw new Error('BossBase.render() must be implemented by subclass');
+    }
+    
+    // Override serialize to include Boss-specific state
+    serialize() {
+        const baseState = super.serialize();
+        return {
+            ...baseState,
+            // Boss-specific properties
+            bossName: this.bossName,
+            phase: this.phase,
+            introComplete: this.introComplete
+        };
+    }
+    
+    // Override applyState to handle Boss-specific state  
+    applyState(state) {
+        super.applyState(state);
+        // Boss-specific properties
+        if (state.phase !== undefined) this.phase = state.phase;
+        if (state.introComplete !== undefined) this.introComplete = state.introComplete;
     }
 }
 

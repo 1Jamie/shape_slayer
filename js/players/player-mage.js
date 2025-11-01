@@ -621,5 +621,42 @@ class Mage extends PlayerBase {
             ctx.restore();
         }
     }
+    
+    // Override serialize to include Mage-specific state
+    serialize() {
+        const baseState = super.serialize();
+        return {
+            ...baseState,
+            // Mage-specific abilities
+            arcaneFocusActive: this.arcaneFocusActive,
+            blinkCooldown: this.blinkCooldown,
+            blinkDecoyActive: this.blinkDecoyActive,
+            blinkDecoyElapsed: this.blinkDecoyElapsed, // For correct fade-out and growth on clients
+            blinkDecoyDuration: this.blinkDecoyDuration, // For consistency
+            blinkDecoyX: this.blinkDecoyX,
+            blinkDecoyY: this.blinkDecoyY,
+            blinkExplosionActive: this.blinkExplosionActive,
+            blinkExplosionElapsed: this.blinkExplosionElapsed, // For correct explosion animation on clients
+            blinkExplosionX: this.blinkExplosionX,
+            blinkExplosionY: this.blinkExplosionY
+        };
+    }
+    
+    // Override applyState to handle Mage-specific state
+    applyState(state) {
+        super.applyState(state);
+        // Mage-specific properties
+        if (state.arcaneFocusActive !== undefined) this.arcaneFocusActive = state.arcaneFocusActive;
+        if (state.blinkCooldown !== undefined) this.blinkCooldown = state.blinkCooldown;
+        if (state.blinkDecoyActive !== undefined) this.blinkDecoyActive = state.blinkDecoyActive;
+        if (state.blinkDecoyElapsed !== undefined) this.blinkDecoyElapsed = state.blinkDecoyElapsed;
+        if (state.blinkDecoyDuration !== undefined) this.blinkDecoyDuration = state.blinkDecoyDuration;
+        if (state.blinkDecoyX !== undefined) this.blinkDecoyX = state.blinkDecoyX;
+        if (state.blinkDecoyY !== undefined) this.blinkDecoyY = state.blinkDecoyY;
+        if (state.blinkExplosionActive !== undefined) this.blinkExplosionActive = state.blinkExplosionActive;
+        if (state.blinkExplosionElapsed !== undefined) this.blinkExplosionElapsed = state.blinkExplosionElapsed;
+        if (state.blinkExplosionX !== undefined) this.blinkExplosionX = state.blinkExplosionX;
+        if (state.blinkExplosionY !== undefined) this.blinkExplosionY = state.blinkExplosionY;
+    }
 }
 

@@ -16,6 +16,7 @@ class RectangleEnemy extends EnemyBase {
         
         // Properties
         this.color = '#cd7f32'; // Bronze
+        this.shape = 'rectangle';
         this.xpValue = 25;
         this.lootChance = 0.4;
         

@@ -46,6 +46,7 @@ class Warrior extends PlayerBase {
         // Whirlwind special ability
         this.whirlwindActive = false;
         this.whirlwindElapsed = 0;
+        this.whirlwindStartTime = 0; // Timestamp for smooth visual rotation
         this.whirlwindDuration = 2.0;
         this.whirlwindHitTimer = 0;
         
@@ -303,6 +304,7 @@ class Warrior extends PlayerBase {
     activateWhirlwind() {
         this.whirlwindActive = true;
         this.whirlwindElapsed = 0;
+        this.whirlwindStartTime = Date.now(); // Track start time for smooth visual rotation
         this.specialCooldown = this.specialCooldownTime;
         this.invulnerable = true;
         this.invulnerabilityTime = 0.3; // 0.3s startup i-frames
@@ -403,8 +405,10 @@ class Warrior extends PlayerBase {
             ctx.translate(this.x, this.y);
             
             // Continuously rotating angle based on elapsed time
-            const spinSpeed = 10; // Full rotation per second
-            const spinAngle = this.whirlwindElapsed * Math.PI * 2 * spinSpeed;
+            // Use local time for smooth 60fps rotation (not limited by network update rate)
+            const spinSpeed = 10; // Full rotations per second
+            const localElapsed = (Date.now() - this.whirlwindStartTime) / 1000;
+            const spinAngle = localElapsed * Math.PI * 2 * spinSpeed;
             ctx.rotate(spinAngle);
             
             // Draw spinning blades
@@ -536,6 +540,35 @@ class Warrior extends PlayerBase {
             
             ctx.restore();
         }
+    }
+    
+    // Override serialize to include Warrior-specific state
+    serialize() {
+        const baseState = super.serialize();
+        return {
+            ...baseState,
+            // Warrior-specific abilities
+            whirlwindActive: this.whirlwindActive,
+            whirlwindElapsed: this.whirlwindElapsed,
+            whirlwindStartTime: this.whirlwindStartTime, // For smooth visual rotation
+            blockStanceActive: this.blockStanceActive,
+            blockStanceTimer: this.blockStanceTimer, // For correct shield visual progress on clients
+            thrustActive: this.thrustActive,
+            thrustElapsed: this.thrustElapsed // For correct thrust trail fade-out on clients
+        };
+    }
+    
+    // Override applyState to handle Warrior-specific state
+    applyState(state) {
+        super.applyState(state);
+        // Warrior-specific properties
+        if (state.whirlwindActive !== undefined) this.whirlwindActive = state.whirlwindActive;
+        if (state.whirlwindElapsed !== undefined) this.whirlwindElapsed = state.whirlwindElapsed;
+        if (state.whirlwindStartTime !== undefined) this.whirlwindStartTime = state.whirlwindStartTime;
+        if (state.blockStanceActive !== undefined) this.blockStanceActive = state.blockStanceActive;
+        if (state.blockStanceTimer !== undefined) this.blockStanceTimer = state.blockStanceTimer;
+        if (state.thrustActive !== undefined) this.thrustActive = state.thrustActive;
+        if (state.thrustElapsed !== undefined) this.thrustElapsed = state.thrustElapsed;
     }
 }
 

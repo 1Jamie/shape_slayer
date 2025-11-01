@@ -14,6 +14,7 @@ class Enemy extends EnemyBase {
         
         // Properties
         this.color = '#ff6b6b';
+        this.shape = 'circle';
         this.xpValue = 10;
         this.lootChance = 0.3;
         

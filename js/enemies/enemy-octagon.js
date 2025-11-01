@@ -14,6 +14,7 @@ class OctagonEnemy extends EnemyBase {
         
         // Properties
         this.color = '#ffd700'; // Gold
+        this.shape = 'octagon';
         this.xpValue = 50;
         this.lootChance = 0.6;
         

@@ -66,13 +66,22 @@ function checkAttacksVsEnemies(player, enemies) {
                     finalDamage *= 2; // 2x damage for backstab
                 }
                 
-                // Pass position and radius for weak point detection (bosses will use this, others will ignore)
-                if (enemy.isBoss && typeof enemy.takeDamage === 'function') {
-                    // Bosses: pass position/radius for weak point detection
-                    enemy.takeDamage(finalDamage, hitbox.x, hitbox.y, hitbox.radius);
-                } else {
-                    // Normal enemies: pass damage (with backstab multiplier if applicable)
-                    enemy.takeDamage(finalDamage);
+                // Get attacker ID for aggro system
+                const attackerId = typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
+                
+                // Only apply damage if we're the host or in solo mode
+                // Clients send damage events and wait for host's authoritative response
+                const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+                
+                if (!isClient) {
+                    // Host or solo: Apply damage locally
+                    if (enemy.isBoss && typeof enemy.takeDamage === 'function') {
+                        // Bosses: pass position/radius for weak point detection + attacker ID
+                        enemy.takeDamage(finalDamage, hitbox.x, hitbox.y, hitbox.radius, attackerId);
+                    } else {
+                        // Normal enemies: pass damage (with backstab multiplier if applicable) + attacker ID
+                        enemy.takeDamage(finalDamage, attackerId);
+                    }
                 }
                 
                 // Apply hammer-specific effects (knockback and stun)
@@ -102,9 +111,29 @@ function checkAttacksVsEnemies(player, enemies) {
                 
                 // Calculate actual damage dealt (accounting for weak point and backstab multipliers)
                 let damageDealt = hitWeakPoint ? finalDamage * 3 : finalDamage;
-                damageDealt = Math.min(damageDealt, enemy.hp);
+                // Don't cap by enemy.hp on clients since they don't have authoritative HP
+                if (!isClient) {
+                    damageDealt = Math.min(damageDealt, enemy.hp);
+                }
+                
+                // Track damage dealt in player stats (host only, updated from authoritative damage)
+                if (!isClient && typeof Game !== 'undefined' && Game.getPlayerStats && Game.getLocalPlayerId) {
+                    const playerId = Game.getLocalPlayerId();
+                    const stats = Game.getPlayerStats(playerId);
+                    stats.addStat('damageDealt', damageDealt);
+                }
+                
+                // Multiplayer: Send damage event to host (clients send for host to process)
+                if (isClient) {
+                    const enemyIndex = Game.getEnemyIndex(enemy);
+                    if (enemyIndex !== -1) {
+                        // Send raw finalDamage, not capped by HP, so host can calculate correctly
+                        Game.sendEnemyDamageEvent(enemyIndex, finalDamage, hitbox.x, hitbox.y, hitbox.radius, hitWeakPoint);
+                    }
+                }
                 
                 // Create damage number (show different color for weak point hits and backstab)
+                // Show on both clients (for feedback) and host (for accuracy)
                 if (typeof createDamageNumber !== 'undefined') {
                     const isHeavyAttack = hitbox.heavy || false;
                     // Position damage number at weak point if hit, otherwise at enemy center
@@ -115,8 +144,9 @@ function checkAttacksVsEnemies(player, enemies) {
                         damageX = enemy.x + enemy.weakPoints[0].offsetX;
                         damageY = enemy.y + enemy.weakPoints[0].offsetY;
                     }
-                    // Show backstab with special color (purple/pink) - pass backstab flag if we add support
-                    createDamageNumber(damageX, damageY, damageDealt, isHeavyAttack, hitWeakPoint);
+                    // Show damage (estimated on clients, accurate on host)
+                    const displayDamage = isClient ? Math.floor(damageDealt) : damageDealt;
+                    createDamageNumber(damageX, damageY, displayDamage, isHeavyAttack, hitWeakPoint);
                 }
                 
                 // Track that we hit this enemy so we don't hit it again with this hitbox
@@ -126,17 +156,65 @@ function checkAttacksVsEnemies(player, enemies) {
     });
 }
 
-// Check enemies vs player
+// Check enemies vs player (and all remote players in multiplayer)
 function checkEnemiesVsPlayer(player, enemies) {
-    if (!player.alive || player.invulnerable) return;
+    // Only run on host in multiplayer (host simulates all collisions)
+    if (typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient()) {
+        return; // Clients don't check enemy collisions, host does
+    }
     
+    // Get all players to check
+    const playersToCheck = [];
+    
+    // Add local player
+    if (player && player.alive && !player.invulnerable) {
+        playersToCheck.push({
+            id: Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local',
+            player: player,
+            isPlayerInstance: true
+        });
+    }
+    
+    // Add remote player INSTANCES (host simulates these)
+    if (typeof Game !== 'undefined' && Game.remotePlayerInstances) {
+        Game.remotePlayerInstances.forEach((playerInstance, playerId) => {
+            if (playerInstance && playerInstance.alive && !playerInstance.invulnerable) {
+                playersToCheck.push({
+                    id: playerId,
+                    player: playerInstance,
+                    isPlayerInstance: true
+                });
+            }
+        });
+    }
+    
+    // Check each enemy against each player
     enemies.forEach(enemy => {
         if (!enemy.alive) return;
         
-        if (checkCircleCollision(enemy.x, enemy.y, enemy.size, player.x, player.y, player.size)) {
-            // Player takes damage
-            player.takeDamage(enemy.damage);
-        }
+        playersToCheck.forEach(({ id, player: p, isPlayerInstance }) => {
+            if (checkCircleCollision(enemy.x, enemy.y, enemy.size, 
+                                     p.x, p.y, p.size || 20)) {
+                // Get local player ID for comparison
+                const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local';
+                
+                // Distinguish between local and remote players
+                if (id === localPlayerId) {
+                    // Local player: call takeDamage directly
+                    p.takeDamage(enemy.damage);
+                } else {
+                    // Remote player: use damageRemotePlayer to properly track death with correct player ID
+                    if (typeof Game !== 'undefined' && Game.damageRemotePlayer) {
+                        Game.damageRemotePlayer(id, enemy.damage);
+                    }
+                    
+                    // Send damage event to that client
+                    if (typeof Game !== 'undefined' && Game.sendPlayerDamageEvent) {
+                        Game.sendPlayerDamageEvent(id, enemy.damage);
+                    }
+                }
+            }
+        });
     });
 }
 

@@ -1,12 +1,13 @@
 # Shape Slayer - Game Design Specification
 
 ## Project Overview
-A skill-based 2D top-down ARPG using HTML5 Canvas 2D and vanilla JavaScript. Players control geometric shapes, fight through rooms of enemies, collect gear, and level up in a fast-paced combat system.
+A skill-based 2D top-down ARPG using HTML5 Canvas 2D and vanilla JavaScript. Players control geometric shapes, fight through rooms of enemies, collect gear, and level up in a fast-paced combat system. Supports both single-player and co-op multiplayer (up to 4 players).
 
 **Genre:** Action Roguelike  
 **Platform:** Web Browser (HTML5 Canvas)  
-**Tech Stack:** Vanilla JavaScript (ES6+), Canvas 2D API  
+**Tech Stack:** Vanilla JavaScript (ES6+), Canvas 2D API, WebSockets (Node.js)  
 **Target Session Length:** 10-15 minutes  
+**Multiplayer:** Optional co-op system (host-authoritative architecture)  
 
 ---
 
@@ -215,6 +216,34 @@ Hazards update each frame, check player collision, and auto-remove when expired.
 - **Right Click:** Heavy attack (~1.5s cooldown)
 - **Spacebar:** Class special ability (~5s cooldown)
 - **Shift:** Dodge roll with i-frames (~2s cooldown)
+- **ESC:** Pause menu (different behavior in multiplayer)
+- **G:** Interact with portal in Nexus (host only in multiplayer)
+
+### Input Handling (Multiplayer)
+
+#### Client Input Snapshotting
+- **Critical Timing:** Input state must be snapshotted BEFORE `Input.update()` resets flags
+- **Purpose:** Preserve `justPressed` and `justReleased` flags for host simulation
+- **When:** In Nexus and during gameplay, clients snapshot input before each frame update
+- **Storage:** Cached in `multiplayerManager.cachedInputSnapshot` for serialization
+
+#### Host Input Simulation
+- **Input Adapter:** Host creates `Input` interface adapter from serialized client input
+- **Adapter Functionality:**
+  - Converts raw input data (keys, mouse, touch) to `Input` interface
+  - Handles touch controls (joysticks, buttons) for mobile clients
+  - Preserves `justPressed`/`justReleased` flags for abilities
+  - Maintains `lastAimAngle` for touch controls
+- **Remote Player Instances:** Host creates full player instances for each client
+- **Simulation:** Host calls `playerInstance.update(deltaTime, inputAdapter)` with adapted input
+
+#### Input Serialization
+- **Keyboard:** WASD, arrow keys, space, shift, mouse buttons
+- **Mouse:** Position (x, y) for aiming
+- **Touch Controls:** Joysticks (movement, aim) and buttons (attack, abilities)
+  - Serializes `active`, `magnitude`, `direction`, `justReleased` states
+  - Includes `finalJoystickState` for press-and-release abilities
+- **Timestamp:** Client timestamp included for RTT calculation
 
 ### Combat Philosophy
 "Dark Souls meets Geometry" - Every action has commitment and can be punished.
@@ -413,6 +442,395 @@ enemyDamage = baseDamage * (1 + roomNumber * 0.1)
 
 ---
 
+## Multiplayer System
+
+### Overview
+Shape Slayer supports co-op multiplayer for up to 4 players using a lobby-based system with join codes. Multiplayer is completely optional - the game works perfectly in single-player mode without any server.
+
+### Architecture
+
+#### Host-Authoritative Design
+- **Host** (first player to create lobby) runs all game logic:
+  - Enemy AI and behavior
+  - Combat calculations and damage validation
+  - Loot generation and distribution
+  - Room transitions and door state
+  - Game state management
+  - Player instance simulation (for remote players)
+  
+- **Clients** (other players) send input and render state:
+  - Send input state (movement, attacks, abilities) to host at 30 FPS
+  - Receive full game state from host at 30 FPS
+  - Render at 60 FPS using client-side interpolation
+  - Handle their own visual effects and UI
+  - Local input prediction for responsive feel
+
+#### State Synchronization
+- **Update Rate:** 30 updates/second (network), 60 FPS (client rendering)
+- **Host sends:** Complete game state including:
+  - All player positions, HP, animations, states
+  - All enemy positions, HP, states, AI state
+  - All projectiles (position, velocity, lifetime)
+  - Room number, door state, door waiting state
+  - Ground loot (ID-based sync)
+  - Death state (all players dead flag, dead players set)
+  
+- **Clients send:** Local player input state:
+  - Position, HP, rotation (for validation)
+  - Input state (keys, mouse, touch controls)
+  - Animation states
+  - Class-specific states
+  - Client timestamp (for RTT calculation)
+
+#### Interpolation System
+- **Purpose:** Smooth 60 FPS rendering despite 30 FPS network updates
+- **State Buffering:** Stores up to 15 state snapshots per entity
+- **Adaptive Delay:** Adjusts interpolation delay based on network latency (100-200ms)
+- **Extrapolation:** Predicts movement when updates are delayed (max 100ms)
+- **Lerp Speed:** Adaptive speed (5-20) based on distance to target
+- **Snap Distance:** 100px threshold - snap instead of interpolate if too far
+
+### Lobby System
+
+#### Lobby Creation
+- **Code Generation:** 6-character codes (A-Z, 2-9, excludes confusing chars like O/0, I/1)
+- **Capacity:** Maximum 4 players per lobby
+- **Expiration:** Lobbies expire after 1 hour of inactivity
+- **Host:** First player to create lobby becomes host
+
+#### Lobby Management
+- **Join Flow:** Enter code → connect to server → join lobby → select class → wait for host to start
+- **Host Migration:** If host disconnects, next player automatically becomes host
+- **Player Tracking:** Server maintains player list with IDs, names, classes, ready state
+
+### Network Protocol
+
+#### Message Types (Client → Server)
+- `create_lobby` - Create new lobby
+- `join_lobby` - Join existing lobby with code
+- `leave_lobby` - Leave current lobby
+- `game_state` - Full game state (host only, 30/sec)
+- `player_state` - Local player input state (clients only)
+- `game_start` - Start game from Nexus (host only)
+- `enemy_damaged` - Client damage event (forwarded to host)
+- `loot_pickup` - Loot pickup notification
+- `heartbeat` - Keep connection alive (every 30s)
+
+#### Message Types (Server → Client)
+- `lobby_created` - Lobby created successfully
+- `lobby_joined` - Joined lobby successfully
+- `lobby_error` - Error (lobby full, not found, etc.)
+- `player_joined` - Another player joined
+- `player_left` - Player left lobby
+- `host_migrated` - New host assigned
+- `game_state` - Full game state from host
+- `enemy_state_update` - Enemy HP/state update (from host)
+- `player_damaged` - Player took damage (from host)
+- `loot_pickup` - Loot picked up by any player
+- `game_start` - Game starting (synchronized transition)
+- `room_transition` - Room transition event (with revival data)
+- `return_to_nexus` - Return to Nexus event
+
+### Server Architecture
+
+#### WebSocket Server (`server/mp-server.js`)
+- **Port:** 4000 (WebSocket)
+- **Dependencies:** `ws` library (Node.js)
+- **Binding:** `0.0.0.0` (accepts connections from any network interface)
+- **Role:** Lobby management and message relay (NOT authoritative game server)
+  - Server does NOT run game logic
+  - Server does NOT validate game state
+  - Server only routes messages between clients
+  - Host is authoritative for all game logic
+
+#### Server Data Structures
+- **Lobbies Map:** `Map<code, lobby>` - Stores all active lobbies
+- **Player-to-Lobby Map:** `Map<WebSocket, code>` - Quick lookup of player's lobby
+- **Lobby Object:**
+  ```javascript
+  {
+    code: 'A3X9K2',
+    host: WebSocket,  // Reference to host's WebSocket connection
+    players: [{ ws, id, name, class, ready }],
+    maxPlayers: 4,
+    createdAt: timestamp
+  }
+  ```
+
+#### Server Message Routing
+
+**Host → Server → Clients:**
+- `game_state` - Broadcast to all clients (except host)
+- `enemy_state_update` - Broadcast to all clients (except host)
+- `player_damaged` - Forward to specific target player
+- `game_start` - Broadcast to all clients
+- `room_transition` - Broadcast to all clients (except host)
+- `return_to_nexus` - Broadcast to all clients (except host)
+
+**Client → Server → Host:**
+- `player_state` - Forward to host only
+- `enemy_damaged` - Forward to host only (host validates damage)
+
+**Client → Server → All Clients:**
+- `loot_pickup` - Broadcast to all players (including sender)
+- `player_joined` - Broadcast to all other players
+- `player_left` - Broadcast to all remaining players
+- `host_migrated` - Send to new host only
+
+**Server-Generated Messages:**
+- `lobby_created` - Sent to creator
+- `lobby_joined` - Sent to joiner
+- `lobby_error` - Sent to requester (not found, full, etc.)
+- `heartbeat_ack` - Response to heartbeat
+
+#### Server Operations
+
+**Lobby Creation:**
+1. Generate unique 6-character code
+2. Generate unique player ID
+3. Create lobby object with creator as host
+4. Store in lobbies map
+5. Send `lobby_created` confirmation
+
+**Lobby Joining:**
+1. Validate lobby code exists
+2. Check lobby capacity (max 4 players)
+3. Generate player ID for joiner
+4. Add player to lobby.players array
+5. Send `lobby_joined` to joiner
+6. Broadcast `player_joined` to all other players
+
+**Host Migration:**
+1. Triggered when host disconnects
+2. Next player in lobby.players array becomes host
+3. Update lobby.host reference
+4. Send `host_migrated` message to new host
+5. Log migration event
+
+**Message Validation:**
+- Server validates sender is in a lobby
+- Server validates host-only messages (game_state, game_start, etc.)
+- Server checks WebSocket connection state before sending
+- Server handles parsing errors gracefully
+
+**Cleanup:**
+- Old lobbies expire after 1 hour (checked every 5 minutes)
+- Empty lobbies deleted immediately
+- Disconnected players removed from lobby
+- Player-to-lobby map cleaned up on disconnect
+
+#### Client Configuration (`js/mp-config.js`)
+- **Server URL:** Configurable (default: `wss://shape-slayer.goodgirl.software`)
+- **Connection Settings:** Reconnect attempts (3), delay (2s), heartbeat (30s)
+- **Lobby Settings:** Max players (4), code length (6)
+- **Interpolation Settings:** Delay, buffer size, lerp speeds, snap distance
+
+### Multiplayer Integration
+
+#### Nexus Integration
+- **Class Selection:** Each player selects class independently (can duplicate)
+- **Portal Interaction:** Only host can start game (press G near portal)
+- **Lobby UI:** Access via pause menu (ESC) in Nexus
+- **Player Rendering:** All players visible in Nexus before game starts
+- **Movement:** Host-authoritative (host simulates remote players in Nexus)
+- **State Sync:** Host sends game state, clients send player state (same as gameplay)
+
+#### Combat Integration
+- **Damage Validation:** Host validates all damage (prevents cheating)
+  - Clients send `enemy_damaged` events
+  - Server forwards to host
+  - Host validates and applies damage
+  - Host broadcasts `enemy_state_update` to all clients
+- **Enemy Sync:** Host simulates all enemies, clients render authoritative state
+- **Projectile Sync:** Host creates and manages all projectiles
+- **Loot Sync:** Host generates loot, clients render and notify on pickup
+- **XP Sharing:** Each player gains XP independently when enemies die
+- **Collision Detection:** Host checks all collisions (enemies vs all players)
+
+#### Death System
+- **Individual Death:** Players die independently (can spectate if others alive)
+- **Revival:** Dead players revive at 50% HP when entering new room
+  - Host signals revival in `room_transition` message
+  - Clients revive local player if in `reviveePlayers` array
+- **Game Over:** Only when all players are dead (host determines this)
+- **Spectate Mode:** Dead players can spectate living players
+
+### Communication Flow
+
+#### Game Loop Communication
+
+**Host (Every Frame):**
+1. Update local player with `Input` object
+2. Update remote player instances with input adapters
+3. Update all enemies (AI, movement, attacks)
+4. Update all projectiles
+5. Check collisions (player attacks vs enemies, enemies vs players)
+6. Serialize complete game state
+7. Send `game_state` to server (throttled to 30/sec)
+8. Receive `player_state` from clients (store for simulation)
+9. Receive `enemy_damaged` events (validate and apply)
+10. Broadcast `enemy_state_update` after damage
+
+**Client (Every Frame):**
+1. Snapshot input BEFORE `Input.update()` (preserves flags)
+2. Update local player with `Input` object (for local prediction)
+3. Serialize player state (position, input, class)
+4. Send `player_state` to server (as needed)
+5. Receive `game_state` from host (every ~33ms)
+6. Apply game state (update enemies, projectiles, remote players)
+7. Use interpolation for smooth rendering
+8. Send `enemy_damaged` events when local player attacks
+
+#### Message Flow Examples
+
+**Starting Game:**
+1. Host presses G near portal
+2. Host sends `game_start` to server
+3. Server broadcasts `game_start` to all clients
+4. All clients transition to PLAYING state simultaneously
+
+**Damage Event:**
+1. Client detects attack hit enemy
+2. Client sends `enemy_damaged` to server
+3. Server forwards to host
+4. Host validates and applies damage
+5. Host sends `enemy_state_update` to server
+6. Server broadcasts to all clients
+7. All clients update enemy HP/state
+
+**Loot Pickup:**
+1. Client detects loot pickup
+2. Client sends `loot_pickup` to server
+3. Server broadcasts to all players
+4. All clients remove loot from ground
+5. Host equips gear on remote player instance (if host)
+
+**Room Transition:**
+1. Host detects all enemies dead
+2. Host opens door and detects player on door
+3. Host sends `room_transition` with `reviveePlayers` array
+4. Server broadcasts to all clients
+5. Clients revive dead players, reset positions
+6. Host starts new room generation
+
+### Performance Considerations
+
+#### Network Optimization
+- **Throttling:** State updates limited to 30/sec to reduce bandwidth
+- **Minimal State:** Only sync active game state (no unnecessary data)
+- **ID-Based Sync:** Enemies and loot synced by ID (robust to desync)
+- **Input Compression:** Serialize only essential input data
+- **Message Batching:** Multiple state updates in single message when possible
+
+#### Client Performance
+- **Interpolation:** Smooth rendering despite network jitter
+- **Prediction:** Local input prediction for responsive controls
+- **Cleanup:** Automatic cleanup of old state buffers
+- **Latency Handling:** Adaptive interpolation delay based on RTT
+- **Input Snapshotting:** Minimal overhead (just copying input state before update)
+
+#### Host Performance
+- **Player Simulation:** Host runs full player instances for all clients
+- **Input Processing:** Host processes 4x input (one per player)
+- **Collision Detection:** Host checks collisions for all players
+- **State Serialization:** Host serializes complete game state every frame
+- **Scaling:** Performance scales linearly with player count
+
+### Connection Management
+
+#### Reconnection
+- **Automatic:** Up to 3 reconnection attempts
+- **Delay:** 2 seconds between attempts
+- **State Recovery:** Rejoin lobby on successful reconnect
+- **Graceful Degradation:** Single-player continues if server unavailable
+
+#### Heartbeat System
+- **Interval:** Every 30 seconds
+- **Purpose:** Keep WebSocket connection alive
+- **Detection:** Server detects disconnections via missing heartbeats
+
+### Data Structures
+
+#### Lobby Object
+```javascript
+{
+  code: 'A3X9K2',
+  host: WebSocket,
+  players: [
+    {
+      ws: WebSocket,
+      id: 'player-123',
+      name: 'Player 1',
+      class: 'square',
+      ready: false
+    }
+  ],
+  maxPlayers: 4,
+  createdAt: 1234567890
+}
+```
+
+#### Player State (Serialized)
+```javascript
+{
+  id: 'player-123',
+  class: 'square',
+  x: 400,
+  y: 300,
+  rotation: 0,
+  hp: 100,
+  maxHp: 100,
+  level: 5,
+  // ... all player properties from serialize()
+}
+```
+
+#### Game State (Host → Clients)
+```javascript
+{
+  timestamp: 1234567890,
+  gameState: 'PLAYING', // or 'NEXUS'
+  roomNumber: 5,
+  doorOpen: false,
+  playersOnDoor: ['player-123'],
+  totalAlivePlayers: 3,
+  allPlayersDead: false,
+  deadPlayers: ['player-456'],
+  players: [/* serialized player states */],
+  enemies: [/* serialized enemy states */],
+  projectiles: [/* projectile states */],
+  groundLoot: [/* loot states */]
+}
+```
+
+#### Input State (Client → Host)
+```javascript
+{
+  id: 'player-123',
+  x: 400, // current position for validation
+  y: 300,
+  rotation: 0,
+  class: 'square',
+  clientTimestamp: 1234567890,
+  input: {
+    up: false,
+    down: false,
+    left: false,
+    right: false,
+    mouse: { x: 500, y: 400 },
+    mouseLeft: false,
+    mouseRight: false,
+    space: false,
+    shift: false,
+    isTouchMode: false,
+    touchJoysticks: {/* ... */},
+    touchButtons: {/* ... */}
+  }
+}
+```
+
+---
+
 ## UI Elements
 
 ### HUD (Heads-Up Display)
@@ -425,8 +843,25 @@ enemyDamage = baseDamage * (1 + roomNumber * 0.1)
 
 ### Menus
 - **Main Menu:** Class selection screen
-- **Pause Menu:** ESC to pause (settings, restart)
+- **Pause Menu:** ESC to pause
+  - **Single-Player:** Actually pauses game (stops updates, shows menu)
+  - **Multiplayer:** Does NOT pause game (only shows/hides menu overlay)
+    - Game continues running in background
+    - Updates continue (host sends state, clients send input)
+    - Only visual overlay is shown/hidden
+    - Accessible from both NEXUS and PLAYING states
+    - Shows different buttons based on state (multiplayer button only in Nexus)
+- **Multiplayer Menu:** Submenu accessible from pause menu (Nexus only)
+  - Create lobby (generates 6-character code)
+  - Join lobby (enter code, supports paste with Ctrl+V)
+  - View lobby list (shows all players, indicates host)
+  - Copy lobby code to clipboard
+  - Leave lobby
+  - Input handling: Prevents game controls while typing join code
+  - Blocks browser shortcuts (Shift+R, Ctrl+R) when menu visible
 - **Death Screen:** Stats recap (enemies killed, rooms cleared, damage taken)
+  - In multiplayer: Only shows when all players are dead
+  - If local player dead but others alive: Spectate mode (no death screen overlay)
 - **Inventory:** Show equipped gear (I or Tab)
 - **Stats Screen:** Detailed stat breakdown
 
@@ -579,6 +1014,7 @@ finalDamage = (baseDamage * gearMultiplier) * (1 - targetDefense) * critMultipli
 
 ## Performance Requirements
 
+### Single-Player
 - Target: 60 FPS
 - Smooth frame-independent movement (delta time)
 - Limit particles on screen (pool & reuse)
@@ -586,6 +1022,15 @@ finalDamage = (baseDamage * gearMultiplier) * (1 - targetDefense) * critMultipli
 - Object pooling for projectiles
 - Spatial partitioning if 50+ entities
 - Optimize render calls (batch similar shapes)
+
+### Multiplayer
+- **Network:** 30 updates/second (throttled to reduce bandwidth)
+- **Client Rendering:** 60 FPS with interpolation
+- **State Buffering:** Up to 15 snapshots per entity (memory consideration)
+- **Latency Handling:** Adaptive interpolation delay (100-200ms)
+- **Connection:** WebSocket with heartbeat (30s interval)
+- **Reconnection:** Automatic (up to 3 attempts, 2s delay)
+- **Performance Scaling:** Performance scales with player count (4 players = 4x input processing on host)
 
 ---
 
@@ -617,6 +1062,7 @@ finalDamage = (baseDamage * gearMultiplier) * (1 - targetDefense) * critMultipli
 - Multiple room layouts
 - Advanced AI behaviors
 - Combo system
+- Multiplayer (✓ IMPLEMENTED)
 
 ---
 
@@ -636,12 +1082,18 @@ finalDamage = (baseDamage * gearMultiplier) * (1 - targetDefense) * critMultipli
 ### Core Technologies
 - HTML5 Canvas 2D for rendering
 - Vanilla JavaScript (ES6+)
-- No external dependencies
+- WebSockets (ws library) for multiplayer networking
+- Node.js for multiplayer server
+- No external client dependencies (game runs entirely in browser)
 
 ### File Structure
 ```
 /game
   index.html
+  server.js           // HTTP development server (port 3000)
+  /server             // Multiplayer server
+    mp-server.js      // WebSocket multiplayer server (port 4000)
+    package.json      // Server dependencies (ws library)
   /js
     main.js           // Game loop
     player.js         // Player class
@@ -652,6 +1104,11 @@ finalDamage = (baseDamage * gearMultiplier) * (1 - targetDefense) * critMultipli
     input.js          // Input handling
     render.js         // Drawing functions
     utils.js          // Helper functions
+    version.js        // Version tracking
+    nexus.js          // Nexus hub area
+    mp-config.js      // Multiplayer configuration (server URL, settings)
+    multiplayer.js    // Multiplayer client module (lobby, sync, state management)
+    interpolation.js   // Client-side interpolation for smooth rendering
     /enemies          // Enemy classes
       enemy-base.js     // Base enemy class with shared functionality
       enemy-basic.js    // Basic circle enemy (Swarmer)
@@ -659,6 +1116,12 @@ finalDamage = (baseDamage * gearMultiplier) * (1 - targetDefense) * critMultipli
       enemy-diamond.js  // Diamond enemy (Assassin)
       enemy-rectangle.js // Rectangle enemy (Brute)
       enemy-octagon.js  // Octagon enemy (Elite)
+    /players           // Player classes
+      player-base.js    // Base player class
+      player-warrior.js // Warrior class
+      player-rogue.js   // Rogue class
+      player-tank.js    // Tank class
+      player-mage.js    // Mage class
     /bosses            // Boss classes and systems
       hazards.js        // Environmental hazard system
       boss-base.js      // Base boss class extending EnemyBase

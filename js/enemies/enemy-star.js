@@ -14,6 +14,7 @@ class StarEnemy extends EnemyBase {
         
         // Properties
         this.color = '#ffcc00'; // Yellow
+        this.shape = 'star';
         this.xpValue = 20;
         this.lootChance = 0.35;
         

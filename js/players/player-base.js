@@ -1,4 +1,7 @@
 // Base player class with shared functionality
+// VERSION: 2024-11-01-DODGE-FIX-v6
+
+console.log('[player-base.js] ============ LOADED VERSION 2024-11-01-DODGE-FIX-v6 ============');
 
 // Class definitions (will be used by subclasses)
 const CLASS_DEFINITIONS = {
@@ -134,6 +137,14 @@ class PlayerBase {
         this.pullForceVy = 0;
         this.pullDecay = 0.85; // Per second decay rate
         
+        // Interpolation targets (for multiplayer client smoothing)
+        this.targetX = null;
+        this.targetY = null;
+        this.targetRotation = null;
+        this.lastUpdateTime = 0;
+        this.lastVelocityX = 0;
+        this.lastVelocityY = 0;
+        
         // Initialize effective stats (will be calculated based on base + gear)
         this.damage = this.baseDamage;
         this.defense = this.baseDefense;
@@ -251,14 +262,15 @@ class PlayerBase {
         // Update heavy attack charge
         if (this.isChargingHeavy) {
             // Check if this class uses joystick for heavy attack on mobile
-            const usesHeavyJoystick = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode() &&
-                Input.getAbilityInputType && 
-                Input.getAbilityInputType(this.playerClass, 'heavyAttack') === 'joystick-press-release';
+            // Use INPUT PARAMETER not global Input (important for multiplayer remote players)
+            const usesHeavyJoystick = input.isTouchMode && input.isTouchMode() &&
+                input.getAbilityInputType && 
+                input.getAbilityInputType(this.playerClass, 'heavyAttack') === 'joystick-press-release';
             
             if (usesHeavyJoystick && (this.playerClass === 'square' || this.playerClass === 'triangle')) {
                 // Warrior/Triangle on mobile: for joystick-press-release mode, check for button release
-                if (Input.touchButtons && Input.touchButtons.heavyAttack) {
-                    const button = Input.touchButtons.heavyAttack;
+                if (input.touchButtons && input.touchButtons.heavyAttack) {
+                    const button = input.touchButtons.heavyAttack;
                     
                     // Rotation is already updated by getAimDirection() which checks heavy attack joystick first
                     // Update preview (subclass handles this)
@@ -425,6 +437,10 @@ class PlayerBase {
                 if (this.playerClass === 'triangle') {
                     dodgeJustPressed = button.justReleased;
                     
+                    if (button.justReleased) {
+                        console.log(`[${this.playerClass}] Detected dodge justReleased, finalJoystickState:`, button.finalJoystickState);
+                    }
+                    
                     // Update dash preview and rotation while button is pressed and joystick is active
                     if (button.pressed && input.touchJoysticks && input.touchJoysticks.dodge) {
                         const joystick = input.touchJoysticks.dodge;
@@ -467,34 +483,52 @@ class PlayerBase {
         
         // If dodge pressed/released and available
         if (dodgeJustPressed && canDodge) {
+            console.log(`[${this.playerClass}] Starting dodge! justReleased: ${dodgeJustPressed}, canDodge: ${canDodge}`);
             // Clear preview before starting dodge
             this.dashPreviewActive = false;
             this.startDodge(input);
+        } else if (dodgeJustPressed && !canDodge) {
+            console.log(`[${this.playerClass}] Dodge on cooldown!`);
         }
     }
     
     startDodge(input) {
+        console.log(`[DODGE START] playerClass: ${this.playerClass}, rotation: ${this.rotation}`);
+        console.log(`[DODGE START] input object:`, input);
+        console.log(`[DODGE START] input.touchButtons:`, input.touchButtons);
+        console.log(`[DODGE START] input.touchButtons.dodge:`, input.touchButtons?.dodge);
+        console.log(`[DODGE START] isTouchMode:`, input.isTouchMode ? input.isTouchMode() : 'NO FUNCTION');
+        
         // Calculate dodge direction
         let dodgeDirX = 0;
         let dodgeDirY = 0;
         
         // Triangle (Rogue) uses joystick for directional dash on mobile
         if (this.playerClass === 'triangle') {
+            console.log(`[DODGE] Triangle path - checking touch mode`);
+            
             if (input.isTouchMode && input.isTouchMode()) {
+                console.log(`[DODGE] Touch mode confirmed!`);
                 // On mobile: use dodge joystick direction if available
                 const button = input.touchButtons && input.touchButtons.dodge;
+                console.log(`[DODGE] button:`, button, 'finalJoystickState:', button?.finalJoystickState);
+                
                 if (button && button.finalJoystickState) {
                     // Use stored joystick state from button release
                     const state = button.finalJoystickState;
+                    console.log(`[${this.playerClass}] Using finalJoystickState - mag: ${state.magnitude}, dir: (${state.direction.x.toFixed(2)}, ${state.direction.y.toFixed(2)}), angle: ${state.angle}`);
+                    
                     if (state.magnitude > 0.1) {
                         dodgeDirX = state.direction.x * this.dodgeSpeedBoost;
                         dodgeDirY = state.direction.y * this.dodgeSpeedBoost;
+                        console.log(`[${this.playerClass}] Dodge direction from finalState: (${dodgeDirX.toFixed(2)}, ${dodgeDirY.toFixed(2)})`);
                         // Clear the stored state after using it
                         button.finalJoystickState = null;
                     } else {
                         // Magnitude too low, use facing direction
                         dodgeDirX = Math.cos(this.rotation) * this.dodgeSpeedBoost;
                         dodgeDirY = Math.sin(this.rotation) * this.dodgeSpeedBoost;
+                        console.log(`[${this.playerClass}] Magnitude too low, using rotation: ${this.rotation}`);
                     }
                 } else if (input.touchJoysticks && input.touchJoysticks.dodge && input.touchJoysticks.dodge.active) {
                     // Joystick is still active (fallback)
@@ -502,6 +536,7 @@ class PlayerBase {
                     const dir = joystick.getDirection();
                     dodgeDirX = dir.x * this.dodgeSpeedBoost;
                     dodgeDirY = dir.y * this.dodgeSpeedBoost;
+                    console.log(`[${this.playerClass}] Using active joystick: (${dodgeDirX.toFixed(2)}, ${dodgeDirY.toFixed(2)})`);
                 } else {
                     // Fallback: use movement joystick direction
                     const moveInput = input.getMovementInput ? input.getMovementInput() : { x: 0, y: 0 };
@@ -539,6 +574,12 @@ class PlayerBase {
         // Store dodge velocity
         this.dodgeVx = dodgeDirX;
         this.dodgeVy = dodgeDirY;
+        
+        // Update rotation to face dodge direction
+        if (dodgeDirX !== 0 || dodgeDirY !== 0) {
+            this.rotation = Math.atan2(dodgeDirY, dodgeDirX);
+            this.lastAimAngle = this.rotation; // Store for mobile aim retention
+        }
         
         // Set dodge state
         this.isDodging = true;
@@ -678,6 +719,13 @@ class PlayerBase {
         const reduction = this.getDamageReduction();
         damage = damage * (1 - reduction);
         
+        // Track damage taken in player stats
+        if (typeof Game !== 'undefined' && Game.getPlayerStats && Game.getLocalPlayerId) {
+            const playerId = Game.getLocalPlayerId();
+            const stats = Game.getPlayerStats(playerId);
+            stats.addStat('damageTaken', damage);
+        }
+        
         // Subtract damage from HP
         this.hp -= damage;
         
@@ -695,6 +743,21 @@ class PlayerBase {
             this.hp = 0;
             this.dead = true;
             this.alive = false;
+            
+            // Track death in stats (stop counting alive time)
+            if (typeof Game !== 'undefined' && Game.getPlayerStats && Game.getLocalPlayerId) {
+                const playerId = Game.getLocalPlayerId();
+                const stats = Game.getPlayerStats(playerId);
+                stats.onDeath();
+                
+                // Add to dead players set
+                Game.deadPlayers.add(playerId);
+                
+                // Check if all players are dead
+                if (Game.checkAllPlayersDead) {
+                    Game.allPlayersDead = Game.checkAllPlayersDead();
+                }
+            }
             
             // Record end time for death screen and calculate currency
             if (typeof Game !== 'undefined') {
@@ -740,6 +803,15 @@ class PlayerBase {
         
         // Heal to full HP
         this.hp = this.maxHp;
+        
+        // Multiplayer: Immediately sync health change
+        if (typeof Game !== 'undefined' && Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
+            if (multiplayerManager.isHost) {
+                multiplayerManager.sendGameState();
+            } else {
+                multiplayerManager.sendPlayerState();
+            }
+        }
         
         // Reset XP
         this.xp = 0;
@@ -1012,6 +1084,220 @@ class PlayerBase {
     // Render class-specific visuals - override in subclass
     renderClassVisuals(ctx) {
         // Override in subclass for class-specific rendering
+    }
+    
+    // Serialize player state for multiplayer sync (base properties)
+    serialize() {
+        return {
+            // Position and movement
+            x: this.x,
+            y: this.y,
+            rotation: this.rotation,
+            
+            // Health and progression
+            hp: this.hp,
+            maxHp: this.maxHp,
+            level: this.level,
+            xp: this.xp,
+            xpToNextLevel: this.xpToNextLevel,
+            
+            // Equipped gear (for visuals and stat calculations)
+            weapon: this.weapon,
+            armor: this.armor,
+            accessory: this.accessory,
+            
+            // Animation states
+            isDodging: this.isDodging,
+            dodgeElapsed: this.dodgeElapsed,
+            isAttacking: this.isAttacking,
+            isChargingHeavy: this.isChargingHeavy,
+            heavyChargeElapsed: this.heavyChargeElapsed,
+            
+            // Cooldowns
+            attackCooldown: this.attackCooldown,
+            heavyAttackCooldown: this.heavyAttackCooldown,
+            dodgeCooldown: this.dodgeCooldown,
+            specialCooldown: this.specialCooldown,
+            dodgeCharges: this.dodgeCharges,
+            
+            // Attack hitboxes (authoritative from host)
+            attackHitboxes: this.attackHitboxes.map(h => ({
+                x: h.x,
+                y: h.y,
+                radius: h.radius,
+                damage: h.damage,
+                lifetime: h.lifetime,
+                elapsed: h.elapsed,
+                type: h.type,
+                heavy: h.heavy,
+                trail: h.trail || [],
+                hitEnemies: h.hitEnemies ? Array.from(h.hitEnemies) : []
+            })),
+            
+            // Life state
+            dead: this.dead,
+            alive: this.alive,
+            invulnerable: this.invulnerable,
+            invulnerabilityTime: this.invulnerabilityTime
+        };
+    }
+    
+    // Apply state from host/network (base properties)
+    applyState(state) {
+        // Check if we're a multiplayer client (not host, not solo)
+        const isMultiplayerClient = typeof Game !== 'undefined' && 
+                                     Game.multiplayerEnabled && 
+                                     typeof multiplayerManager !== 'undefined' && 
+                                     multiplayerManager && 
+                                     !multiplayerManager.isHost;
+        
+        // Position and movement - use interpolation for clients, direct update for host/solo
+        if (state.x !== undefined) {
+            if (isMultiplayerClient) {
+                // Set interpolation target instead of direct position
+                this.targetX = state.x;
+                // Calculate velocity for extrapolation
+                if (this.targetX !== null && this.x !== undefined) {
+                    const dt = (Date.now() - this.lastUpdateTime) / 1000;
+                    if (dt > 0 && dt < 1) { // Sanity check
+                        this.lastVelocityX = (state.x - this.x) / dt;
+                    }
+                }
+            } else {
+                // Host or solo: direct update
+                this.x = state.x;
+            }
+        }
+        
+        if (state.y !== undefined) {
+            if (isMultiplayerClient) {
+                this.targetY = state.y;
+                if (this.targetY !== null && this.y !== undefined) {
+                    const dt = (Date.now() - this.lastUpdateTime) / 1000;
+                    if (dt > 0 && dt < 1) {
+                        this.lastVelocityY = (state.y - this.y) / dt;
+                    }
+                }
+            } else {
+                this.y = state.y;
+            }
+        }
+        
+        if (state.rotation !== undefined) {
+            if (isMultiplayerClient) {
+                this.targetRotation = state.rotation;
+            } else {
+                this.rotation = state.rotation;
+            }
+        }
+        
+        // Update timestamp for velocity calculation
+        if (isMultiplayerClient) {
+            this.lastUpdateTime = Date.now();
+        }
+        
+        // Health and progression (with level up detection)
+        const oldLevel = this.level;
+        if (state.hp !== undefined) this.hp = state.hp;
+        if (state.maxHp !== undefined) this.maxHp = state.maxHp;
+        if (state.level !== undefined) this.level = state.level;
+        if (state.xp !== undefined) this.xp = state.xp;
+        if (state.xpToNextLevel !== undefined) this.xpToNextLevel = state.xpToNextLevel;
+        
+        // Trigger level up message if level increased
+        if (state.level !== undefined && state.level > oldLevel && typeof showLevelUpMessage === 'function') {
+            showLevelUpMessage(this.level);
+        }
+        
+        // Equipped gear (apply and recalculate stats)
+        if (state.weapon !== undefined) this.weapon = state.weapon;
+        if (state.armor !== undefined) this.armor = state.armor;
+        if (state.accessory !== undefined) this.accessory = state.accessory;
+        
+        // Recalculate effective stats based on new gear
+        if (state.weapon !== undefined || state.armor !== undefined || state.accessory !== undefined) {
+            this.updateEffectiveStats();
+        }
+        
+        // Animation states
+        if (state.isDodging !== undefined) this.isDodging = state.isDodging;
+        if (state.dodgeElapsed !== undefined) this.dodgeElapsed = state.dodgeElapsed;
+        if (state.isAttacking !== undefined) {
+            this.isAttacking = state.isAttacking;
+            this.attacking = state.isAttacking; // Alias
+        }
+        if (state.isChargingHeavy !== undefined) this.isChargingHeavy = state.isChargingHeavy;
+        if (state.heavyChargeElapsed !== undefined) this.heavyChargeElapsed = state.heavyChargeElapsed;
+        
+        // Cooldowns
+        if (state.attackCooldown !== undefined) this.attackCooldown = state.attackCooldown;
+        if (state.heavyAttackCooldown !== undefined) this.heavyAttackCooldown = state.heavyAttackCooldown;
+        if (state.dodgeCooldown !== undefined) this.dodgeCooldown = state.dodgeCooldown;
+        if (state.specialCooldown !== undefined) this.specialCooldown = state.specialCooldown;
+        if (state.dodgeCharges !== undefined) this.dodgeCharges = state.dodgeCharges;
+        
+        // Attack hitboxes
+        if (state.attackHitboxes !== undefined) this.attackHitboxes = state.attackHitboxes;
+        
+        // Life state
+        if (state.dead !== undefined) this.dead = state.dead;
+        if (state.alive !== undefined) this.alive = state.alive;
+        if (state.invulnerable !== undefined) this.invulnerable = state.invulnerable;
+        if (state.invulnerabilityTime !== undefined) this.invulnerabilityTime = state.invulnerabilityTime;
+    }
+    
+    // Interpolate position toward target (for multiplayer clients)
+    interpolatePosition(deltaTime) {
+        // Only interpolate if we have targets set
+        if (this.targetX === null || this.targetY === null) return;
+        
+        // Calculate distance to target
+        const dx = this.targetX - this.x;
+        const dy = this.targetY - this.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        // If very far from target, snap to prevent rubber-banding
+        if (distance > MultiplayerConfig.SNAP_DISTANCE) {
+            this.x = this.targetX;
+            this.y = this.targetY;
+            if (this.targetRotation !== null) {
+                this.rotation = this.targetRotation;
+            }
+            return;
+        }
+        
+        // Adaptive lerp speed based on distance
+        // Closer to target = slower lerp (smoother), further = faster (catch up)
+        const baseSpeed = MultiplayerConfig.BASE_LERP_SPEED;
+        const distanceFactor = Math.min(distance / 50, 2); // Scale up to 2x speed when far
+        const lerpSpeed = clamp(
+            baseSpeed * (1 + distanceFactor),
+            MultiplayerConfig.MIN_LERP_SPEED,
+            MultiplayerConfig.MAX_LERP_SPEED
+        );
+        
+        // Smooth lerp toward target
+        const t = Math.min(1, deltaTime * lerpSpeed);
+        this.x += dx * t;
+        this.y += dy * t;
+        
+        // Interpolate rotation (handle wrapping)
+        if (this.targetRotation !== null) {
+            let rotDiff = this.targetRotation - this.rotation;
+            // Normalize to [-PI, PI]
+            while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
+            while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
+            this.rotation += rotDiff * t;
+        }
+        
+        // Clear targets if very close (snap the last bit)
+        if (distance < 0.1) {
+            this.x = this.targetX;
+            this.y = this.targetY;
+            if (this.targetRotation !== null) {
+                this.rotation = this.targetRotation;
+            }
+        }
     }
 }
 
