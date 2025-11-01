@@ -67,6 +67,9 @@ const Game = {
     get UPDATE_MESSAGES() {
         return typeof GameVersion !== 'undefined' ? GameVersion.UPDATE_MESSAGES : { '1.0.0': 'Initial release!' };
     },
+    get UPDATE_TYPES() {
+        return typeof GameVersion !== 'undefined' ? GameVersion.UPDATE_TYPES : {};
+    },
     
     // Canvas and context
     canvas: null,

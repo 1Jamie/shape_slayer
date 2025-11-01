@@ -2805,8 +2805,19 @@ function renderUpdateModal(ctx) {
     ctx.fillText(`Patch Notes`, centerX, panelY + 60);
     ctx.shadowBlur = 0;
     
-    // Get all update messages
+    // Get all update messages and types
     const updateMessages = Game && Game.UPDATE_MESSAGES ? Game.UPDATE_MESSAGES : {};
+    const updateTypes = Game && Game.UPDATE_TYPES ? Game.UPDATE_TYPES : {};
+    
+    // Define tag colors and display names
+    const tagStyles = {
+        'major': { color: '#ff6b6b', bg: 'rgba(255, 107, 107, 0.2)', name: 'Major Update' },
+        'feature': { color: '#4ecdc4', bg: 'rgba(78, 205, 196, 0.2)', name: 'New Feature' },
+        'minor': { color: '#95e1d3', bg: 'rgba(149, 225, 211, 0.2)', name: 'Minor Update' },
+        'hotfix': { color: '#ffa502', bg: 'rgba(255, 165, 2, 0.2)', name: 'Hotfix' },
+        'bugfix': { color: '#a8dadc', bg: 'rgba(168, 218, 220, 0.2)', name: 'Bug Fix' },
+        'refactor': { color: '#b8b8ff', bg: 'rgba(184, 184, 255, 0.2)', name: 'Refactor' }
+    };
     
     // Sort versions in reverse chronological order (newest first)
     const versions = Object.keys(updateMessages).sort((a, b) => {
@@ -2843,6 +2854,7 @@ function renderUpdateModal(ctx) {
     versions.forEach((version, versionIndex) => {
         const isCurrentVersion = version === currentVersion;
         const message = updateMessages[version];
+        const versionTags = updateTypes[version] || [];
         
         // Version header
         ctx.fillStyle = isCurrentVersion ? '#ffdd44' : '#66ddff';
@@ -2850,6 +2862,37 @@ function renderUpdateModal(ctx) {
         ctx.textAlign = 'left';
         const versionText = `v${version}${isCurrentVersion ? ' (Current)' : ''}`;
         ctx.fillText(versionText, contentX, y);
+        
+        // Render tags next to version number
+        let tagX = contentX + ctx.measureText(versionText).width + 12;
+        versionTags.forEach((tag, tagIndex) => {
+            const tagStyle = tagStyles[tag];
+            if (tagStyle) {
+                // Tag background
+                ctx.font = '14px Arial';
+                const tagText = tagStyle.name;
+                const tagPadding = 8;
+                const tagWidth = ctx.measureText(tagText).width + tagPadding * 2;
+                const tagHeight = 22;
+                const tagY = y - 18; // Align with version text
+                
+                ctx.fillStyle = tagStyle.bg;
+                ctx.fillRect(tagX, tagY, tagWidth, tagHeight);
+                
+                // Tag border
+                ctx.strokeStyle = tagStyle.color;
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(tagX, tagY, tagWidth, tagHeight);
+                
+                // Tag text
+                ctx.fillStyle = tagStyle.color;
+                ctx.textAlign = 'left';
+                ctx.fillText(tagText, tagX + tagPadding, y - 4);
+                
+                tagX += tagWidth + 6; // Space between tags
+            }
+        });
+        
         y += lineHeight + 5;
         totalContentHeight += lineHeight + 5;
         
