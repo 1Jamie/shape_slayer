@@ -290,6 +290,44 @@ const Game = {
         // Player will be created after class selection
         this.player = null;
         
+        // Handle mouse wheel scrolling for update modal
+        this.canvas.addEventListener('wheel', (e) => {
+            if (this.updateModalVisible && typeof updateModalScroll !== 'undefined') {
+                e.preventDefault();
+                // Scroll speed: 30 pixels per wheel tick
+                updateModalScroll += e.deltaY > 0 ? 30 : -30;
+            }
+        }, { passive: false });
+        
+        // Track touch scroll position for update modal
+        let updateModalTouchStartY = null;
+        let updateModalTouchStartScroll = 0;
+        
+        // Handle touch scrolling for update modal
+        this.canvas.addEventListener('touchstart', (e) => {
+            if (this.updateModalVisible && e.touches.length === 1) {
+                updateModalTouchStartY = e.touches[0].clientY;
+                updateModalTouchStartScroll = typeof updateModalScroll !== 'undefined' ? updateModalScroll : 0;
+            }
+        }, { passive: false, capture: true });
+        
+        this.canvas.addEventListener('touchmove', (e) => {
+            if (this.updateModalVisible && updateModalTouchStartY !== null && e.touches.length === 1) {
+                e.preventDefault();
+                e.stopPropagation();
+                const deltaY = updateModalTouchStartY - e.touches[0].clientY;
+                if (typeof updateModalScroll !== 'undefined') {
+                    updateModalScroll = updateModalTouchStartScroll + deltaY;
+                }
+            }
+        }, { passive: false, capture: true });
+        
+        this.canvas.addEventListener('touchend', (e) => {
+            if (this.updateModalVisible) {
+                updateModalTouchStartY = null;
+            }
+        }, { passive: false, capture: true });
+        
         // Handle click/touch on canvas (for pause menu buttons, pause button, and interaction button)
         this.canvas.addEventListener('click', (e) => {
             const rect = this.canvas.getBoundingClientRect();
@@ -454,6 +492,10 @@ const Game = {
                     this.updateModalVisible = false;
                     if (typeof SaveSystem !== 'undefined' && this.VERSION) {
                         SaveSystem.setLastRunVersion(this.VERSION);
+                    }
+                    // Reset scroll position
+                    if (typeof updateModalScroll !== 'undefined') {
+                        updateModalScroll = 0;
                     }
                     return;
                 }

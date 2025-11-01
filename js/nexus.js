@@ -571,8 +571,12 @@ function purchaseUpgrade(classType, statType) {
             Game.currentCurrency = SaveSystem.getCurrency();
             
             // Update player stats if this is the current class
+            // Recreate player instance to apply new upgrade stats (loaded in constructor)
             if (Game.player && Game.selectedClass === classType) {
-                Game.player.setClass(classType);
+                const currentX = Game.player.x;
+                const currentY = Game.player.y;
+                Game.player = createPlayer(classType, currentX, currentY);
+                console.log(`[Single-player] Recreated player to apply upgrade stats`);
             }
             
             console.log(`Upgraded ${classType} ${statType} to level ${currentLevel + 1}`);

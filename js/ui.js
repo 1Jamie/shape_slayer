@@ -912,6 +912,9 @@ let updateButton = { x: 0, y: 0, radius: 0, pressed: false };
 // Modal close button state
 let modalCloseButton = { x: 0, y: 0, width: 0, height: 0, pressed: false };
 
+// Update modal scroll state
+let updateModalScroll = 0;
+
 // Pause button overlay state
 let pauseButtonOverlay = {
     x: 0,
@@ -2798,70 +2801,169 @@ function renderUpdateModal(ctx) {
     ctx.textAlign = 'center';
     ctx.shadowBlur = 15;
     ctx.shadowColor = '#6666ff';
-    const version = Game && Game.VERSION ? Game.VERSION : '1.0.0';
-    ctx.fillText(`What's New - v${version}`, centerX, panelY + 60);
+    const currentVersion = Game && Game.VERSION ? Game.VERSION : '1.0.0';
+    ctx.fillText(`Patch Notes`, centerX, panelY + 60);
     ctx.shadowBlur = 0;
     
-    // Update message
-    const updateMessage = Game && Game.UPDATE_MESSAGES && Game.UPDATE_MESSAGES[version] 
-        ? Game.UPDATE_MESSAGES[version] 
-        : 'Game updated!';
+    // Get all update messages
+    const updateMessages = Game && Game.UPDATE_MESSAGES ? Game.UPDATE_MESSAGES : {};
     
-    ctx.fillStyle = '#cccccc';
-    ctx.font = '20px Arial';
-    ctx.textAlign = 'center';
-    
-    // Handle newlines and word wrap the message
-    const maxWidth = panelWidth - 80;
-    let y = panelY + 140;
-    const lineHeight = 30;
-    
-    // Split by newlines first (handle both \n and literal \n in strings)
-    const paragraphs = updateMessage.split(/\\n|\n/);
-    
-    paragraphs.forEach((paragraph, paragraphIndex) => {
-        // Trim whitespace from each paragraph
-        paragraph = paragraph.trim();
-        
-        if (paragraph.length === 0) {
-            // Empty paragraph - just add spacing
-            y += lineHeight * 0.5;
-            return;
+    // Sort versions in reverse chronological order (newest first)
+    const versions = Object.keys(updateMessages).sort((a, b) => {
+        // Simple version comparison (assumes semantic versioning)
+        const aParts = a.split('.').map(Number);
+        const bParts = b.split('.').map(Number);
+        for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+            const aVal = aParts[i] || 0;
+            const bVal = bParts[i] || 0;
+            if (aVal !== bVal) return bVal - aVal; // Reverse order (newest first)
         }
+        return 0;
+    });
+    
+    // Set up scrollable content area
+    const contentX = panelX + 40;
+    const contentY = panelY + 100;
+    const contentWidth = panelWidth - 80;
+    const contentHeight = panelHeight - 180; // Leave space for title and close button
+    const lineHeight = 28;
+    const versionSpacing = 20;
+    const topPadding = 30; // Padding to prevent text from being clipped at the top
+    
+    // Create a clipping region for the scrollable area
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(contentX, contentY, contentWidth, contentHeight);
+    ctx.clip();
+    
+    // Calculate total content height and render all versions
+    let y = contentY + topPadding - updateModalScroll;
+    let totalContentHeight = topPadding; // Start with top padding
+    
+    versions.forEach((version, versionIndex) => {
+        const isCurrentVersion = version === currentVersion;
+        const message = updateMessages[version];
         
-        // Word wrap each paragraph
-        const words = paragraph.split(' ');
-        let line = '';
+        // Version header
+        ctx.fillStyle = isCurrentVersion ? '#ffdd44' : '#66ddff';
+        ctx.font = isCurrentVersion ? 'bold 24px Arial' : 'bold 22px Arial';
+        ctx.textAlign = 'left';
+        const versionText = `v${version}${isCurrentVersion ? ' (Current)' : ''}`;
+        ctx.fillText(versionText, contentX, y);
+        y += lineHeight + 5;
+        totalContentHeight += lineHeight + 5;
         
-        words.forEach((word, wordIndex) => {
-            const testLine = line + word + ' ';
-            const metrics = ctx.measureText(testLine);
-            if (metrics.width > maxWidth && line.length > 0) {
-                ctx.fillText(line.trim(), centerX, y);
-                line = word + ' ';
+        // Message content
+        ctx.fillStyle = '#cccccc';
+        ctx.font = '18px Arial';
+        
+        // Split by newlines first (handle both \n and literal \n in strings)
+        const paragraphs = message.split(/\\n|\n/);
+        
+        paragraphs.forEach((paragraph, paragraphIndex) => {
+            // Trim whitespace from each paragraph
+            paragraph = paragraph.trim();
+            
+            if (paragraph.length === 0) {
+                // Empty paragraph - just add spacing
+                y += lineHeight * 0.5;
+                totalContentHeight += lineHeight * 0.5;
+                return;
+            }
+            
+            // Word wrap each paragraph
+            const words = paragraph.split(' ');
+            let line = '';
+            
+            words.forEach((word, wordIndex) => {
+                const testLine = line + word + ' ';
+                const metrics = ctx.measureText(testLine);
+                if (metrics.width > contentWidth && line.length > 0) {
+                    ctx.fillText(line.trim(), contentX, y);
+                    line = word + ' ';
+                    y += lineHeight;
+                    totalContentHeight += lineHeight;
+                } else {
+                    line = testLine;
+                }
+            });
+            
+            // Render remaining line
+            if (line.trim().length > 0) {
+                ctx.fillText(line.trim(), contentX, y);
                 y += lineHeight;
-            } else {
-                line = testLine;
+                totalContentHeight += lineHeight;
+            }
+            
+            // Add extra spacing between paragraphs (except after the last one)
+            if (paragraphIndex < paragraphs.length - 1) {
+                y += lineHeight * 0.3;
+                totalContentHeight += lineHeight * 0.3;
             }
         });
         
-        // Render remaining line
-        if (line.trim().length > 0) {
-            ctx.fillText(line.trim(), centerX, y);
-            y += lineHeight;
-        }
-        
-        // Add extra spacing between paragraphs (except after the last one)
-        if (paragraphIndex < paragraphs.length - 1) {
-            y += lineHeight * 0.3;
+        // Add spacing between versions (except after the last one)
+        if (versionIndex < versions.length - 1) {
+            y += versionSpacing;
+            totalContentHeight += versionSpacing;
+            
+            // Draw separator line
+            ctx.strokeStyle = 'rgba(100, 100, 150, 0.3)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(contentX, y - versionSpacing / 2);
+            ctx.lineTo(contentX + contentWidth, y - versionSpacing / 2);
+            ctx.stroke();
         }
     });
+    
+    // Add bottom padding
+    totalContentHeight += 20;
+    
+    // Restore context after clipping
+    ctx.restore();
+    
+    // Calculate max scroll
+    const maxScroll = Math.max(0, totalContentHeight - contentHeight);
+    
+    // Clamp scroll position
+    updateModalScroll = Math.max(0, Math.min(updateModalScroll, maxScroll));
+    
+    // Render scroll indicators if content is scrollable
+    if (maxScroll > 0) {
+        const scrollBarX = panelX + panelWidth - 25;
+        const scrollBarY = contentY;
+        const scrollBarWidth = 8;
+        const scrollBarHeight = contentHeight;
+        
+        // Scroll track
+        ctx.fillStyle = 'rgba(100, 100, 150, 0.3)';
+        ctx.fillRect(scrollBarX, scrollBarY, scrollBarWidth, scrollBarHeight);
+        
+        // Scroll thumb
+        const thumbHeight = Math.max(30, (contentHeight / totalContentHeight) * scrollBarHeight);
+        const thumbY = scrollBarY + (updateModalScroll / maxScroll) * (scrollBarHeight - thumbHeight);
+        ctx.fillStyle = 'rgba(150, 150, 255, 0.7)';
+        ctx.fillRect(scrollBarX, thumbY, scrollBarWidth, thumbHeight);
+        
+        // Scroll hints
+        ctx.font = '14px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(200, 200, 200, 0.7)';
+        
+        if (updateModalScroll > 0) {
+            ctx.fillText('▲', scrollBarX + scrollBarWidth / 2, contentY - 5);
+        }
+        if (updateModalScroll < maxScroll) {
+            ctx.fillText('▼', scrollBarX + scrollBarWidth / 2, contentY + contentHeight + 15);
+        }
+    }
     
     // Close button
     const closeButtonWidth = 200;
     const closeButtonHeight = 50;
     const closeButtonX = centerX - closeButtonWidth / 2;
-    const closeButtonY = panelY + panelHeight - 50;
+    const closeButtonY = panelY + panelHeight - 70;
     
     modalCloseButton.x = closeButtonX;
     modalCloseButton.y = closeButtonY;
@@ -2882,7 +2984,7 @@ function renderUpdateModal(ctx) {
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 24px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('Close', centerX, closeButtonY + closeButtonHeight / 2);
+    ctx.fillText('Close', centerX, closeButtonY + closeButtonHeight / 2 + 8);
 }
 
 // Check if click/touch is on modal close button
@@ -2912,6 +3014,10 @@ function checkModalCloseButtonClick(x, y) {
             Game.updateModalVisible = false;
             if (typeof SaveSystem !== 'undefined' && Game.VERSION) {
                 SaveSystem.setLastRunVersion(Game.VERSION);
+            }
+            // Reset scroll position
+            if (typeof updateModalScroll !== 'undefined') {
+                updateModalScroll = 0;
             }
             return true;
         }

@@ -155,3 +155,4 @@ PORT=4000 npm start
 - **Connection refused**: Make sure the server is running and firewall allows port 4000
 - **Lobby not found**: Lobby codes are case-sensitive and expire after 1 hour
 
+
