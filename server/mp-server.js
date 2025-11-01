@@ -110,6 +110,12 @@ function handleMessage(ws, msg) {
         case 'loot_pickup':
             handleLootPickup(ws, data);
             break;
+        case 'upgrade_purchase':
+            handleUpgradePurchase(ws, data);
+            break;
+        case 'currency_update':
+            handleCurrencyUpdate(ws, data);
+            break;
         case 'heartbeat':
             // Respond to heartbeat
             ws.send(JSON.stringify({ type: 'heartbeat_ack' }));
@@ -131,7 +137,14 @@ function handleCreateLobby(ws, data) {
             id: playerId,
             name: data.playerName || 'Player 1',
             class: data.class || 'square',
-            ready: false
+            ready: false,
+            currency: data.currency || 0,
+            upgrades: data.upgrades || {
+                square: { damage: 0, defense: 0, speed: 0 },
+                triangle: { damage: 0, defense: 0, speed: 0 },
+                pentagon: { damage: 0, defense: 0, speed: 0 },
+                hexagon: { damage: 0, defense: 0, speed: 0 }
+            }
         }],
         maxPlayers: 4,
         createdAt: Date.now()
@@ -152,7 +165,9 @@ function handleCreateLobby(ws, data) {
                 id: p.id,
                 name: p.name,
                 class: p.class,
-                ready: p.ready
+                ready: p.ready,
+                currency: p.currency,
+                upgrades: p.upgrades
             }))
         }
     }));
@@ -184,7 +199,14 @@ function handleJoinLobby(ws, data) {
         id: playerId,
         name: playerName || `Player ${lobby.players.length + 1}`,
         class: playerClass || 'square',
-        ready: false
+        ready: false,
+        currency: data.currency || 0,
+        upgrades: data.upgrades || {
+            square: { damage: 0, defense: 0, speed: 0 },
+            triangle: { damage: 0, defense: 0, speed: 0 },
+            pentagon: { damage: 0, defense: 0, speed: 0 },
+            hexagon: { damage: 0, defense: 0, speed: 0 }
+        }
     };
     
     lobby.players.push(player);
@@ -203,7 +225,9 @@ function handleJoinLobby(ws, data) {
                 id: p.id,
                 name: p.name,
                 class: p.class,
-                ready: p.ready
+                ready: p.ready,
+                currency: p.currency,
+                upgrades: p.upgrades
             }))
         }
     }));
@@ -216,13 +240,17 @@ function handleJoinLobby(ws, data) {
                 id: playerId,
                 name: player.name,
                 class: player.class,
-                ready: player.ready
+                ready: player.ready,
+                currency: player.currency,
+                upgrades: player.upgrades
             },
             players: lobby.players.map(p => ({
                 id: p.id,
                 name: p.name,
                 class: p.class,
-                ready: p.ready
+                ready: p.ready,
+                currency: p.currency,
+                upgrades: p.upgrades
             }))
         }
     }, ws);
@@ -270,7 +298,9 @@ function handleLeaveLobby(ws) {
                 id: p.id,
                 name: p.name,
                 class: p.class,
-                ready: p.ready
+                ready: p.ready,
+                currency: p.currency,
+                upgrades: p.upgrades
             }))
         }
     });
@@ -422,6 +452,61 @@ function handleLootPickup(ws, data) {
         type: 'loot_pickup',
         data
     });
+}
+
+function handleUpgradePurchase(ws, data) {
+    const code = playerToLobby.get(ws);
+    if (!code) return;
+    
+    const lobby = lobbies.get(code);
+    if (!lobby) return;
+    
+    // Forward upgrade purchase request to host only (host is authoritative)
+    if (lobby.host && lobby.host !== ws && lobby.host.readyState === WebSocket.OPEN) {
+        // Include player ID from sender
+        const player = lobby.players.find(p => p.ws === ws);
+        if (player) {
+            lobby.host.send(JSON.stringify({
+                type: 'upgrade_purchase',
+                data: {
+                    ...data,
+                    playerId: player.id
+                }
+            }));
+        }
+    } else if (lobby.host === ws) {
+        // Host sent it directly, process locally (will be handled by client-side handler)
+        // Actually, this shouldn't happen - host processes it locally via nexus.js
+        // But if it does, we'll just echo it back for consistency
+        ws.send(JSON.stringify({
+            type: 'upgrade_purchase',
+            data: {
+                ...data,
+                playerId: lobby.players.find(p => p.ws === ws).id
+            }
+        }));
+    }
+}
+
+function handleCurrencyUpdate(ws, data) {
+    const code = playerToLobby.get(ws);
+    if (!code) return;
+    
+    const lobby = lobbies.get(code);
+    if (!lobby || lobby.host !== ws) return; // Only host can send currency updates
+    
+    // Forward currency update to target player
+    const targetPlayer = lobby.players.find(p => p.id === data.targetPlayerId);
+    if (targetPlayer && targetPlayer.ws.readyState === WebSocket.OPEN) {
+        targetPlayer.ws.send(JSON.stringify({
+            type: 'currency_update',
+            data: {
+                playerId: data.targetPlayerId,
+                newCurrency: data.newCurrency,
+                reason: data.reason
+            }
+        }));
+    }
 }
 
 function broadcastToLobby(lobby, message, excludeWs = null) {

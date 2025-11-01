@@ -138,6 +138,18 @@ class MultiplayerManager {
                 case 'loot_pickup':
                     this.handleLootPickup(msg.data);
                     break;
+                case 'upgrade_purchase':
+                    this.handleUpgradePurchase(msg.data);
+                    break;
+                case 'upgrade_purchased':
+                    this.handleUpgradePurchased(msg.data);
+                    break;
+                case 'currency_update':
+                    this.handleCurrencyUpdate(msg.data);
+                    break;
+                case 'upgrades_sync':
+                    this.handleUpgradesSync(msg.data);
+                    break;
                 case 'heartbeat_ack':
                     // Heartbeat acknowledged
                     break;
@@ -159,17 +171,49 @@ class MultiplayerManager {
         }
     }
     
+    // Get player's upgrade levels for all classes
+    getAllUpgrades() {
+        if (typeof SaveSystem === 'undefined') {
+            return {
+                square: { damage: 0, defense: 0, speed: 0 },
+                triangle: { damage: 0, defense: 0, speed: 0 },
+                pentagon: { damage: 0, defense: 0, speed: 0 },
+                hexagon: { damage: 0, defense: 0, speed: 0 }
+            };
+        }
+        
+        return {
+            square: SaveSystem.getUpgrades('square'),
+            triangle: SaveSystem.getUpgrades('triangle'),
+            pentagon: SaveSystem.getUpgrades('pentagon'),
+            hexagon: SaveSystem.getUpgrades('hexagon')
+        };
+    }
+    
+    // Get player's current currency
+    getCurrency() {
+        if (typeof SaveSystem === 'undefined') {
+            return 0;
+        }
+        return Math.floor(SaveSystem.getCurrency());
+    }
+    
     // Create a new lobby
     async createLobby(playerName, playerClass) {
         if (!this.connected) {
             await this.connect();
         }
         
+        const currency = this.getCurrency();
+        const upgrades = this.getAllUpgrades();
+        
         this.send({
             type: 'create_lobby',
             data: {
                 playerName: playerName || 'Player 1',
-                class: playerClass || Game.selectedClass || 'square'
+                class: playerClass || Game.selectedClass || 'square',
+                currency: currency,
+                upgrades: upgrades
             }
         });
     }
@@ -180,12 +224,17 @@ class MultiplayerManager {
             await this.connect();
         }
         
+        const currency = this.getCurrency();
+        const upgrades = this.getAllUpgrades();
+        
         this.send({
             type: 'join_lobby',
             data: {
                 code: code.toUpperCase(),
                 playerName: playerName || 'Player',
-                playerClass: playerClass || Game.selectedClass || 'square'
+                playerClass: playerClass || Game.selectedClass || 'square',
+                currency: currency,
+                upgrades: upgrades
             }
         });
     }
@@ -334,10 +383,20 @@ class MultiplayerManager {
             }
         }
         
+        // Get currency and upgrades from host tracking
+        let currency = null;
+        let upgrades = null;
+        if (typeof Game !== 'undefined' && this.isHost) {
+            currency = Game.playerCurrencies.get(playerId);
+            upgrades = Game.playerUpgrades.get(playerId);
+        }
+        
         return {
             id: playerId,
             class: playerClass,
             name: 'Player', // TODO: Add player name selection
+            currency: currency,
+            upgrades: upgrades,
             ...playerState // All player state from player.serialize()
         };
     }
@@ -361,6 +420,10 @@ class MultiplayerManager {
             }
         }
         
+        // Include currency and upgrades for sync
+        const currency = typeof SaveSystem !== 'undefined' ? Math.floor(SaveSystem.getCurrency()) : Math.floor(Game.currentCurrency || 0);
+        const upgrades = this.getAllUpgrades();
+        
         return {
             id: this.playerId,
             // Position (for validation/interpolation)
@@ -370,6 +433,10 @@ class MultiplayerManager {
             
             // Current class (important for nexus class changes)
             class: Game.selectedClass || Game.player.playerClass,
+            
+            // Currency and upgrades (for host tracking)
+            currency: currency,
+            upgrades: upgrades,
             
             // Client timestamp for RTT calculation
             clientTimestamp: clientTimestamp,
@@ -484,6 +551,37 @@ class MultiplayerManager {
         
         console.log(`[Multiplayer] Lobby created: ${this.lobbyCode}`);
         
+        // Initialize host-side currency and upgrade tracking
+        if (typeof Game !== 'undefined' && this.isHost && data.players) {
+            data.players.forEach(player => {
+                // Initialize currency tracking
+                if (player.currency !== undefined) {
+                    Game.playerCurrencies.set(player.id, player.currency);
+                }
+                // Initialize upgrade tracking
+                if (player.upgrades) {
+                    Game.playerUpgrades.set(player.id, player.upgrades);
+                }
+            });
+        }
+        
+        // Sync currency on client side (host sends authoritative value)
+        if (typeof Game !== 'undefined' && data.players) {
+            const localPlayer = data.players.find(p => p.id === this.playerId);
+            if (localPlayer && localPlayer.currency !== undefined) {
+                // Update local currency to match host's authoritative value
+                if (typeof SaveSystem !== 'undefined') {
+                    const currentLocalCurrency = SaveSystem.getCurrency();
+                    const flooredCurrency = Math.floor(localPlayer.currency);
+                    if (currentLocalCurrency !== flooredCurrency) {
+                        SaveSystem.setCurrency(flooredCurrency);
+                        Game.currentCurrency = flooredCurrency;
+                        console.log(`[Multiplayer] Synced currency: ${flooredCurrency}`);
+                    }
+                }
+            }
+        }
+        
         // Initialize player instances for any existing players (usually just us when creating)
         if (typeof Game !== 'undefined' && data.players) {
             data.players.forEach(player => {
@@ -520,6 +618,37 @@ class MultiplayerManager {
         this.updateRemotePlayers();
         
         console.log(`[Multiplayer] Joined lobby: ${this.lobbyCode}`);
+        
+        // Initialize host-side currency and upgrade tracking
+        if (typeof Game !== 'undefined' && this.isHost && data.players) {
+            data.players.forEach(player => {
+                // Initialize currency tracking
+                if (player.currency !== undefined) {
+                    Game.playerCurrencies.set(player.id, player.currency);
+                }
+                // Initialize upgrade tracking
+                if (player.upgrades) {
+                    Game.playerUpgrades.set(player.id, player.upgrades);
+                }
+            });
+        }
+        
+        // Sync currency on client side (host sends authoritative value)
+        if (typeof Game !== 'undefined' && data.players) {
+            const localPlayer = data.players.find(p => p.id === this.playerId);
+            if (localPlayer && localPlayer.currency !== undefined) {
+                // Update local currency to match host's authoritative value
+                if (typeof SaveSystem !== 'undefined') {
+                    const currentLocalCurrency = SaveSystem.getCurrency();
+                    const flooredCurrency = Math.floor(localPlayer.currency);
+                    if (currentLocalCurrency !== flooredCurrency) {
+                        SaveSystem.setCurrency(flooredCurrency);
+                        Game.currentCurrency = flooredCurrency;
+                        console.log(`[Multiplayer] Synced currency: ${flooredCurrency}`);
+                    }
+                }
+            }
+        }
         
         // Immediately update Game.remotePlayers for rendering
         if (typeof Game !== 'undefined') {
@@ -583,6 +712,18 @@ class MultiplayerManager {
         this.updateRemotePlayers();
         
         console.log(`[Multiplayer] Player joined: ${data.player.name}`);
+        
+        // Initialize host-side currency and upgrade tracking for new player
+        if (typeof Game !== 'undefined' && this.isHost && data.player) {
+            // Initialize currency tracking
+            if (data.player.currency !== undefined) {
+                Game.playerCurrencies.set(data.player.id, data.player.currency);
+            }
+            // Initialize upgrade tracking
+            if (data.player.upgrades) {
+                Game.playerUpgrades.set(data.player.id, data.player.upgrades);
+            }
+        }
         
         // Immediately update Game.remotePlayers for rendering
         if (typeof Game !== 'undefined') {
@@ -684,6 +825,29 @@ class MultiplayerManager {
     handlePlayerState(data) {
         if (!this.isHost) return; // Only host processes player states
         
+        // Sync currency and upgrades from client (authoritative on host, but sync for validation)
+        if (typeof Game !== 'undefined') {
+            if (data.currency !== undefined) {
+                // Update host tracking if needed (client's currency should match host's)
+                const hostCurrency = Game.playerCurrencies.get(data.id);
+                if (hostCurrency === undefined || Math.abs(hostCurrency - data.currency) > 0.01) {
+                    // Currency mismatch - use host's authoritative value, but log it
+                    console.log(`[Host] Currency sync: Player ${data.id} reported ${data.currency}, host has ${hostCurrency || 'undefined'}`);
+                    // Host maintains authoritative state, so we don't update from client
+                }
+            }
+            
+            if (data.upgrades) {
+                // Update upgrades if class changed (client sends updated upgrades for new class)
+                const hostUpgrades = Game.playerUpgrades.get(data.id);
+                if (!hostUpgrades || data.class) {
+                    // Update if class changed or if we don't have upgrades yet
+                    Game.playerUpgrades.set(data.id, data.upgrades);
+                    console.log(`[Host] Updated upgrades for player ${data.id}`);
+                }
+            }
+        }
+        
         // Check if player changed class (in nexus)
         if (data.class && typeof Game !== 'undefined') {
             // Check if we have an instance for this player
@@ -694,6 +858,30 @@ class MultiplayerManager {
                 console.log(`[Host] Recreating player instance for ${data.id} as ${data.class}`);
                 const newInstance = createPlayer(data.class, data.x, data.y);
                 newInstance.lastAimAngle = 0; // Initialize rotation state for touch controls
+                
+                // Apply upgrades from host tracking
+                const upgrades = Game.playerUpgrades.get(data.id);
+                if (upgrades && upgrades[data.class]) {
+                    const classUpgrades = upgrades[data.class];
+                    const classDef = CLASS_DEFINITIONS[data.class];
+                    if (classDef) {
+                        // Calculate upgrade bonuses
+                        const upgradeBonuses = {
+                            damage: classUpgrades.damage * 0.5,
+                            defense: classUpgrades.defense * 0.005,
+                            speed: classUpgrades.speed * 2
+                        };
+                        
+                        // Apply upgrades to base stats
+                        newInstance.baseDamage = classDef.damage + upgradeBonuses.damage;
+                        newInstance.baseMoveSpeed = classDef.speed + upgradeBonuses.speed;
+                        newInstance.baseDefense = classDef.defense + upgradeBonuses.defense;
+                        
+                        // Recalculate effective stats
+                        newInstance.updateEffectiveStats();
+                    }
+                }
+                
                 Game.remotePlayerInstances.set(data.id, newInstance);
                 
                 // Update the player entry in our players list
@@ -965,6 +1153,156 @@ class MultiplayerManager {
         }
     }
     
+    // Handle upgrade purchase request (host only - processes and validates)
+    handleUpgradePurchase(data) {
+        if (!this.isHost || typeof Game === 'undefined' || typeof SaveSystem === 'undefined') return;
+        
+        const { playerId, classType, statType } = data;
+        
+        // Get player's current currency and upgrades
+        const currentCurrency = Game.playerCurrencies.get(playerId) || 0;
+        const upgrades = Game.playerUpgrades.get(playerId) || {
+            square: { damage: 0, defense: 0, speed: 0 },
+            triangle: { damage: 0, defense: 0, speed: 0 },
+            pentagon: { damage: 0, defense: 0, speed: 0 },
+            hexagon: { damage: 0, defense: 0, speed: 0 }
+        };
+        
+        // Get current upgrade level
+        const currentLevel = upgrades[classType]?.[statType] || 0;
+        
+        // Calculate cost
+        const cost = SaveSystem.getUpgradeCost(statType, currentLevel);
+        
+        // Validate purchase
+        if (currentCurrency < cost) {
+            console.warn(`[Host] Player ${playerId} attempted upgrade purchase but insufficient currency: ${currentCurrency} < ${cost}`);
+            return;
+        }
+        
+        // Update host-side tracking
+        const newLevel = currentLevel + 1;
+        const newCurrency = Math.floor(currentCurrency - cost);
+        
+        // Update upgrades
+        if (!upgrades[classType]) {
+            upgrades[classType] = { damage: 0, defense: 0, speed: 0 };
+        }
+        upgrades[classType][statType] = newLevel;
+        Game.playerUpgrades.set(playerId, upgrades);
+        
+        // Update currency
+        Game.playerCurrencies.set(playerId, newCurrency);
+        
+        console.log(`[Host] Processed upgrade purchase: Player ${playerId}, ${classType} ${statType} level ${newLevel}, currency: ${newCurrency}`);
+        
+        // Send confirmation to the purchasing player
+        const player = this.players.find(p => p.id === playerId);
+        if (player && player.ws && player.ws.readyState === WebSocket.OPEN) {
+            player.ws.send(JSON.stringify({
+                type: 'upgrade_purchased',
+                data: {
+                    playerId: playerId,
+                    classType: classType,
+                    statType: statType,
+                    newLevel: newLevel,
+                    newCurrency: newCurrency
+                }
+            }));
+        }
+        
+        // Also update player data in lobby (for when new players join)
+        if (player) {
+            player.currency = newCurrency;
+            player.upgrades = upgrades;
+        }
+        
+        // If this is the local player (host), also update local SaveSystem and recreate player
+        const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
+        if (playerId === localPlayerId) {
+            SaveSystem.setUpgrade(classType, statType, newLevel);
+            SaveSystem.setCurrency(newCurrency);
+            Game.currentCurrency = newCurrency;
+            
+            // Recreate player if this is the current class
+            if (Game.player && Game.selectedClass === classType) {
+                const currentX = Game.player.x;
+                const currentY = Game.player.y;
+                Game.player = createPlayer(classType, currentX, currentY);
+                console.log(`[Host] Recreated local player to apply upgrade stats`);
+            }
+        }
+    }
+    
+    // Handle upgrade purchase confirmation (from host)
+    handleUpgradePurchased(data) {
+        if (typeof Game === 'undefined' || typeof SaveSystem === 'undefined') return;
+        
+        const { classType, statType, newLevel, newCurrency } = data;
+        const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
+        
+        // Only process if this is for the local player
+        if (data.playerId && data.playerId !== localPlayerId) return;
+        
+        // Update local SaveSystem
+        const flooredCurrency = Math.floor(newCurrency);
+        SaveSystem.setUpgrade(classType, statType, newLevel);
+        SaveSystem.setCurrency(flooredCurrency);
+        Game.currentCurrency = flooredCurrency;
+        
+        console.log(`[Multiplayer] Upgrade purchased: ${classType} ${statType} level ${newLevel}, currency: ${flooredCurrency}`);
+        
+        // If this is the current class, recreate player to apply stats
+        if (Game.player && Game.selectedClass === classType) {
+            const currentX = Game.player.x;
+            const currentY = Game.player.y;
+            Game.player = createPlayer(classType, currentX, currentY);
+            console.log(`[Multiplayer] Recreated player to apply upgrade stats`);
+        }
+    }
+    
+    // Handle currency update (from host)
+    handleCurrencyUpdate(data) {
+        if (typeof Game === 'undefined' || typeof SaveSystem === 'undefined') return;
+        
+        const { newCurrency, reason } = data;
+        const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
+        
+        // Only process if this is for the local player
+        if (data.playerId && data.playerId !== localPlayerId) return;
+        
+        // Update local currency
+        const flooredCurrency = Math.floor(newCurrency);
+        SaveSystem.setCurrency(flooredCurrency);
+        Game.currentCurrency = flooredCurrency;
+        
+        console.log(`[Multiplayer] Currency updated: ${flooredCurrency} (reason: ${reason || 'unknown'})`);
+    }
+    
+    // Handle upgrades sync (from host)
+    handleUpgradesSync(data) {
+        if (typeof Game === 'undefined' || typeof SaveSystem === 'undefined') return;
+        
+        const { upgrades } = data;
+        const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
+        
+        // Only process if this is for the local player
+        if (data.playerId && data.playerId !== localPlayerId) return;
+        
+        // Update local SaveSystem with all upgrade levels
+        if (upgrades) {
+            Object.keys(upgrades).forEach(classType => {
+                const classUpgrades = upgrades[classType];
+                if (classUpgrades) {
+                    SaveSystem.setUpgrade(classType, 'damage', classUpgrades.damage || 0);
+                    SaveSystem.setUpgrade(classType, 'defense', classUpgrades.defense || 0);
+                    SaveSystem.setUpgrade(classType, 'speed', classUpgrades.speed || 0);
+                }
+            });
+            console.log(`[Multiplayer] Upgrades synced from host`);
+        }
+    }
+    
     // Apply full game state (clients)
     applyGameState(state) {
         if (!state) return;
@@ -1007,6 +1345,31 @@ class MultiplayerManager {
                     // Let the player apply its own state! (clean architecture)
                     if (typeof Game !== 'undefined' && Game.player && Game.player.applyState) {
                         Game.player.applyState(playerData);
+                    }
+                    
+                    // Sync currency and upgrades from host (authoritative)
+                    if (typeof Game !== 'undefined' && typeof SaveSystem !== 'undefined') {
+                        if (playerData.currency !== undefined) {
+                            const currentLocalCurrency = SaveSystem.getCurrency();
+                            const flooredCurrency = Math.floor(playerData.currency);
+                            if (Math.abs(currentLocalCurrency - flooredCurrency) > 0.01) {
+                                SaveSystem.setCurrency(flooredCurrency);
+                                Game.currentCurrency = flooredCurrency;
+                                console.log(`[Client] Synced currency from host: ${flooredCurrency}`);
+                            }
+                        }
+                        
+                        if (playerData.upgrades) {
+                            // Update upgrades from host
+                            Object.keys(playerData.upgrades).forEach(classType => {
+                                const classUpgrades = playerData.upgrades[classType];
+                                if (classUpgrades) {
+                                    SaveSystem.setUpgrade(classType, 'damage', classUpgrades.damage || 0);
+                                    SaveSystem.setUpgrade(classType, 'defense', classUpgrades.defense || 0);
+                                    SaveSystem.setUpgrade(classType, 'speed', classUpgrades.speed || 0);
+                                }
+                            });
+                        }
                     }
                 }
             });

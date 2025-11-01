@@ -116,8 +116,10 @@ function updateNexus(ctx, deltaTime) {
         initNexus();
     }
     
-    // Don't process input if multiplayer menu is visible
+    // Don't process input if pause menu or multiplayer menu is visible
+    const pauseMenuOpen = Game && (Game.state === 'PAUSED' || Game.showPauseMenu);
     const mpMenuOpen = typeof multiplayerMenuVisible !== 'undefined' && multiplayerMenuVisible;
+    
     if (mpMenuOpen) {
         // Still send multiplayer updates even when menu is open
         if (Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
@@ -128,6 +130,10 @@ function updateNexus(ctx, deltaTime) {
             }
         }
         return; // Skip all nexus updates when multiplayer menu is open
+    }
+    
+    if (pauseMenuOpen) {
+        return; // Skip all nexus updates when pause menu is open
     }
     
     // MULTIPLAYER: Snapshot input BEFORE updating (preserves justPressed/justReleased)
@@ -310,11 +316,13 @@ function updateNexus(ctx, deltaTime) {
     if (Input.getKeyState('g') && !Game.lastGKeyState) {
         Game.lastGKeyState = true;
         shouldInteract = true;
+        console.log('[NEXUS] G key pressed - shouldInteract = true');
     } else if (!Input.getKeyState('g')) {
         Game.lastGKeyState = false;
     }
     
     if (shouldInteract) {
+        console.log('[NEXUS] Processing interactions - shouldInteract:', shouldInteract);
         // Check class station interactions
         classStations.forEach(station => {
             const dx = station.x - Game.player.x;
@@ -360,7 +368,10 @@ function updateNexus(ctx, deltaTime) {
         const portalDy = nexusRoom.portalPos.y - Game.player.y;
         const portalDistance = Math.sqrt(portalDx * portalDx + portalDy * portalDy);
         
+        console.log('[NEXUS] Portal check - distance:', portalDistance.toFixed(2), 'selectedClass:', Game.selectedClass, 'player pos:', Game.player.x.toFixed(0), Game.player.y.toFixed(0));
+        
         if (portalDistance < 60 && Game.selectedClass) {
+            console.log('[NEXUS] ⚠️ PORTAL TRIGGERED! Starting game...');
             // Check multiplayer mode
             const inLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
             
@@ -528,17 +539,44 @@ function purchaseUpgrade(classType, statType) {
     
     // Check if player has enough currency
     if (Game.currentCurrency >= cost) {
-        // Purchase upgrade
-        SaveSystem.incrementUpgrade(classType, statType);
-        SaveSystem.setCurrency(Game.currentCurrency - cost);
-        Game.currentCurrency = SaveSystem.getCurrency();
-        
-        // Update player stats if this is the current class
-        if (Game.player && Game.selectedClass === classType) {
-            Game.player.setClass(classType);
+        // Check if multiplayer mode
+        if (Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.connected) {
+            // Multiplayer: Send purchase request to host
+            if (multiplayerManager.isHost) {
+                // Host: Process directly
+                const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
+                if (localPlayerId) {
+                    // Process upgrade purchase locally
+                    multiplayerManager.handleUpgradePurchase({
+                        playerId: localPlayerId,
+                        classType: classType,
+                        statType: statType
+                    });
+                }
+            } else {
+                // Client: Send request to host via server
+                multiplayerManager.send({
+                    type: 'upgrade_purchase',
+                    data: {
+                        classType: classType,
+                        statType: statType
+                    }
+                });
+                console.log(`[Multiplayer] Sent upgrade purchase request: ${classType} ${statType}`);
+            }
+        } else {
+            // Single-player: Process immediately
+            SaveSystem.incrementUpgrade(classType, statType);
+            SaveSystem.setCurrency(Game.currentCurrency - cost);
+            Game.currentCurrency = SaveSystem.getCurrency();
+            
+            // Update player stats if this is the current class
+            if (Game.player && Game.selectedClass === classType) {
+                Game.player.setClass(classType);
+            }
+            
+            console.log(`Upgraded ${classType} ${statType} to level ${currentLevel + 1}`);
         }
-        
-        console.log(`Upgraded ${classType} ${statType} to level ${currentLevel + 1}`);
     } else {
         console.log(`Not enough currency! Need ${cost}, have ${Game.currentCurrency}`);
     }
@@ -993,7 +1031,7 @@ function renderNexus(ctx) {
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 18px Arial';
     ctx.textAlign = 'left';
-    ctx.fillText(`Currency: ${Game.currentCurrency}`, 20, 30);
+    ctx.fillText(`Currency: ${Math.floor(Game.currentCurrency)}`, 20, 30);
     
     // Render touch controls overlay (same as gameplay)
     if (typeof renderTouchControls === 'function') {

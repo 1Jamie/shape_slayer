@@ -73,14 +73,14 @@ const SaveSystem = {
     // Set currency
     setCurrency(amount) {
         const save = this.load();
-        save.currency = amount;
+        save.currency = Math.floor(amount);
         this.save(save);
     },
     
     // Add currency
     addCurrency(amount) {
         const save = this.load();
-        save.currency = (save.currency || 0) + amount;
+        save.currency = Math.floor((save.currency || 0) + Math.floor(amount));
         this.save(save);
         return save.currency;
     },

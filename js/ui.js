@@ -229,9 +229,9 @@ function renderSoloDeathScreen(ctx, player) {
     const enemiesKilled = Game.enemiesKilled || 0;
     const levelReached = player.level || 1;
     
-    const baseCurrency = 9 * roomsCleared; // Reduced from 10
-    const bonusCurrency = 1.8 * enemiesKilled; // Reduced from 2
-    const levelCurrency = 0.9 * levelReached; // Reduced from 1
+    const baseCurrency = Math.floor(9 * roomsCleared); // Reduced from 10
+    const bonusCurrency = Math.floor(1.8 * enemiesKilled); // Reduced from 2
+    const levelCurrency = Math.floor(0.9 * levelReached); // Reduced from 1
     const totalEarned = baseCurrency + bonusCurrency + levelCurrency;
     
     // Dark overlay
@@ -289,7 +289,7 @@ function renderSoloDeathScreen(ctx, player) {
     ctx.fillText(`Total Earned: ${totalEarned}`, centerX, centerY + 90);
     
     // Current total currency
-    const currentTotal = typeof SaveSystem !== 'undefined' ? SaveSystem.getCurrency() : 0;
+    const currentTotal = typeof SaveSystem !== 'undefined' ? Math.floor(SaveSystem.getCurrency()) : 0;
     ctx.fillStyle = '#ffff00';
     ctx.font = 'bold 20px Arial';
     ctx.fillText(`Total Currency: ${currentTotal}`, centerX, centerY + 130);
@@ -1451,6 +1451,8 @@ function checkPauseMenuButtonClick(x, y) {
         y = gameCoords.y;
     }
     
+    console.log('[PAUSE MENU] Checking buttons - multiplayerMenuVisible:', multiplayerMenuVisible, 'pausedFromState:', Game ? Game.pausedFromState : 'no Game');
+    
     // CHECK MULTIPLAYER SUBMENU FIRST (highest priority when visible)
     if (multiplayerMenuVisible) {
         // Back button
@@ -1530,21 +1532,42 @@ function checkPauseMenuButtonClick(x, y) {
         }
     }
     
-    // Check restart button
-    if (x >= pauseMenuButtons.restart.x && x <= pauseMenuButtons.restart.x + pauseMenuButtons.restart.width &&
-        y >= pauseMenuButtons.restart.y && y <= pauseMenuButtons.restart.y + pauseMenuButtons.restart.height) {
-        if (Game && Game.restart) {
-            Game.restart();
+    // Check multiplayer button (only visible when paused from nexus) - CHECK BEFORE RESTART!
+    if (Game && Game.pausedFromState === 'NEXUS') {
+        console.log('[PAUSE MENU] Checking multiplayer button region - x:', x, 'y:', y, 'button bounds:', pauseMenuButtons.multiplayer);
+        if (x >= pauseMenuButtons.multiplayer.x && x <= pauseMenuButtons.multiplayer.x + pauseMenuButtons.multiplayer.width &&
+            y >= pauseMenuButtons.multiplayer.y && y <= pauseMenuButtons.multiplayer.y + pauseMenuButtons.multiplayer.height) {
+            console.log('[PAUSE MENU] ✓ Multiplayer button region HIT! Setting multiplayerMenuVisible = true');
+            multiplayerMenuVisible = true;
+            multiplayerError = '';
             return true;
+        }
+    } else {
+        console.log('[PAUSE MENU] Multiplayer button NOT visible - pausedFromState:', Game ? Game.pausedFromState : 'no Game');
+    }
+    
+    // Check restart button (only visible when NOT paused from nexus)
+    const pausedFromNexus = Game && Game.pausedFromState === 'NEXUS';
+    if (!pausedFromNexus) {
+        if (x >= pauseMenuButtons.restart.x && x <= pauseMenuButtons.restart.x + pauseMenuButtons.restart.width &&
+            y >= pauseMenuButtons.restart.y && y <= pauseMenuButtons.restart.y + pauseMenuButtons.restart.height) {
+            if (Game && Game.restart) {
+                console.log('[PAUSE MENU] ✓ Restart button HIT!');
+                Game.restart();
+                return true;
+            }
         }
     }
     
-    // Check nexus button
-    if (x >= pauseMenuButtons.nexus.x && x <= pauseMenuButtons.nexus.x + pauseMenuButtons.nexus.width &&
-        y >= pauseMenuButtons.nexus.y && y <= pauseMenuButtons.nexus.y + pauseMenuButtons.nexus.height) {
-        if (Game && Game.returnToNexus) {
-            Game.returnToNexus();
-            return true;
+    // Check nexus button (only visible when NOT paused from nexus)
+    if (!pausedFromNexus) {
+        if (x >= pauseMenuButtons.nexus.x && x <= pauseMenuButtons.nexus.x + pauseMenuButtons.nexus.width &&
+            y >= pauseMenuButtons.nexus.y && y <= pauseMenuButtons.nexus.y + pauseMenuButtons.nexus.height) {
+            if (Game && Game.returnToNexus) {
+                console.log('[PAUSE MENU] ✓ Return to Nexus button HIT!');
+                Game.returnToNexus();
+                return true;
+            }
         }
     }
     
@@ -1613,16 +1636,6 @@ function checkPauseMenuButtonClick(x, y) {
                 Game.updateModalVisible = true;
                 return true;
             }
-        }
-    }
-    
-    // Check multiplayer button (only visible when paused from nexus)
-    if (Game && Game.pausedFromState === 'NEXUS') {
-        if (x >= pauseMenuButtons.multiplayer.x && x <= pauseMenuButtons.multiplayer.x + pauseMenuButtons.multiplayer.width &&
-            y >= pauseMenuButtons.multiplayer.y && y <= pauseMenuButtons.multiplayer.y + pauseMenuButtons.multiplayer.height) {
-            multiplayerMenuVisible = true;
-            multiplayerError = '';
-            return true;
         }
     }
     
@@ -2080,6 +2093,8 @@ function handleInteractionButtonClick(x, y) {
     if (!interactionButton || !currentInteraction) {
         return false;
     }
+    
+    console.log('[INTERACTION BTN] Checking click - interaction:', currentInteraction);
     
     if (interactionButton.contains(x, y)) {
         interactionButton.pressed = true;
@@ -2796,24 +2811,51 @@ function renderUpdateModal(ctx) {
     ctx.font = '20px Arial';
     ctx.textAlign = 'center';
     
-    // Word wrap the message
+    // Handle newlines and word wrap the message
     const maxWidth = panelWidth - 80;
-    const words = updateMessage.split(' ');
-    let line = '';
     let y = panelY + 140;
+    const lineHeight = 30;
     
-    words.forEach(word => {
-        const testLine = line + word + ' ';
-        const metrics = ctx.measureText(testLine);
-        if (metrics.width > maxWidth && line.length > 0) {
-            ctx.fillText(line, centerX, y);
-            line = word + ' ';
-            y += 30;
-        } else {
-            line = testLine;
+    // Split by newlines first (handle both \n and literal \n in strings)
+    const paragraphs = updateMessage.split(/\\n|\n/);
+    
+    paragraphs.forEach((paragraph, paragraphIndex) => {
+        // Trim whitespace from each paragraph
+        paragraph = paragraph.trim();
+        
+        if (paragraph.length === 0) {
+            // Empty paragraph - just add spacing
+            y += lineHeight * 0.5;
+            return;
+        }
+        
+        // Word wrap each paragraph
+        const words = paragraph.split(' ');
+        let line = '';
+        
+        words.forEach((word, wordIndex) => {
+            const testLine = line + word + ' ';
+            const metrics = ctx.measureText(testLine);
+            if (metrics.width > maxWidth && line.length > 0) {
+                ctx.fillText(line.trim(), centerX, y);
+                line = word + ' ';
+                y += lineHeight;
+            } else {
+                line = testLine;
+            }
+        });
+        
+        // Render remaining line
+        if (line.trim().length > 0) {
+            ctx.fillText(line.trim(), centerX, y);
+            y += lineHeight;
+        }
+        
+        // Add extra spacing between paragraphs (except after the last one)
+        if (paragraphIndex < paragraphs.length - 1) {
+            y += lineHeight * 0.3;
         }
     });
-    ctx.fillText(line, centerX, y);
     
     // Close button
     const closeButtonWidth = 200;
@@ -2968,16 +3010,25 @@ function onLobbyCreated(data) {
     console.log('[Multiplayer] Lobby created:', data.code);
     multiplayerError = ''; // Clear any error
     
-    // Convert any PAUSED state to multiplayer pause menu
-    if (Game && Game.state === 'PAUSED') {
-        if (Game.pausedFromState === 'NEXUS') {
-            Game.state = 'NEXUS';
+    // Ensure pause menu stays open when creating lobby from pause menu
+    if (Game) {
+        // If we're in NEXUS and pause menu should be open (multiplayer menu visible), keep it open
+        if (Game.state === 'NEXUS' && multiplayerMenuVisible) {
             Game.showPauseMenu = true;
             Game.paused = false;
-        } else if (Game.pausedFromState === 'PLAYING') {
-            Game.state = 'PLAYING';
-            Game.showPauseMenu = true;
-            Game.paused = false;
+            Game.pausedFromState = 'NEXUS';
+        }
+        // Convert any PAUSED state to multiplayer pause menu
+        else if (Game.state === 'PAUSED') {
+            if (Game.pausedFromState === 'NEXUS') {
+                Game.state = 'NEXUS';
+                Game.showPauseMenu = true;
+                Game.paused = false;
+            } else if (Game.pausedFromState === 'PLAYING') {
+                Game.state = 'PLAYING';
+                Game.showPauseMenu = true;
+                Game.paused = false;
+            }
         }
     }
 }
@@ -2986,16 +3037,25 @@ function onLobbyJoined(data) {
     console.log('[Multiplayer] Joined lobby:', data.code);
     multiplayerError = '';
     
-    // Convert any PAUSED state to multiplayer pause menu
-    if (Game && Game.state === 'PAUSED') {
-        if (Game.pausedFromState === 'NEXUS') {
-            Game.state = 'NEXUS';
+    // Ensure pause menu stays open when joining lobby from pause menu
+    if (Game) {
+        // If we're in NEXUS and pause menu should be open (multiplayer menu visible), keep it open
+        if (Game.state === 'NEXUS' && multiplayerMenuVisible) {
             Game.showPauseMenu = true;
             Game.paused = false;
-        } else if (Game.pausedFromState === 'PLAYING') {
-            Game.state = 'PLAYING';
-            Game.showPauseMenu = true;
-            Game.paused = false;
+            Game.pausedFromState = 'NEXUS';
+        }
+        // Convert any PAUSED state to multiplayer pause menu
+        else if (Game.state === 'PAUSED') {
+            if (Game.pausedFromState === 'NEXUS') {
+                Game.state = 'NEXUS';
+                Game.showPauseMenu = true;
+                Game.paused = false;
+            } else if (Game.pausedFromState === 'PLAYING') {
+                Game.state = 'PLAYING';
+                Game.showPauseMenu = true;
+                Game.paused = false;
+            }
         }
     }
 }

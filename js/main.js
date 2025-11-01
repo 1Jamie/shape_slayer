@@ -128,6 +128,10 @@ const Game = {
     remotePlayerInputs: new Map(), // Map<playerId, InputState> - Host stores latest client inputs
     remotePlayerShadowInstances: new Map(), // Map<playerId, PlayerInstance> - Clients use for rendering (shadow copies)
     
+    // Host-side currency and upgrade tracking (authoritative)
+    playerCurrencies: new Map(), // Map<playerId, currency>
+    playerUpgrades: new Map(), // Map<playerId, {square: {damage, defense, speed}, triangle: {...}, ...}>
+    
     // Door waiting state (for multiplayer)
     playersOnDoor: [], // Array of player IDs currently on door
     totalAlivePlayers: 0, // Total number of alive players
@@ -269,7 +273,7 @@ const Game = {
         // Load save data
         if (typeof SaveSystem !== 'undefined') {
             const saveData = SaveSystem.load();
-            this.currentCurrency = saveData.currency || 0;
+            this.currentCurrency = Math.floor(saveData.currency || 0);
             this.selectedClass = saveData.selectedClass || null;
             
             // Check if launch modal should show (first time ever)
@@ -290,6 +294,8 @@ const Game = {
         this.canvas.addEventListener('click', (e) => {
             const rect = this.canvas.getBoundingClientRect();
             const gameCoords = this.screenToGame(e.clientX, e.clientY);
+            
+            console.log('[CLICK] Canvas clicked at:', gameCoords.x, gameCoords.y, 'state:', this.state, 'pausedFrom:', this.pausedFromState, 'showPauseMenu:', this.showPauseMenu);
             
             // Check modal close button first (highest priority when modals are visible)
             if (this.launchModalVisible || this.updateModalVisible) {
@@ -943,6 +949,32 @@ const Game = {
         if (typeof createPlayer !== 'undefined') {
             const playerInstance = createPlayer(playerClass, 100, 300);
             playerInstance.lastAimAngle = 0; // Initialize rotation state for touch controls
+            
+            // Apply upgrades from host tracking (remote players have their own upgrades)
+            const upgrades = this.playerUpgrades.get(playerId);
+            if (upgrades && upgrades[playerClass]) {
+                const classUpgrades = upgrades[playerClass];
+                const classDef = CLASS_DEFINITIONS[playerClass];
+                if (classDef) {
+                    // Calculate upgrade bonuses
+                    const upgradeBonuses = {
+                        damage: classUpgrades.damage * 0.5,
+                        defense: classUpgrades.defense * 0.005,
+                        speed: classUpgrades.speed * 2
+                    };
+                    
+                    // Apply upgrades to base stats
+                    playerInstance.baseDamage = classDef.damage + upgradeBonuses.damage;
+                    playerInstance.baseMoveSpeed = classDef.speed + upgradeBonuses.speed;
+                    playerInstance.baseDefense = classDef.defense + upgradeBonuses.defense;
+                    
+                    // Recalculate effective stats
+                    playerInstance.updateEffectiveStats();
+                    
+                    console.log(`[Host] Applied upgrades to ${playerId} (${playerClass}): damage=${classUpgrades.damage}, defense=${classUpgrades.defense}, speed=${classUpgrades.speed}`);
+                }
+            }
+            
             this.remotePlayerInstances.set(playerId, playerInstance);
             console.log(`[Host] Created player instance for ${playerId} (${playerClass})`);
         }
@@ -2410,11 +2442,11 @@ const Game = {
             // Normal multiplayer pause menu toggle
             if (this.showPauseMenu) {
                 this.showPauseMenu = false;
-                console.log('Multiplayer pause menu closed');
+                console.log('[TOGGLE PAUSE] Multiplayer pause menu closed');
             } else {
                 this.showPauseMenu = true;
                 this.pausedFromState = this.state; // Remember where we paused from
-                console.log('Multiplayer pause menu opened');
+                console.log('[TOGGLE PAUSE] Multiplayer pause menu opened - pausedFromState set to:', this.state);
             }
         } else {
             // Single player: Normal pause behavior
@@ -2422,46 +2454,123 @@ const Game = {
                 this.state = 'PAUSED';
                 this.paused = true;
                 this.pausedFromState = 'PLAYING'; // Remember where we paused from
-                console.log('Game paused');
+                console.log('[TOGGLE PAUSE] Game paused - pausedFromState set to: PLAYING');
             } else if (this.state === 'NEXUS') {
                 this.state = 'PAUSED';
                 this.paused = true;
                 this.pausedFromState = 'NEXUS'; // Remember where we paused from
-                console.log('Nexus paused');
+                console.log('[TOGGLE PAUSE] Nexus paused - pausedFromState set to: NEXUS');
             } else if (this.state === 'PAUSED') {
                 // Resume to the state we paused from
                 this.state = this.pausedFromState || 'PLAYING';
                 this.paused = false;
                 this.pausedFromState = null;
-                console.log('Game resumed');
+                console.log('[TOGGLE PAUSE] Game resumed - pausedFromState cleared');
             }
         }
     },
     
     // Return to nexus after death
     returnToNexus() {
-        // Calculate and save currency earned (if not already saved)
-        if (this.player && this.player.dead && this.currencyEarned > 0) {
-            if (typeof SaveSystem !== 'undefined') {
-                SaveSystem.addCurrency(this.currencyEarned);
-                const saveData = SaveSystem.load();
-                this.currentCurrency = saveData.currency || 0;
-            }
-            this.currencyEarned = 0;
-        }
-        
-        // If in multiplayer and host, send return to nexus message to all clients
+        // Multiplayer: Host calculates and distributes currency rewards
         if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.isHost) {
+            // Calculate currency for all players who died
+            const localPlayerId = this.getLocalPlayerId();
+            
+            // Calculate and sync currency for local player
+            if (this.player && this.player.dead && this.currencyEarned > 0) {
+                const currentCurrency = this.playerCurrencies.get(localPlayerId) || 0;
+                const newCurrency = Math.floor(currentCurrency + this.currencyEarned);
+                this.playerCurrencies.set(localPlayerId, newCurrency);
+                
+                // Update local SaveSystem
+                if (typeof SaveSystem !== 'undefined') {
+                    SaveSystem.setCurrency(newCurrency);
+                    this.currentCurrency = newCurrency;
+                }
+                
+                // Send currency update to self via server (for consistency)
+                if (multiplayerManager.send) {
+                    multiplayerManager.send({
+                        type: 'currency_update',
+                        data: {
+                            targetPlayerId: localPlayerId,
+                            newCurrency: newCurrency,
+                            reason: 'round_reward'
+                        }
+                    });
+                }
+                
+                this.currencyEarned = 0;
+            }
+            
+            // Calculate and sync currency for remote players who died
+            if (this.deadPlayers && this.deadPlayers.size > 0) {
+                this.deadPlayers.forEach(playerId => {
+                    if (playerId !== localPlayerId) {
+                        const currencyEarned = this.calculateCurrencyForPlayer(playerId);
+                        const currentCurrency = this.playerCurrencies.get(playerId) || 0;
+                        const newCurrency = Math.floor(currentCurrency + currencyEarned);
+                        this.playerCurrencies.set(playerId, newCurrency);
+                        
+                        // Send currency update via server (server will route to player)
+                        if (multiplayerManager.send) {
+                            multiplayerManager.send({
+                                type: 'currency_update',
+                                data: {
+                                    targetPlayerId: playerId,
+                                    newCurrency: newCurrency,
+                                    reason: 'round_reward'
+                                }
+                            });
+                        }
+                        
+                        // Update player data in lobby
+                        const player = multiplayerManager.players.find(p => p.id === playerId);
+                        if (player) {
+                            player.currency = newCurrency;
+                        }
+                    }
+                });
+            }
+            
+            // Send return to nexus message to all clients
             multiplayerManager.send({
                 type: 'return_to_nexus',
                 data: { timestamp: Date.now() }
             });
+        } else {
+            // Single-player: Calculate and save currency earned
+            if (this.player && this.player.dead && this.currencyEarned > 0) {
+                if (typeof SaveSystem !== 'undefined') {
+                    SaveSystem.addCurrency(this.currencyEarned);
+                    const saveData = SaveSystem.load();
+                    this.currentCurrency = Math.floor(saveData.currency || 0);
+                }
+                this.currencyEarned = 0;
+            }
         }
         
         // Reset game state
         this.state = 'NEXUS';
         this.enemies = [];
         this.projectiles = [];
+
+        // Reset pause state completely
+        this.paused = false;
+        this.showPauseMenu = false;
+        this.pausedFromState = null;
+        
+        // Reset multiplayer menu visibility (ensure clean state)
+        if (typeof multiplayerMenuVisible !== 'undefined') {
+            multiplayerMenuVisible = false;
+        }
+
+        // Reset multiplayer state if not in a lobby
+        const inLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+        if (!inLobby) {
+            this.multiplayerEnabled = false;
+        }
 
         // Reset player but keep it for nexus navigation
         if (this.player) {
@@ -2470,8 +2579,12 @@ const Game = {
             // Position will be set by initNexus
         }
         
+        // Reset game tracking variables
         this.enemiesKilled = 0;
         this.roomNumber = 1;
+        this.currencyEarned = 0;
+        this.lastGKeyState = false;
+        this.clickHandled = false;
         
         // Clear ground loot
         if (typeof groundLoot !== 'undefined') {
@@ -2482,6 +2595,16 @@ const Game = {
         if (typeof initNexus !== 'undefined') {
             initNexus();
         }
+        
+        console.log('[RETURN TO NEXUS] State reset complete:', {
+            state: this.state,
+            paused: this.paused,
+            showPauseMenu: this.showPauseMenu,
+            pausedFromState: this.pausedFromState,
+            multiplayerMenuVisible: typeof multiplayerMenuVisible !== 'undefined' ? multiplayerMenuVisible : 'undefined',
+            multiplayerEnabled: this.multiplayerEnabled,
+            lastGKeyState: this.lastGKeyState
+        });
         
         // Multiplayer: Send immediate state update after returning to nexus
         if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
@@ -2495,7 +2618,7 @@ const Game = {
         }
     },
     
-    // Calculate currency earned from run
+    // Calculate currency earned from run (for local player)
     calculateCurrency() {
         if (!this.player) return 0;
         
@@ -2507,7 +2630,28 @@ const Game = {
         const bonus = 1.8 * enemiesKilled; // Reduced from 2
         const levelBonus = 0.9 * levelReached; // Reduced from 1
         
-        return base + bonus + levelBonus;
+        return Math.floor(base + bonus + levelBonus);
+    },
+    
+    // Calculate currency for a specific player (multiplayer)
+    calculateCurrencyForPlayer(playerId) {
+        const roomsCleared = Math.max(0, this.roomNumber - 1);
+        const enemiesKilled = this.enemiesKilled || 0;
+        
+        // Get player level from stats or instance
+        let levelReached = 1;
+        if (playerId === this.getLocalPlayerId()) {
+            levelReached = this.player ? this.player.level || 1 : 1;
+        } else if (this.remotePlayerInstances && this.remotePlayerInstances.has(playerId)) {
+            const remotePlayer = this.remotePlayerInstances.get(playerId);
+            levelReached = remotePlayer.level || 1;
+        }
+        
+        const base = 9 * roomsCleared;
+        const bonus = 1.8 * enemiesKilled;
+        const levelBonus = 0.9 * levelReached;
+        
+        return Math.floor(base + bonus + levelBonus);
     },
     
     // Start game after class selection
@@ -2517,7 +2661,11 @@ const Game = {
             return;
         }
         
-        console.log('Starting game with class:', this.selectedClass);
+        console.log('[GAME START] ========================================');
+        console.log('[GAME START] Called with class:', this.selectedClass);
+        console.log('[GAME START] Current state:', this.state, 'pausedFrom:', this.pausedFromState);
+        console.log('[GAME START] Stack trace:', new Error().stack);
+        console.log('[GAME START] ========================================');
         
         // Create player with selected class (start at left side of screen)
         this.player = createPlayer(this.selectedClass, 100, this.config.height / 2);
