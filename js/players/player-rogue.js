@@ -1,7 +1,66 @@
 // Rogue class (Triangle) - extends PlayerBase
-// VERSION: 2024-11-01-JOYSTICK-DODGE-v1
 
-console.log('[player-rogue.js] ============ LOADED VERSION 2024-11-01-JOYSTICK-DODGE-v1 ============');
+// ============================================================================
+// ROGUE CONFIGURATION - Adjust these values for game balancing
+// ============================================================================
+
+const ROGUE_CONFIG = {
+    // Base Stats (from CLASS_DEFINITIONS)
+    baseHp: 75,                    // Starting health points
+    baseDamage: 12,                // Base damage per attack
+    baseSpeed: 287.5,              // Movement speed (pixels/second)
+    baseDefense: 0,                // Damage reduction (0-1 range)
+    critChance: 0.15,              // Critical hit chance (0.15 = 15%)
+    
+    // Level Up Bonuses (per upgrade level purchased in nexus)
+    damagePerLevel: 0.5,           // Damage increase per level
+    defensePerLevel: 0.005,        // Defense increase per level (0.005 = 0.5%)
+    speedPerLevel: 2,              // Speed increase per level (pixels/second)
+    
+    // Dodge System
+    dodgeCharges: 2,               // Number of dodge charges available
+    dodgeCooldown: 2.0,            // Cooldown per charge (seconds)
+    dodgeSpeed: 720,               // Dash speed (pixels/second)
+    dodgeDuration: 0.3,            // Duration of dodge (seconds)
+    dodgeDamage: 0.775,            // Damage multiplier during dodge collision
+    
+    // Basic Attack (Knife Throw)
+    knifeSpeed: 350,               // Projectile speed (pixels/second)
+    knifeLifetime: 1.5,            // How long knife travels (seconds)
+    knifeSize: 8,                  // Knife projectile size (pixels)
+    
+    // Heavy Attack (Fan of Knives)
+    heavyAttackCooldown: 3.0,      // Cooldown for heavy attack (seconds)
+    fanKnifeCount: 7,              // Number of knives in fan
+    fanSpreadAngle: Math.PI / 3,   // Spread angle in radians (60 degrees)
+    fanKnifeSpeed: 400,            // Fan knife speed (pixels/second)
+    fanKnifeDamage: 1.8,           // Damage multiplier for fan knives
+    fanKnifeSize: 10,              // Fan knife size (pixels)
+    fanKnifeLifetime: 1.5,         // Fan knife lifetime (seconds)
+    
+    // Special Ability (Shadow Clones)
+    specialCooldown: 5.0,          // Special ability cooldown (seconds)
+    shadowCloneCount: 2,           // Number of shadow clones
+    shadowCloneDuration: 3.0,      // How long clones last (seconds)
+    shadowCloneMaxHealth: 50,      // Starting health for each clone
+    shadowCloneHealthDecay: 10,    // HP lost per second per clone
+    shadowCloneDistance: 100,      // Distance from player (pixels)
+    shadowCloneSpawnAngle: Math.PI / 3, // Angle offset for clone positioning (radians)
+    shadowCloneInvulnTime: 0.3,    // Invulnerability duration on activation (seconds)
+    
+    // Heavy Attack Preview (Mobile)
+    heavyPreviewSpread: Math.PI / 3, // Preview spread angle (60 degrees)
+    
+    // Descriptions for UI (tooltips, character sheet)
+    descriptions: {
+        playstyle: "High mobility assassin with critical hits",
+        basic: "Quick Stab - Fast triangle projectile",
+        heavy: "Fan of Knives - {fanKnifeCount} knives in {fanSpreadAngle|degrees} spread, {fanKnifeDamage|mult} damage each",
+        special: "Shadow Clones - Creates {shadowCloneCount} decoys for {shadowCloneDuration}s",
+        passive: "Backstab - 2x damage from behind, {dodgeCharges} dodge charges",
+        baseStats: "{critChance|percent} Base Crit Chance, High Speed"
+    }
+};
 
 class Rogue extends PlayerBase {
     constructor(x = 400, y = 300) {
@@ -10,43 +69,45 @@ class Rogue extends PlayerBase {
         // Set class identifier
         this.playerClass = 'triangle';
         
-        // Load class definition
+        // Load class definition (visual properties only)
         const classDef = CLASS_DEFINITIONS.triangle;
         
         // Load upgrades from save system
         let upgradeBonuses = { damage: 0, defense: 0, speed: 0 };
         if (typeof SaveSystem !== 'undefined') {
             const upgrades = SaveSystem.getUpgrades('triangle');
-            // Calculate bonuses: damage +0.5/level, defense +0.005/level, speed +2/level
-            upgradeBonuses.damage = upgrades.damage * 0.5;
-            upgradeBonuses.defense = upgrades.defense * 0.005;
-            upgradeBonuses.speed = upgrades.speed * 2;
+            // Calculate bonuses using config values
+            upgradeBonuses.damage = upgrades.damage * ROGUE_CONFIG.damagePerLevel;
+            upgradeBonuses.defense = upgrades.defense * ROGUE_CONFIG.defensePerLevel;
+            upgradeBonuses.speed = upgrades.speed * ROGUE_CONFIG.speedPerLevel;
         }
         
-        // Set base stats (class stats + upgrade bonuses)
-        this.baseDamage = classDef.damage + upgradeBonuses.damage;
-        this.baseMoveSpeed = classDef.speed + upgradeBonuses.speed;
-        this.baseDefense = classDef.defense + upgradeBonuses.defense;
-        this.maxHp = classDef.hp;
-        this.hp = classDef.hp;
-        this.critChance = classDef.critChance;
+        // Set base stats from CONFIG (single source of truth)
+        this.baseDamage = ROGUE_CONFIG.baseDamage + upgradeBonuses.damage;
+        this.baseMoveSpeed = ROGUE_CONFIG.baseSpeed + upgradeBonuses.speed;
+        this.baseDefense = ROGUE_CONFIG.baseDefense + upgradeBonuses.defense;
+        this.maxHp = ROGUE_CONFIG.baseHp;
+        this.hp = ROGUE_CONFIG.baseHp;
+        this.baseCritChance = ROGUE_CONFIG.critChance; // Store base for updateEffectiveStats
+        this.critChance = ROGUE_CONFIG.critChance;
         this.color = classDef.color;
         this.shape = classDef.shape;
         
-        // Triangle uses 3 dodge charges
-        this.dodgeCharges = classDef.dodgeCharges || 3;
-        this.maxDodgeCharges = classDef.dodgeCharges || 3;
+        // Dodge system from CONFIG (single source of truth)
+        this.baseDodgeCharges = ROGUE_CONFIG.dodgeCharges; // Store base value for updateEffectiveStats
+        this.dodgeCharges = ROGUE_CONFIG.dodgeCharges;
+        this.maxDodgeCharges = ROGUE_CONFIG.dodgeCharges;
         this.dodgeChargeCooldowns = new Array(this.maxDodgeCharges).fill(0);
-        this.dodgeCooldownTime = classDef.dodgeCooldown || 1.0;
-        this.dodgeSpeedBoost = classDef.dodgeSpeed || 720;
+        this.dodgeCooldownTime = ROGUE_CONFIG.dodgeCooldown;
+        this.dodgeSpeedBoost = ROGUE_CONFIG.dodgeSpeed;
         
         // Heavy attack cooldown
-        this.heavyAttackCooldownTime = 2.0;
+        this.heavyAttackCooldownTime = ROGUE_CONFIG.heavyAttackCooldown;
         
         // Shadow clones special ability
         this.shadowClonesActive = false;
         this.shadowClonesElapsed = 0;
-        this.shadowClonesDuration = 3.0;
+        this.shadowClonesDuration = ROGUE_CONFIG.shadowCloneDuration;
         this.shadowClones = []; // Array of {x, y, rotation} for each clone
         
         // Dash preview system (mobile)
@@ -58,7 +119,13 @@ class Rogue extends PlayerBase {
         // Heavy attack preview system (mobile)
         this.heavyAttackPreviewActive = false;
         this.heavyAttackPreviewAngle = 0;
-        this.heavyAttackPreviewSpread = Math.PI / 3; // 60 degree spread
+        this.heavyAttackPreviewSpread = ROGUE_CONFIG.heavyPreviewSpread;
+        
+        // Class modifier storage
+        this.dodgeDamageMultiplier = 1.0;
+        this.knifeCountBonus = 0;
+        this.shadowCloneCountBonus = 0;
+        this.backstabMultiplierBonus = 0;
         
         // Update effective stats
         this.updateEffectiveStats();
@@ -66,12 +133,41 @@ class Rogue extends PlayerBase {
         console.log('Rogue class initialized');
     }
     
+    // Override to apply Rogue-specific class modifiers
+    applyClassModifier(modifier) {
+        // Call parent for universal modifiers
+        super.applyClassModifier(modifier);
+        
+        // Handle Rogue-specific modifiers
+        if (modifier.class === 'triangle') {
+            switch(modifier.type) {
+                case 'dodge_damage':
+                    this.dodgeDamageMultiplier += modifier.value;
+                    break;
+                case 'dodge_charges':
+                    this.bonusDodgeCharges += modifier.value;
+                    break;
+                case 'knife_count':
+                    this.knifeCountBonus += modifier.value;
+                    break;
+                case 'shadow_clone_count':
+                    this.shadowCloneCountBonus += modifier.value;
+                    break;
+                case 'backstab_multiplier':
+                    this.backstabMultiplierBonus += modifier.value;
+                    break;
+            }
+        }
+    }
+    
     // Override executeAttack for Rogue throw knife
     executeAttack(input) {
         this.throwKnife(input);
         
-        // Reset cooldown and set attacking state
-        this.attackCooldown = this.attackCooldownTime;
+        // Reset cooldown and set attacking state with attack speed and weapon type
+        const weaponCooldownMult = this.weaponCooldownMultiplier || 1.0;
+        const effectiveAttackCooldown = this.attackCooldownTime * weaponCooldownMult / (1 + (this.attackSpeedMultiplier - 1));
+        this.attackCooldown = effectiveAttackCooldown;
         this.isAttacking = true;
         
         // Clear attacking state after duration
@@ -106,21 +202,38 @@ class Rogue extends PlayerBase {
             }
         }
         
-        Game.projectiles.push({
+        const baseKnife = {
             x: this.x,
             y: this.y,
-            vx: dirX * 350,
-            vy: dirY * 350,
+            vx: dirX * ROGUE_CONFIG.knifeSpeed * (this.projectileSpeedMultiplier || 1.0),
+            vy: dirY * ROGUE_CONFIG.knifeSpeed * (this.projectileSpeedMultiplier || 1.0),
             damage: this.damage,
-            size: 8,
-            lifetime: 1.5,
+            size: ROGUE_CONFIG.knifeSize,
+            lifetime: ROGUE_CONFIG.knifeLifetime,
             elapsed: 0,
             type: 'knife',
             color: this.color,
             playerX: this.x, // Store player position for backstab detection
             playerY: this.y,
             playerClass: this.playerClass // Store class for backstab check
-        });
+        };
+        
+        Game.projectiles.push(baseKnife);
+        
+        // Multishot: Create additional projectiles at angles
+        if (this.multishotCount && this.multishotCount > 0) {
+            for (let i = 0; i < this.multishotCount; i++) {
+                const angleOffset = ((i + 1) % 2 === 0 ? 1 : -1) * (Math.ceil((i + 1) / 2) * 0.15); // Alternate ±0.15, ±0.3 radians
+                const multishotAngle = Math.atan2(dirY, dirX) + angleOffset;
+                
+                Game.projectiles.push({
+                    ...baseKnife,
+                    vx: Math.cos(multishotAngle) * ROGUE_CONFIG.knifeSpeed * (this.projectileSpeedMultiplier || 1.0),
+                    vy: Math.sin(multishotAngle) * ROGUE_CONFIG.knifeSpeed * (this.projectileSpeedMultiplier || 1.0),
+                    damage: this.damage * 0.5 // 50% damage for multishot projectiles
+                });
+            }
+        }
     }
     
     // Override createHeavyAttack for fan of knives
@@ -147,11 +260,11 @@ class Rogue extends PlayerBase {
     }
     
     createFanOfKnives() {
-        // Rogue: Fan of knives - throw 7 knives in a spread pattern
-        const knifeDamage = this.damage * 2;
-        const numKnives = 7;
-        const spreadAngle = Math.PI / 3; // 60 degrees spread
-        const knifeSpeed = 400;
+        // Rogue: Fan of knives - throw multiple knives in a spread pattern
+        const knifeDamage = this.damage * ROGUE_CONFIG.fanKnifeDamage;
+        const numKnives = ROGUE_CONFIG.fanKnifeCount + this.knifeCountBonus; // Apply class modifier
+        const spreadAngle = ROGUE_CONFIG.fanSpreadAngle;
+        const knifeSpeed = ROGUE_CONFIG.fanKnifeSpeed;
         
         if (typeof Game !== 'undefined') {
             for (let i = 0; i < numKnives; i++) {
@@ -164,11 +277,11 @@ class Rogue extends PlayerBase {
                 Game.projectiles.push({
                     x: this.x,
                     y: this.y,
-                    vx: dirX * knifeSpeed,
-                    vy: dirY * knifeSpeed,
+                    vx: dirX * knifeSpeed * (this.projectileSpeedMultiplier || 1.0),
+                    vy: dirY * knifeSpeed * (this.projectileSpeedMultiplier || 1.0),
                     damage: knifeDamage,
-                    size: 10,
-                    lifetime: 1.5,
+                    size: ROGUE_CONFIG.fanKnifeSize,
+                    lifetime: ROGUE_CONFIG.fanKnifeLifetime,
                     elapsed: 0,
                     type: 'knife',
                     color: this.color,
@@ -188,14 +301,20 @@ class Rogue extends PlayerBase {
     activateShadowClones() {
         this.shadowClonesActive = true;
         this.shadowClonesElapsed = 0;
-        this.specialCooldown = this.specialCooldownTime;
+        // Apply cooldown reduction
+        const effectiveSpecialCooldown = this.specialCooldownTime * (1 - this.cooldownReduction);
+        this.specialCooldown = effectiveSpecialCooldown;
         
-        // Create 2 shadow clones positioned around the player
+        // Create shadow clones positioned around the player
         this.shadowClones = [];
-        for (let i = 0; i < 2; i++) {
+        const numClones = ROGUE_CONFIG.shadowCloneCount + this.shadowCloneCountBonus; // Apply class modifier
+        const cloneMaxHealth = ROGUE_CONFIG.shadowCloneMaxHealth;
+        const cloneHealthDecayRate = ROGUE_CONFIG.shadowCloneHealthDecay;
+        
+        for (let i = 0; i < numClones; i++) {
             // Position clones at angles offset from player
-            const angle = this.rotation + (i * 2 - 1) * Math.PI / 3; // -60° and +60° from facing direction
-            const distance = 100; // Distance from player
+            const angle = this.rotation + (i * 2 - 1) * ROGUE_CONFIG.shadowCloneSpawnAngle;
+            const distance = ROGUE_CONFIG.shadowCloneDistance;
             const cloneX = this.x + Math.cos(angle) * distance;
             const cloneY = this.y + Math.sin(angle) * distance;
             
@@ -203,13 +322,26 @@ class Rogue extends PlayerBase {
             const clone = {
                 x: Game ? clamp(cloneX, this.size, Game.canvas.width - this.size) : cloneX,
                 y: Game ? clamp(cloneY, this.size, Game.canvas.height - this.size) : cloneY,
-                rotation: this.rotation
+                rotation: this.rotation,
+                health: cloneMaxHealth,
+                maxHealth: cloneMaxHealth,
+                healthDecayRate: cloneHealthDecayRate
             };
             this.shadowClones.push(clone);
         }
         
+        // Clear enemy target locks to force immediate retargeting to clones
+        if (typeof Game !== 'undefined' && Game.enemies) {
+            Game.enemies.forEach(enemy => {
+                if (enemy.alive && enemy.targetLock && enemy.targetLock.playerRef === this) {
+                    enemy.targetLock = null;
+                    enemy.targetLockTimer = 0;
+                }
+            });
+        }
+        
         this.invulnerable = true;
-        this.invulnerabilityTime = 0.3; // Brief i-frames on activation
+        this.invulnerabilityTime = ROGUE_CONFIG.shadowCloneInvulnTime;
         console.log('Shadow clones activated!');
     }
     
@@ -290,21 +422,47 @@ class Rogue extends PlayerBase {
     
     // Override updateClassAbilities for Rogue-specific updates
     updateClassAbilities(deltaTime, input) {
-        // Update shadow clones animation
+        // Update shadow clones animation and health
         if (this.shadowClonesActive) {
-            this.shadowClonesElapsed += deltaTime;
-            
-            // Make clones face randomly (creates illusory movement)
-            this.shadowClones.forEach(clone => {
-                clone.rotation += deltaTime * 0.5; // Slow random rotation
+            // Update each clone: health decay, rotation, and check for removal
+            this.shadowClones = this.shadowClones.filter(clone => {
+                // Health decay over time
+                clone.health -= clone.healthDecayRate * deltaTime;
+                
+                // Random rotation for illusory movement
+                clone.rotation += deltaTime * 0.5;
+                
+                // Remove clone if health depleted
+                return clone.health > 0;
             });
             
-            // End shadow clones after duration
-            if (this.shadowClonesElapsed >= this.shadowClonesDuration) {
+            // End shadow clones if all clones destroyed
+            if (this.shadowClones.length === 0) {
                 this.shadowClonesActive = false;
-                this.shadowClonesElapsed = 0;
                 this.shadowClones = [];
             }
+        }
+        
+        // Check for damage to shadow clones from enemy projectiles
+        if (this.shadowClonesActive && typeof Game !== 'undefined' && Game.projectiles) {
+            Game.projectiles.forEach(projectile => {
+                // Skip player projectiles
+                if (projectile.type === 'knife' || projectile.playerClass) return;
+                
+                this.shadowClones.forEach(clone => {
+                    const dx = projectile.x - clone.x;
+                    const dy = projectile.y - clone.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    // Check collision with clone (use player size as clone size)
+                    if (distance < this.size + (projectile.size || 5)) {
+                        // Clone takes damage from projectile
+                        clone.health -= projectile.damage || 10;
+                        // Mark projectile as hit so it gets removed
+                        projectile.lifetime = 0;
+                    }
+                });
+            });
         }
         
         // Update dodge charge cooldowns (Rogue has 3 charges)
@@ -317,7 +475,7 @@ class Rogue extends PlayerBase {
         
         // Rogue dodge collision damage (Triangle-specific: deals damage during dodge)
         if (this.isDodging && typeof Game !== 'undefined') {
-            const dodgeDamage = this.damage * 0.575; // 57.5% of base damage
+            const baseDodgeDamage = this.damage * ROGUE_CONFIG.dodgeDamage * this.dodgeDamageMultiplier; // Apply class modifier
             
             Game.enemies.forEach(enemy => {
                 if (enemy.alive && !this.dodgeHitEnemies.has(enemy)) {
@@ -326,12 +484,20 @@ class Rogue extends PlayerBase {
                     const distance = Math.sqrt(dx * dx + dy * dy);
                     
                     if (distance < this.size + enemy.size) {
-                        // Collision during dodge - deal damage
+                        // Check for crit
+                        const isCrit = Math.random() < this.critChance;
+                        const critMultiplier = isCrit ? (2.0 * (this.critDamageMultiplier || 1.0)) : 1.0;
+                        const dodgeDamage = baseDodgeDamage * critMultiplier;
+                        
+                        // Calculate damage dealt BEFORE applying damage
                         const damageDealt = Math.min(dodgeDamage, enemy.hp);
+                        
+                        // Collision during dodge - deal damage
                         enemy.takeDamage(dodgeDamage);
+                        
                         // Show damage number for rogue dodge damage
                         if (typeof createDamageNumber !== 'undefined') {
-                            createDamageNumber(enemy.x, enemy.y, damageDealt, true);
+                            createDamageNumber(enemy.x, enemy.y, damageDealt, isCrit, false);
                         }
                         this.dodgeHitEnemies.add(enemy); // Mark as hit
                     }
@@ -467,8 +633,8 @@ class Rogue extends PlayerBase {
             ctx.translate(this.x, this.y);
             
             const previewRange = 250; // How far the preview extends
-            const numKnives = 7; // Same as actual fan of knives
-            const spreadAngle = this.heavyAttackPreviewSpread; // 60 degrees
+            const numKnives = ROGUE_CONFIG.fanKnifeCount; // Same as actual fan of knives
+            const spreadAngle = this.heavyAttackPreviewSpread;
             const pulse = Math.sin(Date.now() / 150) * 0.2 + 0.8; // Pulse between 0.6 and 1.0
             
             // Draw cone outline (outer edges)
@@ -514,10 +680,11 @@ class Rogue extends PlayerBase {
         
         // Draw shadow clones
         if (this.shadowClonesActive && this.shadowClones && this.shadowClones.length > 0) {
-            const fadeProgress = this.shadowClonesElapsed / this.shadowClonesDuration;
-            const alpha = 0.6 * (1 - fadeProgress); // Fade out over duration
-            
             this.shadowClones.forEach(clone => {
+                // Calculate alpha based on clone health (health-based fade)
+                const healthPercent = clone.health / clone.maxHealth;
+                const alpha = 0.6 * healthPercent; // Fade out as health depletes
+                
                 ctx.save();
                 ctx.globalAlpha = alpha;
                 ctx.translate(clone.x, clone.y);
@@ -546,6 +713,31 @@ class Rogue extends PlayerBase {
                 ctx.lineTo(-this.size * 0.5, this.size * 0.866);  // Bottom back
                 ctx.closePath();
                 ctx.stroke();
+                
+                ctx.restore();
+                
+                // Draw health bar above clone (not rotated)
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                
+                // healthPercent already defined above in this scope
+                const barWidth = this.size * 2;
+                const barHeight = 4;
+                const barX = clone.x - barWidth / 2;
+                const barY = clone.y - this.size - 10;
+                
+                // Background (red)
+                ctx.fillStyle = '#ff0000';
+                ctx.fillRect(barX, barY, barWidth, barHeight);
+                
+                // Foreground (green, scaled by health)
+                ctx.fillStyle = healthPercent > 0.5 ? '#00ff00' : (healthPercent > 0.25 ? '#ffaa00' : '#ff0000');
+                ctx.fillRect(barX, barY, barWidth * healthPercent, barHeight);
+                
+                // Border
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(barX, barY, barWidth, barHeight);
                 
                 ctx.restore();
             });
@@ -577,12 +769,12 @@ class Rogue extends PlayerBase {
             ...baseState,
             // Rogue-specific abilities
             shadowClonesActive: this.shadowClonesActive,
-            shadowClonesElapsed: this.shadowClonesElapsed, // For correct fade-out on clients
-            shadowClonesDuration: this.shadowClonesDuration, // For consistency
             shadowClones: (this.shadowClones || []).map(clone => ({
                 x: clone.x,
                 y: clone.y,
-                rotation: clone.rotation
+                rotation: clone.rotation,
+                health: clone.health,
+                maxHealth: clone.maxHealth
             }))
         };
     }
@@ -592,8 +784,6 @@ class Rogue extends PlayerBase {
         super.applyState(state);
         // Rogue-specific properties
         if (state.shadowClonesActive !== undefined) this.shadowClonesActive = state.shadowClonesActive;
-        if (state.shadowClonesElapsed !== undefined) this.shadowClonesElapsed = state.shadowClonesElapsed;
-        if (state.shadowClonesDuration !== undefined) this.shadowClonesDuration = state.shadowClonesDuration;
         if (state.shadowClones !== undefined) this.shadowClones = state.shadowClones;
     }
 }

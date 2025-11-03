@@ -30,15 +30,17 @@ class DamageNumber {
         ctx.globalAlpha = this.alpha;
         
         // Styling based on damage type
-        let fontSize, color;
+        let fontSize, color, prefix = '';
         if (this.isWeakPoint) {
-            // Weak point hits: cyan, large
+            // Weak point hits: cyan, very large
             fontSize = 32;
             color = '#00ffff';
+            prefix = 'WEAK! ';
         } else if (this.isCrit) {
-            // Crits: orange, medium-large
-            fontSize = 28;
-            color = '#ffaa00';
+            // Crits: bright red, large
+            fontSize = 30;
+            color = '#ff3333';
+            prefix = 'CRIT! ';
         } else {
             // Normal: white, medium
             fontSize = 20;
@@ -49,8 +51,8 @@ class DamageNumber {
         ctx.font = `bold ${fontSize}px Arial`;
         ctx.textAlign = 'center';
         
-        // Draw text
-        const text = Math.floor(this.damage);
+        // Draw text with prefix for crits/weak points
+        const text = prefix + Math.floor(this.damage);
         
         // Thick black outline for visibility
         ctx.strokeStyle = '#000000';
@@ -152,6 +154,44 @@ function renderHealthBar(ctx, player) {
     ctx.fillText(healthText, barX + barWidth / 2, barY + 24);
     ctx.shadowBlur = 0;
     ctx.textAlign = 'left'; // Reset alignment
+    
+    // Phoenix Down indicator (if player has the affix)
+    if (player.hasPhoenixDown) {
+        const pdX = barX + barWidth + 15;
+        const pdY = barY + (barHeight / 2) - 18;
+        const pdSize = 36;
+        
+        // Background circle
+        const isCharged = player.phoenixDownCharges > 0;
+        ctx.fillStyle = isCharged ? 'rgba(255, 170, 0, 0.3)' : 'rgba(100, 100, 100, 0.3)';
+        ctx.beginPath();
+        ctx.arc(pdX + pdSize / 2, pdY + pdSize / 2, pdSize / 2, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Border
+        ctx.strokeStyle = isCharged ? '#ffaa00' : '#666666';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        // Charge progress arc (if not fully charged)
+        if (!isCharged && player.phoenixDownDamageProgress > 0) {
+            const progress = player.phoenixDownDamageProgress / player.phoenixDownDamageThreshold;
+            ctx.strokeStyle = '#ffcc66';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(pdX + pdSize / 2, pdY + pdSize / 2, pdSize / 2 - 2, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * progress));
+            ctx.stroke();
+        }
+        
+        // PD text
+        ctx.fillStyle = isCharged ? '#ffaa00' : '#666666';
+        ctx.font = 'bold 12px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('PD', pdX + pdSize / 2, pdY + pdSize / 2);
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+    }
 }
 
 // Render XP bar
@@ -484,6 +524,13 @@ function formatTime(seconds) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
+// Character sheet state
+const CharacterSheet = {
+    isOpen: false,
+    lastIKey: false,
+    lastTabKey: false
+};
+
 // Render gear tooltip when near gear
 function renderGearTooltips(ctx, player) {
     if (!player || !player.alive || typeof groundLoot === 'undefined') return;
@@ -496,40 +543,189 @@ function renderGearTooltips(ctx, player) {
         // Show tooltip within range
         if (distance < 50) {
             const tooltipX = gear.x;
-            const tooltipY = gear.y - gear.size - 50;
+            let tooltipY = gear.y - gear.size - 50;
             
-            // Get current equipped gear in same slot
+            // Build tooltip content - TWO COLUMNS (current vs new)
+            const leftLines = [];  // Current gear
+            const rightLines = []; // New gear
+            
+            // Get currently equipped gear in same slot
             const currentGear = player.getEquippedGear(gear.slot);
-            const currentStats = getGearStatString(currentGear, gear.slot);
-            const newStats = getGearStatString(gear, gear.slot);
             
-            // Draw tooltip background (larger to accommodate bigger text)
-            const tooltipWidth = 200;
-            const tooltipHeight = 110;
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+            // === LEFT COLUMN: CURRENT GEAR ===
+            if (currentGear) {
+                let currentTitle = `CURRENT ${gear.slot.toUpperCase()}`;
+                if (currentGear.weaponType && typeof WEAPON_TYPES !== 'undefined') {
+                    currentTitle = `${WEAPON_TYPES[currentGear.weaponType].name}`;
+                }
+                if (currentGear.armorType && typeof ARMOR_TYPES !== 'undefined') {
+                    currentTitle = `${ARMOR_TYPES[currentGear.armorType].name}`;
+                }
+                leftLines.push({ text: currentTitle, color: currentGear.color, font: 'bold 12px Arial' });
+                
+                if (currentGear.stats.damage) {
+                    leftLines.push({ text: `+${currentGear.stats.damage.toFixed(1)} Dmg`, color: '#ff8888', font: '10px Arial' });
+                }
+                if (currentGear.stats.defense) {
+                    leftLines.push({ text: `+${(currentGear.stats.defense * 100).toFixed(1)}% Def`, color: '#88aaff', font: '10px Arial' });
+                }
+                if (currentGear.stats.speed) {
+                    leftLines.push({ text: `+${(currentGear.stats.speed * 100).toFixed(0)}% Spd`, color: '#88ff88', font: '10px Arial' });
+                }
+                
+                const affixCount = (currentGear.affixes && currentGear.affixes.length) || 0;
+                if (affixCount > 0) {
+                    leftLines.push({ text: `${affixCount} affixes`, color: '#aaddff', font: '9px Arial' });
+                    // Show first 3 affixes for current gear too
+                    for (let i = 0; i < Math.min(3, currentGear.affixes.length); i++) {
+                        const affix = currentGear.affixes[i];
+                        let displayValue, displayName;
+                        
+                        const isIntegerAffix = ['dodgeCharges', 'maxHealth', 'pierce', 'chainLightning', 'multishot'].includes(affix.type);
+                        if (isIntegerAffix) {
+                            displayValue = `+${affix.value.toFixed(0)}`;
+                            const nameMap = {
+                                pierce: 'Pierce',
+                                chainLightning: 'Chain',
+                                multishot: 'Multishot'
+                            };
+                            displayName = nameMap[affix.type] || affix.type.replace(/([A-Z])/g, ' $1').trim();
+                        } else if (affix.type === 'critDamage') {
+                            displayValue = `+${(affix.value * 100).toFixed(0)}%`;
+                            displayName = 'Crit Dmg Bonus';
+                        } else {
+                            displayValue = `+${(affix.value * 100).toFixed(0)}%`;
+                            displayName = affix.type.replace(/([A-Z])/g, ' $1').trim();
+                        }
+                        
+                        leftLines.push({ text: `  ${displayName}: ${displayValue}`, color: '#aaddff', font: '9px Arial' });
+                    }
+                }
+            } else {
+                leftLines.push({ text: 'NONE EQUIPPED', color: '#888888', font: 'bold 12px Arial' });
+            }
+            
+            // === RIGHT COLUMN: NEW GEAR ===
+            let newTitle = `${gear.tier.toUpperCase()} ${gear.slot.toUpperCase()}`;
+            if (gear.weaponType && typeof WEAPON_TYPES !== 'undefined') {
+                newTitle = `${WEAPON_TYPES[gear.weaponType].name}`;
+            }
+            if (gear.armorType && typeof ARMOR_TYPES !== 'undefined') {
+                newTitle = `${ARMOR_TYPES[gear.armorType].name}`;
+            }
+            rightLines.push({ text: newTitle, color: gear.color, font: 'bold 12px Arial' });
+            
+            if (gear.name) {
+                rightLines.push({ text: gear.name, color: '#ffffff', font: '10px Arial' });
+            }
+            
+            if (gear.stats.damage) {
+                rightLines.push({ text: `+${gear.stats.damage.toFixed(1)} Dmg`, color: '#ff8888', font: '10px Arial' });
+            }
+            if (gear.stats.defense) {
+                rightLines.push({ text: `+${(gear.stats.defense * 100).toFixed(1)}% Def`, color: '#88aaff', font: '10px Arial' });
+            }
+            if (gear.stats.speed) {
+                rightLines.push({ text: `+${(gear.stats.speed * 100).toFixed(0)}% Spd`, color: '#88ff88', font: '10px Arial' });
+            }
+            
+            const newAffixCount = (gear.affixes && gear.affixes.length) || 0;
+            if (newAffixCount > 0) {
+                rightLines.push({ text: `${newAffixCount} affixes`, color: '#aaddff', font: '9px Arial' });
+                // Show first 3 affixes
+                for (let i = 0; i < Math.min(3, gear.affixes.length); i++) {
+                    const affix = gear.affixes[i];
+                    let displayValue, displayName;
+                    
+                    const isIntegerAffix = ['dodgeCharges', 'maxHealth', 'pierce', 'chainLightning', 'multishot'].includes(affix.type);
+                    if (isIntegerAffix) {
+                        displayValue = `+${affix.value.toFixed(0)}`;
+                        const nameMap = {
+                            pierce: 'Pierce',
+                            chainLightning: 'Chain',
+                            multishot: 'Multishot'
+                        };
+                        displayName = nameMap[affix.type] || affix.type.replace(/([A-Z])/g, ' $1').trim();
+                    } else if (affix.type === 'critDamage') {
+                        displayValue = `+${(affix.value * 100).toFixed(0)}%`;
+                        displayName = 'Crit Dmg Bonus';
+                    } else {
+                        displayValue = `+${(affix.value * 100).toFixed(0)}%`;
+                        displayName = affix.type.replace(/([A-Z])/g, ' $1').trim();
+                    }
+                    
+                    rightLines.push({ text: `  ${displayName}: ${displayValue}`, color: '#aaddff', font: '9px Arial' });
+                }
+            }
+            
+            if (gear.classModifier) {
+                const classIcon = gear.classModifier.class === 'universal' ? '[All]' : `[${gear.classModifier.class}]`;
+                rightLines.push({ text: `${classIcon} ${gear.classModifier.description}`, color: '#ffaa00', font: 'bold 9px Arial' });
+            }
+            
+            if (gear.legendaryEffect) {
+                rightLines.push({ text: '[LEGENDARY]', color: '#ff9800', font: 'bold 10px Arial' });
+                rightLines.push({ text: gear.legendaryEffect.description, color: '#ff9800', font: '9px Arial' });
+            }
+            
+            // Calculate tooltip size
+            const lineHeight = 13;
+            const columnWidth = 140;
+            const tooltipWidth = columnWidth * 2 + 20; // Two columns + padding
+            const maxLines = Math.max(leftLines.length, rightLines.length);
+            const tooltipHeight = Math.max(110, maxLines * lineHeight + 50);
+            
+            // Adjust position to stay on screen
+            if (tooltipY - tooltipHeight / 2 < 10) {
+                tooltipY = tooltipHeight / 2 + 10;
+            }
+            
+            // Draw tooltip background
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.95)';
             ctx.fillRect(tooltipX - tooltipWidth / 2, tooltipY - tooltipHeight / 2, tooltipWidth, tooltipHeight);
             
-            // Draw border
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 2;
+            // Draw border (color based on tier)
+            ctx.strokeStyle = gear.color;
+            ctx.lineWidth = 3;
             ctx.strokeRect(tooltipX - tooltipWidth / 2, tooltipY - tooltipHeight / 2, tooltipWidth, tooltipHeight);
             
-            // Draw text (larger fonts)
-            ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 18px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText(gear.tier.toUpperCase() + ' ' + gear.slot.toUpperCase(), tooltipX, tooltipY - 35);
+            // Draw divider line
+            ctx.strokeStyle = '#555555';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(tooltipX, tooltipY - tooltipHeight / 2 + 5);
+            ctx.lineTo(tooltipX, tooltipY + tooltipHeight / 2 - 30);
+            ctx.stroke();
             
-            ctx.font = '14px Arial';
-            ctx.fillText(currentStats, tooltipX, tooltipY - 10);
-            ctx.fillStyle = '#00ff00';
-            ctx.fillText('NEW: ' + newStats, tooltipX, tooltipY + 10);
+            // Draw left column (current gear)
+            ctx.textAlign = 'center';
+            let currentY = tooltipY - tooltipHeight / 2 + 18;
+            leftLines.forEach(line => {
+                ctx.fillStyle = line.color;
+                ctx.font = line.font;
+                ctx.fillText(line.text, tooltipX - columnWidth / 2, currentY);
+                currentY += lineHeight;
+            });
+            
+            // Draw right column (new gear)
+            currentY = tooltipY - tooltipHeight / 2 + 18;
+            rightLines.forEach(line => {
+                ctx.fillStyle = line.color;
+                ctx.font = line.font;
+                ctx.fillText(line.text, tooltipX + columnWidth / 2, currentY);
+                currentY += lineHeight;
+            });
+            
+            // Draw comparison arrow
+            ctx.fillStyle = '#ffff00';
+            ctx.font = 'bold 16px Arial';
+            ctx.fillText('→', tooltipX, tooltipY);
             
             // Draw pickup prompt (only show in desktop mode)
             if (typeof Input !== 'undefined' && (!Input.isTouchMode || !Input.isTouchMode())) {
                 ctx.fillStyle = '#ffff00';
-                ctx.font = 'bold 14px Arial';
-                ctx.fillText('Press G to pickup', tooltipX, tooltipY + 35);
+                ctx.font = 'bold 12px Arial';
+                ctx.fillText('Press G to pickup', tooltipX, tooltipY + tooltipHeight / 2 - 8);
             }
             
             // Draw range indicator
@@ -542,22 +738,488 @@ function renderGearTooltips(ctx, player) {
     });
 }
 
-// Get gear stat as string for tooltip
+// Get gear stat as string for tooltip (comprehensive version)
 function getGearStatString(gear, slot) {
     if (!gear) return 'None';
     
-    let statsStr = [];
+    let lines = [];
+    
+    // Base stats
     if (gear.stats.damage) {
-        statsStr.push(`Dmg: +${(gear.stats.damage * 100).toFixed(0)}%`);
+        lines.push(`+${gear.stats.damage.toFixed(1)} Dmg`);
     }
     if (gear.stats.defense) {
-        statsStr.push(`Def: +${(gear.stats.defense * 100).toFixed(0)}%`);
+        lines.push(`+${(gear.stats.defense * 100).toFixed(1)}% Def`);
     }
     if (gear.stats.speed) {
-        statsStr.push(`Spd: +${(gear.stats.speed * 100).toFixed(0)}%`);
+        lines.push(`+${(gear.stats.speed * 100).toFixed(0)}% Spd`);
     }
     
-    return statsStr.length > 0 ? statsStr.join(' ') : 'No bonus';
+    // Weapon/Armor type
+    if (gear.weaponType && typeof WEAPON_TYPES !== 'undefined') {
+        lines.push(`[${WEAPON_TYPES[gear.weaponType].name}]`);
+    }
+    if (gear.armorType && typeof ARMOR_TYPES !== 'undefined') {
+        lines.push(`[${ARMOR_TYPES[gear.armorType].name}]`);
+    }
+    
+    // Affixes (show count)
+    if (gear.affixes && gear.affixes.length > 0) {
+        lines.push(`${gear.affixes.length} affix${gear.affixes.length > 1 ? 'es' : ''}`);
+    }
+    
+    // Class modifier indicator
+    if (gear.classModifier) {
+        const classIcon = gear.classModifier.class === 'universal' ? 'All' : gear.classModifier.class;
+        lines.push(`[${classIcon}]`);
+    }
+    
+    // Legendary indicator
+    if (gear.legendaryEffect) {
+        lines.push('[LEGENDARY]');
+    }
+    
+    return lines.length > 0 ? lines.join(' ') : 'No bonus';
+}
+
+// Update character sheet state based on input
+function updateCharacterSheet(input) {
+    if (!input) return;
+    
+    // Mobile: Character sheet button is handled in input.js handleTouchStart directly
+    // (no need to check here to avoid double-toggling)
+    
+    // Desktop: I key toggle OR Tab key hold
+    const iKeyPressed = input.getKeyState && input.getKeyState('i');
+    const tabKeyPressed = input.getKeyState && input.getKeyState('Tab');
+    
+    // Toggle with I key
+    if (iKeyPressed && !CharacterSheet.lastIKey) {
+        CharacterSheet.isOpen = !CharacterSheet.isOpen;
+    }
+    CharacterSheet.lastIKey = iKeyPressed;
+    
+    // Or hold Tab key (overrides I key state while held)
+    if (tabKeyPressed) {
+        CharacterSheet.isOpen = true;
+    } else if (CharacterSheet.lastTabKey && !tabKeyPressed) {
+        // Tab was just released
+        CharacterSheet.isOpen = false;
+    }
+    CharacterSheet.lastTabKey = tabKeyPressed;
+}
+
+// Render character sheet (inventory and stats)
+function renderCharacterSheet(ctx, player) {
+    if (!CharacterSheet.isOpen || !player) return;
+    
+    const canvas = ctx.canvas;
+    const screenWidth = canvas.width;
+    const screenHeight = canvas.height;
+    
+    // Modal dimensions
+    const modalWidth = 600;
+    const modalHeight = 500;
+    const modalX = (screenWidth - modalWidth) / 2;
+    const modalY = (screenHeight - modalHeight) / 2;
+    
+    // Draw semi-transparent overlay
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(0, 0, screenWidth, screenHeight);
+    
+    // Draw modal background
+    ctx.fillStyle = 'rgba(20, 20, 40, 0.95)';
+    ctx.fillRect(modalX, modalY, modalWidth, modalHeight);
+    
+    // Draw border
+    ctx.strokeStyle = '#4a90e2';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(modalX, modalY, modalWidth, modalHeight);
+    
+    // Draw title
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 24px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('CHARACTER', screenWidth / 2, modalY + 30);
+    
+    // Draw player class info
+    if (player.playerClass && typeof CLASS_DEFINITIONS !== 'undefined') {
+        const classDef = CLASS_DEFINITIONS[player.playerClass];
+        ctx.font = '18px Arial';
+        ctx.fillStyle = player.color;
+        ctx.fillText(`${classDef.name} - Level ${player.level}`, screenWidth / 2, modalY + 55);
+    }
+    
+    // Draw horizontal divider
+    ctx.strokeStyle = '#555555';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(modalX + 30, modalY + 70);
+    ctx.lineTo(modalX + modalWidth - 30, modalY + 70);
+    ctx.stroke();
+    
+    // Draw class bonuses section (centered, under divider) - using dynamic descriptions
+    if (player.playerClass && typeof CLASS_DEFINITIONS !== 'undefined') {
+        const classDef = CLASS_DEFINITIONS[player.playerClass];
+        
+        // Use dynamic description if available, otherwise fall back to manual calculation
+        let baseStatsText = '';
+        if (typeof getClassDescription !== 'undefined') {
+            const classDesc = getClassDescription(player.playerClass);
+            baseStatsText = classDesc.baseStats || '';
+        } else {
+            // Fallback: calculate manually
+            const bonuses = [];
+            if (classDef.critChance > 0) bonuses.push(`${(classDef.critChance * 100).toFixed(0)}% Crit`);
+            if (classDef.defense > 0) bonuses.push(`${(classDef.defense * 100).toFixed(0)}% Defense`);
+            if (classDef.dodgeCharges > 1) bonuses.push(`${classDef.dodgeCharges} Dodges`);
+            baseStatsText = bonuses.join('  •  ');
+        }
+        
+        if (baseStatsText) {
+            ctx.font = 'bold 11px Arial';
+            ctx.fillStyle = '#ffdd88';
+            ctx.textAlign = 'center';
+            ctx.fillText('CLASS BONUSES:', screenWidth / 2, modalY + 86);
+            
+            ctx.font = '12px Arial';
+            ctx.fillStyle = '#ffaa55';
+            ctx.fillText(baseStatsText, screenWidth / 2, modalY + 100);
+        }
+    }
+    
+    // Draw stats section
+    const statsStartY = modalY + 120; // Moved down to give space for class bonuses
+    const leftColumnX = modalX + 60;
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 16px Arial';
+    ctx.fillStyle = '#ffdd88';
+    ctx.fillText('STATS', leftColumnX, statsStartY);
+    
+    ctx.font = '13px Arial';
+    ctx.fillStyle = '#ffffff';
+    let statY = statsStartY + 25;
+    const statLineHeight = 20;
+    
+    ctx.fillText(`HP: ${Math.floor(player.hp)} / ${Math.floor(player.maxHp)}`, leftColumnX, statY);
+    statY += statLineHeight;
+    ctx.fillText(`Damage: ${player.damage.toFixed(1)}`, leftColumnX, statY);
+    statY += statLineHeight;
+    ctx.fillText(`Defense: ${(player.defense * 100).toFixed(1)}%`, leftColumnX, statY);
+    statY += statLineHeight;
+    ctx.fillText(`Speed: ${player.moveSpeed.toFixed(0)}`, leftColumnX, statY);
+    statY += statLineHeight;
+    
+    // Show derived stats if they exist
+    if (player.critChance > 0) {
+        ctx.fillText(`Crit Chance: ${(player.critChance * 100).toFixed(0)}%`, leftColumnX, statY);
+        statY += statLineHeight;
+        
+        // Always show crit damage when crit chance > 0
+        const critDamageMult = player.critDamageMultiplier || 1.0;
+        const totalCritMult = 2.0 * critDamageMult; // Base 2x times the multiplier
+        ctx.fillText(`Crit Damage: ${totalCritMult.toFixed(2)}x (${(critDamageMult * 100).toFixed(0)}%)`, leftColumnX, statY);
+        statY += statLineHeight;
+    }
+    if (player.lifesteal > 0) {
+        ctx.fillText(`Lifesteal: ${(player.lifesteal * 100).toFixed(0)}%`, leftColumnX, statY);
+        statY += statLineHeight;
+    }
+    if (player.cooldownReduction > 0) {
+        ctx.fillText(`Cooldown Reduction: ${(player.cooldownReduction * 100).toFixed(0)}%`, leftColumnX, statY);
+        statY += statLineHeight;
+    }
+    
+    // Dodge charges breakdown (show sources clearly)
+    if (player.maxDodgeCharges) {
+        const baseCharges = player.baseDodgeCharges || 1;
+        const armorBonus = player.armor && player.armor.armorType && typeof ARMOR_TYPES !== 'undefined' && ARMOR_TYPES[player.armor.armorType] ? 
+            (ARMOR_TYPES[player.armor.armorType].dodgeBonus || 0) : 0;
+        const affixBonus = player.bonusDodgeCharges || 0;
+        
+        ctx.fillText(`Dodge Charges: ${player.maxDodgeCharges}`, leftColumnX, statY);
+        statY += statLineHeight;
+        
+        // Show breakdown in smaller text
+        ctx.font = '10px Arial';
+        ctx.fillStyle = '#aaaaaa';
+        ctx.fillText(`  Base: ${baseCharges}`, leftColumnX, statY);
+        statY += 14;
+        if (armorBonus > 0) {
+            ctx.fillText(`  Armor Type: +${armorBonus}`, leftColumnX, statY);
+            statY += 14;
+        }
+        if (affixBonus > 0) {
+            ctx.fillText(`  Affixes: +${affixBonus}`, leftColumnX, statY);
+            statY += 14;
+        }
+        ctx.font = '13px Arial';
+        ctx.fillStyle = '#ffffff';
+    }
+    
+    if (player.pierceCount > 0) {
+        ctx.fillStyle = '#ff44ff'; // Rare affix color
+        ctx.fillText(`Pierce: ${player.pierceCount} enemies`, leftColumnX, statY);
+        statY += statLineHeight;
+        ctx.fillStyle = '#ffffff';
+    }
+    
+    if (player.chainLightningCount > 0) {
+        ctx.fillStyle = '#ff44ff';
+        ctx.fillText(`Chain Lightning: ${player.chainLightningCount} targets`, leftColumnX, statY);
+        statY += statLineHeight;
+        ctx.fillStyle = '#ffffff';
+    }
+    
+    if (player.executeBonus > 0) {
+        ctx.fillStyle = '#ff44ff';
+        ctx.fillText(`Execute: +${(player.executeBonus * 100).toFixed(0)}% vs low HP`, leftColumnX, statY);
+        statY += statLineHeight;
+        ctx.fillStyle = '#ffffff';
+    }
+    
+    if (player.rampageBonus > 0) {
+        ctx.fillStyle = '#ff44ff';
+        ctx.fillText(`Rampage: ${player.rampageStacks || 0}/5 stacks (${(player.rampageBonus * 100).toFixed(0)}% each)`, leftColumnX, statY);
+        statY += statLineHeight;
+        ctx.fillStyle = '#ffffff';
+    }
+    
+    if (player.multishotCount > 0) {
+        ctx.fillStyle = '#ff44ff';
+        ctx.fillText(`Multishot: +${player.multishotCount} projectiles`, leftColumnX, statY);
+        statY += statLineHeight;
+        ctx.fillStyle = '#ffffff';
+    }
+    
+    if (player.phasingChance > 0) {
+        ctx.fillStyle = '#ff44ff';
+        ctx.fillText(`Phasing: ${(player.phasingChance * 100).toFixed(0)}% avoid`, leftColumnX, statY);
+        statY += statLineHeight;
+        ctx.fillStyle = '#ffffff';
+    }
+    
+    if (player.explosiveChance > 0) {
+        ctx.fillStyle = '#ff44ff';
+        ctx.fillText(`Explosive: ${(player.explosiveChance * 100).toFixed(0)}% proc`, leftColumnX, statY);
+        statY += statLineHeight;
+        ctx.fillStyle = '#ffffff';
+    }
+    
+    if (player.fortifyPercent > 0) {
+        ctx.fillStyle = '#ff44ff';
+        ctx.fillText(`Fortify: ${(player.fortifyPercent * 100).toFixed(0)}% → Shield (${player.fortifyShield.toFixed(0)})`, leftColumnX, statY);
+        statY += statLineHeight;
+        ctx.fillStyle = '#ffffff';
+    }
+    
+    if (player.overchargeChance > 0) {
+        ctx.fillStyle = '#ff44ff';
+        ctx.fillText(`Overcharge: ${(player.overchargeChance * 100).toFixed(0)}% refund`, leftColumnX, statY);
+        statY += statLineHeight;
+        ctx.fillStyle = '#ffffff';
+    }
+    
+    // Add spacing before ability cooldowns section
+    statY += 5;
+    
+    // Draw ability cooldowns section (using dynamic class descriptions)
+    if (player.playerClass && typeof getClassDescription !== 'undefined') {
+        // Get class config for cooldown values
+        const classKey = player.playerClass;
+        let config = null;
+        
+        if (classKey === 'square' && typeof WARRIOR_CONFIG !== 'undefined') {
+            config = WARRIOR_CONFIG;
+        } else if (classKey === 'triangle' && typeof ROGUE_CONFIG !== 'undefined') {
+            config = ROGUE_CONFIG;
+        } else if (classKey === 'pentagon' && typeof TANK_CONFIG !== 'undefined') {
+            config = TANK_CONFIG;
+        } else if (classKey === 'hexagon' && typeof MAGE_CONFIG !== 'undefined') {
+            config = MAGE_CONFIG;
+        }
+        
+        if (config) {
+            ctx.font = 'bold 14px Arial';
+            ctx.fillStyle = '#ffdd88';
+            ctx.fillText('ABILITY COOLDOWNS', leftColumnX, statY);
+            statY += 18;
+            
+            ctx.font = '12px Arial';
+            ctx.fillStyle = '#ffffff';
+            
+            // Heavy Attack cooldown
+            const heavyCooldown = config.heavyAttackCooldown || 0;
+            const actualHeavyCooldown = heavyCooldown * (1 - (player.cooldownReduction || 0));
+            ctx.fillText(`Heavy Attack: ${actualHeavyCooldown.toFixed(1)}s`, leftColumnX, statY);
+            statY += 16;
+            
+            // Special Ability cooldown
+            const specialCooldown = config.specialCooldown || 0;
+            const actualSpecialCooldown = specialCooldown * (1 - (player.cooldownReduction || 0));
+            ctx.fillText(`Special Ability: ${actualSpecialCooldown.toFixed(1)}s`, leftColumnX, statY);
+            statY += 16;
+        }
+    }
+    
+    // Draw equipped gear section
+    const gearStartY = modalY + 120; // Moved down to match stats section
+    const rightColumnX = modalX + modalWidth / 2 + 30;
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 16px Arial';
+    ctx.fillStyle = '#88ddff';
+    ctx.fillText('EQUIPPED GEAR', rightColumnX, gearStartY);
+    
+    // Render each equipment slot
+    let gearY = gearStartY + 30;
+    const slots = ['weapon', 'armor', 'accessory'];
+    
+    slots.forEach(slot => {
+        const gear = player.getEquippedGear(slot);
+        
+        // Slot label
+        ctx.font = 'bold 14px Arial';
+        ctx.fillStyle = '#ffaa88';
+        ctx.fillText(slot.toUpperCase() + ':', rightColumnX, gearY);
+        gearY += 18;
+        
+        if (gear) {
+            // Gear name and tier
+            ctx.font = '12px Arial';
+            ctx.fillStyle = gear.color;
+            let gearTitle = `${gear.tier.toUpperCase()}`;
+            if (gear.weaponType && typeof WEAPON_TYPES !== 'undefined') {
+                gearTitle += ` ${WEAPON_TYPES[gear.weaponType].name}`;
+            }
+            if (gear.armorType && typeof ARMOR_TYPES !== 'undefined') {
+                gearTitle += ` ${ARMOR_TYPES[gear.armorType].name}`;
+            }
+            ctx.fillText(gearTitle, rightColumnX + 10, gearY);
+            gearY += 15;
+            
+            if (gear.name) {
+                ctx.font = '11px Arial';
+                ctx.fillStyle = '#dddddd';
+                ctx.fillText(gear.name, rightColumnX + 10, gearY);
+                gearY += 14;
+            }
+            
+            // Base stats
+            ctx.font = '10px Arial';
+            if (gear.stats.damage) {
+                ctx.fillStyle = '#ff8888';
+                ctx.fillText(`  +${gear.stats.damage.toFixed(1)} Damage`, rightColumnX + 10, gearY);
+                gearY += 13;
+            }
+            if (gear.stats.defense) {
+                ctx.fillStyle = '#88aaff';
+                ctx.fillText(`  +${(gear.stats.defense * 100).toFixed(1)}% Defense`, rightColumnX + 10, gearY);
+                gearY += 13;
+            }
+            if (gear.stats.speed) {
+                ctx.fillStyle = '#88ff88';
+                ctx.fillText(`  +${(gear.stats.speed * 100).toFixed(0)}% Speed`, rightColumnX + 10, gearY);
+                gearY += 13;
+            }
+            
+            // Affixes (show all)
+            if (gear.affixes && gear.affixes.length > 0) {
+                ctx.fillStyle = '#aaddff';
+                gear.affixes.forEach(affix => {
+                    // Integer affixes (count-based)
+                    const isIntegerAffix = ['dodgeCharges', 'maxHealth', 'pierce', 'chainLightning', 'multishot'].includes(affix.type);
+                    const displayValue = isIntegerAffix
+                        ? `+${affix.value.toFixed(0)}` 
+                        : `+${(affix.value * 100).toFixed(0)}%`;
+                    let displayName = affix.type.replace(/([A-Z])/g, ' $1').trim();
+                    
+                    // Special formatting for specific affixes
+                    const nameMap = {
+                        pierce: 'Pierce',
+                        chainLightning: 'Chain Lightning',
+                        execute: 'Execute',
+                        rampage: 'Rampage',
+                        multishot: 'Multishot',
+                        phasing: 'Phasing',
+                        explosiveAttacks: 'Explosive',
+                        fortify: 'Fortify',
+                        overcharge: 'Overcharge'
+                    };
+                    if (nameMap[affix.type]) {
+                        displayName = nameMap[affix.type];
+                    }
+                    
+                    // Tier badge
+                    const tierColors = { basic: '#888888', advanced: '#4488ff', rare: '#ff44ff' };
+                    const tierColor = tierColors[affix.tier] || '#888888';
+                    ctx.fillStyle = tierColor;
+                    ctx.fillText(`  [${(affix.tier || 'basic').toUpperCase()}] ${displayName}: ${displayValue}`, rightColumnX + 10, gearY);
+                    gearY += 13;
+                });
+            }
+            
+            // Class modifier
+            if (gear.classModifier) {
+                const classIcon = gear.classModifier.class === 'universal' ? '[All]' : `[${gear.classModifier.class}]`;
+                ctx.fillStyle = '#ffaa00';
+                ctx.font = 'bold 10px Arial';
+                ctx.fillText(`  ${classIcon} ${gear.classModifier.description}`, rightColumnX + 10, gearY);
+                gearY += 13;
+                ctx.font = '10px Arial';
+            }
+            
+            // Legendary effect
+            if (gear.legendaryEffect) {
+                ctx.fillStyle = '#ff9800';
+                ctx.font = 'bold 10px Arial';
+                ctx.fillText(`  [LEGENDARY] ${gear.legendaryEffect.description}`, rightColumnX + 10, gearY);
+                gearY += 13;
+                ctx.font = '10px Arial';
+            }
+            
+            gearY += 8; // Extra spacing between slots
+        } else {
+            ctx.font = '11px Arial';
+            ctx.fillStyle = '#888888';
+            ctx.fillText('  None equipped', rightColumnX + 10, gearY);
+            gearY += 25;
+        }
+    });
+    
+    // Draw instructions at bottom
+    const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+    ctx.textAlign = 'center';
+    ctx.font = '12px Arial';
+    ctx.fillStyle = '#ffff88';
+    if (isMobile) {
+        ctx.fillText('Tap X to close', screenWidth / 2, modalY + modalHeight - 15);
+        
+        // Draw close button (X) in top-right of modal
+        const closeButtonSize = 40;
+        const closeButtonX = modalX + modalWidth - closeButtonSize - 10;
+        const closeButtonY = modalY + 10;
+        
+        ctx.fillStyle = 'rgba(200, 50, 50, 0.8)';
+        ctx.fillRect(closeButtonX, closeButtonY, closeButtonSize, closeButtonSize);
+        ctx.strokeStyle = '#ff6666';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(closeButtonX, closeButtonY, closeButtonSize, closeButtonSize);
+        
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 24px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('×', closeButtonX + closeButtonSize / 2, closeButtonY + closeButtonSize / 2 + 8);
+        
+        // Store close button bounds for touch detection
+        CharacterSheet.closeButtonBounds = {
+            x: closeButtonX,
+            y: closeButtonY,
+            width: closeButtonSize,
+            height: closeButtonSize
+        };
+    } else {
+        ctx.fillText('Press I or release Tab to close', screenWidth / 2, modalY + modalHeight - 15);
+    }
 }
 
 // Render room number
@@ -2220,17 +2882,18 @@ function renderTouchControls(ctx) {
             }
         }
         
-        // Draw unified cluster background (subtle glow/outline)
+        // Draw unified cluster background (subtle glow/outline) - much tighter, 1/3 size
+        const backgroundRadius = maxDistance / 3;
         ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
         ctx.beginPath();
-        ctx.arc(centerX, centerY, maxDistance + 15, 0, Math.PI * 2);
+        ctx.arc(centerX, centerY, backgroundRadius, 0, Math.PI * 2);
         ctx.fill();
         
         // Outer glow ring for cohesion
         ctx.strokeStyle = 'rgba(150, 150, 200, 0.2)';
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(centerX, centerY, maxDistance + 15, 0, Math.PI * 2);
+        ctx.arc(centerX, centerY, backgroundRadius, 0, Math.PI * 2);
         ctx.stroke();
     }
     
@@ -2285,6 +2948,11 @@ function renderTouchControls(ctx) {
             dodgeCooldown = player.dodgeCooldown || 0;
             Input.touchButtons.dodge.render(ctx, dodgeCooldown, dodgeMaxCooldown);
         }
+        
+        // Character sheet button (always show in top-right)
+        if (Input.touchButtons.characterSheet) {
+            Input.touchButtons.characterSheet.render(ctx, 0, 1);
+        }
     }
 }
 
@@ -2327,6 +2995,14 @@ function renderUI(ctx, player) {
     // Render pause button (if playing or in nexus)
     if ((Game.state === 'PLAYING' || Game.state === 'NEXUS') && typeof renderPauseButton === 'function') {
         renderPauseButton(ctx);
+    }
+    
+    // Update and render character sheet (always render on top of game but below touch controls)
+    if (typeof Input !== 'undefined' && Input.getKeyState) {
+        updateCharacterSheet(Input);
+    }
+    if (typeof renderCharacterSheet === 'function') {
+        renderCharacterSheet(ctx, player);
     }
     
     // Render touch controls (on top of everything, only in touch mode)

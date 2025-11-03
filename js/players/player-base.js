@@ -1,50 +1,25 @@
 // Base player class with shared functionality
-// VERSION: 2024-11-01-DODGE-FIX-v6
 
-console.log('[player-base.js] ============ LOADED VERSION 2024-11-01-DODGE-FIX-v6 ============');
-
-// Class definitions (will be used by subclasses)
+// Class definitions (visual/identity properties only - gameplay values are in *_CONFIG objects)
+// This ensures CONFIG objects are the single source of truth for all balance values
 const CLASS_DEFINITIONS = {
     square: {
         name: 'Warrior',
-        hp: 100,
-        damage: 14,
-        speed: 230,
-        defense: 0.1,
-        critChance: 0,
         color: '#4a90e2',
         shape: 'square'
     },
     triangle: {
         name: 'Rogue',
-        hp: 75,
-        damage: 12,
-        speed: 287.5,
-        defense: 0,
-        critChance: 0.25,
-        dodgeCharges: 3,
-        dodgeCooldown: 1.0,
-        dodgeSpeed: 720,
         color: '#ff1493',
         shape: 'triangle'
     },
     pentagon: {
         name: 'Tank',
-        hp: 150,
-        damage: 8,
-        speed: 172.5,
-        defense: 0.2,
-        critChance: 0,
         color: '#c72525',
         shape: 'pentagon'
     },
     hexagon: {
         name: 'Mage',
-        hp: 80,
-        damage: 20,
-        speed: 207,
-        defense: 0,
-        critChance: 0,
         color: '#673ab7',
         shape: 'hexagon'
     }
@@ -65,6 +40,7 @@ class PlayerBase {
         
         // Health system
         this.maxHp = 100;
+        this.baseMaxHp = 100; // Store base max HP for gear calculations
         this.hp = 100;
         this.level = 1;
         
@@ -93,6 +69,12 @@ class PlayerBase {
         this.dodgeCharges = 1;
         this.maxDodgeCharges = 1;
         this.dodgeChargeCooldowns = [0]; // Track cooldown per charge
+        
+        // Rare affix state tracking
+        this.rampageStacks = 0;
+        this.rampageStackDecay = 0; // Time until stack decay
+        this.fortifyShield = 0; // Temporary shield amount
+        this.fortifyShieldDecay = 0; // Time until shield decay
         
         // Heavy attack system
         this.heavyAttackCooldown = 0;
@@ -149,6 +131,17 @@ class PlayerBase {
         this.damage = this.baseDamage;
         this.defense = this.baseDefense;
         this.moveSpeed = this.baseMoveSpeed;
+        
+        // Affix-derived stats (initialized to neutral values)
+        this.critDamageMultiplier = 1.0;     // Base 100% crit damage
+        this.attackSpeedMultiplier = 1.0;    // 1.0 = no bonus
+        this.lifesteal = 0;                  // 0 = no lifesteal
+        this.cooldownReduction = 0;          // 0-1 range, reduces all cooldowns
+        this.aoeMultiplier = 1.0;            // 1.0 = no AoE bonus
+        this.projectileSpeedMultiplier = 1.0; // 1.0 = normal speed
+        this.knockbackMultiplier = 1.0;      // 1.0 = normal knockback
+        this.bonusDodgeCharges = 0;          // Extra dodge charges from gear
+        this.bonusMaxHealth = 0;             // Flat HP increase from gear
         
         // Initialize effective stats
         this.updateEffectiveStats();
@@ -316,6 +309,25 @@ class PlayerBase {
             if (this.heavyChargeEffectElapsed >= this.heavyChargeEffectDuration) {
                 this.heavyChargeEffectActive = false;
                 this.heavyChargeEffectElapsed = 0;
+            }
+        }
+        
+        // Update rampage stacks (decay over time)
+        if (this.rampageStacks > 0) {
+            this.rampageStackDecay -= deltaTime;
+            if (this.rampageStackDecay <= 0) {
+                this.rampageStacks = Math.max(0, this.rampageStacks - 1);
+                this.rampageStackDecay = 5.0; // 5 seconds per stack decay
+            }
+        }
+        
+        // Update fortify shield (decay over time)
+        if (this.fortifyShield > 0) {
+            this.fortifyShieldDecay -= deltaTime;
+            if (this.fortifyShieldDecay <= 0) {
+                const decayAmount = this.fortifyShield * 0.1; // 10% per second
+                this.fortifyShield = Math.max(0, this.fortifyShield - decayAmount);
+                this.fortifyShieldDecay = 0.1; // Decay check every 0.1s
             }
         }
     }
@@ -703,7 +715,17 @@ class PlayerBase {
         // Start charging
         this.isChargingHeavy = true;
         this.heavyChargeElapsed = 0;
-        this.heavyAttackCooldown = this.heavyAttackCooldownTime;
+        // Apply attack speed and weapon type to heavy attack cooldown
+        const weaponCooldownMult = this.weaponCooldownMultiplier || 1.0;
+        const effectiveHeavyCooldown = this.heavyAttackCooldownTime * weaponCooldownMult / (1 + (this.attackSpeedMultiplier - 1));
+        
+        // Overcharge: Chance to refund cooldown
+        if (this.overchargeChance && this.overchargeChance > 0 && Math.random() < this.overchargeChance) {
+            console.log('[Overcharge] Heavy attack cooldown refunded!');
+            this.heavyAttackCooldown = 0;
+        } else {
+            this.heavyAttackCooldown = effectiveHeavyCooldown;
+        }
     }
     
     // Create heavy attack - override in subclass
@@ -712,8 +734,44 @@ class PlayerBase {
         throw new Error('createHeavyAttack() must be implemented by subclass');
     }
     
-    takeDamage(damage) {
+    // Set special cooldown with overcharge check
+    setSpecialCooldown(cooldownTime) {
+        // Overcharge: Chance to refund cooldown
+        if (this.overchargeChance && this.overchargeChance > 0 && Math.random() < this.overchargeChance) {
+            console.log('[Overcharge] Special ability cooldown refunded!');
+            this.specialCooldown = 0;
+        } else {
+            this.specialCooldown = cooldownTime;
+        }
+    }
+    
+    takeDamage(damage, sourceEnemy = null) {
         if (this.invulnerable || this.dead) return;
+        
+        // Phasing: Chance to negate damage
+        if (this.phasingChance && this.phasingChance > 0 && Math.random() < this.phasingChance) {
+            // Phased through the attack!
+            if (typeof createParticleBurst !== 'undefined') {
+                createParticleBurst(this.x, this.y, '#aaaaff', 8);
+            }
+            console.log('[Phasing] Avoided damage!');
+            return; // Completely negate damage
+        }
+        
+        // Fortify shield: absorb damage first
+        if (this.fortifyShield && this.fortifyShield > 0) {
+            if (this.fortifyShield >= damage) {
+                // Shield absorbs all damage
+                this.fortifyShield -= damage;
+                console.log(`[Fortify] Shield absorbed ${damage.toFixed(1)} damage`);
+                return; // No damage to HP
+            } else {
+                // Shield absorbs partial damage
+                damage -= this.fortifyShield;
+                console.log(`[Fortify] Shield absorbed ${this.fortifyShield.toFixed(1)} damage, ${damage.toFixed(1)} remaining`);
+                this.fortifyShield = 0;
+            }
+        }
         
         // Apply damage reduction (subclass can override getDamageReduction())
         const reduction = this.getDamageReduction();
@@ -724,6 +782,21 @@ class PlayerBase {
             const playerId = Game.getLocalPlayerId();
             const stats = Game.getPlayerStats(playerId);
             stats.addStat('damageTaken', damage);
+        }
+        
+        // Apply thorns damage reflection (if we have thorns and know the source)
+        if (this.thornsReflect && sourceEnemy && sourceEnemy.alive && typeof sourceEnemy.takeDamage === 'function') {
+            const reflectedDamage = damage * this.thornsReflect;
+            
+            // Calculate damage dealt BEFORE applying damage
+            const damageDealt = Math.min(reflectedDamage, sourceEnemy.hp);
+            
+            sourceEnemy.takeDamage(reflectedDamage);
+            
+            // Visual feedback for thorns
+            if (typeof createDamageNumber !== 'undefined') {
+                createDamageNumber(sourceEnemy.x, sourceEnemy.y, damageDealt, false, false);
+            }
         }
         
         // Subtract damage from HP
@@ -740,6 +813,22 @@ class PlayerBase {
         
         // Check if dead
         if (this.hp <= 0) {
+            // Check for phoenix down legendary effect (charge-based system)
+            if (this.hasPhoenixDown && this.phoenixDownCharges > 0) {
+                this.phoenixDownCharges--;
+                this.hp = this.maxHp * this.phoenixDownHealth;
+                this.invulnerable = true;
+                this.invulnerabilityTime = 2.0; // 2s immunity after revival
+                console.log('Phoenix Down activated! Revived at ' + (this.phoenixDownHealth * 100) + '% HP. Charges remaining: ' + this.phoenixDownCharges);
+                
+                // Visual effect for revival (if createParticleBurst exists)
+                if (typeof createParticleBurst !== 'undefined') {
+                    createParticleBurst(this.x, this.y, '#ff9800', 20);
+                }
+                
+                return; // Don't actually die
+            }
+            
             this.hp = 0;
             this.dead = true;
             this.alive = false;
@@ -843,29 +932,293 @@ class PlayerBase {
     
     // Calculate effective stats with gear bonuses
     updateEffectiveStats() {
-        let damageBonus = 1;
-        let defenseBonus = 0;
+        // Reset affix-based stats to defaults
+        this.critDamageMultiplier = 1.0;
+        this.attackSpeedMultiplier = 1.0;
+        this.lifesteal = 0;
+        this.cooldownReduction = 0;
+        this.aoeMultiplier = 1.0;
+        this.projectileSpeedMultiplier = 1.0;
+        this.knockbackMultiplier = 1.0;
+        this.bonusDodgeCharges = 0;
+        this.bonusMaxHealth = 0;
+        this.pierceCount = 0;
+        this.chainLightningCount = 0;
+        this.executeBonus = 0;
+        this.rampageBonus = 0;
+        this.multishotCount = 0;
+        this.phasingChance = 0;
+        this.explosiveChance = 0;
+        this.fortifyPercent = 0;
+        this.overchargeChance = 0;
+        
+        // Reset crit chance to base class value stored during construction
+        this.critChance = this.baseCritChance || 0;
+        
+        let weaponFlatDamage = 0; // Changed to flat bonus
+        let armorFlatDefense = 0; // Changed to flat bonus
         let speedBonus = 1;
         
-        // Apply weapon bonuses
+        // Process weapon affixes
         if (this.weapon) {
-            damageBonus = 1 + this.weapon.stats.damage;
+            if (this.weapon.affixes) {
+                this.weapon.affixes.forEach(affix => {
+                    this.applyAffix(affix, 'speedBonus', () => {
+                        speedBonus *= (1 + affix.value);
+                    });
+                });
+            }
+            if (this.weapon.stats && this.weapon.stats.damage !== undefined) {
+                weaponFlatDamage = this.weapon.stats.damage; // Flat value now
+            }
         }
         
-        // Apply armor bonuses
+        // Process armor affixes
         if (this.armor) {
-            defenseBonus = this.armor.stats.defense;
+            if (this.armor.affixes) {
+                this.armor.affixes.forEach(affix => {
+                    this.applyAffix(affix, 'speedBonus', () => {
+                        speedBonus *= (1 + affix.value);
+                    });
+                });
+            }
+            if (this.armor.stats && this.armor.stats.defense !== undefined) {
+                armorFlatDefense = this.armor.stats.defense; // Flat value now
+            }
         }
         
-        // Apply accessory bonuses
+        // Process accessory affixes
         if (this.accessory) {
-            speedBonus = 1 + this.accessory.stats.speed;
+            if (this.accessory.affixes) {
+                this.accessory.affixes.forEach(affix => {
+                    this.applyAffix(affix, 'speedBonus', () => {
+                        speedBonus *= (1 + affix.value);
+                    });
+                });
+            }
+            if (this.accessory.stats && this.accessory.stats.speed !== undefined) {
+                speedBonus = 1 + this.accessory.stats.speed;
+            }
         }
         
-        // Calculate effective stats
-        this.damage = this.baseDamage * damageBonus;
-        this.defense = this.baseDefense + defenseBonus;
+        // Apply weapon type effects
+        if (this.weapon && this.weapon.weaponType) {
+            const type = WEAPON_TYPES[this.weapon.weaponType];
+            if (type) {
+                this.weaponCooldownMultiplier = type.cooldownMultiplier || 1.0;
+                if (type.movementSpeedBonus) {
+                    speedBonus *= (1 + type.movementSpeedBonus);
+                }
+                if (type.critBonus) {
+                    this.critChance = (this.critChance || 0) + type.critBonus;
+                }
+                // Store for use in attack creation
+                this.weaponRangeMultiplier = type.rangeMultiplier || 1.0;
+                this.weaponHitCount = type.hitCount || 1;
+                this.weaponKnockbackBonus = type.knockbackBonus || 0;
+                this.weaponStunChance = type.stunChance || 0;
+            }
+        } else {
+            // No weapon type, reset to defaults
+            this.weaponCooldownMultiplier = 1.0;
+            this.weaponRangeMultiplier = 1.0;
+            this.weaponHitCount = 1;
+            this.weaponKnockbackBonus = 0;
+            this.weaponStunChance = 0;
+        }
+        
+        // Apply armor type effects
+        if (this.armor && this.armor.armorType) {
+            const type = ARMOR_TYPES[this.armor.armorType];
+            if (type) {
+                if (type.movementSpeedBonus) {
+                    speedBonus *= (1 + type.movementSpeedBonus);
+                }
+                if (type.movementSpeedPenalty) {
+                    speedBonus *= (1 + type.movementSpeedPenalty);
+                }
+                if (type.healthBonus) {
+                    this.bonusMaxHealth += this.baseMaxHp * type.healthBonus;
+                }
+                if (type.dodgeBonus) {
+                    this.bonusDodgeCharges += type.dodgeBonus;
+                }
+                if (type.cooldownReduction) {
+                    this.cooldownReduction = Math.min(0.75, this.cooldownReduction + type.cooldownReduction); // Cap at 75%
+                }
+                if (type.projectileSpeedBonus) {
+                    this.projectileSpeedMultiplier += type.projectileSpeedBonus;
+                }
+                if (type.dodgeDamageReduction) {
+                    this.dodgeDamageReduction = type.dodgeDamageReduction;
+                }
+                // Store flags
+                this.hasInterruptImmunity = type.interruptImmune || false;
+                this.hasKnockbackImmunity = type.knockbackImmune || false;
+            }
+        } else {
+            // No armor type, reset to defaults
+            this.hasInterruptImmunity = false;
+            this.hasKnockbackImmunity = false;
+            this.dodgeDamageReduction = 0;
+        }
+        
+        // Apply legendary effects from all equipped gear
+        this.activeLegendaryEffects = []; // Reset active legendary effects
+        [this.weapon, this.armor, this.accessory].forEach(gear => {
+            if (gear && gear.legendaryEffect) {
+                this.applyLegendaryEffect(gear.legendaryEffect);
+            }
+        });
+        
+        // Apply class modifiers from all equipped gear
+        [this.weapon, this.armor, this.accessory].forEach(gear => {
+            if (gear && gear.classModifier) {
+                this.applyClassModifier(gear.classModifier);
+            }
+        });
+        
+        // Calculate final stats
+        // Damage and defense are now ADDITIVE (flat values from gear)
+        this.damage = this.baseDamage + weaponFlatDamage;
+        this.defense = this.baseDefense + armorFlatDefense;
         this.moveSpeed = this.baseMoveSpeed * speedBonus;
+        
+        // Apply bonus health (clamping current HP if needed)
+        const oldMaxHp = this.maxHp;
+        this.maxHp = (this.baseMaxHp || this.maxHp) + this.bonusMaxHealth;
+        if (this.hp > this.maxHp) this.hp = this.maxHp;
+        
+        // Apply bonus dodge charges (using baseDodgeCharges set by subclass constructor)
+        const baseCharges = this.baseDodgeCharges || 1; // Default to 1 if not set
+        this.maxDodgeCharges = baseCharges + this.bonusDodgeCharges;
+        // Resize cooldown array if needed
+        while (this.dodgeChargeCooldowns.length < this.maxDodgeCharges) {
+            this.dodgeChargeCooldowns.push(0);
+        }
+    }
+    
+    // Apply individual affix to player stats
+    applyAffix(affix, contextVar, contextCallback) {
+        switch(affix.type) {
+            case 'critChance': 
+                this.critChance = (this.critChance || 0) + affix.value; 
+                break;
+            case 'critDamage': 
+                this.critDamageMultiplier += affix.value; 
+                break;
+            case 'attackSpeed': 
+                this.attackSpeedMultiplier += affix.value; 
+                break;
+            case 'lifesteal': 
+                this.lifesteal += affix.value; 
+                break;
+            case 'movementSpeed': 
+                // Handle movementSpeed via callback
+                if (contextCallback) contextCallback();
+                break;
+            case 'cooldownReduction': 
+                this.cooldownReduction += affix.value; 
+                break;
+            case 'areaOfEffect': 
+                this.aoeMultiplier += affix.value; 
+                break;
+            case 'projectileSpeed': 
+                this.projectileSpeedMultiplier += affix.value; 
+                break;
+            case 'knockbackPower': 
+                this.knockbackMultiplier += affix.value; 
+                break;
+            case 'dodgeCharges': 
+                this.bonusDodgeCharges += affix.value; 
+                break;
+            case 'maxHealth': 
+                this.bonusMaxHealth += affix.value; 
+                break;
+            case 'pierce':
+                this.pierceCount += Math.floor(affix.value);
+                break;
+            case 'chainLightning':
+                this.chainLightningCount += Math.floor(affix.value);
+                break;
+            case 'execute':
+                this.executeBonus += affix.value;
+                break;
+            case 'rampage':
+                this.rampageBonus += affix.value;
+                break;
+            case 'multishot':
+                this.multishotCount += Math.floor(affix.value);
+                break;
+            case 'phasing':
+                this.phasingChance += affix.value;
+                break;
+            case 'explosiveAttacks':
+                this.explosiveChance += affix.value;
+                break;
+            case 'fortify':
+                this.fortifyPercent += affix.value;
+                break;
+            case 'overcharge':
+                this.overchargeChance += affix.value;
+                break;
+        }
+    }
+    
+    // Apply class modifier to player stats
+    applyClassModifier(modifier) {
+        // Universal modifiers apply to all classes
+        if (modifier.class === 'universal') {
+            switch(modifier.type) {
+                case 'heavy_cooldown':
+                    this.heavyAttackCooldownTime = Math.max(0.1, this.heavyAttackCooldownTime + modifier.value);
+                    break;
+                case 'special_cooldown':
+                    this.specialCooldownTime = Math.max(0.1, this.specialCooldownTime + modifier.value);
+                    break;
+                case 'dodge_cooldown':
+                    this.dodgeCooldownTime = Math.max(0.1, this.dodgeCooldownTime + modifier.value);
+                    break;
+                case 'basic_damage':
+                    this.baseDamage *= (1 + modifier.value);
+                    break;
+            }
+        }
+        // Class-specific modifiers handled in subclasses
+    }
+    
+    // Apply legendary effect to player
+    applyLegendaryEffect(effect) {
+        switch(effect.type) {
+            case 'vampiric':
+                this.lifesteal += effect.lifesteal;
+                break;
+            case 'berserker_rage':
+                this.baseDamage *= (1 + effect.damageBonus);
+                this.baseDefense *= Math.max(0, 1 + effect.defensePenalty);
+                break;
+            case 'glass_cannon':
+                this.baseDamage *= (1 + effect.damageBonus);
+                this.baseMaxHp *= Math.max(0.1, 1 + effect.healthPenalty);
+                break;
+            case 'phoenix_down':
+                this.hasPhoenixDown = true;
+                this.phoenixDownHealth = effect.reviveHealth;
+                this.phoenixDownCharges = 1; // Start with 1 charge
+                this.phoenixDownDamageThreshold = 1000; // Damage needed to recharge
+                this.phoenixDownDamageProgress = 0; // Track damage toward next charge
+                break;
+            case 'thorns':
+                this.thornsReflect = effect.reflectPercent;
+                break;
+            // Store combat effects for application during attacks
+            case 'incendiary':
+            case 'freezing':
+            case 'chain_lightning':
+            case 'time_dilation':
+                this.activeLegendaryEffects.push(effect);
+                break;
+        }
     }
     
     // Equip gear
@@ -875,6 +1228,9 @@ class PlayerBase {
         
         // Update effective stats
         this.updateEffectiveStats();
+        
+        // Update gear visuals
+        this.updateGearVisuals();
         
         return oldGear;
     }
@@ -928,6 +1284,648 @@ class PlayerBase {
         return this[slot];
     }
     
+    // Helper to convert hex color to RGB
+    hexToRgb(hex) {
+        // Handle null/undefined
+        if (!hex) return { r: 150, g: 150, b: 150 };
+        
+        // Remove # if present
+        hex = hex.replace('#', '');
+        
+        // Parse hex string
+        const r = parseInt(hex.substring(0, 2), 16) || 150;
+        const g = parseInt(hex.substring(2, 4), 16) || 150;
+        const b = parseInt(hex.substring(4, 6), 16) || 150;
+        
+        return { r, g, b };
+    }
+    
+    // Wave pattern generation functions - all designed to loop seamlessly at 2π
+    // freq parameter represents number of complete cycles around the circle
+    static generateSquareWave(angle, freq, phase) {
+        // Square wave - creates freq complete on/off cycles
+        const t = (freq * angle + phase) / (Math.PI * 2);
+        const cycle = t - Math.floor(t); // 0 to 1 within each cycle
+        return cycle < 0.5 ? 1 : -1;
+    }
+    
+    static generateSawtoothWave(angle, freq, phase) {
+        // Sawtooth - linear ramp that resets
+        const t = (freq * angle + phase) / (Math.PI * 2);
+        const cycle = t - Math.floor(t);
+        return (cycle * 2) - 1; // -1 to 1
+    }
+    
+    static generateTriangleWave(angle, freq, phase) {
+        // Triangle - goes up then down linearly
+        const t = (freq * angle + phase) / (Math.PI * 2);
+        const cycle = t - Math.floor(t);
+        return cycle < 0.5 ? (cycle * 4 - 1) : (3 - cycle * 4);
+    }
+    
+    static generateDigitalWave(angle, freq, phase) {
+        // Digital - quantized steps
+        const t = (freq * angle + phase) / (Math.PI * 2);
+        const cycle = t - Math.floor(t);
+        return Math.floor(cycle * 4) / 2 - 1; // 4 steps: -1, -0.5, 0, 0.5
+    }
+    
+    static generatePulseWave(angle, freq, phase) {
+        // Pulse - sharp spikes at regular intervals
+        const t = (freq * angle + phase) / (Math.PI * 2);
+        const cycle = t - Math.floor(t);
+        return (cycle > 0.15 && cycle < 0.25) ? 1 : 
+               (cycle > 0.65 && cycle < 0.75) ? -1 : 0;
+    }
+    
+    static generateSteppedWave(angle, freq, phase) {
+        // Stepped - staircase pattern
+        const t = (freq * angle + phase) / (Math.PI * 2);
+        const cycle = t - Math.floor(t);
+        return Math.floor(cycle * 6) / 3 - 1; // 6 steps
+    }
+    
+    static generateRadialWave(angle, freq, phase) {
+        // Radial - smooth sine wave (always works because sin is periodic)
+        return Math.abs(Math.sin(freq * angle + phase));
+    }
+    
+    static generateLinearWave(angle, freq, phase) {
+        // Linear ramp (same as sawtooth but more aggressive)
+        const t = (freq * angle + phase) / (Math.PI * 2);
+        const cycle = t - Math.floor(t);
+        return (cycle * 2) - 1;
+    }
+    
+    static generateShockwave(angle, freq, phase) {
+        // Shockwave - exponential burst that decays
+        const t = (freq * angle + phase) / (Math.PI * 2);
+        const cycle = t - Math.floor(t);
+        return cycle < 0.35 ? Math.pow(1 - cycle / 0.35, 2) : 0;
+    }
+    
+    static generatePhaseWave(angle, freq, phase) {
+        // Phase - combination of two sine waves (always periodic)
+        return Math.sin(freq * angle + phase) * 0.5 + Math.cos(freq * angle * 2 + phase) * 0.5;
+    }
+    
+    static getWaveValue(waveType, angle, freq, phase) {
+        switch(waveType) {
+            case 'square': return PlayerBase.generateSquareWave(angle, freq, phase);
+            case 'sawtooth': return PlayerBase.generateSawtoothWave(angle, freq, phase);
+            case 'triangle': return PlayerBase.generateTriangleWave(angle, freq, phase);
+            case 'digital': return PlayerBase.generateDigitalWave(angle, freq, phase);
+            case 'pulse': return PlayerBase.generatePulseWave(angle, freq, phase);
+            case 'stepped': return PlayerBase.generateSteppedWave(angle, freq, phase);
+            case 'radial': return PlayerBase.generateRadialWave(angle, freq, phase);
+            case 'linear': return PlayerBase.generateLinearWave(angle, freq, phase);
+            case 'shockwave': return PlayerBase.generateShockwave(angle, freq, phase);
+            case 'phase': return PlayerBase.generatePhaseWave(angle, freq, phase);
+            default: return Math.sin(freq * angle + phase); // Fallback to sine
+        }
+    }
+    
+    // Render affix-specific shape
+    static renderAffixShape(ctx, x, y, size, shapeType, color, alpha) {
+        // Clamp size to minimum
+        size = Math.max(5, size || 10);
+        
+        // Validate color and alpha
+        if (!color || typeof color.r === 'undefined') {
+            color = { r: 150, g: 150, b: 150 };
+        }
+        alpha = isNaN(alpha) ? 0.8 : Math.max(0, Math.min(1, alpha));
+        
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.fillStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha})`;
+        ctx.strokeStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${Math.min(1, alpha + 0.2)})`;
+        ctx.lineWidth = 2;
+        
+        switch(shapeType) {
+            case 'triangle':
+                ctx.beginPath();
+                ctx.moveTo(size, 0);
+                ctx.lineTo(-size * 0.5, -size * 0.866);
+                ctx.lineTo(-size * 0.5, size * 0.866);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                break;
+                
+            case 'star':
+                ctx.beginPath();
+                for (let i = 0; i < 10; i++) {
+                    const radius = (i % 2 === 0) ? size : size * 0.4;
+                    const angle = (i * Math.PI / 5) - Math.PI / 2;
+                    const px = Math.cos(angle) * radius;
+                    const py = Math.sin(angle) * radius;
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                break;
+                
+            case 'zigzag':
+                ctx.beginPath();
+                ctx.moveTo(-size, -size * 0.5);
+                ctx.lineTo(-size * 0.3, size * 0.5);
+                ctx.lineTo(size * 0.3, -size * 0.5);
+                ctx.lineTo(size, size * 0.5);
+                ctx.lineWidth = 3;
+                ctx.stroke();
+                break;
+                
+            case 'cross':
+            case 'plus':
+                ctx.beginPath();
+                ctx.moveTo(0, -size);
+                ctx.lineTo(0, size);
+                ctx.moveTo(-size, 0);
+                ctx.lineTo(size, 0);
+                ctx.lineWidth = 3;
+                ctx.stroke();
+                break;
+                
+            case 'wave':
+                ctx.beginPath();
+                for (let i = 0; i <= 20; i++) {
+                    const t = i / 20;
+                    const px = (t - 0.5) * size * 2;
+                    const py = Math.sin(t * Math.PI * 2) * size * 0.5;
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.lineWidth = 3;
+                ctx.stroke();
+                break;
+                
+            case 'hexagon':
+                ctx.beginPath();
+                for (let i = 0; i < 6; i++) {
+                    const angle = (Math.PI / 3) * i;
+                    const px = Math.cos(angle) * size;
+                    const py = Math.sin(angle) * size;
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                break;
+                
+            case 'circle':
+                ctx.beginPath();
+                ctx.arc(0, 0, size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+                break;
+                
+            case 'chevron':
+                ctx.beginPath();
+                ctx.moveTo(-size, size * 0.5);
+                ctx.lineTo(0, -size * 0.5);
+                ctx.lineTo(size, size * 0.5);
+                ctx.lineWidth = 3;
+                ctx.stroke();
+                break;
+                
+            case 'burst':
+                for (let i = 0; i < 8; i++) {
+                    const angle = (i * Math.PI / 4);
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    ctx.lineTo(Math.cos(angle) * size, Math.sin(angle) * size);
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+                break;
+                
+            case 'diamond':
+                ctx.beginPath();
+                ctx.moveTo(0, -size);
+                ctx.lineTo(size, 0);
+                ctx.lineTo(0, size);
+                ctx.lineTo(-size, 0);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                break;
+                
+            case 'arrow':
+                ctx.beginPath();
+                ctx.moveTo(size, 0);
+                ctx.lineTo(-size * 0.5, -size * 0.7);
+                ctx.lineTo(-size * 0.3, 0);
+                ctx.lineTo(-size * 0.5, size * 0.7);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                break;
+                
+            case 'fork':
+                // Branching zigzag for chain lightning
+                ctx.beginPath();
+                ctx.moveTo(-size, 0);
+                ctx.lineTo(-size * 0.3, -size * 0.5);
+                ctx.lineTo(size * 0.3, size * 0.5);
+                ctx.lineTo(size, 0);
+                // Branch 1
+                ctx.moveTo(size * 0.3, size * 0.5);
+                ctx.lineTo(size * 0.8, size);
+                // Branch 2
+                ctx.moveTo(size * 0.3, size * 0.5);
+                ctx.lineTo(size * 0.8, size * 0.2);
+                ctx.lineWidth = 3;
+                ctx.stroke();
+                break;
+                
+            case 'skull':
+                // X mark for execute
+                ctx.beginPath();
+                ctx.moveTo(-size, -size);
+                ctx.lineTo(size, size);
+                ctx.moveTo(size, -size);
+                ctx.lineTo(-size, size);
+                ctx.lineWidth = 3;
+                ctx.stroke();
+                break;
+                
+            case 'stairs':
+                // Ascending steps for rampage
+                ctx.beginPath();
+                for (let i = 0; i < 4; i++) {
+                    const x = -size + (i * size / 2);
+                    const y = size - (i * size / 2);
+                    ctx.rect(x, y, size / 2, size / 2);
+                }
+                ctx.fill();
+                ctx.stroke();
+                break;
+                
+            case 'splitarrow':
+                // Diverging arrows for multishot
+                ctx.beginPath();
+                // Center arrow
+                ctx.moveTo(0, -size);
+                ctx.lineTo(0, size);
+                // Left arrow
+                ctx.moveTo(-size * 0.7, -size * 0.5);
+                ctx.lineTo(-size * 0.7, size * 0.5);
+                // Right arrow
+                ctx.moveTo(size * 0.7, -size * 0.5);
+                ctx.lineTo(size * 0.7, size * 0.5);
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                break;
+                
+            case 'ghost':
+                // Wavy ethereal form for phasing
+                ctx.beginPath();
+                for (let i = 0; i <= 20; i++) {
+                    const angle = (i / 20) * Math.PI * 2;
+                    const r = size * (0.8 + Math.sin(i * 3) * 0.2);
+                    const px = Math.cos(angle) * r;
+                    const py = Math.sin(angle) * r;
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+                ctx.globalAlpha = alpha * 0.6;
+                ctx.fill();
+                ctx.stroke();
+                ctx.globalAlpha = 1.0;
+                break;
+                
+            case 'explosion':
+                // Starburst for explosive attacks
+                for (let i = 0; i < 12; i++) {
+                    const angle = (i * Math.PI / 6);
+                    const innerR = size * 0.3;
+                    const outerR = size;
+                    ctx.beginPath();
+                    ctx.moveTo(Math.cos(angle) * innerR, Math.sin(angle) * innerR);
+                    ctx.lineTo(Math.cos(angle) * outerR, Math.sin(angle) * outerR);
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+                break;
+                
+            case 'shield':
+                // Pentagon shield for fortify
+                ctx.beginPath();
+                for (let i = 0; i < 5; i++) {
+                    const angle = (Math.PI * 2 / 5) * i - Math.PI / 2;
+                    const px = Math.cos(angle) * size;
+                    const py = Math.sin(angle) * size;
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                break;
+                
+            case 'lightning':
+                // Lightning bolt for overcharge
+                ctx.beginPath();
+                ctx.moveTo(size * 0.2, -size);
+                ctx.lineTo(-size * 0.2, -size * 0.2);
+                ctx.lineTo(size * 0.4, -size * 0.1);
+                ctx.lineTo(-size * 0.3, size * 0.5);
+                ctx.lineTo(size * 0.1, size * 0.3);
+                ctx.lineTo(-size * 0.4, size);
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                break;
+                
+            default: // Fallback to circle
+                ctx.beginPath();
+                ctx.arc(0, 0, size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+                break;
+        }
+        
+        ctx.restore();
+    }
+    
+    // Affix synergy detection - groups that work well together
+    static getAffixSynergies() {
+        return {
+            offensive: ['critChance', 'critDamage', 'attackSpeed', 'pierce', 'chainLightning', 'execute', 'rampage', 'multishot', 'explosiveAttacks'],
+            defensive: ['maxHealth', 'lifesteal', 'dodgeCharges', 'phasing', 'fortify'],
+            mobility: ['movementSpeed', 'dodgeCharges', 'phasing'],
+            utility: ['cooldownReduction', 'projectileSpeed', 'areaOfEffect', 'overcharge'],
+            impact: ['knockbackPower', 'areaOfEffect', 'pierce', 'explosiveAttacks']
+        };
+    }
+    
+    // Determine which synergy group an affix belongs to
+    static getAffixSynergyGroup(affixType) {
+        const synergies = PlayerBase.getAffixSynergies();
+        for (const [group, affixes] of Object.entries(synergies)) {
+            if (affixes.includes(affixType)) {
+                return group;
+            }
+        }
+        return 'misc'; // No specific group
+    }
+    
+    // Calculate visual pattern for a single gear piece using multi-wave interference
+    calculateGearPieceVisual(gearPiece) {
+        if (!gearPiece) return null;
+        
+        const waves = [];
+        let baseColor = { r: 150, g: 150, b: 150 }; // Default gray
+        
+        // Assign wave parameters based on stat type (deterministic based on type and value)
+        const statTypeMap = {
+            damage: { freq: 3.0, colorChannel: 'r', baseColor: { r: 255, g: 100, b: 100 } },
+            defense: { freq: 1.5, colorChannel: 'b', baseColor: { r: 100, g: 150, b: 255 } },
+            speed: { freq: 4.5, colorChannel: 'g', baseColor: { r: 150, g: 255, b: 100 } }
+        };
+        
+        const affixTypeMap = {
+            critChance: { 
+                freq: 5.0, 
+                shape: 'triangle', 
+                waveType: 'square',
+                modR: 255, modG: 50, modB: 50 
+            },
+            critDamage: { 
+                freq: 4.0, 
+                shape: 'star', 
+                waveType: 'sawtooth',
+                modR: 255, modG: 0, modB: 100 
+            },
+            attackSpeed: { 
+                freq: 6.0, 
+                shape: 'zigzag', 
+                waveType: 'digital',
+                modR: 255, modG: 255, modB: 0 
+            },
+            lifesteal: { 
+                freq: 2.5, 
+                shape: 'cross', 
+                waveType: 'pulse',
+                modR: 200, modG: 0, modB: 0 
+            },
+            movementSpeed: { 
+                freq: 5.5, 
+                shape: 'wave', 
+                waveType: 'triangle',
+                modR: 0, modG: 255, modB: 255 
+            },
+            cooldownReduction: { 
+                freq: 3.5, 
+                shape: 'hexagon', 
+                waveType: 'stepped',
+                modR: 100, modG: 100, modB: 255 
+            },
+            areaOfEffect: { 
+                freq: 2.0, 
+                shape: 'circle', 
+                waveType: 'radial',
+                modR: 255, modG: 150, modB: 0 
+            },
+            projectileSpeed: { 
+                freq: 7.0, 
+                shape: 'chevron', 
+                waveType: 'linear',
+                modR: 100, modG: 255, modB: 100 
+            },
+            knockbackPower: { 
+                freq: 3.0, 
+                shape: 'burst', 
+                waveType: 'shockwave',
+                modR: 200, modG: 0, modB: 255 
+            },
+            dodgeCharges: { 
+                freq: 4.0, 
+                shape: 'diamond', 
+                waveType: 'phase',
+                modR: 255, modG: 255, modB: 255 
+            },
+            maxHealth: { 
+                freq: 1.8, 
+                shape: 'plus', 
+                waveType: 'pulse',
+                modR: 0, modG: 255, modB: 0 
+            },
+            pierce: { 
+                freq: 3.0, 
+                shape: 'arrow', 
+                waveType: 'linear',
+                modR: 100, modG: 255, modB: 255 
+            },
+            chainLightning: { 
+                freq: 4.0, 
+                shape: 'fork', 
+                waveType: 'digital',
+                modR: 150, modG: 200, modB: 255 
+            },
+            execute: { 
+                freq: 2.0, 
+                shape: 'skull', 
+                waveType: 'pulse',
+                modR: 255, modG: 50, modB: 50 
+            },
+            rampage: { 
+                freq: 3.0, 
+                shape: 'stairs', 
+                waveType: 'sawtooth',
+                modR: 255, modG: 100, modB: 0 
+            },
+            multishot: { 
+                freq: 3.0, 
+                shape: 'splitarrow', 
+                waveType: 'triangle',
+                modR: 200, modG: 255, modB: 100 
+            },
+            phasing: { 
+                freq: 4.0, 
+                shape: 'ghost', 
+                waveType: 'phase',
+                modR: 200, modG: 200, modB: 255 
+            },
+            explosiveAttacks: { 
+                freq: 2.0, 
+                shape: 'explosion', 
+                waveType: 'radial',
+                modR: 255, modG: 200, modB: 0 
+            },
+            fortify: { 
+                freq: 2.0, 
+                shape: 'shield', 
+                waveType: 'stepped',
+                modR: 150, modG: 150, modB: 255 
+            },
+            overcharge: { 
+                freq: 4.0, 
+                shape: 'lightning', 
+                waveType: 'digital',
+                modR: 255, modG: 255, modB: 150 
+            }
+        };
+        
+        // Add waves from base stats
+        if (gearPiece.stats) {
+            for (const [statType, statValue] of Object.entries(gearPiece.stats)) {
+                if (statTypeMap[statType] && statValue > 0) {
+                    const config = statTypeMap[statType];
+                    // Normalize value: damage 0-50, defense 0-0.5, speed 0-0.3
+                    let normalizedValue = statType === 'damage' ? statValue / 50 : 
+                                        statType === 'defense' ? statValue / 0.5 :
+                                        statValue / 0.3;
+                    normalizedValue = Math.min(1, normalizedValue);
+                    
+                    waves.push({
+                        frequency: config.freq,
+                        phase: normalizedValue * Math.PI * 2,
+                        amplitude: 0.3 + normalizedValue * 0.4
+                    });
+                    
+                    // Blend base color
+                    baseColor.r = (baseColor.r + config.baseColor.r) / 2;
+                    baseColor.g = (baseColor.g + config.baseColor.g) / 2;
+                    baseColor.b = (baseColor.b + config.baseColor.b) / 2;
+                }
+            }
+        }
+        
+        // Store affix visual metadata and group by synergy
+        const affixVisuals = [];
+        const synergyGroups = {}; // Group affixes by synergy
+        
+        if (gearPiece.affixes && gearPiece.affixes.length > 0) {
+            gearPiece.affixes.forEach((affix, index) => {
+                if (affixTypeMap[affix.type]) {
+                    const config = affixTypeMap[affix.type];
+                    // Normalize affix value (most are 0-0.5 range)
+                    const normalizedValue = Math.min(1, affix.value / 0.5);
+                    
+                    // Limit frequencies to 1-4 for smooth, non-epileptic patterns
+                    const safeFreq = Math.max(1, Math.min(4, Math.round(config.freq)));
+                    
+                    const waveData = {
+                        frequency: safeFreq,
+                        phase: normalizedValue * Math.PI * 2,
+                        amplitude: 0.25 + normalizedValue * 0.25, // Reduced amplitude
+                        waveType: config.waveType || 'sine',
+                        affixType: affix.type
+                    };
+                    
+                    waves.push(waveData);
+                    
+                    // Determine synergy group
+                    const synergyGroup = PlayerBase.getAffixSynergyGroup(affix.type);
+                    if (!synergyGroups[synergyGroup]) {
+                        synergyGroups[synergyGroup] = [];
+                    }
+                    synergyGroups[synergyGroup].push({
+                        type: affix.type,
+                        shape: config.shape || 'circle',
+                        waveType: config.waveType || 'sine',
+                        color: { r: config.modR, g: config.modG, b: config.modB },
+                        value: normalizedValue,
+                        wave: waveData
+                    });
+                    
+                    // Store affix visual data
+                    affixVisuals.push({
+                        type: affix.type,
+                        shape: config.shape || 'circle',
+                        waveType: config.waveType || 'sine',
+                        color: { r: config.modR, g: config.modG, b: config.modB },
+                        value: normalizedValue,
+                        synergyGroup: synergyGroup
+                    });
+                    
+                    // Blend color contributions
+                    baseColor.r = (baseColor.r + config.modR) / 2;
+                    baseColor.g = (baseColor.g + config.modG) / 2;
+                    baseColor.b = (baseColor.b + config.modB) / 2;
+                }
+            });
+        }
+        
+        // Get tier-based complexity settings
+        const tierSettings = {
+            gray: { opacity: 0.5, layers: 1, glow: 0 },
+            green: { opacity: 0.7, layers: 1, glow: 5 },
+            blue: { opacity: 0.9, layers: 2, glow: 10 },
+            purple: { opacity: 1.0, layers: 3, glow: 15 },
+            orange: { opacity: 1.0, layers: 4, glow: 25 }
+        };
+        
+        const tier = gearPiece.tier || 'gray';
+        const tierConfig = tierSettings[tier] || tierSettings.gray;
+        
+        return {
+            waves: waves,
+            baseColor: baseColor,
+            tierColor: gearPiece.color || '#999999',
+            intensity: waves.length > 0 ? Math.min(1, waves.length * 0.15) : 0.3,
+            affixVisuals: affixVisuals,
+            synergyGroups: synergyGroups, // Grouped affixes
+            tier: tier,
+            tierOpacity: tierConfig.opacity,
+            tierLayers: tierConfig.layers,
+            tierGlow: tierConfig.glow,
+            hasLegendary: !!gearPiece.legendaryEffect
+        };
+    }
+    
+    // Update gear visuals when gear changes
+    updateGearVisuals() {
+        this.weaponVisual = this.calculateGearPieceVisual(this.weapon);
+        this.armorVisual = this.calculateGearPieceVisual(this.armor);
+        this.accessoryVisual = this.calculateGearPieceVisual(this.accessory);
+    }
+    
     render(ctx) {
         // Draw attack hitboxes first (behind player)
         // Note: Class-specific hitbox types (like hammer) are rendered by renderClassVisuals
@@ -975,13 +1973,221 @@ class PlayerBase {
             scale = 1.0 + (this.heavyChargeElapsed / this.heavyAttackWindup) * 0.3;
         }
         
-        // Draw armor bonus visual
-        if (this.armor) {
-            ctx.strokeStyle = this.armor.color;
-            ctx.lineWidth = 6;
+        // Draw gear visuals using interference patterns
+        // Limit animation speed to prevent rapid flashing (max 0.3 cycles per second)
+        const time = Date.now() * 0.0003; // Reduced speed for smooth, safe animations
+        
+        // Collect all synergy groups from all equipped gear
+        const allSynergyGroups = {};
+        const gearPieces = [this.weaponVisual, this.armorVisual, this.accessoryVisual].filter(v => v);
+        
+        gearPieces.forEach(visual => {
+            if (visual && visual.synergyGroups) {
+                Object.entries(visual.synergyGroups).forEach(([group, affixes]) => {
+                    if (!allSynergyGroups[group]) {
+                        allSynergyGroups[group] = [];
+                    }
+                    allSynergyGroups[group].push(...affixes);
+                });
+            }
+        });
+        
+        // Render rings based on synergy groups
+        const synergyGroupNames = Object.keys(allSynergyGroups);
+        const numRings = synergyGroupNames.length;
+        
+        if (numRings > 0) {
+            // Apply glow based on highest tier
+            const maxTierGlow = Math.max(...gearPieces.map(v => v ? v.tierGlow : 0));
+            if (maxTierGlow > 0) {
+                const maxTierColor = gearPieces.find(v => v && v.tierGlow === maxTierGlow)?.tierColor;
+                ctx.shadowBlur = maxTierGlow * 0.7;
+                ctx.shadowColor = maxTierColor || '#999999';
+            }
+            
+            // Render each synergy group as a ring
+            synergyGroupNames.forEach((groupName, groupIndex) => {
+                const affixesInGroup = allSynergyGroups[groupName];
+                
+                // Calculate ring radius with proper spacing (8px between rings)
+                const baseRadius = this.size + 8 + (groupIndex * 8);
+                const numPoints = 64;
+                
+                // Calculate average color for this synergy group
+                let avgR = 0, avgG = 0, avgB = 0;
+                affixesInGroup.forEach(affix => {
+                    avgR += affix.color.r;
+                    avgG += affix.color.g;
+                    avgB += affix.color.b;
+                });
+                avgR = Math.floor(avgR / affixesInGroup.length);
+                avgG = Math.floor(avgG / affixesInGroup.length);
+                avgB = Math.floor(avgB / affixesInGroup.length);
+                
+                // Draw wave-deformed ring using constructive interference
+                ctx.beginPath();
+                for (let i = 0; i <= numPoints; i++) {
+                    const angle = (i / numPoints) * Math.PI * 2;
+                    
+                    // PROPER WAVE ADDITION: Sum all waves in this group
+                    let totalOffset = 0;
+                    affixesInGroup.forEach(affix => {
+                        const wave = affix.wave;
+                        const smoothPhase = wave.phase + (time * (0.5 + groupIndex * 0.15));
+                        
+                        const waveValue = PlayerBase.getWaveValue(
+                            wave.waveType,
+                            angle,
+                            wave.frequency,
+                            smoothPhase
+                        );
+                        
+                        // Add waves (constructive/destructive interference)
+                        totalOffset += waveValue * wave.amplitude * 6; // Reduced amplitude
+                    });
+                    
+                    const radius = baseRadius + totalOffset;
+                    const px = this.x + Math.cos(angle) * radius;
+                    const py = this.y + Math.sin(angle) * radius;
+                    
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+                
+                // Get max tier opacity from this group's affixes
+                const maxOpacity = Math.max(...gearPieces.map(v => v ? v.tierOpacity : 0.5));
+                const maxLayers = Math.max(...gearPieces.map(v => v ? v.tierLayers : 1));
+                
+                // Stroke the ring
+                ctx.strokeStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${maxOpacity * 0.85})`;
+                ctx.lineWidth = 2 + maxLayers * 0.5;
+                ctx.stroke();
+            });
+            
+            ctx.shadowBlur = 0;
+        }
+        
+        // Legendary effects rendering (independent of ring system)
+        const hasLegendary = gearPieces.some(v => v && v.hasLegendary);
+        if (hasLegendary) {
+            // Pulsing legendary aura
+            const legendaryPulse = Math.sin(time * 3) * 0.5 + 0.5;
+            const maxRadius = this.size + 8 + (numRings * 8);
+            const legendaryRadius = maxRadius + 4 + legendaryPulse * 4;
+            ctx.strokeStyle = `rgba(255, 200, 0, ${0.5 * legendaryPulse})`;
+            ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.arc(this.x, this.y, this.size + 3, 0, Math.PI * 2);
+            ctx.arc(this.x, this.y, legendaryRadius, 0, Math.PI * 2);
             ctx.stroke();
+            
+            // Sparkles
+            for (let i = 0; i < 4; i++) {
+                const sparkleAngle = time * 4 + (i * Math.PI * 0.5);
+                const sparkleRadius = legendaryRadius + Math.sin(time * 5 + i) * 3;
+                const sx = this.x + Math.cos(sparkleAngle) * sparkleRadius;
+                const sy = this.y + Math.sin(sparkleAngle) * sparkleRadius;
+                const sparkleAlpha = (Math.sin(time * 6 + i) * 0.5 + 0.5) * 0.7;
+                
+                ctx.fillStyle = `rgba(255, 255, 100, ${sparkleAlpha})`;
+                ctx.beginPath();
+                ctx.arc(sx, sy, 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        
+        // Legacy rendering for gear without affixes
+        if (this.armorVisual && (!allSynergyGroups || Object.keys(allSynergyGroups).length === 0)) {
+            const visual = this.armorVisual;
+            
+            // Apply tier-based glow effect
+            if (visual.tierGlow > 0) {
+                ctx.shadowBlur = visual.tierGlow;
+                ctx.shadowColor = visual.tierColor;
+            }
+            
+            // Calculate base color once (for use in layers and legendary effect)
+            let baseR = 150, baseG = 150, baseB = 150;
+            if (visual.affixVisuals && visual.affixVisuals.length > 0) {
+                let r = 0, g = 0, b = 0;
+                visual.affixVisuals.forEach(affix => {
+                    r += affix.color.r;
+                    g += affix.color.g;
+                    b += affix.color.b;
+                });
+                baseR = Math.floor(r / visual.affixVisuals.length);
+                baseG = Math.floor(g / visual.affixVisuals.length);
+                baseB = Math.floor(b / visual.affixVisuals.length);
+            } else {
+                const rgb = this.hexToRgb(visual.tierColor);
+                baseR = rgb.r;
+                baseG = rgb.g;
+                baseB = rgb.b;
+            }
+            
+            // Draw single wave-deformed ring (simplified from multiple layers)
+            const baseRadius = this.size + 10;
+            const numPoints = 64; // High resolution for smooth waves
+            
+            ctx.beginPath();
+            for (let i = 0; i <= numPoints; i++) {
+                const angle = (i / numPoints) * Math.PI * 2;
+                
+                // Combine wave patterns - but limit to avoid messiness
+                let totalOffset = 0;
+                
+                if (visual.waves && visual.waves.length > 0) {
+                    // Use up to 3 most prominent waves
+                    const wavesToUse = Math.min(3, visual.waves.length);
+                    for (let w = 0; w < wavesToUse; w++) {
+                        const wave = visual.waves[w];
+                        // Smooth time-based phase shift (slow oscillation)
+                        const smoothPhase = wave.phase + (time * (0.5 + w * 0.2));
+                        
+                        const waveValue = PlayerBase.getWaveValue(
+                            wave.waveType, 
+                            angle, 
+                            wave.frequency,
+                            smoothPhase
+                        );
+                        // Stronger amplitude for more visibility
+                        totalOffset += waveValue * wave.amplitude * 12;
+                    }
+                }
+                
+                const radius = baseRadius + totalOffset;
+                const px = this.x + Math.cos(angle) * radius;
+                const py = this.y + Math.sin(angle) * radius;
+                
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+                
+            // Stroke with tier-based thickness
+            ctx.strokeStyle = `rgba(${baseR}, ${baseG}, ${baseB}, ${visual.tierOpacity})`;
+            ctx.lineWidth = 2 + visual.tierLayers;
+            ctx.stroke();
+            
+            // Add inner glow for higher tiers
+            if (visual.tierLayers >= 2) {
+                ctx.strokeStyle = `rgba(${baseR}, ${baseG}, ${baseB}, ${visual.tierOpacity * 0.3})`;
+                ctx.lineWidth = 4 + visual.tierLayers * 2;
+                ctx.stroke();
+            }
+            
+            // Legendary aura - extra pulsing ring
+            if (visual.hasLegendary) {
+                const legendaryPulse = Math.sin(time * 3) * 0.5 + 0.5;
+                const legendaryRadius = this.size + 15 + legendaryPulse * 5;
+                ctx.strokeStyle = `rgba(255, 200, 0, ${0.6 * legendaryPulse})`;
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, legendaryRadius, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+            
+            ctx.shadowBlur = 0;
         }
         
         // Draw player shape based on class
@@ -1051,7 +2257,7 @@ class PlayerBase {
         // Restore global alpha from dodge transparency
         ctx.restore();
         
-        // Draw weapon orbiting visual
+        // Draw weapon orbiting visual (simple indicator, not the wave rings)
         if (this.weapon) {
             const weaponTime = Date.now() * 0.001;
             const weaponRadius = this.size + 10;
@@ -1105,6 +2311,11 @@ class PlayerBase {
             weapon: this.weapon,
             armor: this.armor,
             accessory: this.accessory,
+            
+            // Gear visuals (deterministic patterns for consistent appearance in multiplayer)
+            weaponVisual: this.weaponVisual,
+            armorVisual: this.armorVisual,
+            accessoryVisual: this.accessoryVisual,
             
             // Animation states
             isDodging: this.isDodging,
@@ -1244,6 +2455,38 @@ class PlayerBase {
         if (state.alive !== undefined) this.alive = state.alive;
         if (state.invulnerable !== undefined) this.invulnerable = state.invulnerable;
         if (state.invulnerabilityTime !== undefined) this.invulnerabilityTime = state.invulnerabilityTime;
+        
+        // Gear (update if changed)
+        let gearChanged = false;
+        if (state.weapon !== undefined && this.weapon !== state.weapon) {
+            this.weapon = state.weapon;
+            gearChanged = true;
+        }
+        if (state.armor !== undefined && this.armor !== state.armor) {
+            this.armor = state.armor;
+            gearChanged = true;
+        }
+        if (state.accessory !== undefined && this.accessory !== state.accessory) {
+            this.accessory = state.accessory;
+            gearChanged = true;
+        }
+        
+        // Gear visuals (receive from host or recalculate if gear changed)
+        if (state.weaponVisual !== undefined) {
+            this.weaponVisual = state.weaponVisual;
+        } else if (gearChanged) {
+            this.weaponVisual = this.calculateGearPieceVisual(this.weapon);
+        }
+        if (state.armorVisual !== undefined) {
+            this.armorVisual = state.armorVisual;
+        } else if (gearChanged) {
+            this.armorVisual = this.calculateGearPieceVisual(this.armor);
+        }
+        if (state.accessoryVisual !== undefined) {
+            this.accessoryVisual = state.accessoryVisual;
+        } else if (gearChanged) {
+            this.accessoryVisual = this.calculateGearPieceVisual(this.accessory);
+        }
     }
     
     // Interpolate position toward target (for multiplayer clients)
@@ -1303,6 +2546,13 @@ class PlayerBase {
 
 // Factory function to create player instances
 function createPlayer(classType, x, y) {
+    // Check if classes are defined (safety check for script loading)
+    if (typeof Warrior === 'undefined' || typeof Rogue === 'undefined' || 
+        typeof Tank === 'undefined' || typeof Mage === 'undefined') {
+        console.error('Player classes not loaded yet! Ensure all player-*.js files are loaded before calling createPlayer.');
+        return null;
+    }
+    
     switch(classType) {
         case 'square':
             return new Warrior(x, y);

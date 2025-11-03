@@ -1,5 +1,63 @@
 // Tank class (Pentagon) - extends PlayerBase
 
+// ============================================================================
+// TANK CONFIGURATION - Adjust these values for game balancing
+// ============================================================================
+
+const TANK_CONFIG = {
+    // Base Stats (from CLASS_DEFINITIONS)
+    baseHp: 150,                   // Starting health points
+    baseDamage: 8,                 // Base damage per attack
+    baseSpeed: 172.5,              // Movement speed (pixels/second)
+    baseDefense: 0.2,              // Damage reduction (0.2 = 20%)
+    critChance: 0,                 // Critical hit chance (0 = 0%)
+    
+    // Level Up Bonuses (per upgrade level purchased in nexus)
+    damagePerLevel: 0.5,           // Damage increase per level
+    defensePerLevel: 0.005,        // Defense increase per level (0.005 = 0.5%)
+    speedPerLevel: 2,              // Speed increase per level (pixels/second)
+    
+    // Basic Attack (Hammer Swing)
+    hammerDistance: 70,            // Distance from player center to hammer (pixels)
+    hammerArcWidth: 130,           // Arc width in degrees
+    hammerSwingDuration: 0.3,      // Duration of hammer swing animation (seconds)
+    hammerHitboxRadius: 30,        // Radius of hammer hitbox (pixels)
+    
+    // Heavy Attack (Ground Smash)
+    heavyAttackCooldown: 2.5,      // Cooldown for heavy attack (seconds)
+    smashDamage: 1.1,              // Damage multiplier for ground smash
+    smashRadius: 120,              // Radius of ground smash (pixels)
+    smashHitboxCount: 8,           // Number of hitboxes in ring
+    smashHitboxDistance: 40,       // Distance from player to hitboxes (pixels)
+    smashHitboxRadius: 25,         // Radius of each hitbox (pixels)
+    smashKnockback: 375,           // Knockback force applied to enemies (pixels)
+    
+    // Special Ability (Shield)
+    specialCooldown: 5.0,          // Special ability cooldown (seconds)
+    shieldDuration: 2.1,           // How long shield lasts when held (seconds)
+    shieldDamageReduction: 0.5,    // Damage reduction while shield is active (0.5 = 50%)
+    shieldInvulnTime: 0.2,         // Invulnerability duration on activation (seconds)
+    shieldWaveDuration: 0.5,       // Duration of shield wave animation (seconds)
+    shieldWaveDamage: 2.5,         // Damage multiplier for shield wave
+    shieldWaveRange: 200,          // Maximum range of shield wave (pixels)
+    shieldWaveWidth: 150,          // Width of shield wave (pixels)
+    shieldWaveKnockback: 500,      // Knockback force of shield wave (pixels)
+    shieldDistance: 5,             // Distance shield starts from player (pixels)
+    shieldDepth: 20,               // Forward extent of shield (pixels)
+    shieldWidth: 120,              // Lateral width of shield (pixels)
+    shieldKnockbackDistance: 30,   // Knockback distance per frame (pixels)
+    
+    // Descriptions for UI (tooltips, character sheet)
+    descriptions: {
+        playstyle: "High HP damage sponge with crowd control",
+        basic: "Cone Slam - Wide cone attack with multiple hitboxes",
+        heavy: "Ground Smash - AoE ring, {smashDamage|mult} damage + knockback",
+        special: "Shield Defense - Block for {shieldDuration}s, then wave pulse attack",
+        passive: "High HP - Slow but extremely durable",
+        baseStats: "{baseDefense|percent} Base Defense, {baseHp} HP"
+    }
+};
+
 class Tank extends PlayerBase {
     constructor(x = 400, y = 300) {
         super(x, y);
@@ -7,49 +65,58 @@ class Tank extends PlayerBase {
         // Set class identifier
         this.playerClass = 'pentagon';
         
-        // Load class definition
+        // Load class definition (visual properties only)
         const classDef = CLASS_DEFINITIONS.pentagon;
         
         // Load upgrades from save system
         let upgradeBonuses = { damage: 0, defense: 0, speed: 0 };
         if (typeof SaveSystem !== 'undefined') {
             const upgrades = SaveSystem.getUpgrades('pentagon');
-            // Calculate bonuses: damage +0.5/level, defense +0.005/level, speed +2/level
-            upgradeBonuses.damage = upgrades.damage * 0.5;
-            upgradeBonuses.defense = upgrades.defense * 0.005;
-            upgradeBonuses.speed = upgrades.speed * 2;
+            // Calculate bonuses using config values
+            upgradeBonuses.damage = upgrades.damage * TANK_CONFIG.damagePerLevel;
+            upgradeBonuses.defense = upgrades.defense * TANK_CONFIG.defensePerLevel;
+            upgradeBonuses.speed = upgrades.speed * TANK_CONFIG.speedPerLevel;
         }
         
-        // Set base stats (class stats + upgrade bonuses)
-        this.baseDamage = classDef.damage + upgradeBonuses.damage;
-        this.baseMoveSpeed = classDef.speed + upgradeBonuses.speed;
-        this.baseDefense = classDef.defense + upgradeBonuses.defense;
-        this.maxHp = classDef.hp;
-        this.hp = classDef.hp;
-        this.critChance = classDef.critChance;
+        // Set base stats from CONFIG (single source of truth)
+        this.baseDamage = TANK_CONFIG.baseDamage + upgradeBonuses.damage;
+        this.baseMoveSpeed = TANK_CONFIG.baseSpeed + upgradeBonuses.speed;
+        this.baseDefense = TANK_CONFIG.baseDefense + upgradeBonuses.defense;
+        this.maxHp = TANK_CONFIG.baseHp;
+        this.hp = TANK_CONFIG.baseHp;
+        this.baseCritChance = TANK_CONFIG.critChance || 0; // Store base for updateEffectiveStats
+        this.critChance = TANK_CONFIG.critChance || 0;
         this.color = classDef.color;
         this.shape = classDef.shape;
         
         // Standard single dodge for Tank
+        this.baseDodgeCharges = 1; // Store base value for updateEffectiveStats
         this.dodgeCharges = 1;
         this.maxDodgeCharges = 1;
         this.dodgeChargeCooldowns = [0];
         
         // Heavy attack cooldown
-        this.heavyAttackCooldownTime = 2.5; // Tank - ground smash has longer cooldown
+        this.heavyAttackCooldownTime = TANK_CONFIG.heavyAttackCooldown;
         
         // Shield special ability
         this.shieldActive = false;
         this.shieldElapsed = 0;
-        this.shieldDuration = 2.1; // Increased from 1.5 (90% longer)
+        this.shieldDuration = TANK_CONFIG.shieldDuration;
         this.shieldWaveActive = false;
         this.shieldWaveElapsed = 0;
-        this.shieldWaveDuration = 0.5;
+        this.shieldWaveDuration = TANK_CONFIG.shieldWaveDuration;
         this.shieldDirection = 0; // Store shield direction for wave
         this.shieldWaveHitEnemies = null; // Set of enemies hit by wave
         
         // Hammer swing attack
         this.hammerSwingDirection = 1; // Alternates between 1 (right) and -1 (left)
+        
+        // Class modifier storage
+        this.shieldDurationBonus = 0;
+        this.shieldWaveDamageMultiplier = 1.0;
+        this.smashRadiusBonus = 0;
+        this.hammerKnockbackMultiplier = 1.0;
+        this.shieldReductionBonus = 0;
         
         // Update effective stats
         this.updateEffectiveStats();
@@ -57,12 +124,41 @@ class Tank extends PlayerBase {
         console.log('Tank class initialized');
     }
     
+    // Override to apply Tank-specific class modifiers
+    applyClassModifier(modifier) {
+        // Call parent for universal modifiers
+        super.applyClassModifier(modifier);
+        
+        // Handle Tank-specific modifiers
+        if (modifier.class === 'pentagon') {
+            switch(modifier.type) {
+                case 'shield_duration':
+                    this.shieldDurationBonus += modifier.value;
+                    break;
+                case 'shield_wave_damage':
+                    this.shieldWaveDamageMultiplier += modifier.value;
+                    break;
+                case 'smash_radius':
+                    this.smashRadiusBonus += modifier.value;
+                    break;
+                case 'hammer_knockback':
+                    this.hammerKnockbackMultiplier += modifier.value;
+                    break;
+                case 'shield_reduction':
+                    this.shieldReductionBonus += modifier.value;
+                    break;
+            }
+        }
+    }
+    
     // Override executeAttack for Tank hammer swing
     executeAttack(input) {
         this.hammerSwingAttack();
         
-        // Reset cooldown and set attacking state
-        this.attackCooldown = this.attackCooldownTime;
+        // Reset cooldown and set attacking state with attack speed and weapon type
+        const weaponCooldownMult = this.weaponCooldownMultiplier || 1.0;
+        const effectiveAttackCooldown = this.attackCooldownTime * weaponCooldownMult / (1 + (this.attackSpeedMultiplier - 1));
+        this.attackCooldown = effectiveAttackCooldown;
         this.isAttacking = true;
         
         // Clear attacking state after duration
@@ -72,11 +168,11 @@ class Tank extends PlayerBase {
     }
     
     hammerSwingAttack() {
-        // Tank: Hammer swing in 130-degree arc
+        // Tank: Hammer swing in arc
         const hammerDamage = this.damage;
-        const hammerDistance = 70; // Distance from player center to hammer
-        const arcWidth = (130 * Math.PI) / 180; // 130 degrees in radians
-        const arcHalf = arcWidth / 2; // 65 degrees on each side
+        const hammerDistance = TANK_CONFIG.hammerDistance;
+        const arcWidth = (TANK_CONFIG.hammerArcWidth * Math.PI) / 180; // Convert degrees to radians
+        const arcHalf = arcWidth / 2;
         
         // Calculate start angle based on swing direction
         // For right swing (1): start at -65° and sweep to +65°
@@ -90,9 +186,9 @@ class Tank extends PlayerBase {
         this.attackHitboxes.push({
             x: hammerX,
             y: hammerY,
-            radius: 30,
+            radius: TANK_CONFIG.hammerHitboxRadius * (this.aoeMultiplier || 1.0), // Apply AoE multiplier
             damage: hammerDamage,
-            duration: 0.3, // Slower swing for visualization
+            duration: TANK_CONFIG.hammerSwingDuration,
             elapsed: 0,
             hitEnemies: new Set(),
             
@@ -132,14 +228,14 @@ class Tank extends PlayerBase {
     
     createGroundSmash() {
         // Tank ground smash - AoE around player that pushes enemies back
-        const smashDamage = this.damage * 1.1; // Lower damage, focus on CC/knockback
-        const smashRadius = 120;
+        const smashDamage = this.damage * TANK_CONFIG.smashDamage;
+        const smashRadius = TANK_CONFIG.smashRadius + this.smashRadiusBonus; // Apply class modifier
         
         // Create hitboxes in a ring around the player
-        const numHitboxes = 8;
+        const numHitboxes = TANK_CONFIG.smashHitboxCount;
         for (let i = 0; i < numHitboxes; i++) {
             const angle = (Math.PI * 2 / numHitboxes) * i;
-            const distance = this.size + 40;
+            const distance = this.size + TANK_CONFIG.smashHitboxDistance;
             
             const hitboxX = this.x + Math.cos(angle) * distance;
             const hitboxY = this.y + Math.sin(angle) * distance;
@@ -147,7 +243,7 @@ class Tank extends PlayerBase {
             this.attackHitboxes.push({
                 x: hitboxX,
                 y: hitboxY,
-                radius: 25,
+                radius: TANK_CONFIG.smashHitboxRadius,
                 damage: smashDamage,
                 duration: this.attackDuration,
                 elapsed: 0,
@@ -165,8 +261,8 @@ class Tank extends PlayerBase {
                     const distance = Math.sqrt(dx * dx + dy * dy);
                     
                     if (distance < smashRadius) {
-                        // Push away from player with increased force for more meaningful knockback
-                        const pushForce = 375; // Increased from 250 to 375 (50% increase)
+                        // Push away from player with knockback force
+                        const pushForce = TANK_CONFIG.smashKnockback;
                         const pushDirX = dx / distance;
                         const pushDirY = dy / distance;
                         enemy.applyKnockback(pushDirX * pushForce, pushDirY * pushForce);
@@ -231,18 +327,20 @@ class Tank extends PlayerBase {
     activateShield(input) {
         this.shieldActive = true;
         this.shieldElapsed = 0;
-        this.specialCooldown = this.specialCooldownTime;
+        // Apply cooldown reduction
+        const effectiveSpecialCooldown = this.specialCooldownTime * (1 - this.cooldownReduction);
+        this.specialCooldown = effectiveSpecialCooldown;
         this.invulnerable = true;
-        this.invulnerabilityTime = 0.2; // 0.2s windup i-frames
+        this.invulnerabilityTime = TANK_CONFIG.shieldInvulnTime;
         this.shieldDirection = this.rotation; // Store initial direction
         console.log('Shield activated!');
     }
     
     // Override getDamageReduction for shield
     getDamageReduction() {
-        // Shield (Tank passive: 50% damage reduction when shield is active)
+        // Shield (Tank passive: damage reduction when shield is active)
         if (this.shieldActive) {
-            return 0.5; // 50% damage reduction
+            return TANK_CONFIG.shieldDamageReduction + this.shieldReductionBonus; // Apply class modifier
         }
         return 0;
     }
@@ -260,9 +358,9 @@ class Tank extends PlayerBase {
             
             // Block enemies from passing through shield
             if (typeof Game !== 'undefined' && Game.enemies) {
-                const shieldDistance = this.size + 5; // Start of shield
-                const shieldDepth = 20; // Depth (forward extent)
-                const shieldWidth = 120; // Lateral width
+                const shieldDistance = this.size + TANK_CONFIG.shieldDistance;
+                const shieldDepth = TANK_CONFIG.shieldDepth;
+                const shieldWidth = TANK_CONFIG.shieldWidth;
                 
                 Game.enemies.forEach(enemy => {
                     if (enemy.alive) {
@@ -288,7 +386,7 @@ class Tank extends PlayerBase {
                                 
                                 if (lateralDist < shieldWidth / 2 + enemy.size) {
                                     // Enemy is hitting the shield, push them back
-                                    const knockbackDistance = 30;
+                                    const knockbackDistance = TANK_CONFIG.shieldKnockbackDistance;
                                     const knockbackDir = {
                                         x: (enemy.x - this.x) / distance,
                                         y: (enemy.y - this.y) / distance
@@ -308,7 +406,8 @@ class Tank extends PlayerBase {
             }
             
             // End shield and start wave animation after duration
-            if (this.shieldElapsed >= this.shieldDuration) {
+            const effectiveShieldDuration = this.shieldDuration + this.shieldDurationBonus; // Apply class modifier
+            if (this.shieldElapsed >= effectiveShieldDuration) {
                 this.shieldActive = false;
                 this.shieldElapsed = 0;
                 // Start wave animation
@@ -333,9 +432,9 @@ class Tank extends PlayerBase {
             } else {
                 // Push enemies back as the wave advances
                 if (typeof Game !== 'undefined' && Game.enemies) {
-                    const waveDamage = this.damage * 2.5; // Increased from 2x to 2.5x
-                    const waveMaxDistance = 200; // 200px range
-                    const waveWidth = 150; // Width of the wave
+                    const waveDamage = this.damage * TANK_CONFIG.shieldWaveDamage * this.shieldWaveDamageMultiplier; // Apply class modifier
+                    const waveMaxDistance = TANK_CONFIG.shieldWaveRange;
+                    const waveWidth = TANK_CONFIG.shieldWaveWidth;
                     
                     // Calculate current wave front distance
                     const waveProgress = this.shieldWaveElapsed / this.shieldWaveDuration;
@@ -386,7 +485,7 @@ class Tank extends PlayerBase {
                                         }
                                         
                                         // Apply knockback (wave pushes enemies forward)
-                                        const knockbackForce = 500; // Increased from 300
+                                        const knockbackForce = TANK_CONFIG.shieldWaveKnockback;
                                         enemy.applyKnockback(playerDirX * knockbackForce, playerDirY * knockbackForce);
                                     }
                                 }

@@ -138,6 +138,9 @@ class MultiplayerManager {
                 case 'loot_pickup':
                     this.handleLootPickup(msg.data);
                     break;
+                case 'gear_dropped':
+                    this.handleGearDropped(msg.data);
+                    break;
                 case 'upgrade_purchase':
                     this.handleUpgradePurchase(msg.data);
                     break;
@@ -338,7 +341,13 @@ class MultiplayerManager {
                 y: gear.y,
                 slot: gear.slot,
                 tier: gear.tier,
-                stats: gear.stats
+                stats: gear.stats,
+                affixes: gear.affixes || [],  // NEW: Affix system
+                classModifier: gear.classModifier || null, // NEW: Class modifiers
+                weaponType: gear.weaponType || null, // NEW: Weapon types
+                armorType: gear.armorType || null,   // NEW: Armor types
+                legendaryEffect: gear.legendaryEffect || null, // NEW: Legendary effects
+                name: gear.name               // NEW: Gear names
             })) : []
         };
         
@@ -860,22 +869,36 @@ class MultiplayerManager {
                 newInstance.lastAimAngle = 0; // Initialize rotation state for touch controls
                 
                 // Apply upgrades from host tracking
+                // Note: Player instance already has base stats from its CONFIG
+                // We just need to apply the upgrade bonuses
                 const upgrades = Game.playerUpgrades.get(data.id);
                 if (upgrades && upgrades[data.class]) {
                     const classUpgrades = upgrades[data.class];
-                    const classDef = CLASS_DEFINITIONS[data.class];
-                    if (classDef) {
-                        // Calculate upgrade bonuses
+                    
+                    // Get the config for this class to calculate upgrade bonuses
+                    let config = null;
+                    if (data.class === 'square' && typeof WARRIOR_CONFIG !== 'undefined') {
+                        config = WARRIOR_CONFIG;
+                    } else if (data.class === 'triangle' && typeof ROGUE_CONFIG !== 'undefined') {
+                        config = ROGUE_CONFIG;
+                    } else if (data.class === 'pentagon' && typeof TANK_CONFIG !== 'undefined') {
+                        config = TANK_CONFIG;
+                    } else if (data.class === 'hexagon' && typeof MAGE_CONFIG !== 'undefined') {
+                        config = MAGE_CONFIG;
+                    }
+                    
+                    if (config) {
+                        // Calculate upgrade bonuses using config values
                         const upgradeBonuses = {
-                            damage: classUpgrades.damage * 0.5,
-                            defense: classUpgrades.defense * 0.005,
-                            speed: classUpgrades.speed * 2
+                            damage: classUpgrades.damage * config.damagePerLevel,
+                            defense: classUpgrades.defense * config.defensePerLevel,
+                            speed: classUpgrades.speed * config.speedPerLevel
                         };
                         
-                        // Apply upgrades to base stats
-                        newInstance.baseDamage = classDef.damage + upgradeBonuses.damage;
-                        newInstance.baseMoveSpeed = classDef.speed + upgradeBonuses.speed;
-                        newInstance.baseDefense = classDef.defense + upgradeBonuses.defense;
+                        // Apply upgrades to base stats (config values already loaded in constructor)
+                        newInstance.baseDamage = config.baseDamage + upgradeBonuses.damage;
+                        newInstance.baseMoveSpeed = config.baseSpeed + upgradeBonuses.speed;
+                        newInstance.baseDefense = config.baseDefense + upgradeBonuses.defense;
                         
                         // Recalculate effective stats
                         newInstance.updateEffectiveStats();
@@ -1150,6 +1173,19 @@ class MultiplayerManager {
                     console.log(`[Host] Equipped ${gear.tier} ${gear.slot} on remote player ${playerId}`);
                 }
             }
+        }
+    }
+    
+    // Handle gear dropped (when player swaps gear)
+    handleGearDropped(data) {
+        if (typeof Game === 'undefined' || typeof groundLoot === 'undefined') return;
+        
+        const { playerId, gear } = data;
+        
+        // Add the dropped gear to ground loot for all clients
+        if (gear) {
+            groundLoot.push(gear);
+            console.log(`[Multiplayer] Player ${playerId} dropped ${gear.tier} ${gear.slot} at (${gear.x.toFixed(0)}, ${gear.y.toFixed(0)})`);
         }
     }
     

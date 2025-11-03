@@ -1,37 +1,65 @@
 // Diamond enemy - assassin type
 
+// ============================================================================
+// DIAMOND ENEMY CONFIGURATION - Adjust these values for game balancing
+// ============================================================================
+
+const DIAMOND_CONFIG = {
+    // Base Stats
+    size: 18,                      // Enemy size (pixels)
+    maxHp: 35,                     // Maximum health points
+    damage: 6,                     // Damage per hit
+    moveSpeed: 100,                // Movement speed (pixels/second)
+    xpValue: 15,                   // XP awarded when killed
+    lootChance: 0.25,              // Chance to drop loot (0.25 = 25%)
+    
+    // Attack Behavior
+    attackCooldown: 2.0,           // Time between attacks (seconds)
+    telegraphDuration: 0.15,       // Telegraph warning duration (seconds)
+    dashDuration: 0.35,            // Duration of dash attack (seconds)
+    dashSpeed: 600,                // Speed during dash (pixels/second)
+    attackRange: 180,              // Distance to initiate attack (pixels)
+    
+    // Movement Behavior  
+    orbitDistance: 150,            // Distance to orbit around player (pixels)
+    circleSpeed: 0.8,              // Rotation speed around player (radians/second)
+    weaveSpeed: 3.0,               // Speed of weaving motion
+    weaveAmplitude: 30,            // How far to weave perpendicular (pixels)
+    avoidanceRadius: 80,           // Radius to avoid player attacks (pixels)
+};
+
 class DiamondEnemy extends EnemyBase {
     constructor(x, y) {
         super(x, y);
         
-        // Stats
-        this.size = 18;
-        this.maxHp = 35;
-        this.hp = 35;
-        this.damage = 6;
-        this.moveSpeed = 100; // Slower movement
-        this.baseMoveSpeed = 100; // Store for stun system
+        // Stats (from config)
+        this.size = DIAMOND_CONFIG.size;
+        this.maxHp = DIAMOND_CONFIG.maxHp;
+        this.hp = DIAMOND_CONFIG.maxHp;
+        this.damage = DIAMOND_CONFIG.damage;
+        this.moveSpeed = DIAMOND_CONFIG.moveSpeed;
+        this.baseMoveSpeed = DIAMOND_CONFIG.moveSpeed; // Store for stun system
         
         // Properties
         this.color = '#00ffff'; // Cyan
         this.shape = 'diamond';
-        this.xpValue = 15;
-        this.lootChance = 0.35;
+        this.xpValue = DIAMOND_CONFIG.xpValue;
+        this.lootChance = DIAMOND_CONFIG.lootChance;
         
         // Attack system
         this.state = 'circle'; // 'circle', 'telegraph', 'dash', 'cooldown'
         this.attackCooldown = 0;
-        this.attackCooldownTime = 2.0;
-        this.telegraphDuration = 0.15; // Shorter telegraph
-        this.dashDuration = 0.35; // Longer dash to reach from 180px away
+        this.attackCooldownTime = DIAMOND_CONFIG.attackCooldown;
+        this.telegraphDuration = DIAMOND_CONFIG.telegraphDuration;
+        this.dashDuration = DIAMOND_CONFIG.dashDuration;
         this.telegraphElapsed = 0;
         this.dashElapsed = 0;
-        this.attackRange = 180; // Dash when within this range (10% less)
-        this.dashSpeed = 600; // Faster dash
+        this.attackRange = DIAMOND_CONFIG.attackRange;
+        this.dashSpeed = DIAMOND_CONFIG.dashSpeed;
         this.circleAngle = 0; // Angle for circling movement
         this.weaveTimer = Math.random() * Math.PI * 2; // Random starting phase for weaving
-        this.weaveSpeed = 3.0; // Speed of F weaving motion
-        this.weaveAmplitude = 30; // How far to weave perpendicular to movement
+        this.weaveSpeed = DIAMOND_CONFIG.weaveSpeed;
+        this.weaveAmplitude = DIAMOND_CONFIG.weaveAmplitude;
     }
     
     update(deltaTime, player) {
@@ -39,6 +67,9 @@ class DiamondEnemy extends EnemyBase {
         
         // Process stun first
         this.processStun(deltaTime);
+        
+        // Update target lock timer
+        this.updateTargetLock(deltaTime);
         
         // Apply stun slow factor to movement speed
         if (this.stunned) {
@@ -80,10 +111,10 @@ class DiamondEnemy extends EnemyBase {
                 this.telegraphElapsed = 0;
             } else {
                 // Circle around player with zigzag weaving and attack avoidance
-                this.circleAngle += deltaTime * 0.8; // Slower rotation around player
+                this.circleAngle += deltaTime * DIAMOND_CONFIG.circleSpeed;
                 this.weaveTimer += deltaTime * this.weaveSpeed; // Update weaving timer
                 
-                const orbitDistance = 150; // Orbit further from player
+                const orbitDistance = DIAMOND_CONFIG.orbitDistance;
                 const angle = this.circleAngle;
                 
                 // Calculate desired orbit position
@@ -106,7 +137,7 @@ class DiamondEnemy extends EnemyBase {
                     const weaveOffset = Math.sin(this.weaveTimer) * this.weaveAmplitude;
                     
                     // Apply attack avoidance
-                    const avoidance = this.avoidPlayerAttacks(player, 80);
+                    const avoidance = this.avoidPlayerAttacks(player, DIAMOND_CONFIG.avoidanceRadius);
                     const avoidDist = Math.sqrt(avoidance.x * avoidance.x + avoidance.y * avoidance.y);
                     
                     if (avoidDist > 0) {
@@ -148,19 +179,20 @@ class DiamondEnemy extends EnemyBase {
                 this.dashElapsed = 0;
             }
         } else if (this.state === 'dash') {
-            // Dash toward predicted player position
+            // Dash toward target position (player or clone/decoy)
             this.dashElapsed += deltaTime;
             
-            // Predict where player will be when dash completes
-            const timeToReach = this.dashDuration - this.dashElapsed;
-            const predictedPos = this.predictPlayerPosition(player, timeToReach);
+            // Get current target position (handles clones/decoys)
+            const currentTarget = this.findTarget(player);
+            const dashTargetX = currentTarget.x;
+            const dashTargetY = currentTarget.y;
             
-            // Calculate direction to predicted position
-            const predDx = predictedPos.x - this.x;
-            const predDy = predictedPos.y - this.y;
+            // Calculate direction to target
+            const predDx = dashTargetX - this.x;
+            const predDy = dashTargetY - this.y;
             const predDist = Math.sqrt(predDx * predDx + predDy * predDy);
             
-            // Use predicted direction, fallback to current direction if invalid
+            // Use target direction, fallback to current direction if invalid
             let dashDirX, dashDirY;
             if (predDist > 0) {
                 dashDirX = predDx / predDist;
@@ -239,6 +271,43 @@ class DiamondEnemy extends EnemyBase {
         
         // Keep within bounds
         this.keepInBounds();
+    }
+    
+    // Override die() to use diamond difficulty for loot
+    die() {
+        this.alive = false;
+        
+        // Only run death effects on host or in solo mode (clients receive loot via game_state)
+        if (typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient()) {
+            // Client: Don't run death logic (host handles it)
+            return;
+        }
+        
+        // Track kill for the last attacker
+        if (this.lastAttacker && typeof Game !== 'undefined' && Game.getPlayerStats) {
+            const stats = Game.getPlayerStats(this.lastAttacker);
+            stats.addStat('kills', 1);
+        }
+        
+        // Emit particles on death
+        if (typeof createParticleBurst !== 'undefined') {
+            createParticleBurst(this.x, this.y, this.color, 12);
+        }
+        
+        // Give player XP when enemy dies
+        if (typeof Game !== 'undefined' && Game.player && !Game.player.dead) {
+            Game.player.addXP(this.xpValue);
+        }
+        
+        // Drop loot based on lootChance (HOST ONLY - clients get loot via game_state sync)
+        if (typeof generateGear !== 'undefined' && typeof groundLoot !== 'undefined') {
+            if (Math.random() < this.lootChance) {
+                const roomNum = typeof Game !== 'undefined' ? (Game.roomNumber || 1) : 1;
+                const gear = generateGear(this.x, this.y, roomNum, 'diamond');
+                groundLoot.push(gear);
+                console.log(`[Host] Dropped loot at (${Math.floor(this.x)}, ${Math.floor(this.y)})`);
+            }
+        }
     }
     
     render(ctx) {

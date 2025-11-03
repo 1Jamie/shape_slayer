@@ -1,5 +1,62 @@
 // Warrior class (Square) - extends PlayerBase
 
+// ============================================================================
+// WARRIOR CONFIGURATION - Adjust these values for game balancing
+// ============================================================================
+
+const WARRIOR_CONFIG = {
+    // Base Stats (from CLASS_DEFINITIONS)
+    baseHp: 100,                   // Starting health points
+    baseDamage: 14,                // Base damage per attack
+    baseSpeed: 230,                // Movement speed (pixels/second)
+    baseDefense: 0.1,              // Damage reduction (0.1 = 10%)
+    critChance: 0,                 // Critical hit chance (0 = 0%)
+    
+    // Level Up Bonuses (per upgrade level purchased in nexus)
+    damagePerLevel: 0.5,           // Damage increase per level
+    defensePerLevel: 0.005,        // Defense increase per level (0.005 = 0.5%)
+    speedPerLevel: 2,              // Speed increase per level (pixels/second)
+    
+    // Basic Attack (Melee Cleave)
+    cleaveHitboxCount: 4,          // Number of hitboxes in cleave line
+    cleaveBaseDistance: 10,        // Distance from player to first hitbox (pixels)
+    cleaveSpacing: 45,             // Spacing between hitboxes (pixels)
+    cleaveHitboxRadius: 20,        // Radius of each hitbox (pixels)
+    cleaveDamage: 1.2,             // Damage multiplier for cleave
+    
+    // Heavy Attack (Forward Thrust)
+    heavyAttackCooldown: 2.5,      // Cooldown for heavy attack (seconds)
+    thrustDistance: 300,           // Distance of forward thrust (pixels)
+    thrustDuration: 0.12,          // How long the thrust takes (seconds)
+    thrustDamage: 2.0,             // Damage multiplier for thrust
+    thrustHitRadius: 15,           // Hit detection radius around thrust path (pixels)
+    thrustKnockback: 100,          // Knockback force applied to hit enemies
+    
+    // Special Ability (Whirlwind)
+    specialCooldown: 5.0,          // Special ability cooldown (seconds)
+    whirlwindDuration: 2.0,        // How long whirlwind lasts (seconds)
+    whirlwindDamage: 2.0,          // Damage multiplier per hit
+    whirlwindRadius: 90,           // Radius from player edge (pixels)
+    whirlwindHitInterval: 0.2,     // Time between damage ticks (seconds)
+    whirlwindRotationSpeed: Math.PI * 0.5, // Visual rotation speed (radians/second)
+    whirlwindInvulnTime: 0.3,      // Invulnerability duration on activation (seconds)
+    
+    // Block Stance (Passive)
+    blockActivationTime: 0.25,     // Time standing still to activate block (seconds)
+    blockDamageReduction: 0.5,     // Damage reduction when blocking (0.5 = 50%)
+    blockMinVelocity: 10,          // Velocity threshold for standing still (pixels/second)
+    
+    // Descriptions for UI (tooltips, character sheet)
+    descriptions: {
+        playstyle: "Balanced melee fighter with defensive options",
+        basic: "Sword Swing - Wide coverage with {cleaveHitboxCount} hitboxes",
+        heavy: "Forward Thrust - Rush {thrustDistance}px forward, {thrustDamage|mult} damage + knockback",
+        special: "Whirlwind - Spinning blades rotate around player for {whirlwindDuration}s",
+        passive: "Block Stance - 50% damage reduction when standing still",
+        baseStats: "{baseDefense|percent} Base Defense, Balanced Stats"
+    }
+};
+
 class Warrior extends PlayerBase {
     constructor(x = 400, y = 300) {
         super(x, y);
@@ -7,53 +64,55 @@ class Warrior extends PlayerBase {
         // Set class identifier
         this.playerClass = 'square';
         
-        // Load class definition
+        // Load class definition (visual properties only)
         const classDef = CLASS_DEFINITIONS.square;
         
         // Load upgrades from save system
         let upgradeBonuses = { damage: 0, defense: 0, speed: 0 };
         if (typeof SaveSystem !== 'undefined') {
             const upgrades = SaveSystem.getUpgrades('square');
-            // Calculate bonuses: damage +0.5/level, defense +0.005/level, speed +2/level
-            upgradeBonuses.damage = upgrades.damage * 0.5;
-            upgradeBonuses.defense = upgrades.defense * 0.005;
-            upgradeBonuses.speed = upgrades.speed * 2;
+            // Calculate bonuses using config values
+            upgradeBonuses.damage = upgrades.damage * WARRIOR_CONFIG.damagePerLevel;
+            upgradeBonuses.defense = upgrades.defense * WARRIOR_CONFIG.defensePerLevel;
+            upgradeBonuses.speed = upgrades.speed * WARRIOR_CONFIG.speedPerLevel;
         }
         
-        // Set base stats (class stats + upgrade bonuses)
-        this.baseDamage = classDef.damage + upgradeBonuses.damage;
-        this.baseMoveSpeed = classDef.speed + upgradeBonuses.speed;
-        this.baseDefense = classDef.defense + upgradeBonuses.defense;
-        this.maxHp = classDef.hp;
-        this.hp = classDef.hp;
-        this.critChance = classDef.critChance;
+        // Set base stats from CONFIG (single source of truth)
+        this.baseDamage = WARRIOR_CONFIG.baseDamage + upgradeBonuses.damage;
+        this.baseMoveSpeed = WARRIOR_CONFIG.baseSpeed + upgradeBonuses.speed;
+        this.baseDefense = WARRIOR_CONFIG.baseDefense + upgradeBonuses.defense;
+        this.maxHp = WARRIOR_CONFIG.baseHp;
+        this.hp = WARRIOR_CONFIG.baseHp;
+        this.baseCritChance = WARRIOR_CONFIG.critChance || 0; // Store base for updateEffectiveStats
+        this.critChance = WARRIOR_CONFIG.critChance || 0;
         this.color = classDef.color;
         this.shape = classDef.shape;
         
         // Standard single charge dodge for Warrior
+        this.baseDodgeCharges = 1; // Store base value for updateEffectiveStats
         this.dodgeCharges = 1;
         this.maxDodgeCharges = 1;
         this.dodgeChargeCooldowns = [0];
         
         // Heavy attack cooldown
-        this.heavyAttackCooldownTime = 2.5; // Warrior - forward thrust has longer cooldown
+        this.heavyAttackCooldownTime = WARRIOR_CONFIG.heavyAttackCooldown;
         
         // Block stance passive
         this.blockStanceActive = false;
         this.blockStanceTimer = 0;
-        this.blockStanceActivationTime = 0.25; // Must stand still for 0.25 seconds to activate
+        this.blockStanceActivationTime = WARRIOR_CONFIG.blockActivationTime;
         
         // Whirlwind special ability
         this.whirlwindActive = false;
         this.whirlwindElapsed = 0;
         this.whirlwindStartTime = 0; // Timestamp for smooth visual rotation
-        this.whirlwindDuration = 2.0;
+        this.whirlwindDuration = WARRIOR_CONFIG.whirlwindDuration;
         this.whirlwindHitTimer = 0;
         
         // Forward thrust heavy attack
         this.thrustActive = false;
         this.thrustElapsed = 0;
-        this.thrustDuration = 0.12; // How long the rush takes (faster)
+        this.thrustDuration = WARRIOR_CONFIG.thrustDuration;
         this.thrustStartX = 0;
         this.thrustStartY = 0;
         this.thrustTargetX = 0;
@@ -65,10 +124,43 @@ class Warrior extends PlayerBase {
         this.thrustPreviewY = 0;
         this.thrustPreviewDistance = 0;
         
+        // Class modifier storage
+        this.whirlwindDamageMultiplier = 1.0;
+        this.thrustDistanceBonus = 0;
+        this.thrustDamageMultiplier = 1.0;
+        this.blockReductionBonus = 0;
+        
         // Update effective stats
         this.updateEffectiveStats();
         
         console.log('Warrior class initialized');
+    }
+    
+    // Override to apply Warrior-specific class modifiers
+    applyClassModifier(modifier) {
+        // Call parent for universal modifiers
+        super.applyClassModifier(modifier);
+        
+        // Handle Warrior-specific modifiers
+        if (modifier.class === 'square') {
+            switch(modifier.type) {
+                case 'whirlwind_duration':
+                    this.whirlwindDuration += modifier.value;
+                    break;
+                case 'whirlwind_damage':
+                    this.whirlwindDamageMultiplier += modifier.value;
+                    break;
+                case 'thrust_distance':
+                    this.thrustDistanceBonus += modifier.value;
+                    break;
+                case 'thrust_damage':
+                    this.thrustDamageMultiplier += modifier.value;
+                    break;
+                case 'block_reduction':
+                    this.blockReductionBonus += modifier.value;
+                    break;
+            }
+        }
     }
     
     // Override to check for thrust movement
@@ -80,7 +172,7 @@ class Warrior extends PlayerBase {
     updateClassAbilities(deltaTime, input) {
         // Update block stance timer (Warrior passive)
         const velocityMagnitude = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-        if (velocityMagnitude < 10) {
+        if (velocityMagnitude < WARRIOR_CONFIG.blockMinVelocity) {
             // Standing still - increase timer
             this.blockStanceTimer += deltaTime;
             if (this.blockStanceTimer >= this.blockStanceActivationTime) {
@@ -97,10 +189,10 @@ class Warrior extends PlayerBase {
             this.whirlwindElapsed += deltaTime;
             this.whirlwindHitTimer += deltaTime;
             
-            // Deal damage every 0.2 seconds to nearby enemies
-            if (this.whirlwindHitTimer >= 0.2 && typeof Game !== 'undefined' && Game.enemies) {
-                const whirlwindDamage = this.damage * 2.0; // 2x base damage for powerful whirlwind
-                const whirlwindRadius = this.size + 90; // 90px radius from player edge
+            // Deal damage at regular intervals to nearby enemies
+            if (this.whirlwindHitTimer >= WARRIOR_CONFIG.whirlwindHitInterval && typeof Game !== 'undefined' && Game.enemies) {
+                const baseWhirlwindDamage = this.damage * WARRIOR_CONFIG.whirlwindDamage * this.whirlwindDamageMultiplier; // Apply class modifier
+                const whirlwindRadius = this.size + WARRIOR_CONFIG.whirlwindRadius;
                 
                 Game.enemies.forEach(enemy => {
                     if (enemy.alive) {
@@ -109,12 +201,19 @@ class Warrior extends PlayerBase {
                         const distance = Math.sqrt(dx * dx + dy * dy);
                         
                         if (distance < whirlwindRadius) {
+                            // Check for crit
+                            const isCrit = Math.random() < this.critChance;
+                            const critMultiplier = isCrit ? (2.0 * (this.critDamageMultiplier || 1.0)) : 1.0;
+                            const whirlwindDamage = baseWhirlwindDamage * critMultiplier;
+                            
+                            // Calculate damage dealt BEFORE applying damage
                             const damageDealt = Math.min(whirlwindDamage, enemy.hp);
+                            
                             enemy.takeDamage(whirlwindDamage);
                             
                             // Create damage number for special ability
                             if (typeof createDamageNumber !== 'undefined') {
-                                createDamageNumber(enemy.x, enemy.y, damageDealt, true);
+                                createDamageNumber(enemy.x, enemy.y, damageDealt, isCrit, false);
                             }
                         }
                     }
@@ -150,7 +249,7 @@ class Warrior extends PlayerBase {
             if (typeof Game !== 'undefined' && Game.enemies) {
                 const thrustDirX = Math.cos(this.rotation);
                 const thrustDirY = Math.sin(this.rotation);
-                const thrustDamage = this.damage * 2;
+                const baseThrustDamage = this.damage * WARRIOR_CONFIG.thrustDamage * this.thrustDamageMultiplier; // Apply class modifier
                 
                 Game.enemies.forEach(enemy => {
                     if (enemy.alive) {
@@ -171,17 +270,24 @@ class Warrior extends PlayerBase {
                             const perpDist = Math.sqrt(perpX * perpX + perpY * perpY);
                             
                             // Check if enemy is within hit radius
-                            if (perpDist < this.size + enemy.size + 15) {
+                            if (perpDist < this.size + enemy.size + WARRIOR_CONFIG.thrustHitRadius) {
+                                // Check for crit
+                                const isCrit = Math.random() < this.critChance;
+                                const critMultiplier = isCrit ? (2.0 * (this.critDamageMultiplier || 1.0)) : 1.0;
+                                const thrustDamage = baseThrustDamage * critMultiplier;
+                                
+                                // Calculate damage dealt BEFORE applying damage
                                 const damageDealt = Math.min(thrustDamage, enemy.hp);
+                                
                                 enemy.takeDamage(thrustDamage);
                                 
                                 // Create damage number for heavy attack
                                 if (typeof createDamageNumber !== 'undefined') {
-                                    createDamageNumber(enemy.x, enemy.y, damageDealt, true);
+                                    createDamageNumber(enemy.x, enemy.y, damageDealt, isCrit, false);
                                 }
                                 
                                 // Push enemy to the side (perpendicular to thrust direction)
-                                const pushForce = 100;
+                                const pushForce = WARRIOR_CONFIG.thrustKnockback;
                                 const perpXNorm = perpX / (perpDist + 0.001);
                                 const perpYNorm = perpY / (perpDist + 0.001);
                                 enemy.applyKnockback(perpXNorm * pushForce, perpYNorm * pushForce);
@@ -208,8 +314,10 @@ class Warrior extends PlayerBase {
     executeAttack(input) {
         this.meleeAttack();
         
-        // Reset cooldown and set attacking state
-        this.attackCooldown = this.attackCooldownTime;
+        // Reset cooldown and set attacking state with attack speed and weapon type
+        const weaponCooldownMult = this.weaponCooldownMultiplier || 1.0;
+        const effectiveAttackCooldown = this.attackCooldownTime * weaponCooldownMult / (1 + (this.attackSpeedMultiplier - 1));
+        this.attackCooldown = effectiveAttackCooldown;
         this.isAttacking = true;
         
         // Clear attacking state after duration
@@ -220,15 +328,14 @@ class Warrior extends PlayerBase {
     
     meleeAttack() {
         // Warrior: Sword swing with hitboxes spread out in a line
-        const hitboxRadius = 20; // Smaller radius to avoid overlap
-        const cleaveDamage = this.damage * 1.2; // 20% more damage
+        const hitboxRadius = WARRIOR_CONFIG.cleaveHitboxRadius * (this.aoeMultiplier || 1.0); // Apply AoE multiplier
+        const cleaveDamage = this.damage * WARRIOR_CONFIG.cleaveDamage;
         
-        // Create 4 hitboxes in a straight line in front of the player
-        // Spacing them out evenly with minimal overlap
-        const baseDistance = this.size + 10;
-        const spacing = 45; // Larger spacing between hitbox centers to prevent overlap
+        // Create hitboxes in a straight line in front of the player
+        const baseDistance = this.size + WARRIOR_CONFIG.cleaveBaseDistance;
+        const spacing = WARRIOR_CONFIG.cleaveSpacing;
         
-        for (let i = 0; i < 4; i++) {
+        for (let i = 0; i < WARRIOR_CONFIG.cleaveHitboxCount; i++) {
             const distance = baseDistance + (i * spacing);
             const hitboxX = this.x + Math.cos(this.rotation) * distance;
             const hitboxY = this.y + Math.sin(this.rotation) * distance;
@@ -267,7 +374,7 @@ class Warrior extends PlayerBase {
     
     createForwardThrust() {
         // Warrior forward thrust - rush forward while dealing damage along the path
-        const thrustDistance = 300; // How far forward to rush
+        const thrustDistance = WARRIOR_CONFIG.thrustDistance + this.thrustDistanceBonus; // Apply class modifier
         const thrustDirX = Math.cos(this.rotation);
         const thrustDirY = Math.sin(this.rotation);
         
@@ -305,17 +412,19 @@ class Warrior extends PlayerBase {
         this.whirlwindActive = true;
         this.whirlwindElapsed = 0;
         this.whirlwindStartTime = Date.now(); // Track start time for smooth visual rotation
-        this.specialCooldown = this.specialCooldownTime;
+        // Apply cooldown reduction
+        const effectiveSpecialCooldown = this.specialCooldownTime * (1 - this.cooldownReduction);
+        this.specialCooldown = effectiveSpecialCooldown;
         this.invulnerable = true;
-        this.invulnerabilityTime = 0.3; // 0.3s startup i-frames
+        this.invulnerabilityTime = WARRIOR_CONFIG.whirlwindInvulnTime;
         console.log('Whirlwind activated!');
     }
     
     // Override getDamageReduction for block stance
     getDamageReduction() {
-        // Block stance (Warrior passive: 50% damage reduction when standing still and active)
+        // Block stance (Warrior passive: damage reduction when standing still and active)
         if (this.blockStanceActive) {
-            return 0.5; // 50% damage reduction
+            return WARRIOR_CONFIG.blockDamageReduction + this.blockReductionBonus; // Apply class modifier
         }
         return 0;
     }
@@ -342,7 +451,7 @@ class Warrior extends PlayerBase {
         this.thrustPreviewActive = true;
         
         // Calculate thrust destination based on current rotation
-        const thrustDistance = 300; // Same as actual thrust
+        const thrustDistance = WARRIOR_CONFIG.thrustDistance;
         const thrustDirX = Math.cos(this.rotation);
         const thrustDirY = Math.sin(this.rotation);
         

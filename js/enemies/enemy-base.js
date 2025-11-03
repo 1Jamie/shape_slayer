@@ -34,7 +34,7 @@ class EnemyBase {
         this.moveSpeed = 100;
         this.color = '#ff6b6b';
         this.xpValue = 10;
-        this.lootChance = 0.3;
+        this.lootChance = 0.2;
         
         // Track last attacker for kill attribution
         this.lastAttacker = null;
@@ -51,6 +51,11 @@ class EnemyBase {
         this.threatTable = new Map(); // playerId -> [{damage, timestamp}]
         this.currentTarget = null; // Current aggro target (playerId)
         this.threatWindowDuration = 5.0; // 5 second rolling window
+        
+        // Target lock system (prevents jittering when targeting clones/decoys)
+        this.targetLock = null; // Locked target { x, y, type: 'player'|'clone'|'decoy', ref }
+        this.targetLockDuration = 1.5; // How long to maintain lock (seconds)
+        this.targetLockTimer = 0; // Time remaining on current lock
     }
     
     // Apply knockback force
@@ -80,8 +85,66 @@ class EnemyBase {
         }
     }
     
+    // Update target lock timer (should be called in update)
+    updateTargetLock(deltaTime) {
+        if (this.targetLockTimer > 0) {
+            this.targetLockTimer -= deltaTime;
+            if (this.targetLockTimer <= 0) {
+                this.targetLock = null;
+                this.targetLockTimer = 0;
+            }
+        }
+    }
+    
     // Find the target to chase (handles aggro in multiplayer, decoy/clone logic)
     findTarget(player) {
+        // Check if we have a valid target lock
+        if (this.targetLock && this.targetLockTimer > 0) {
+            // Validate that locked target still exists
+            let lockValid = false;
+            
+            if (this.targetLock.type === 'decoy') {
+                // Check if decoy is still active
+                const targetPlayer = this.targetLock.playerRef;
+                if (targetPlayer && targetPlayer.blinkDecoyActive) {
+                    this.targetLock.x = targetPlayer.blinkDecoyX;
+                    this.targetLock.y = targetPlayer.blinkDecoyY;
+                    lockValid = true;
+                }
+            } else if (this.targetLock.type === 'clone') {
+                // Check if clone still exists and has health
+                const targetPlayer = this.targetLock.playerRef;
+                const cloneIndex = this.targetLock.cloneIndex;
+                if (targetPlayer && targetPlayer.shadowClonesActive && 
+                    targetPlayer.shadowClones && targetPlayer.shadowClones[cloneIndex] &&
+                    targetPlayer.shadowClones[cloneIndex].health > 0) {
+                    const clone = targetPlayer.shadowClones[cloneIndex];
+                    this.targetLock.x = clone.x;
+                    this.targetLock.y = clone.y;
+                    lockValid = true;
+                }
+            } else if (this.targetLock.type === 'player') {
+                // Check if player is still alive
+                const targetPlayer = this.targetLock.playerRef;
+                if (targetPlayer && (targetPlayer.alive || targetPlayer.hp > 0)) {
+                    this.targetLock.x = targetPlayer.x;
+                    this.targetLock.y = targetPlayer.y;
+                    lockValid = true;
+                }
+            }
+            
+            if (lockValid) {
+                return { x: this.targetLock.x, y: this.targetLock.y };
+            } else {
+                // Lock invalid, clear it
+                this.targetLock = null;
+                this.targetLockTimer = 0;
+            }
+        }
+        
+        // No valid lock, find new target and create lock
+        let targetX, targetY, lockType, lockPlayerRef, lockCloneIndex;
+        
         // In multiplayer, use aggro system
         if (typeof Game !== 'undefined' && Game.multiplayerEnabled) {
             // Update aggro target based on threat
@@ -91,31 +154,59 @@ class EnemyBase {
             if (this.currentTarget) {
                 const targetPlayer = this.getPlayerById(this.currentTarget);
                 if (targetPlayer && (targetPlayer.alive || targetPlayer.hp > 0)) {
-                    // Check for decoys/clones on aggro target
-                    let targetX = targetPlayer.x;
-                    let targetY = targetPlayer.y;
-                    
+                    // Check for decoys/clones on aggro target (prioritize decoys/clones)
                     if (targetPlayer.blinkDecoyActive) {
                         targetX = targetPlayer.blinkDecoyX;
                         targetY = targetPlayer.blinkDecoyY;
+                        lockType = 'decoy';
+                        lockPlayerRef = targetPlayer;
                     } else if (targetPlayer.shadowClonesActive && targetPlayer.shadowClones && targetPlayer.shadowClones.length > 0) {
-                        // Target nearest shadow clone
+                        // Target nearest shadow clone and LOCK onto it
                         let nearestDist = Infinity;
                         let nearestClone = null;
+                        let nearestIndex = -1;
                         
-                        targetPlayer.shadowClones.forEach(clone => {
-                            const dist = Math.sqrt((clone.x - this.x) ** 2 + (clone.y - this.y) ** 2);
-                            if (dist < nearestDist) {
-                                nearestDist = dist;
-                                nearestClone = clone;
+                        targetPlayer.shadowClones.forEach((clone, index) => {
+                            if (clone.health > 0) {
+                                const dist = Math.sqrt((clone.x - this.x) ** 2 + (clone.y - this.y) ** 2);
+                                if (dist < nearestDist) {
+                                    nearestDist = dist;
+                                    nearestClone = clone;
+                                    nearestIndex = index;
+                                }
                             }
                         });
                         
                         if (nearestClone) {
                             targetX = nearestClone.x;
                             targetY = nearestClone.y;
+                            lockType = 'clone';
+                            lockPlayerRef = targetPlayer;
+                            lockCloneIndex = nearestIndex;
+                        } else {
+                            // No valid clones, target player
+                            targetX = targetPlayer.x;
+                            targetY = targetPlayer.y;
+                            lockType = 'player';
+                            lockPlayerRef = targetPlayer;
                         }
+                    } else {
+                        // No decoys/clones, target player
+                        targetX = targetPlayer.x;
+                        targetY = targetPlayer.y;
+                        lockType = 'player';
+                        lockPlayerRef = targetPlayer;
                     }
+                    
+                    // Create target lock
+                    this.targetLock = {
+                        x: targetX,
+                        y: targetY,
+                        type: lockType,
+                        playerRef: lockPlayerRef,
+                        cloneIndex: lockCloneIndex
+                    };
+                    this.targetLockTimer = this.targetLockDuration;
                     
                     return { x: targetX, y: targetY };
                 }
@@ -123,37 +214,78 @@ class EnemyBase {
             
             // Fallback to nearest player if no aggro target
             const nearestPlayer = this.getNearestPlayer();
-            return { x: nearestPlayer.x, y: nearestPlayer.y };
+            targetX = nearestPlayer.x;
+            targetY = nearestPlayer.y;
+            lockType = 'player';
+            lockPlayerRef = nearestPlayer;
+            
+            this.targetLock = {
+                x: targetX,
+                y: targetY,
+                type: lockType,
+                playerRef: lockPlayerRef
+            };
+            this.targetLockTimer = this.targetLockDuration;
+            
+            return { x: targetX, y: targetY };
         }
         
         // Solo mode - target local player
         if (!player || !player.alive) return { x: this.x, y: this.y };
         
-        let targetX = player.x;
-        let targetY = player.y;
-        
         // Check if player has a blink decoy or shadow clones active - target decoy/clone instead of player
         if (player.blinkDecoyActive) {
             targetX = player.blinkDecoyX;
             targetY = player.blinkDecoyY;
+            lockType = 'decoy';
+            lockPlayerRef = player;
         } else if (player.shadowClonesActive && player.shadowClones && player.shadowClones.length > 0) {
-            // Target the nearest shadow clone instead of the player
+            // Target the nearest shadow clone instead of the player and LOCK onto it
             let nearestDist = Infinity;
             let nearestClone = null;
+            let nearestIndex = -1;
             
-            player.shadowClones.forEach(clone => {
-                const dist = Math.sqrt((clone.x - this.x) ** 2 + (clone.y - this.y) ** 2);
-                if (dist < nearestDist) {
-                    nearestDist = dist;
-                    nearestClone = clone;
+            player.shadowClones.forEach((clone, index) => {
+                if (clone.health > 0) {
+                    const dist = Math.sqrt((clone.x - this.x) ** 2 + (clone.y - this.y) ** 2);
+                    if (dist < nearestDist) {
+                        nearestDist = dist;
+                        nearestClone = clone;
+                        nearestIndex = index;
+                    }
                 }
             });
             
             if (nearestClone) {
                 targetX = nearestClone.x;
                 targetY = nearestClone.y;
+                lockType = 'clone';
+                lockPlayerRef = player;
+                lockCloneIndex = nearestIndex;
+            } else {
+                // No valid clones, target player
+                targetX = player.x;
+                targetY = player.y;
+                lockType = 'player';
+                lockPlayerRef = player;
             }
+        } else {
+            // No decoys/clones, target player
+            targetX = player.x;
+            targetY = player.y;
+            lockType = 'player';
+            lockPlayerRef = player;
         }
+        
+        // Create target lock
+        this.targetLock = {
+            x: targetX,
+            y: targetY,
+            type: lockType,
+            playerRef: lockPlayerRef,
+            cloneIndex: lockCloneIndex
+        };
+        this.targetLockTimer = this.targetLockDuration;
         
         return { x: targetX, y: targetY };
     }
@@ -222,7 +354,9 @@ class EnemyBase {
         // Drop loot based on lootChance (HOST ONLY - clients get loot via game_state sync)
         if (typeof generateGear !== 'undefined' && typeof groundLoot !== 'undefined') {
             if (Math.random() < this.lootChance) {
-                const gear = generateGear(this.x, this.y);
+                const roomNum = typeof Game !== 'undefined' ? (Game.roomNumber || 1) : 1;
+                // Default to 'basic' difficulty for base class (can be overridden in subclasses)
+                const gear = generateGear(this.x, this.y, roomNum, 'basic');
                 groundLoot.push(gear);
                 console.log(`[Host] Dropped loot at (${Math.floor(this.x)}, ${Math.floor(this.y)})`);
             }

@@ -476,6 +476,12 @@ const Game = {
             }
             
             if (e.key === 'Escape') {
+                // Close character sheet first if open
+                if (typeof CharacterSheet !== 'undefined' && CharacterSheet.isOpen) {
+                    CharacterSheet.isOpen = false;
+                    return;
+                }
+                
                 // Close multiplayer menu first if visible
                 if (typeof multiplayerMenuVisible !== 'undefined' && multiplayerMenuVisible) {
                     // Just close the multiplayer submenu, keep the pause menu open
@@ -999,19 +1005,31 @@ const Game = {
             const upgrades = this.playerUpgrades.get(playerId);
             if (upgrades && upgrades[playerClass]) {
                 const classUpgrades = upgrades[playerClass];
-                const classDef = CLASS_DEFINITIONS[playerClass];
-                if (classDef) {
-                    // Calculate upgrade bonuses
+                
+                // Get the config for this class to calculate upgrade bonuses
+                let config = null;
+                if (playerClass === 'square' && typeof WARRIOR_CONFIG !== 'undefined') {
+                    config = WARRIOR_CONFIG;
+                } else if (playerClass === 'triangle' && typeof ROGUE_CONFIG !== 'undefined') {
+                    config = ROGUE_CONFIG;
+                } else if (playerClass === 'pentagon' && typeof TANK_CONFIG !== 'undefined') {
+                    config = TANK_CONFIG;
+                } else if (playerClass === 'hexagon' && typeof MAGE_CONFIG !== 'undefined') {
+                    config = MAGE_CONFIG;
+                }
+                
+                if (config) {
+                    // Calculate upgrade bonuses using config values
                     const upgradeBonuses = {
-                        damage: classUpgrades.damage * 0.5,
-                        defense: classUpgrades.defense * 0.005,
-                        speed: classUpgrades.speed * 2
+                        damage: classUpgrades.damage * config.damagePerLevel,
+                        defense: classUpgrades.defense * config.defensePerLevel,
+                        speed: classUpgrades.speed * config.speedPerLevel
                     };
                     
-                    // Apply upgrades to base stats
-                    playerInstance.baseDamage = classDef.damage + upgradeBonuses.damage;
-                    playerInstance.baseMoveSpeed = classDef.speed + upgradeBonuses.speed;
-                    playerInstance.baseDefense = classDef.defense + upgradeBonuses.defense;
+                    // Apply upgrades to base stats (config values already loaded in constructor)
+                    playerInstance.baseDamage = config.baseDamage + upgradeBonuses.damage;
+                    playerInstance.baseMoveSpeed = config.baseSpeed + upgradeBonuses.speed;
+                    playerInstance.baseDefense = config.baseDefense + upgradeBonuses.defense;
                     
                     // Recalculate effective stats
                     playerInstance.updateEffectiveStats();
@@ -1704,6 +1722,9 @@ const Game = {
             // Enemy attacks: host checks all players, client checks local
             checkEnemiesVsPlayer(this.player, this.enemies);
             
+            // Enemy collisions with clones/decoys
+            checkEnemiesVsClones(this.player, this.enemies);
+            
             // Projectiles
             this.checkProjectilesVsPlayer();
         }
@@ -1902,14 +1923,86 @@ const Game = {
     pickupGear(gear) {
         const oldGear = this.player.equipGear(gear);
         
-        // Remove gear from ground
+        // Drop old gear on the ground if it existed
+        if (oldGear) {
+            // Add small random offset to prevent exact overlap with other items
+            const offsetX = (Math.random() - 0.5) * 20;
+            const offsetY = (Math.random() - 0.5) * 20;
+            
+            // Set position to player location with offset
+            oldGear.x = this.player.x + offsetX;
+            oldGear.y = this.player.y + offsetY;
+            
+            // Clamp to game bounds to prevent gear spawning outside playable area
+            const margin = 50;
+            oldGear.x = Math.max(margin, Math.min(this.config.width - margin, oldGear.x));
+            oldGear.y = Math.max(margin, Math.min(this.config.height - margin, oldGear.y));
+            
+            // Reset pulse animation
+            oldGear.pulse = 0;
+            
+            // Add to ground loot
+            groundLoot.push(oldGear);
+            
+            console.log(`Dropped ${oldGear.name || oldGear.tier + ' ' + oldGear.slot} on ground`);
+            
+            // Multiplayer: Broadcast dropped gear to other clients
+            if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
+                multiplayerManager.send({
+                    type: 'gear_dropped',
+                    data: {
+                        playerId: multiplayerManager.playerId,
+                        gear: {
+                            id: oldGear.id,
+                            x: oldGear.x,
+                            y: oldGear.y,
+                            slot: oldGear.slot,
+                            tier: oldGear.tier,
+                            color: oldGear.color,
+                            bonus: oldGear.bonus,
+                            stats: oldGear.stats,
+                            affixes: oldGear.affixes || [],
+                            classModifier: oldGear.classModifier || null,
+                            weaponType: oldGear.weaponType || null,
+                            armorType: oldGear.armorType || null,
+                            legendaryEffect: oldGear.legendaryEffect || null,
+                            name: oldGear.name,
+                            roomNumber: oldGear.roomNumber,
+                            scaling: oldGear.scaling,
+                            pulse: 0
+                        }
+                    }
+                });
+            }
+        }
+        
+        // Remove picked up gear from ground
         const index = groundLoot.indexOf(gear);
         if (index > -1) {
             groundLoot.splice(index, 1);
         }
         
-        console.log(`Picked up ${gear.tier} ${gear.slot}`);
-        console.log(`New stats - Damage: ${this.player.damage.toFixed(1)}, Defense: ${this.player.defense.toFixed(1)}, Speed: ${this.player.moveSpeed.toFixed(1)}`);
+        console.log(`Picked up ${gear.name || gear.tier + ' ' + gear.slot}`);
+        if (gear.weaponType) console.log(`  Weapon Type: ${gear.weaponType}`);
+        if (gear.armorType) console.log(`  Armor Type: ${gear.armorType}`);
+        if (gear.affixes && gear.affixes.length > 0) {
+            console.log(`  Affixes (${gear.affixes.length}):`);
+            gear.affixes.forEach(affix => {
+                const isIntegerAffix = ['dodgeCharges', 'maxHealth', 'pierce', 'chainLightning', 'multishot'].includes(affix.type);
+                const val = isIntegerAffix
+                    ? `+${affix.value.toFixed(0)}` 
+                    : `+${(affix.value * 100).toFixed(0)}%`;
+                const tierBadge = affix.tier ? `[${affix.tier.toUpperCase()}]` : '';
+                console.log(`    - ${tierBadge} ${affix.type}: ${val}`);
+            });
+        }
+        if (gear.classModifier) {
+            console.log(`  Class Modifier [${gear.classModifier.class}]: ${gear.classModifier.description}`);
+        }
+        if (gear.legendaryEffect) {
+            console.log(`  LEGENDARY: ${gear.legendaryEffect.description}`);
+        }
+        console.log(`New stats - Damage: ${this.player.damage.toFixed(1)}, Defense: ${(this.player.defense * 100).toFixed(1)}%, Speed: ${this.player.moveSpeed.toFixed(1)}`);
         
         // Multiplayer: Notify all players of loot pickup so it's removed everywhere
         // Send full gear object so host can equip it on remote player instance
@@ -1925,7 +2018,13 @@ const Game = {
                         tier: gear.tier,
                         color: gear.color,
                         bonus: gear.bonus,
-                        stats: gear.stats
+                        stats: gear.stats,
+                        affixes: gear.affixes || [],  // NEW: Affix system
+                        classModifier: gear.classModifier || null, // NEW: Class modifiers
+                        weaponType: gear.weaponType || null, // NEW: Weapon types
+                        armorType: gear.armorType || null,   // NEW: Armor types
+                        legendaryEffect: gear.legendaryEffect || null, // NEW: Legendary effects
+                        name: gear.name               // NEW: Gear names
                     }
                 }
             });
@@ -2001,6 +2100,9 @@ const Game = {
         // Reset door waiting state
         this.playersOnDoor = [];
         this.totalAlivePlayers = 0;
+        
+        // Phoenix down is now charge-based, no need to reset per room
+        // Charges persist across rooms and are recharged by dealing damage
         
         // Multiplayer: Revive dead players at 50% HP
         if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
@@ -2912,8 +3014,28 @@ const Game = {
                 (this.isHost() || !this.multiplayerEnabled)) {
                 let hitEnemy = false;
                 
+                // Get projectile owner ID and shooter player ONCE (outside enemy loop)
+                let projectileOwnerId = null;
+                if (projectile.playerId) {
+                    projectileOwnerId = projectile.playerId;
+                } else {
+                    projectileOwnerId = this.getLocalPlayerId ? this.getLocalPlayerId() : null;
+                }
+                
+                let shooterPlayer = null;
+                if (projectileOwnerId === (this.getLocalPlayerId ? this.getLocalPlayerId() : 'local')) {
+                    shooterPlayer = this.player;
+                } else if (this.remotePlayerInstances && this.remotePlayerInstances.has(projectileOwnerId)) {
+                    shooterPlayer = this.remotePlayerInstances.get(projectileOwnerId);
+                }
+                
                 this.enemies.forEach(enemy => {
                     if (!enemy.alive) return;
+                    
+                    // Skip if this projectile already hit this enemy (for pierce)
+                    if (projectile.hitEnemies && projectile.hitEnemies.has(enemy)) {
+                        return;
+                    }
                     
                     if (checkCircleCollision(
                         projectile.x, projectile.y, projectile.size,
@@ -2972,20 +3094,19 @@ const Game = {
                             }
                         }
                         
-                        // Get projectile owner ID for tracking
-                        // For multiplayer, determine which player shot this projectile
-                        let projectileOwnerId = null;
-                        if (projectile.playerId) {
-                            projectileOwnerId = projectile.playerId;
-                        } else {
-                            projectileOwnerId = this.getLocalPlayerId ? this.getLocalPlayerId() : null;
+                        // Apply crit multiplier if applicable (shooterPlayer already defined above)
+                        let isCrit = false;
+                        if (shooterPlayer && shooterPlayer.critChance && Math.random() < shooterPlayer.critChance) {
+                            const critMultiplier = 2.0 * (shooterPlayer.critDamageMultiplier || 1.0);
+                            finalDamage *= critMultiplier;
+                            isCrit = true;
                         }
+                        
+                        // Calculate damage dealt BEFORE applying damage (so enemy.hp is still valid)
+                        const damageDealt = Math.min(finalDamage, enemy.hp);
                         
                         // HOST ONLY: Apply damage (clients don't run this code path)
                         enemy.takeDamage(finalDamage, projectileOwnerId);
-                        
-                        // Track damage dealt in player stats
-                        const damageDealt = Math.min(finalDamage, enemy.hp);
                         if (this.getPlayerStats && projectileOwnerId) {
                             const stats = this.getPlayerStats(projectileOwnerId);
                             if (stats) {
@@ -2995,16 +3116,38 @@ const Game = {
                         
                         // Damage numbers for player projectiles (rogue knives, mage bolts)
                         if (typeof createDamageNumber !== 'undefined') {
-                            const isHeavy = false;
-                            createDamageNumber(enemy.x, enemy.y, Math.floor(damageDealt), isHeavy);
+                            createDamageNumber(enemy.x, enemy.y, Math.floor(damageDealt), isCrit, false);
                         }
+                        
+                        // Track pierce hits
+                        if (!projectile.hitEnemies) {
+                            projectile.hitEnemies = new Set();
+                        }
+                        projectile.hitEnemies.add(enemy);
+                        
                         hitEnemy = true;
                     }
                 });
                 
-                // Remove projectile if it hit an enemy
+                // Pierce mechanics: Remove projectile only if pierce limit reached
                 if (hitEnemy) {
-                    projectilesToRemove.push(index);
+                    // Get pierce count from shooter
+                    let pierceCount = 0;
+                    if (shooterPlayer && shooterPlayer.pierceCount) {
+                        pierceCount = shooterPlayer.pierceCount;
+                    }
+                    
+                    // Check if projectile has pierced too many enemies
+                    const enemiesPierced = projectile.hitEnemies ? projectile.hitEnemies.size : 0;
+                    if (enemiesPierced > pierceCount) {
+                        // Pierce limit reached, remove projectile
+                        projectilesToRemove.push(index);
+                    } else {
+                        // Still has pierce charges, reduce damage for next hit
+                        // 25% damage reduction per pierce
+                        const damageReduction = 0.25 * enemiesPierced;
+                        projectile.damage = projectile.damage * (1 - damageReduction);
+                    }
                 }
             } else {
                 // Enemy projectiles - check all players (host only) or just local player (client/solo)

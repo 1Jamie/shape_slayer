@@ -156,3 +156,8 @@ PORT=4000 npm start
 - **Lobby not found**: Lobby codes are case-sensitive and expire after 1 hour
 
 
+
+
+
+
+

@@ -1,38 +1,82 @@
 // Octagon enemy - elite type
 
+// ============================================================================
+// OCTAGON ENEMY CONFIGURATION - Adjust these values for game balancing
+// ============================================================================
+
+const OCTAGON_CONFIG = {
+    // Base Stats
+    size: 22,                      // Enemy size (pixels)
+    maxHp: 110,                    // Maximum health points
+    damage: 12,                    // Damage per hit
+    moveSpeed: 110,                // Movement speed (pixels/second)
+    xpValue: 50,                   // XP awarded when killed
+    lootChance: 0.4,               // Chance to drop loot (0.4 = 40%)
+    
+    // Attack Behavior
+    attackCooldown: 3.0,           // Time between melee attacks (seconds)
+    shootCooldown: 1.5,            // Time between projectile attacks (seconds)
+    spinDuration: 1.0,             // Duration of spin attack (seconds)
+    chargeDuration: 0.5,           // Duration of charge attack (seconds)
+    attackRange: 75,               // Distance to initiate melee attack (pixels)
+    postAttackPause: 0.3,          // Pause after attacks (seconds)
+    
+    // Minion Summoning
+    minionSummonCooldown: 5.0,     // Time between summons (seconds)
+    minionMinCount: 2,             // Minimum minions to summon
+    minionMaxCount: 3,             // Maximum minions to summon
+    minionSpawnDistance: 60,       // Base spawn distance from octagon (pixels)
+    minionSpawnVariance: 40,       // Random variance in spawn distance (pixels)
+    minionHealthMultiplier: 0.2,   // Minion health as % of basic enemy (0.2 = 20%)
+    minionDamageMultiplier: 0.5,   // Minion damage as % of basic enemy (0.5 = 50%)
+    minionXpMultiplier: 0.5,       // Minion XP as % of basic enemy (0.5 = 50%)
+    
+    // Projectile Attack
+    projectileCount: 3,            // Number of projectiles per volley
+    projectileSpeed: 250,          // Speed of projectiles (pixels/second)
+    projectileSize: 6,             // Size of projectiles (pixels)
+    projectileLifetime: 2.0,       // How long projectiles live (seconds)
+    projectileSpread: 0.2,         // Spread angle between projectiles (radians)
+    projectileDamageMultiplier: 0.7, // Damage multiplier for projectiles
+    
+    // Movement Behavior
+    separationRadius: 50,          // Minimum distance from other enemies (pixels)
+    separationStrength: 120,       // Force strength for separation (pixels)
+};
+
 class OctagonEnemy extends EnemyBase {
     constructor(x, y) {
         super(x, y);
         
-        // Stats
-        this.size = 22;
-        this.maxHp = 110;
-        this.hp = 110;
-        this.damage = 12;
-        this.moveSpeed = 110;
-        this.baseMoveSpeed = 110; // Store for stun system
+        // Stats (from config)
+        this.size = OCTAGON_CONFIG.size;
+        this.maxHp = OCTAGON_CONFIG.maxHp;
+        this.hp = OCTAGON_CONFIG.maxHp;
+        this.damage = OCTAGON_CONFIG.damage;
+        this.moveSpeed = OCTAGON_CONFIG.moveSpeed;
+        this.baseMoveSpeed = OCTAGON_CONFIG.moveSpeed; // Store for stun system
         
         // Properties
         this.color = '#ffd700'; // Gold
         this.shape = 'octagon';
-        this.xpValue = 50;
-        this.lootChance = 0.6;
+        this.xpValue = OCTAGON_CONFIG.xpValue;
+        this.lootChance = OCTAGON_CONFIG.lootChance;
         
         // Attack system
         this.state = 'chase'; // 'chase', 'spin', 'charge', 'shoot'
         this.attackCooldown = 0;
-        this.attackCooldownTime = 3.0;
-        this.spinDuration = 1.0;
+        this.attackCooldownTime = OCTAGON_CONFIG.attackCooldown;
+        this.spinDuration = OCTAGON_CONFIG.spinDuration;
         this.spinElapsed = 0;
-        this.chargeDuration = 0.5;
+        this.chargeDuration = OCTAGON_CONFIG.chargeDuration;
         this.chargeElapsed = 0;
         this.shootCooldown = 0;
-        this.shootCooldownTime = 1.5;
-        this.minionSummonCooldown = 5.0;
+        this.shootCooldownTime = OCTAGON_CONFIG.shootCooldown;
+        this.minionSummonCooldown = OCTAGON_CONFIG.minionSummonCooldown;
         this.minionSummonElapsed = 0;
-        this.attackRange = 75;
+        this.attackRange = OCTAGON_CONFIG.attackRange;
         this.postAttackPause = 0; // Brief pause after attacks
-        this.postAttackPauseTime = 0.3;
+        this.postAttackPauseTime = OCTAGON_CONFIG.postAttackPause;
     }
     
     update(deltaTime, player) {
@@ -40,6 +84,9 @@ class OctagonEnemy extends EnemyBase {
         
         // Process stun first
         this.processStun(deltaTime);
+        
+        // Update target lock timer
+        this.updateTargetLock(deltaTime);
         
         // Apply stun slow factor to movement speed
         if (this.stunned) {
@@ -85,7 +132,7 @@ class OctagonEnemy extends EnemyBase {
             // Skip decision making during post-attack pause
             if (this.postAttackPause > 0) {
                 // Just move with separation during pause
-                const separation = this.getSeparationForce(enemies, 50, 120);
+                const separation = this.getSeparationForce(enemies, OCTAGON_CONFIG.separationRadius, OCTAGON_CONFIG.separationStrength);
                 const dirX = dx / distance;
                 const dirY = dy / distance;
                 
@@ -183,7 +230,7 @@ class OctagonEnemy extends EnemyBase {
             }
             
             // Normal chase with separation
-            const separation = this.getSeparationForce(enemies, 50, 120);
+            const separation = this.getSeparationForce(enemies, OCTAGON_CONFIG.separationRadius, OCTAGON_CONFIG.separationStrength);
             const dirX = dx / distance;
             const dirY = dy / distance;
             
@@ -271,24 +318,61 @@ class OctagonEnemy extends EnemyBase {
         this.keepInBounds();
     }
     
+    // Override die() to use octagon (elite) difficulty for loot
+    die() {
+        this.alive = false;
+        
+        // Only run death effects on host or in solo mode (clients receive loot via game_state)
+        if (typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient()) {
+            // Client: Don't run death logic (host handles it)
+            return;
+        }
+        
+        // Track kill for the last attacker
+        if (this.lastAttacker && typeof Game !== 'undefined' && Game.getPlayerStats) {
+            const stats = Game.getPlayerStats(this.lastAttacker);
+            stats.addStat('kills', 1);
+        }
+        
+        // Emit particles on death
+        if (typeof createParticleBurst !== 'undefined') {
+            createParticleBurst(this.x, this.y, this.color, 12);
+        }
+        
+        // Give player XP when enemy dies
+        if (typeof Game !== 'undefined' && Game.player && !Game.player.dead) {
+            Game.player.addXP(this.xpValue);
+        }
+        
+        // Drop loot based on lootChance (HOST ONLY - clients get loot via game_state sync)
+        if (typeof generateGear !== 'undefined' && typeof groundLoot !== 'undefined') {
+            if (Math.random() < this.lootChance) {
+                const roomNum = typeof Game !== 'undefined' ? (Game.roomNumber || 1) : 1;
+                const gear = generateGear(this.x, this.y, roomNum, 'octagon');
+                groundLoot.push(gear);
+                console.log(`[Host] Dropped loot at (${Math.floor(this.x)}, ${Math.floor(this.y)})`);
+            }
+        }
+    }
+    
     summonMinions() {
         if (typeof Game === 'undefined') return;
         
-        // Summon 2-3 minions
-        const count = 2 + Math.floor(Math.random() * 2);
+        // Summon minions (config-based count)
+        const count = OCTAGON_CONFIG.minionMinCount + Math.floor(Math.random() * (OCTAGON_CONFIG.minionMaxCount - OCTAGON_CONFIG.minionMinCount + 1));
         
         for (let i = 0; i < count; i++) {
             const angle = (Math.PI * 2 / count) * i;
-            const distance = 60 + Math.random() * 40;
+            const distance = OCTAGON_CONFIG.minionSpawnDistance + Math.random() * OCTAGON_CONFIG.minionSpawnVariance;
             
             const minionX = this.x + Math.cos(angle) * distance;
             const minionY = this.y + Math.sin(angle) * distance;
             
             const minion = new Enemy(minionX, minionY);
-            minion.maxHp = Math.floor(minion.maxHp * 0.2); // 20% HP
+            minion.maxHp = Math.floor(minion.maxHp * OCTAGON_CONFIG.minionHealthMultiplier);
             minion.hp = minion.maxHp;
-            minion.damage = Math.floor(minion.damage * 0.5); // 50% damage
-            minion.xpValue = Math.floor(minion.xpValue * 0.5); // 50% XP
+            minion.damage = Math.floor(minion.damage * OCTAGON_CONFIG.minionDamageMultiplier);
+            minion.xpValue = Math.floor(minion.xpValue * OCTAGON_CONFIG.minionXpMultiplier);
             minion.lootChance = 0.0; // No loot from minions
             
             if (typeof currentRoom !== 'undefined' && currentRoom) {
@@ -309,19 +393,19 @@ class OctagonEnemy extends EnemyBase {
         
         if (distance <= 0) return;
         
-        // Shoot 3 projectiles in quick succession
-        for (let i = 0; i < 3; i++) {
-            const offsetAngle = (i - 1) * 0.2; // Spread projectiles
+        // Shoot multiple projectiles in quick succession
+        for (let i = 0; i < OCTAGON_CONFIG.projectileCount; i++) {
+            const offsetAngle = (i - 1) * OCTAGON_CONFIG.projectileSpread;
             const angle = Math.atan2(dy, dx) + offsetAngle;
             
             Game.projectiles.push({
                 x: this.x,
                 y: this.y,
-                vx: Math.cos(angle) * 250,
-                vy: Math.sin(angle) * 250,
-                damage: this.damage * 0.7,
-                size: 6,
-                lifetime: 2.0,
+                vx: Math.cos(angle) * OCTAGON_CONFIG.projectileSpeed,
+                vy: Math.sin(angle) * OCTAGON_CONFIG.projectileSpeed,
+                damage: this.damage * OCTAGON_CONFIG.projectileDamageMultiplier,
+                size: OCTAGON_CONFIG.projectileSize,
+                lifetime: OCTAGON_CONFIG.projectileLifetime,
                 elapsed: i * 0.1 // Stagger shots
             });
         }

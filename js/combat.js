@@ -1,17 +1,16 @@
-// Combat system - collision detection and damage calculations
+// Combat system - damage calculation and combat checks
 
-// Check collision between two circles
+// Circle collision detection helper
 function checkCircleCollision(x1, y1, r1, x2, y2, r2) {
     const dx = x2 - x1;
     const dy = y2 - y1;
     const distance = Math.sqrt(dx * dx + dy * dy);
-    return distance < (r1 + r2);
+    return distance < r1 + r2;
 }
 
-// Calculate damage with modifiers
+// Calculate final damage with all modifiers
 function calculateDamage(baseDamage, gearMultiplier = 1, defense = 0, critMultiplier = 1) {
-    const damage = baseDamage * gearMultiplier;
-    const mitigatedDamage = damage * (1 - defense);
+    const mitigatedDamage = baseDamage * gearMultiplier * (1 - defense);
     return mitigatedDamage * critMultiplier;
 }
 
@@ -60,10 +59,33 @@ function checkAttacksVsEnemies(player, enemies) {
                     }
                 }
                 
-                // Calculate final damage with backstab multiplier
-                let finalDamage = hitbox.damage;
+                // Apply crit multiplier if applicable
+                let critMultiplier = 1.0;
+                if (hitbox.crit || (player.critChance && Math.random() < player.critChance)) {
+                    critMultiplier = 2.0 * (player.critDamageMultiplier || 1.0); // Use affix crit damage
+                    hitbox.displayCrit = true;
+                }
+                
+                // Calculate final damage with backstab and crit multipliers
+                let finalDamage = hitbox.damage * critMultiplier;
                 if (isBackstab) {
-                    finalDamage *= 2; // 2x damage for backstab
+                    const backstabMultiplier = 2 + (player.backstabMultiplierBonus || 0); // Apply class modifier
+                    finalDamage *= backstabMultiplier;
+                }
+                
+                // Execute bonus: extra damage to low HP enemies
+                if (player.executeBonus && player.executeBonus > 0) {
+                    const hpPercent = enemy.hp / (enemy.maxHp || enemy.hp);
+                    if (hpPercent < 0.3) {
+                        finalDamage *= (1 + player.executeBonus);
+                        hitbox.displayExecute = true;
+                    }
+                }
+                
+                // Rampage bonus: apply stacking damage
+                if (player.rampageStacks && player.rampageStacks > 0 && player.rampageBonus) {
+                    const rampageMultiplier = 1 + (player.rampageStacks * player.rampageBonus);
+                    finalDamage *= rampageMultiplier;
                 }
                 
                 // Get attacker ID for aggro system
@@ -72,6 +94,13 @@ function checkAttacksVsEnemies(player, enemies) {
                 // Only apply damage if we're the host or in solo mode
                 // Clients send damage events and wait for host's authoritative response
                 const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+                
+                // Calculate actual damage dealt BEFORE applying damage (accounting for weak point multiplier)
+                let damageDealt = hitWeakPoint ? finalDamage * 3 : finalDamage;
+                // Don't cap by enemy.hp on clients since they don't have authoritative HP
+                if (!isClient) {
+                    damageDealt = Math.min(damageDealt, enemy.hp);
+                }
                 
                 if (!isClient) {
                     // Host or solo: Apply damage locally
@@ -92,8 +121,8 @@ function checkAttacksVsEnemies(player, enemies) {
                     const knockbackDist = Math.sqrt(knockbackDx * knockbackDx + knockbackDy * knockbackDy);
                     
                     if (knockbackDist > 0) {
-                        // Moderate knockback force (120-150)
-                        const knockbackForce = 135;
+                        // Moderate knockback force (120-150) with player's knockback multiplier
+                        const knockbackForce = 135 * (player.knockbackMultiplier || 1.0);
                         const knockbackX = (knockbackDx / knockbackDist) * knockbackForce;
                         const knockbackY = (knockbackDy / knockbackDist) * knockbackForce;
                         enemy.applyKnockback(knockbackX, knockbackY);
@@ -102,25 +131,81 @@ function checkAttacksVsEnemies(player, enemies) {
                     // Apply light stun (0.5-0.8 seconds)
                     const stunDuration = 0.65;
                     enemy.applyStun(stunDuration);
+                }
+                
+                // Track damage stats (host/solo only for consistency)
+                if (!isClient) {
+                    if (typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
+                        const stats = Game.getPlayerStats(attackerId);
+                        if (stats) {
+                            stats.addStat('damageDealt', damageDealt);
+                        }
+                    }
                     
-                    // Trigger screen shake on hammer hit
-                    if (typeof Game !== 'undefined') {
-                        Game.triggerScreenShake(0.25, 0.1);
+                    // Track damage toward XP (on kill)
+                    if (enemy.hp <= 0) {
+                        const stats = typeof Game !== 'undefined' && Game.getPlayerStats ? Game.getPlayerStats(attackerId) : null;
+                        if (stats) {
+                            stats.addStat('kills', 1);
+                        }
+                    }
+                    
+                    // Phoenix Down recharge: track damage toward next charge
+                    if (player.hasPhoenixDown && player.phoenixDownCharges < 1) {
+                        player.phoenixDownDamageProgress += damageDealt;
+                        if (player.phoenixDownDamageProgress >= player.phoenixDownDamageThreshold) {
+                            player.phoenixDownCharges = 1;
+                            player.phoenixDownDamageProgress = 0;
+                            console.log('Phoenix Down recharged!');
+                            // Visual effect for recharge
+                            if (typeof createParticleBurst !== 'undefined') {
+                                createParticleBurst(player.x, player.y, '#ffaa00', 15);
+                            }
+                        }
                     }
                 }
                 
-                // Calculate actual damage dealt (accounting for weak point and backstab multipliers)
-                let damageDealt = hitWeakPoint ? finalDamage * 3 : finalDamage;
-                // Don't cap by enemy.hp on clients since they don't have authoritative HP
-                if (!isClient) {
-                    damageDealt = Math.min(damageDealt, enemy.hp);
+                // Apply lifesteal if player has it (host/solo only for consistency)
+                if (!isClient && player.lifesteal && player.lifesteal > 0) {
+                    const healAmount = damageDealt * player.lifesteal;
+                    player.hp = Math.min(player.hp + healAmount, player.maxHp);
                 }
                 
-                // Track damage dealt in player stats (host only, updated from authoritative damage)
-                if (!isClient && typeof Game !== 'undefined' && Game.getPlayerStats && Game.getLocalPlayerId) {
-                    const playerId = Game.getLocalPlayerId();
-                    const stats = Game.getPlayerStats(playerId);
-                    stats.addStat('damageDealt', damageDealt);
+                // Fortify: Convert damage to shield (host/solo only)
+                if (!isClient && player.fortifyPercent && player.fortifyPercent > 0) {
+                    const shieldGain = damageDealt * player.fortifyPercent;
+                    player.fortifyShield = (player.fortifyShield || 0) + shieldGain;
+                    player.fortifyShieldDecay = 0.1; // Reset decay timer
+                }
+                
+                // Rampage: Gain stack on kill (host/solo only)
+                if (!isClient && player.rampageBonus && player.rampageBonus > 0 && enemy.hp <= 0) {
+                    const maxStacks = 5;
+                    if (player.rampageStacks < maxStacks) {
+                        player.rampageStacks++;
+                        player.rampageStackDecay = 5.0; // 5 seconds until decay
+                    }
+                }
+                
+                // Chain Lightning affix (host/solo only)
+                if (!isClient && player.chainLightningCount && player.chainLightningCount > 0 && !hitbox.hasChainedAffix) {
+                    chainLightningAffix(player, enemy, player.chainLightningCount, hitbox.damage * 0.5, enemies);
+                    hitbox.hasChainedAffix = true;
+                }
+                
+                // Explosive Attacks: Chance to create AoE (host/solo only)
+                if (!isClient && player.explosiveChance && player.explosiveChance > 0 && Math.random() < player.explosiveChance) {
+                    createExplosion(enemy.x, enemy.y, 40, hitbox.damage * 0.5, player, enemies);
+                }
+                
+                // Check for chain lightning legendary effect (host/solo only)
+                if (!isClient && player.activeLegendaryEffects && !hitbox.hasChained) {
+                    player.activeLegendaryEffects.forEach(effect => {
+                        if (effect.type === 'chain_lightning') {
+                            chainLightningAttack(player, enemy, effect, hitbox.damage);
+                            hitbox.hasChained = true;
+                        }
+                    });
                 }
                 
                 // Multiplayer: Send damage event to host (clients send for host to process)
@@ -132,10 +217,10 @@ function checkAttacksVsEnemies(player, enemies) {
                     }
                 }
                 
-                // Create damage number (show different color for weak point hits and backstab)
+                // Create damage number (show different color for weak point hits and crits)
                 // Show on both clients (for feedback) and host (for accuracy)
                 if (typeof createDamageNumber !== 'undefined') {
-                    const isHeavyAttack = hitbox.heavy || false;
+                    const isCrit = hitbox.displayCrit || false;
                     // Position damage number at weak point if hit, otherwise at enemy center
                     let damageX = enemy.x;
                     let damageY = enemy.y;
@@ -146,7 +231,7 @@ function checkAttacksVsEnemies(player, enemies) {
                     }
                     // Show damage (estimated on clients, accurate on host)
                     const displayDamage = isClient ? Math.floor(damageDealt) : damageDealt;
-                    createDamageNumber(damageX, damageY, displayDamage, isHeavyAttack, hitWeakPoint);
+                    createDamageNumber(damageX, damageY, displayDamage, isCrit, hitWeakPoint);
                 }
                 
                 // Track that we hit this enemy so we don't hit it again with this hitbox
@@ -160,16 +245,18 @@ function checkAttacksVsEnemies(player, enemies) {
 function checkEnemiesVsPlayer(player, enemies) {
     // Only run on host in multiplayer (host simulates all collisions)
     if (typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient()) {
-        return; // Clients don't check enemy collisions, host does
+        return;
     }
     
-    // Get all players to check
     const playersToCheck = [];
     
-    // Add local player
+    // Add local player if alive and not invulnerable
     if (player && player.alive && !player.invulnerable) {
+        // Get local player ID for consistent identification
+        const localPlayerId = typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local';
+        
         playersToCheck.push({
-            id: Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local',
+            id: localPlayerId,
             player: player,
             isPlayerInstance: true
         });
@@ -200,8 +287,8 @@ function checkEnemiesVsPlayer(player, enemies) {
                 
                 // Distinguish between local and remote players
                 if (id === localPlayerId) {
-                    // Local player: call takeDamage directly
-                    p.takeDamage(enemy.damage);
+                    // Local player: call takeDamage directly (pass enemy for thorns)
+                    p.takeDamage(enemy.damage, enemy);
                 } else {
                     // Remote player: use damageRemotePlayer to properly track death with correct player ID
                     if (typeof Game !== 'undefined' && Game.damageRemotePlayer) {
@@ -218,3 +305,204 @@ function checkEnemiesVsPlayer(player, enemies) {
     });
 }
 
+// Check enemies vs clones/decoys (shadow clones and blink decoys)
+function checkEnemiesVsClones(player, enemies) {
+    // Only run on host in multiplayer (host simulates all collisions)
+    if (typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient()) {
+        return; // Clients don't check enemy collisions, host does
+    }
+    
+    if (!enemies || enemies.length === 0) return;
+    
+    // Get all players to check their clones
+    const playersToCheck = [];
+    
+    // Add local player
+    if (player && player.alive) {
+        playersToCheck.push(player);
+    }
+    
+    // Add remote player INSTANCES (host simulates these)
+    if (typeof Game !== 'undefined' && Game.remotePlayerInstances) {
+        Game.remotePlayerInstances.forEach((playerInstance, playerId) => {
+            if (playerInstance && playerInstance.alive) {
+                playersToCheck.push(playerInstance);
+            }
+        });
+    }
+    
+    // Initialize damage cooldown tracking if not exists
+    if (!checkEnemiesVsClones.damageCooldowns) {
+        checkEnemiesVsClones.damageCooldowns = new Map();
+    }
+    
+    const currentTime = Date.now();
+    const damageCooldownMs = 500; // 0.5 second cooldown between damage ticks
+    
+    playersToCheck.forEach(p => {
+        // Check shadow clones (Rogue)
+        if (p.shadowClonesActive && p.shadowClones && p.shadowClones.length > 0) {
+            p.shadowClones.forEach((clone, cloneIndex) => {
+                if (clone.health > 0) {
+                    enemies.forEach(enemy => {
+                        if (!enemy.alive) return;
+                        
+                        // Check collision
+                        if (checkCircleCollision(enemy.x, enemy.y, enemy.size, 
+                                                clone.x, clone.y, p.size || 20)) {
+                            // Create unique key for this enemy-clone pair
+                            const cooldownKey = `${enemy.id}-clone-${cloneIndex}`;
+                            const lastDamageTime = checkEnemiesVsClones.damageCooldowns.get(cooldownKey) || 0;
+                            
+                            // Only apply damage if cooldown has passed
+                            if (currentTime - lastDamageTime >= damageCooldownMs) {
+                                // Clone takes damage from enemy
+                                const damageAmount = enemy.damage || 5;
+                                clone.health -= damageAmount;
+                                
+                                // Update cooldown
+                                checkEnemiesVsClones.damageCooldowns.set(cooldownKey, currentTime);
+                                
+                                // Create damage number if available
+                                if (typeof createDamageNumber !== 'undefined') {
+                                    createDamageNumber(clone.x, clone.y, damageAmount, false, false);
+                                }
+                                
+                                // Visual feedback: particles
+                                if (typeof createParticleBurst !== 'undefined') {
+                                    createParticleBurst(clone.x, clone.y, '#666666', 4);
+                                }
+                            }
+                        }
+                    });
+                }
+            });
+        }
+        
+        // Check blink decoy (Mage)
+        if (p.blinkDecoyActive && p.blinkDecoyHealth !== undefined) {
+            enemies.forEach(enemy => {
+                if (!enemy.alive) return;
+                
+                // Check collision
+                if (checkCircleCollision(enemy.x, enemy.y, enemy.size, 
+                                        p.blinkDecoyX, p.blinkDecoyY, p.size || 20)) {
+                    // Create unique key for this enemy-decoy pair
+                    const cooldownKey = `${enemy.id}-decoy`;
+                    const lastDamageTime = checkEnemiesVsClones.damageCooldowns.get(cooldownKey) || 0;
+                    
+                    // Only apply damage if cooldown has passed
+                    if (currentTime - lastDamageTime >= damageCooldownMs) {
+                        // Decoy takes damage from enemy
+                        const damageAmount = enemy.damage || 5;
+                        p.blinkDecoyHealth -= damageAmount;
+                        
+                        // Update cooldown
+                        checkEnemiesVsClones.damageCooldowns.set(cooldownKey, currentTime);
+                        
+                        // Create damage number if available
+                        if (typeof createDamageNumber !== 'undefined') {
+                            createDamageNumber(p.blinkDecoyX, p.blinkDecoyY, damageAmount, false, false);
+                        }
+                        
+                        // Visual feedback: particles
+                        if (typeof createParticleBurst !== 'undefined') {
+                            createParticleBurst(p.blinkDecoyX, p.blinkDecoyY, '#96c8ff', 4);
+                        }
+                        
+                        // Deactivate decoy if health depleted
+                        if (p.blinkDecoyHealth <= 0) {
+                            p.blinkDecoyActive = false;
+                            p.blinkDecoyHealth = 0;
+                        }
+                    }
+                }
+            });
+        }
+    });
+    
+    // Clean up old cooldown entries (older than 5 seconds)
+    const cleanupThreshold = currentTime - 5000;
+    for (const [key, time] of checkEnemiesVsClones.damageCooldowns.entries()) {
+        if (time < cleanupThreshold) {
+            checkEnemiesVsClones.damageCooldowns.delete(key);
+        }
+    }
+}
+
+// Chain Lightning affix - chains to nearby enemies
+function chainLightningAffix(player, sourceEnemy, chainCount, damage, enemies) {
+    if (!enemies || enemies.length === 0) return;
+    
+    const chainRange = 150;
+    const hitEnemies = new Set([sourceEnemy]);
+    let currentTarget = sourceEnemy;
+    
+    for (let i = 0; i < chainCount; i++) {
+        // Find nearest enemy within range that hasn't been hit
+        let nearestEnemy = null;
+        let nearestDist = chainRange;
+        
+        enemies.forEach(enemy => {
+            if (!enemy.alive || hitEnemies.has(enemy)) return;
+            
+            const dx = enemy.x - currentTarget.x;
+            const dy = enemy.y - currentTarget.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            if (dist < nearestDist) {
+                nearestDist = dist;
+                nearestEnemy = enemy;
+            }
+        });
+        
+        if (nearestEnemy) {
+            // Apply reduced damage
+            const chainDamage = damage * Math.pow(0.7, i + 1); // 70% per chain
+            nearestEnemy.takeDamage(chainDamage);
+            hitEnemies.add(nearestEnemy);
+            
+            // Create visual arc
+            if (typeof createLightningArc !== 'undefined') {
+                createLightningArc(currentTarget.x, currentTarget.y, nearestEnemy.x, nearestEnemy.y);
+            }
+            
+            // Damage number
+            if (typeof createDamageNumber !== 'undefined') {
+                createDamageNumber(nearestEnemy.x, nearestEnemy.y, Math.floor(chainDamage), false, false);
+            }
+            
+            currentTarget = nearestEnemy;
+        } else {
+            break; // No more enemies in range
+        }
+    }
+}
+
+// Create explosion AoE from explosive attacks affix
+function createExplosion(x, y, radius, damage, player, enemies) {
+    if (!enemies || enemies.length === 0) return;
+    
+    // Visual effect
+    if (typeof createParticleBurst !== 'undefined') {
+        createParticleBurst(x, y, '#ff9900', 12);
+    }
+    
+    // Damage all enemies in radius
+    enemies.forEach(enemy => {
+        if (!enemy.alive) return;
+        
+        const dx = enemy.x - x;
+        const dy = enemy.y - y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        
+        if (dist < radius + enemy.size) {
+            enemy.takeDamage(damage);
+            
+            // Damage number
+            if (typeof createDamageNumber !== 'undefined') {
+                createDamageNumber(enemy.x, enemy.y, Math.floor(damage), false, false);
+            }
+        }
+    });
+}

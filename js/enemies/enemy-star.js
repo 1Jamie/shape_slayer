@@ -1,32 +1,64 @@
 // Star enemy - ranged enemy type
 
+// ============================================================================
+// STAR ENEMY CONFIGURATION - Adjust these values for game balancing
+// ============================================================================
+
+const STAR_CONFIG = {
+    // Base Stats
+    size: 22,                      // Enemy size (pixels)
+    maxHp: 55,                     // Maximum health points
+    damage: 8,                     // Damage per hit
+    moveSpeed: 80,                 // Movement speed (pixels/second)
+    xpValue: 20,                   // XP awarded when killed
+    lootChance: 0.25,              // Chance to drop loot (0.25 = 25%)
+    
+    // Combat Behavior
+    attackCooldown: 2.0,           // Time between attacks (seconds)
+    shootRange: 175,               // Ideal shooting distance (pixels)
+    minRange: 100,                 // Minimum distance before retreating (pixels)
+    maxRange: 200,                 // Maximum distance before advancing (pixels)
+    
+    // Movement Behavior
+    strafeSpeed: 2.0,              // Speed of strafing motion
+    strafeAmplitude: 40,           // How far to strafe (pixels)
+    separationRadius: 50,          // Minimum distance from other enemies (pixels)
+    separationStrength: 120,       // Force strength for separation (pixels)
+    
+    // Projectile Properties
+    projectileSpeed: 200,          // Speed of projectiles (pixels/second)
+    projectileSize: 5,             // Size of projectile (pixels)
+    projectileLifetime: 3.0,       // How long projectiles live (seconds)
+    projectileSpreadAngle: 0.175,  // Random spread angle in radians (±5 degrees)
+};
+
 class StarEnemy extends EnemyBase {
     constructor(x, y) {
         super(x, y);
         
-        // Stats
-        this.size = 22;
-        this.maxHp = 55;
-        this.hp = 55;
-        this.damage = 8;
-        this.moveSpeed = 80;
-        this.baseMoveSpeed = 80; // Store for stun system
+        // Stats (from config)
+        this.size = STAR_CONFIG.size;
+        this.maxHp = STAR_CONFIG.maxHp;
+        this.hp = STAR_CONFIG.maxHp;
+        this.damage = STAR_CONFIG.damage;
+        this.moveSpeed = STAR_CONFIG.moveSpeed;
+        this.baseMoveSpeed = STAR_CONFIG.moveSpeed; // Store for stun system
         
         // Properties
         this.color = '#ffcc00'; // Yellow
         this.shape = 'star';
-        this.xpValue = 20;
-        this.lootChance = 0.35;
+        this.xpValue = STAR_CONFIG.xpValue;
+        this.lootChance = STAR_CONFIG.lootChance;
         
         // Shooting system
         this.attackCooldown = 0;
-        this.attackCooldownTime = 2.0;
-        this.shootRange = 175; // Ideal distance (150-200)
-        this.minRange = 100;
-        this.maxRange = 200;
+        this.attackCooldownTime = STAR_CONFIG.attackCooldown;
+        this.shootRange = STAR_CONFIG.shootRange;
+        this.minRange = STAR_CONFIG.minRange;
+        this.maxRange = STAR_CONFIG.maxRange;
         this.strafeTimer = Math.random() * Math.PI * 2; // Random starting phase for strafing
-        this.strafeSpeed = 2.0; // Speed of strafing motion
-        this.strafeAmplitude = 40; // How far to strafe
+        this.strafeSpeed = STAR_CONFIG.strafeSpeed;
+        this.strafeAmplitude = STAR_CONFIG.strafeAmplitude;
     }
     
     update(deltaTime, player) {
@@ -34,6 +66,9 @@ class StarEnemy extends EnemyBase {
         
         // Process stun first
         this.processStun(deltaTime);
+        
+        // Update target lock timer
+        this.updateTargetLock(deltaTime);
         
         // Apply stun slow factor to movement speed
         if (this.stunned) {
@@ -81,9 +116,9 @@ class StarEnemy extends EnemyBase {
             const perpY = awayDirX;
             const strafeOffset = Math.sin(this.strafeTimer) * this.strafeAmplitude;
             
-            // Apply separation from other enemies
-            const separation = this.getSeparationForce(enemies, 50, 120);
-            const sepDist = Math.sqrt(separation.x * separation.x + separation.y * separation.y);
+                // Apply separation from other enemies
+                const separation = this.getSeparationForce(enemies, STAR_CONFIG.separationRadius, STAR_CONFIG.separationStrength);
+                const sepDist = Math.sqrt(separation.x * separation.x + separation.y * separation.y);
             
             let moveX = awayDirX;
             let moveY = awayDirY;
@@ -119,7 +154,7 @@ class StarEnemy extends EnemyBase {
             const towardDirY = dy / distance;
             
             // Apply separation
-            const separation = this.getSeparationForce(enemies, 50, 120);
+            const separation = this.getSeparationForce(enemies, STAR_CONFIG.separationRadius, STAR_CONFIG.separationStrength);
             const sepDist = Math.sqrt(separation.x * separation.x + separation.y * separation.y);
             
             let moveX = towardDirX;
@@ -157,7 +192,7 @@ class StarEnemy extends EnemyBase {
             const strafeOffset = Math.sin(this.strafeTimer) * this.strafeAmplitude;
             
             // Apply separation
-            const separation = this.getSeparationForce(enemies, 50, 120);
+            const separation = this.getSeparationForce(enemies, STAR_CONFIG.separationRadius, STAR_CONFIG.separationStrength);
             const sepDist = Math.sqrt(separation.x * separation.x + separation.y * separation.y);
             
             // Strafing movement with separation
@@ -194,9 +229,9 @@ class StarEnemy extends EnemyBase {
                 this.y += adjustDirY * this.moveSpeed * deltaTime;
             }
             
-            // Try to shoot
+            // Try to shoot (use target position, not player position, to account for clones/decoys)
             if (this.attackCooldown <= 0) {
-                this.shoot(player);
+                this.shoot(targetX, targetY);
                 this.attackCooldown = this.attackCooldownTime;
             }
         }
@@ -210,30 +245,60 @@ class StarEnemy extends EnemyBase {
         this.keepInBounds();
     }
     
-    shoot(player) {
+    // Override die() to use star difficulty for loot
+    die() {
+        this.alive = false;
+        
+        // Only run death effects on host or in solo mode (clients receive loot via game_state)
+        if (typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient()) {
+            // Client: Don't run death logic (host handles it)
+            return;
+        }
+        
+        // Track kill for the last attacker
+        if (this.lastAttacker && typeof Game !== 'undefined' && Game.getPlayerStats) {
+            const stats = Game.getPlayerStats(this.lastAttacker);
+            stats.addStat('kills', 1);
+        }
+        
+        // Emit particles on death
+        if (typeof createParticleBurst !== 'undefined') {
+            createParticleBurst(this.x, this.y, this.color, 12);
+        }
+        
+        // Give player XP when enemy dies
+        if (typeof Game !== 'undefined' && Game.player && !Game.player.dead) {
+            Game.player.addXP(this.xpValue);
+        }
+        
+        // Drop loot based on lootChance (HOST ONLY - clients get loot via game_state sync)
+        if (typeof generateGear !== 'undefined' && typeof groundLoot !== 'undefined') {
+            if (Math.random() < this.lootChance) {
+                const roomNum = typeof Game !== 'undefined' ? (Game.roomNumber || 1) : 1;
+                const gear = generateGear(this.x, this.y, roomNum, 'star');
+                groundLoot.push(gear);
+                console.log(`[Host] Dropped loot at (${Math.floor(this.x)}, ${Math.floor(this.y)})`);
+            }
+        }
+    }
+    
+    shoot(targetX, targetY) {
         if (typeof Game === 'undefined') return;
         
-        // Predict where player will be when projectile reaches them
-        const projectileSpeed = 200;
-        const distance = Math.sqrt((player.x - this.x) ** 2 + (player.y - this.y) ** 2);
-        const timeToReach = distance / projectileSpeed;
+        // Calculate direction to target (which may be clone/decoy position from findTarget)
+        const projectileSpeed = STAR_CONFIG.projectileSpeed;
+        const dx = targetX - this.x;
+        const dy = targetY - this.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
         
-        // Predict player position
-        const predictedPos = this.predictPlayerPosition(player, timeToReach);
-        
-        // Calculate direction to predicted position
-        const dx = predictedPos.x - this.x;
-        const dy = predictedPos.y - this.y;
-        const predDist = Math.sqrt(dx * dx + dy * dy);
-        
-        if (predDist <= 0) return;
+        if (distance <= 0) return;
         
         // Base direction
-        let dirX = dx / predDist;
-        let dirY = dy / predDist;
+        let dirX = dx / distance;
+        let dirY = dy / distance;
         
-        // Add slight spread variation (±5 degrees)
-        const spreadAngle = (Math.random() - 0.5) * 0.175; // ~5 degrees in radians
+        // Add slight spread variation
+        const spreadAngle = (Math.random() - 0.5) * STAR_CONFIG.projectileSpreadAngle;
         const cos = Math.cos(spreadAngle);
         const sin = Math.sin(spreadAngle);
         const newDirX = dirX * cos - dirY * sin;
@@ -248,8 +313,8 @@ class StarEnemy extends EnemyBase {
             vx: dirX * projectileSpeed,
             vy: dirY * projectileSpeed,
             damage: this.damage,
-            size: 5,
-            lifetime: 3.0,
+            size: STAR_CONFIG.projectileSize,
+            lifetime: STAR_CONFIG.projectileLifetime,
             elapsed: 0
         });
     }

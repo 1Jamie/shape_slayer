@@ -83,6 +83,11 @@ const Input = {
         // Keyboard events
         document.addEventListener('keydown', (e) => {
             this.keys[e.key.toLowerCase()] = true;
+            
+            // Prevent default Tab behavior (focus shifting) when used for character sheet
+            if (e.key === 'Tab') {
+                e.preventDefault();
+            }
         });
         
         document.addEventListener('keyup', (e) => {
@@ -271,6 +276,15 @@ const Input = {
             48,
             14
         );
+        
+        // Character sheet button (top-right corner, away from combat controls and pause button)
+        this.touchButtons.characterSheet = new TouchButton(
+            width - 220, // Positioned left of pause button (pause button is ~60px from right, button is 90px wide, so need ~150px gap)
+            20,
+            90,
+            40,
+            'Char'
+        );
     },
     
     // Handle touch start
@@ -328,6 +342,27 @@ const Input = {
             
             this.activeTouches[touchId] = { x, y };
             this.touchActive = true;
+            
+            // Check character sheet close button if sheet is open (highest priority)
+            if (typeof CharacterSheet !== 'undefined' && CharacterSheet.isOpen && CharacterSheet.closeButtonBounds) {
+                const bounds = CharacterSheet.closeButtonBounds;
+                if (x >= bounds.x && x <= bounds.x + bounds.width &&
+                    y >= bounds.y && y <= bounds.y + bounds.height) {
+                    CharacterSheet.isOpen = false;
+                    return;
+                }
+            }
+            
+            // Check character sheet button (top priority UI element)
+            if (this.touchButtons.characterSheet && this.touchButtons.characterSheet.contains(x, y)) {
+                if (this.touchButtons.characterSheet.startTouch(touchId, x, y)) {
+                    // Toggle character sheet when button is pressed
+                    if (typeof CharacterSheet !== 'undefined') {
+                        CharacterSheet.isOpen = !CharacterSheet.isOpen;
+                    }
+                    return;
+                }
+            }
             
             // Priority-based touch assignment for mobile usability
             // Check buttons FIRST (they have smaller hit areas), then joysticks

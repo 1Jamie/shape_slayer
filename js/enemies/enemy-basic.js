@@ -1,39 +1,65 @@
 // Basic enemy - Circle (Swarmer)
 
+// ============================================================================
+// BASIC ENEMY CONFIGURATION - Adjust these values for game balancing
+// ============================================================================
+
+const BASIC_ENEMY_CONFIG = {
+    // Base Stats
+    size: 20,                      // Enemy size (pixels)
+    maxHp: 40,                     // Maximum health points
+    damage: 5,                     // Damage per hit
+    moveSpeed: 100,                // Movement speed (pixels/second)
+    xpValue: 10,                   // XP awarded when killed
+    lootChance: 0.2,               // Chance to drop loot (0.2 = 20%)
+    
+    // Attack Behavior
+    attackCooldown: 2.0,           // Time between attacks (seconds)
+    telegraphDuration: 0.5,        // Telegraph warning duration (seconds)
+    lungeDuration: 0.2,            // Duration of lunge attack (seconds)
+    lungeSpeed: 300,               // Speed during lunge (pixels/second)
+    attackRange: 50,               // Distance to initiate attack (pixels)
+    attackRangeVariance: 10,       // Random variance for attack timing (±pixels)
+    
+    // Movement Behavior
+    separationRadius: 40,          // Minimum distance from other enemies (pixels)
+    separationStrength: 150,       // Force strength for separation (pixels)
+    groupRadius: 150,              // Radius to find group center (pixels)
+};
+
 class Enemy extends EnemyBase {
     constructor(x, y) {
         super(x, y);
         
-        // Stats
-        this.size = 20;
-        this.maxHp = 40;
-        this.hp = 40;
-        this.damage = 5;
-        this.moveSpeed = 100;
-        this.baseMoveSpeed = 100; // Store for stun system
+        // Stats (from config)
+        this.size = BASIC_ENEMY_CONFIG.size;
+        this.maxHp = BASIC_ENEMY_CONFIG.maxHp;
+        this.hp = BASIC_ENEMY_CONFIG.maxHp;
+        this.damage = BASIC_ENEMY_CONFIG.damage;
+        this.moveSpeed = BASIC_ENEMY_CONFIG.moveSpeed;
+        this.baseMoveSpeed = BASIC_ENEMY_CONFIG.moveSpeed; // Store for stun system
         
         // Properties
         this.color = '#ff6b6b';
         this.shape = 'circle';
-        this.xpValue = 10;
-        this.lootChance = 0.3;
-        
-        // Initialize attack range variance for this instance
-        this.currentAttackRange = this.attackRange + (Math.random() - 0.5) * this.attackRangeVariance * 2;
+        this.xpValue = BASIC_ENEMY_CONFIG.xpValue;
+        this.lootChance = BASIC_ENEMY_CONFIG.lootChance;
         
         // Attack system
         this.state = 'chase'; // 'chase', 'telegraph', 'lunge', 'cooldown'
         this.attackCooldown = 0;
-        this.attackCooldownTime = 2.0;
-        this.telegraphDuration = 0.5;
-        this.lungeDuration = 0.2;
+        this.attackCooldownTime = BASIC_ENEMY_CONFIG.attackCooldown;
+        this.telegraphDuration = BASIC_ENEMY_CONFIG.telegraphDuration;
+        this.lungeDuration = BASIC_ENEMY_CONFIG.lungeDuration;
         this.telegraphElapsed = 0;
         this.lungeElapsed = 0;
         this.originalSpeed = this.moveSpeed;
-        this.lungeSpeed = 300;
-        this.attackRange = 50;
-        this.attackRangeVariance = 10; // ±10px variance to prevent synchronized attacks
-        this.currentAttackRange = this.attackRange; // Varies per enemy instance
+        this.lungeSpeed = BASIC_ENEMY_CONFIG.lungeSpeed;
+        this.attackRange = BASIC_ENEMY_CONFIG.attackRange;
+        this.attackRangeVariance = BASIC_ENEMY_CONFIG.attackRangeVariance;
+        
+        // Initialize attack range variance for this instance
+        this.currentAttackRange = this.attackRange + (Math.random() - 0.5) * this.attackRangeVariance * 2;
     }
     
     update(deltaTime, player) {
@@ -41,6 +67,9 @@ class Enemy extends EnemyBase {
         
         // Process stun first
         this.processStun(deltaTime);
+        
+        // Update target lock timer
+        this.updateTargetLock(deltaTime);
         
         // Apply stun slow factor to movement speed
         if (this.stunned) {
@@ -83,10 +112,10 @@ class Enemy extends EnemyBase {
                 this.telegraphElapsed = 0;
             } else {
                 // Apply separation force to avoid crowding
-                const separation = this.getSeparationForce(enemies, 40, 150);
+                const separation = this.getSeparationForce(enemies, BASIC_ENEMY_CONFIG.separationRadius, BASIC_ENEMY_CONFIG.separationStrength);
                 
                 // Optional: Get group center for swarming behavior
-                const groupCenter = this.getGroupCenter(enemies, 150, true); // Same type only
+                const groupCenter = this.getGroupCenter(enemies, BASIC_ENEMY_CONFIG.groupRadius, true); // Same type only
                 
                 // Calculate movement direction
                 let moveX = dx / distance;
@@ -172,7 +201,7 @@ class Enemy extends EnemyBase {
                 this.state = 'chase';
             } else {
                 // Apply separation during cooldown too
-                const separation = this.getSeparationForce(enemies, 40, 150);
+                const separation = this.getSeparationForce(enemies, BASIC_ENEMY_CONFIG.separationRadius, BASIC_ENEMY_CONFIG.separationStrength);
                 const sepDist = Math.sqrt(separation.x * separation.x + separation.y * separation.y);
                 
                 let moveX = dx / distance;

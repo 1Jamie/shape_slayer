@@ -304,22 +304,15 @@ class BossBase extends EnemyBase {
         // Drop guaranteed rare+ loot (2-3 items) - HOST ONLY
         if (typeof generateGear !== 'undefined' && typeof groundLoot !== 'undefined') {
             const lootCount = 2 + Math.floor(Math.random() * 2); // 2 or 3 items
+            const roomNum = typeof Game !== 'undefined' ? (Game.roomNumber || 1) : 1;
+            
             for (let i = 0; i < lootCount; i++) {
-                // Generate gear with rare+ tier (blue, purple, or orange)
-                const tierRoll = Math.random();
-                let tier = 'blue';
-                if (tierRoll < 0.25) { // 25% chance purple
-                    tier = 'purple';
-                } else if (tierRoll < 0.30) { // 5% chance orange
-                    tier = 'orange';
-                }
-                
-                // Generate gear at slightly offset position
+                // Generate gear at slightly offset position using boss difficulty
                 const offsetX = (Math.random() - 0.5) * 40;
                 const offsetY = (Math.random() - 0.5) * 40;
-                const gear = generateGear(this.x + offsetX, this.y + offsetY, tier);
+                const gear = generateGear(this.x + offsetX, this.y + offsetY, roomNum, 'boss');
                 groundLoot.push(gear);
-                console.log(`[Host] Boss dropped ${tier} loot`);
+                console.log(`[Host] Boss dropped ${gear.tier} loot`);
             }
         }
     }

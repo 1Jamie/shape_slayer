@@ -1,5 +1,52 @@
 // Nexus room system - Room 0 where players select classes and purchase upgrades
 
+// ============================================================================
+// TEMPLATE UTILITY FUNCTIONS
+// ============================================================================
+
+// Format a value as a percentage (0.15 -> "15%")
+function formatPercent(value) {
+    return `${Math.round(value * 100)}%`;
+}
+
+// Format a value as a multiplier (2.0 -> "2x")
+function formatMultiplier(value) {
+    return `${value}x`;
+}
+
+// Format radians as degrees (Math.PI/3 -> "60°")
+function formatDegrees(radians) {
+    return `${Math.round((radians * 180) / Math.PI)}°`;
+}
+
+// Fill a template string with values from an object
+// Supports format modifiers: {key}, {key|percent}, {key|mult}, {key|degrees}
+function fillTemplate(template, values) {
+    if (!template || typeof template !== 'string') return template;
+    
+    return template.replace(/\{([^}|]+)(\|([^}]+))?\}/g, (match, key, _, modifier) => {
+        const value = values[key];
+        
+        if (value === undefined || value === null) {
+            return match; // Keep placeholder if value not found
+        }
+        
+        // Apply formatting modifier if specified
+        if (modifier === 'percent') {
+            return formatPercent(value);
+        } else if (modifier === 'mult') {
+            return formatMultiplier(value);
+        } else if (modifier === 'degrees') {
+            return formatDegrees(value);
+        }
+        
+        // Default: return value as-is (with basic formatting)
+        return typeof value === 'number' ? value.toFixed(1).replace(/\.0$/, '') : value;
+    });
+}
+
+// ============================================================================
+
 // Nexus room class
 class NexusRoom {
     constructor() {
@@ -52,7 +99,52 @@ const upgradeStations = [
     { key: 'speed', name: 'Speed', icon: '⚡', x: 980, y: 510 }
 ];
 
-// Class descriptions for tooltips
+// Class config mapping (maps class keys to their config objects)
+const CLASS_CONFIGS = {
+    square: typeof WARRIOR_CONFIG !== 'undefined' ? WARRIOR_CONFIG : null,
+    triangle: typeof ROGUE_CONFIG !== 'undefined' ? ROGUE_CONFIG : null,
+    pentagon: typeof TANK_CONFIG !== 'undefined' ? TANK_CONFIG : null,
+    hexagon: typeof MAGE_CONFIG !== 'undefined' ? MAGE_CONFIG : null
+};
+
+// Generate class description by filling templates with actual config values
+function getClassDescription(classKey) {
+    const config = CLASS_CONFIGS[classKey];
+    const classDef = CLASS_DEFINITIONS[classKey];
+    
+    if (!config || !config.descriptions || !classDef) {
+        // Fallback if config not available
+        return {
+            name: classDef ? classDef.name : 'Unknown',
+            playstyle: 'Class information not available',
+            basic: '',
+            heavy: '',
+            special: '',
+            passive: '',
+            baseStats: ''
+        };
+    }
+    
+    // Merge config and class definition for template filling
+    // Config comes first (has actual gameplay values), classDef second (visual properties)
+    const templateValues = {
+        ...config,
+        ...classDef
+    };
+    
+    // Fill all description templates
+    return {
+        name: classDef.name,
+        playstyle: fillTemplate(config.descriptions.playstyle, templateValues),
+        basic: fillTemplate(config.descriptions.basic, templateValues),
+        heavy: fillTemplate(config.descriptions.heavy, templateValues),
+        special: fillTemplate(config.descriptions.special, templateValues),
+        passive: fillTemplate(config.descriptions.passive, templateValues),
+        baseStats: fillTemplate(config.descriptions.baseStats, templateValues)
+    };
+}
+
+// Legacy static descriptions (kept as fallback, but getClassDescription() is preferred)
 const CLASS_DESCRIPTIONS = {
     triangle: {
         name: 'Rogue',
@@ -60,7 +152,8 @@ const CLASS_DESCRIPTIONS = {
         basic: 'Quick Stab - Fast triangle projectile',
         heavy: 'Fan of Knives - 7 knives in 60° spread, 2x damage each',
         special: 'Shadow Clones - Creates 2 decoys for 3 seconds',
-        passive: 'Backstab - 2x damage from behind, 3 dodge charges'
+        passive: 'Backstab - 2x damage from behind, 3 dodge charges',
+        baseStats: '15% Base Crit Chance, High Speed'
     },
     square: {
         name: 'Warrior',
@@ -68,7 +161,8 @@ const CLASS_DESCRIPTIONS = {
         basic: 'Sword Swing - Wide coverage with 4 hitboxes',
         heavy: 'Forward Thrust - Rush 300px forward, 2x damage + knockback',
         special: 'Whirlwind - Spinning blades rotate around player for 2s',
-        passive: 'Block Stance - 50% damage reduction when standing still'
+        passive: 'Block Stance - 50% damage reduction when standing still',
+        baseStats: '10% Base Defense, Balanced Stats'
     },
     pentagon: {
         name: 'Tank',
@@ -76,7 +170,8 @@ const CLASS_DESCRIPTIONS = {
         basic: 'Cone Slam - Wide cone attack with multiple hitboxes',
         heavy: 'Ground Smash - AoE ring, 1.1x damage + knockback',
         special: 'Shield Defense - Block for 1.5s, then wave pulse attack',
-        passive: 'High HP - Slow but extremely durable'
+        passive: 'High HP - Slow but extremely durable',
+        baseStats: '20% Base Defense, 150 HP'
     },
     hexagon: {
         name: 'Mage',
@@ -84,7 +179,8 @@ const CLASS_DESCRIPTIONS = {
         basic: 'Magic Bolt - Fast projectile attack',
         heavy: 'AoE Blast - 125px radius, 2.7x damage + knockback',
         special: 'Blink + Nova - Teleport 400px with i-frames, leaves decoy',
-        passive: 'Range Bonus - Increased damage at range'
+        passive: 'Range Bonus - Increased damage at range',
+        baseStats: 'High Base Damage, Ranged Focus'
     }
 };
 
@@ -399,7 +495,8 @@ function renderClassStationTooltip(ctx, player, station) {
     
     // Show tooltip within interaction range (50 pixels, same as interaction check)
     if (distance < 50) {
-        const classDesc = CLASS_DESCRIPTIONS[station.key];
+        // Use dynamic description generator instead of static CLASS_DESCRIPTIONS
+        const classDesc = getClassDescription(station.key);
         if (!classDesc) return;
         
         // Calculate tooltip dimensions based on content
@@ -408,7 +505,7 @@ function renderClassStationTooltip(ctx, player, station) {
         const titleHeight = 24;
         const playstyleHeight = 18;
         const abilityHeight = 16;
-        const abilityCount = 4;
+        const abilityCount = 5; // Now includes baseStats line
         const spacing = 4;
         
         const tooltipHeight = titleHeight + playstyleHeight + (abilityHeight * abilityCount) + (spacing * (abilityCount - 1)) + topPadding + padding;
@@ -523,6 +620,17 @@ function renderClassStationTooltip(ctx, player, station) {
         ctx.fillStyle = '#aaaaaa';
         ctx.font = '13px Arial';
         ctx.fillText(classDesc.passive, tooltipX - tooltipWidth / 2 + padding + 55, currentY);
+        currentY += abilityHeight + spacing;
+        
+        // Base stats (NEW)
+        if (classDesc.baseStats) {
+            ctx.fillStyle = '#ffdd88';
+            ctx.font = 'bold 13px Arial';
+            ctx.fillText('Bonus:', tooltipX - tooltipWidth / 2 + padding, currentY);
+            ctx.fillStyle = '#ffaa55';
+            ctx.font = '13px Arial';
+            ctx.fillText(classDesc.baseStats, tooltipX - tooltipWidth / 2 + padding + 55, currentY);
+        }
     }
 }
 

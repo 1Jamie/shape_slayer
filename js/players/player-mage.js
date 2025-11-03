@@ -1,5 +1,57 @@
 // Mage class (Hexagon) - extends PlayerBase
 
+// ============================================================================
+// MAGE CONFIGURATION - Adjust these values for game balancing
+// ============================================================================
+
+const MAGE_CONFIG = {
+    // Base Stats (from CLASS_DEFINITIONS)
+    baseHp: 80,                    // Starting health points
+    baseDamage: 20,                // Base damage per attack
+    baseSpeed: 207,                // Movement speed (pixels/second)
+    baseDefense: 0,                // Damage reduction (0-1 range)
+    critChance: 0,                 // Critical hit chance (0 = 0%)
+    
+    // Level Up Bonuses (per upgrade level purchased in nexus)
+    damagePerLevel: 0.5,           // Damage increase per level
+    defensePerLevel: 0.005,        // Defense increase per level (0.005 = 0.5%)
+    speedPerLevel: 2,              // Speed increase per level (pixels/second)
+    
+    // Basic Attack (Magic Bolt)
+    boltSpeed: 300,                // Projectile speed (pixels/second)
+    boltLifetime: 2.0,             // How long bolt travels (seconds)
+    boltSize: 10,                  // Bolt projectile size (pixels)
+    boltSpreadAngle: Math.PI / 12, // Spread angle for multiple projectiles (15 degrees)
+    
+    // Heavy Attack (Magic Explosion)
+    heavyAttackCooldown: 2.3,      // Cooldown for heavy attack (seconds)
+    explosionDamage: 2.5,          // Damage multiplier for explosion
+    explosionRadius: 80,           // Radius of explosion (pixels)
+    explosionKnockback: 300,       // Knockback force applied to enemies (pixels)
+    
+    // Special Ability (Blink)
+    specialCooldown: 5.0,          // Special ability cooldown (seconds)
+    blinkRange: 250,               // Maximum blink distance (pixels)
+    blinkDecoyDuration: 2.0,       // How long decoy lasts (seconds) - NOT USED, decoy uses health
+    blinkDecoyMaxHealth: 30,       // Starting health for decoy
+    blinkDecoyHealthDecay: 8,      // HP lost per second for decoy
+    blinkExplosionDuration: 0.3,   // Duration of explosion animation (seconds)
+    blinkExplosionDamage: 2.0,     // Damage multiplier for blink explosion
+    blinkExplosionRadius: 60,      // Radius of blink explosion (pixels)
+    blinkExplosionKnockback: 250,  // Knockback force of blink explosion (pixels)
+    blinkKnockbackDecay: 5.0,      // Knockback decay rate (per second)
+    
+    // Descriptions for UI (tooltips, character sheet)
+    descriptions: {
+        playstyle: "Ranged attacker with AoE and mobility",
+        basic: "Magic Bolt - Fast projectile attack",
+        heavy: "AoE Blast - {explosionRadius}px radius, {explosionDamage|mult} damage + knockback",
+        special: "Blink + Nova - Teleport {blinkRange}px with i-frames, leaves decoy",
+        passive: "Range Bonus - Increased damage at range",
+        baseStats: "High Base Damage, Ranged Focus"
+    }
+};
+
 class Mage extends PlayerBase {
     constructor(x = 400, y = 300) {
         super(x, y);
@@ -7,48 +59,51 @@ class Mage extends PlayerBase {
         // Set class identifier
         this.playerClass = 'hexagon';
         
-        // Load class definition
+        // Load class definition (visual properties only)
         const classDef = CLASS_DEFINITIONS.hexagon;
         
         // Load upgrades from save system
         let upgradeBonuses = { damage: 0, defense: 0, speed: 0 };
         if (typeof SaveSystem !== 'undefined') {
             const upgrades = SaveSystem.getUpgrades('hexagon');
-            // Calculate bonuses: damage +0.5/level, defense +0.005/level, speed +2/level
-            upgradeBonuses.damage = upgrades.damage * 0.5;
-            upgradeBonuses.defense = upgrades.defense * 0.005;
-            upgradeBonuses.speed = upgrades.speed * 2;
+            // Calculate bonuses using config values
+            upgradeBonuses.damage = upgrades.damage * MAGE_CONFIG.damagePerLevel;
+            upgradeBonuses.defense = upgrades.defense * MAGE_CONFIG.defensePerLevel;
+            upgradeBonuses.speed = upgrades.speed * MAGE_CONFIG.speedPerLevel;
         }
         
-        // Set base stats (class stats + upgrade bonuses)
-        this.baseDamage = classDef.damage + upgradeBonuses.damage;
-        this.baseMoveSpeed = classDef.speed + upgradeBonuses.speed;
-        this.baseDefense = classDef.defense + upgradeBonuses.defense;
-        this.maxHp = classDef.hp;
-        this.hp = classDef.hp;
-        this.critChance = classDef.critChance;
+        // Set base stats from CONFIG (single source of truth)
+        this.baseDamage = MAGE_CONFIG.baseDamage + upgradeBonuses.damage;
+        this.baseMoveSpeed = MAGE_CONFIG.baseSpeed + upgradeBonuses.speed;
+        this.baseDefense = MAGE_CONFIG.baseDefense + upgradeBonuses.defense;
+        this.maxHp = MAGE_CONFIG.baseHp;
+        this.hp = MAGE_CONFIG.baseHp;
+        this.baseCritChance = MAGE_CONFIG.critChance || 0; // Store base for updateEffectiveStats
+        this.critChance = MAGE_CONFIG.critChance || 0;
         this.color = classDef.color;
         this.shape = classDef.shape;
         
         // Standard single dodge for Mage
+        this.baseDodgeCharges = 1; // Store base value for updateEffectiveStats
         this.dodgeCharges = 1;
         this.maxDodgeCharges = 1;
         this.dodgeChargeCooldowns = [0];
         
         // Heavy attack cooldown
-        this.heavyAttackCooldownTime = 2.3;
+        this.heavyAttackCooldownTime = MAGE_CONFIG.heavyAttackCooldown;
         
         // Blink special ability - decoy system
         this.blinkDecoyActive = false;
-        this.blinkDecoyElapsed = 0;
-        this.blinkDecoyDuration = 2.0;
         this.blinkDecoyX = 0;
         this.blinkDecoyY = 0;
+        this.blinkDecoyHealth = 0;
+        this.blinkDecoyMaxHealth = MAGE_CONFIG.blinkDecoyMaxHealth;
+        this.blinkDecoyHealthDecay = MAGE_CONFIG.blinkDecoyHealthDecay;
         
         // Blink explosion at destination
         this.blinkExplosionActive = false;
         this.blinkExplosionElapsed = 0;
-        this.blinkExplosionDuration = 0.3;
+        this.blinkExplosionDuration = MAGE_CONFIG.blinkExplosionDuration;
         this.blinkExplosionX = 0;
         this.blinkExplosionY = 0;
         
@@ -62,18 +117,54 @@ class Mage extends PlayerBase {
         this.blinkPreviewY = 0;
         this.blinkPreviewDistance = 0;
         
+        // Class modifier storage
+        this.projectileCountBonus = 0;
+        this.blinkRangeBonus = 0;
+        this.blinkDamageMultiplier = 1.0;
+        this.aoeRadiusBonus = 0;
+        this.explosionRadiusBonus = 0;
+        
         // Update effective stats
         this.updateEffectiveStats();
         
         console.log('Mage class initialized');
     }
     
+    // Override to apply Mage-specific class modifiers
+    applyClassModifier(modifier) {
+        // Call parent for universal modifiers
+        super.applyClassModifier(modifier);
+        
+        // Handle Mage-specific modifiers
+        if (modifier.class === 'hexagon') {
+            switch(modifier.type) {
+                case 'projectile_count':
+                    this.projectileCountBonus += modifier.value;
+                    break;
+                case 'blink_range':
+                    this.blinkRangeBonus += modifier.value;
+                    break;
+                case 'blink_damage':
+                    this.blinkDamageMultiplier += modifier.value;
+                    break;
+                case 'aoe_radius':
+                    this.aoeRadiusBonus += modifier.value;
+                    break;
+                case 'explosion_radius':
+                    this.explosionRadiusBonus += modifier.value;
+                    break;
+            }
+        }
+    }
+    
     // Override executeAttack for Mage projectile
     executeAttack(input) {
         this.shootProjectile(input);
         
-        // Reset cooldown and set attacking state
-        this.attackCooldown = this.attackCooldownTime;
+        // Reset cooldown and set attacking state with attack speed and weapon type
+        const weaponCooldownMult = this.weaponCooldownMultiplier || 1.0;
+        const effectiveAttackCooldown = this.attackCooldownTime * weaponCooldownMult / (1 + (this.attackSpeedMultiplier - 1));
+        this.attackCooldown = effectiveAttackCooldown;
         this.isAttacking = true;
         
         // Clear attacking state after duration
@@ -108,18 +199,30 @@ class Mage extends PlayerBase {
             }
         }
         
-        Game.projectiles.push({
-            x: this.x,
-            y: this.y,
-            vx: dirX * 400,
-            vy: dirY * 400,
-            damage: this.damage,
-            size: 10,
-            lifetime: 2.0,
-            elapsed: 0,
-            type: 'magic',
-            color: this.color
-        });
+        // Fire multiple projectiles if projectile count bonus is active
+        const numProjectiles = 1 + this.projectileCountBonus + (this.multishotCount || 0);
+        const spreadAngle = MAGE_CONFIG.boltSpreadAngle;
+        
+        for (let i = 0; i < numProjectiles; i++) {
+            // Calculate angle for this projectile
+            const angleOffset = numProjectiles > 1 ? (i - (numProjectiles - 1) / 2) * spreadAngle : 0;
+            const angle = Math.atan2(dirY, dirX) + angleOffset;
+            const projDirX = Math.cos(angle);
+            const projDirY = Math.sin(angle);
+            
+            Game.projectiles.push({
+                x: this.x,
+                y: this.y,
+                vx: projDirX * MAGE_CONFIG.boltSpeed * (this.projectileSpeedMultiplier || 1.0),
+                vy: projDirY * MAGE_CONFIG.boltSpeed * (this.projectileSpeedMultiplier || 1.0),
+                damage: this.damage,
+                size: MAGE_CONFIG.boltSize,
+                lifetime: MAGE_CONFIG.boltLifetime,
+                elapsed: 0,
+                type: 'magic',
+                color: this.color
+            });
+        }
     }
     
     // Override createHeavyAttack for AoE blast
@@ -144,8 +247,8 @@ class Mage extends PlayerBase {
     
     createAoEBlast() {
         // Mage AoE blast - single expanding circle
-        const blastDamage = this.damage * 1.5; // 1.5x damage (balanced)
-        const blastMaxRadius = 125; // Increased from 100 to 125 (25% increase)
+        const blastDamage = this.damage * MAGE_CONFIG.explosionDamage;
+        const blastMaxRadius = (MAGE_CONFIG.explosionRadius + this.aoeRadiusBonus) * (this.aoeMultiplier || 1.0); // Apply both class modifier and affix
         const blastDuration = 0.4; // slower than normal attack
         
         // Create single expanding circle
@@ -173,7 +276,7 @@ class Mage extends PlayerBase {
                     
                     if (distance < blastMaxRadius) {
                         // Push away from blast center
-                        const pushForce = 252; // Increased from 180 to 252 (40% increase)
+                        const pushForce = MAGE_CONFIG.explosionKnockback;
                         const pushDirX = dx / distance;
                         const pushDirY = dy / distance;
                         enemy.applyKnockback(pushDirX * pushForce, pushDirY * pushForce);
@@ -383,11 +486,12 @@ class Mage extends PlayerBase {
         const distance = Math.sqrt(dx * dx + dy * dy);
         
         let newX, newY;
-        if (distance > 400) {
+        const maxBlinkRange = 400 + this.blinkRangeBonus; // Apply class modifier
+        if (distance > maxBlinkRange) {
             // Clamp to max range
             const angle = Math.atan2(dy, dx);
-            newX = this.x + Math.cos(angle) * 400;
-            newY = this.y + Math.sin(angle) * 400;
+            newX = this.x + Math.cos(angle) * maxBlinkRange;
+            newY = this.y + Math.sin(angle) * maxBlinkRange;
         } else {
             newX = targetX;
             newY = targetY;
@@ -402,11 +506,21 @@ class Mage extends PlayerBase {
             this.y = newY;
         }
         
-        // Create decoy at old position
+        // Create decoy at old position with full health
         this.blinkDecoyActive = true;
-        this.blinkDecoyElapsed = 0;
         this.blinkDecoyX = oldX;
         this.blinkDecoyY = oldY;
+        this.blinkDecoyHealth = this.blinkDecoyMaxHealth;
+        
+        // Clear enemy target locks to force immediate retargeting to decoy
+        if (typeof Game !== 'undefined' && Game.enemies) {
+            Game.enemies.forEach(enemy => {
+                if (enemy.alive && enemy.targetLock && enemy.targetLock.playerRef === this) {
+                    enemy.targetLock = null;
+                    enemy.targetLockTimer = 0;
+                }
+            });
+        }
         
         // Create explosion at new position
         this.blinkExplosionActive = true;
@@ -416,8 +530,8 @@ class Mage extends PlayerBase {
         
         // Deal damage at destination
         if (typeof Game !== 'undefined' && Game.enemies) {
-            const explosionRadius = 80;
-            const explosionDamage = this.damage * 2.5;
+            const explosionRadius = MAGE_CONFIG.blinkExplosionRadius + this.aoeRadiusBonus; // Apply class modifier
+            const baseExplosionDamage = this.damage * MAGE_CONFIG.blinkExplosionDamage * this.blinkDamageMultiplier; // Apply class modifier
             
             Game.enemies.forEach(enemy => {
                 if (enemy.alive) {
@@ -426,15 +540,22 @@ class Mage extends PlayerBase {
                     const distance = Math.sqrt(dx * dx + dy * dy);
                     
                     if (distance < explosionRadius) {
+                        // Check for crit
+                        const isCrit = Math.random() < this.critChance;
+                        const critMultiplier = isCrit ? (2.0 * (this.critDamageMultiplier || 1.0)) : 1.0;
+                        const explosionDamage = baseExplosionDamage * critMultiplier;
+                        
+                        // Calculate damage dealt BEFORE applying damage
                         const damageDealt = Math.min(explosionDamage, enemy.hp);
+                        
                         enemy.takeDamage(explosionDamage);
                         
                         if (typeof createDamageNumber !== 'undefined') {
-                            createDamageNumber(enemy.x, enemy.y, damageDealt, true);
+                            createDamageNumber(enemy.x, enemy.y, damageDealt, isCrit, false);
                         }
                         
                         // Push enemies away from explosion
-                        const pushForce = 200;
+                        const pushForce = MAGE_CONFIG.blinkExplosionKnockback;
                         const pushDirX = (enemy.x - this.x) / distance;
                         const pushDirY = (enemy.y - this.y) / distance;
                         enemy.applyKnockback(pushDirX * pushForce, pushDirY * pushForce);
@@ -443,7 +564,9 @@ class Mage extends PlayerBase {
             });
         }
         
-        this.specialCooldown = this.specialCooldownTime;
+        // Apply cooldown reduction
+        const effectiveSpecialCooldown = this.specialCooldownTime * (1 - this.cooldownReduction);
+        this.specialCooldown = effectiveSpecialCooldown;
         this.invulnerable = true;
         this.invulnerabilityTime = 1.2; // 1.2s post-teleport i-frames for safer dashing through enemies
         console.log('Blink activated!');
@@ -451,14 +574,42 @@ class Mage extends PlayerBase {
     
     // Override updateClassAbilities for Mage-specific updates
     updateClassAbilities(deltaTime, input) {
-        // Update blink decoy animation
+        // Update blink decoy - health decay system
         if (this.blinkDecoyActive) {
-            this.blinkDecoyElapsed += deltaTime;
+            // Health decay over time
+            this.blinkDecoyHealth -= this.blinkDecoyHealthDecay * deltaTime;
             
-            if (this.blinkDecoyElapsed >= this.blinkDecoyDuration) {
+            // Deactivate decoy if health depleted
+            if (this.blinkDecoyHealth <= 0) {
                 this.blinkDecoyActive = false;
-                this.blinkDecoyElapsed = 0;
+                this.blinkDecoyHealth = 0;
             }
+        }
+        
+        // Check for damage to blink decoy from enemy projectiles
+        if (this.blinkDecoyActive && typeof Game !== 'undefined' && Game.projectiles) {
+            Game.projectiles.forEach(projectile => {
+                // Skip player projectiles
+                if (projectile.type === 'magic' || projectile.playerClass) return;
+                
+                const dx = projectile.x - this.blinkDecoyX;
+                const dy = projectile.y - this.blinkDecoyY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                // Check collision with decoy (use player size as decoy size)
+                if (distance < this.size + (projectile.size || 5)) {
+                    // Decoy takes damage from projectile
+                    this.blinkDecoyHealth -= projectile.damage || 10;
+                    // Mark projectile as hit so it gets removed
+                    projectile.lifetime = 0;
+                    
+                    // Deactivate decoy if health depleted
+                    if (this.blinkDecoyHealth <= 0) {
+                        this.blinkDecoyActive = false;
+                        this.blinkDecoyHealth = 0;
+                    }
+                }
+            });
         }
         
         // Update blink explosion animation
@@ -489,8 +640,10 @@ class Mage extends PlayerBase {
     renderClassVisuals(ctx) {
         // Draw blink decoy - semi-transparent clone at old position
         if (this.blinkDecoyActive) {
-            const decoyAlpha = 0.5 * (1 - (this.blinkDecoyElapsed / this.blinkDecoyDuration)); // Fade out over time
-            const decoySize = this.size * (1 + (this.blinkDecoyElapsed / this.blinkDecoyDuration) * 0.3); // Slightly grow over time
+            // Calculate alpha based on decoy health (health-based fade)
+            const healthPercent = this.blinkDecoyHealth / this.blinkDecoyMaxHealth;
+            const decoyAlpha = 0.5 * healthPercent; // Fade out as health depletes
+            const decoySize = this.size; // Keep constant size
             
             ctx.save();
             ctx.globalAlpha = decoyAlpha;
@@ -503,6 +656,31 @@ class Mage extends PlayerBase {
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
             ctx.lineWidth = 2;
             ctx.stroke();
+            
+            ctx.restore();
+            
+            // Draw health bar above decoy (not rotated)
+            ctx.save();
+            ctx.globalAlpha = decoyAlpha;
+            
+            // healthPercent already defined above
+            const barWidth = this.size * 2;
+            const barHeight = 4;
+            const barX = this.blinkDecoyX - barWidth / 2;
+            const barY = this.blinkDecoyY - this.size - 10;
+            
+            // Background (red)
+            ctx.fillStyle = '#ff0000';
+            ctx.fillRect(barX, barY, barWidth, barHeight);
+            
+            // Foreground (blue, scaled by health)
+            ctx.fillStyle = healthPercent > 0.5 ? '#00aaff' : (healthPercent > 0.25 ? '#ffaa00' : '#ff0000');
+            ctx.fillRect(barX, barY, barWidth * healthPercent, barHeight);
+            
+            // Border
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(barX, barY, barWidth, barHeight);
             
             ctx.restore();
         }
@@ -631,10 +809,10 @@ class Mage extends PlayerBase {
             arcaneFocusActive: this.arcaneFocusActive,
             blinkCooldown: this.blinkCooldown,
             blinkDecoyActive: this.blinkDecoyActive,
-            blinkDecoyElapsed: this.blinkDecoyElapsed, // For correct fade-out and growth on clients
-            blinkDecoyDuration: this.blinkDecoyDuration, // For consistency
             blinkDecoyX: this.blinkDecoyX,
             blinkDecoyY: this.blinkDecoyY,
+            blinkDecoyHealth: this.blinkDecoyHealth,
+            blinkDecoyMaxHealth: this.blinkDecoyMaxHealth,
             blinkExplosionActive: this.blinkExplosionActive,
             blinkExplosionElapsed: this.blinkExplosionElapsed, // For correct explosion animation on clients
             blinkExplosionX: this.blinkExplosionX,
@@ -649,10 +827,10 @@ class Mage extends PlayerBase {
         if (state.arcaneFocusActive !== undefined) this.arcaneFocusActive = state.arcaneFocusActive;
         if (state.blinkCooldown !== undefined) this.blinkCooldown = state.blinkCooldown;
         if (state.blinkDecoyActive !== undefined) this.blinkDecoyActive = state.blinkDecoyActive;
-        if (state.blinkDecoyElapsed !== undefined) this.blinkDecoyElapsed = state.blinkDecoyElapsed;
-        if (state.blinkDecoyDuration !== undefined) this.blinkDecoyDuration = state.blinkDecoyDuration;
         if (state.blinkDecoyX !== undefined) this.blinkDecoyX = state.blinkDecoyX;
         if (state.blinkDecoyY !== undefined) this.blinkDecoyY = state.blinkDecoyY;
+        if (state.blinkDecoyHealth !== undefined) this.blinkDecoyHealth = state.blinkDecoyHealth;
+        if (state.blinkDecoyMaxHealth !== undefined) this.blinkDecoyMaxHealth = state.blinkDecoyMaxHealth;
         if (state.blinkExplosionActive !== undefined) this.blinkExplosionActive = state.blinkExplosionActive;
         if (state.blinkExplosionElapsed !== undefined) this.blinkExplosionElapsed = state.blinkExplosionElapsed;
         if (state.blinkExplosionX !== undefined) this.blinkExplosionX = state.blinkExplosionX;
