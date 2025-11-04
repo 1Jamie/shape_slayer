@@ -65,6 +65,28 @@ A skill-based 2D top-down Action Roguelike (ARPG) built with HTML5 Canvas and va
   - **Pull Force System** - Bosses can apply physics-based pull effects
   - **Phase Transitions** - Bosses become more dangerous as HP drops
 
+- **Testing Infrastructure** - Quality assurance tools:
+  - Automated test suite using Puppeteer
+  - Damage numbers multiplayer sync verification
+  - Debug flag system for troubleshooting (DebugFlags.DAMAGE_NUMBERS)
+  - Screenshot-based visual testing
+  - Test documentation in `tests/README.md`
+  - Easy to run: `cd tests && npm test`
+
+- **Class Configuration System** - Easy game balancing:
+  - Centralized configuration objects (ROGUE_CONFIG, WARRIOR_CONFIG, TANK_CONFIG, MAGE_CONFIG)
+  - All stats, cooldowns, and abilities configurable in one place
+  - No code changes needed for balance adjustments
+  - Clear separation of game design values from implementation
+  - Makes testing different balance scenarios simple
+
+- **Mobile-Friendly UI** - Responsive design:
+  - Responsive scaling for health bar, XP bar, and room display
+  - Scrollable character sheet optimized for mobile
+  - Touch-friendly controls with visual feedback
+  - Responsive death screens with proper font scaling
+  - World-to-screen coordinate conversion for accurate tooltips
+
 ## 🚀 Getting Started
 
 ### Prerequisites
@@ -90,12 +112,38 @@ cd shape_slayer
    cd server
    npm install
    ```
-   - Start the multiplayer WebSocket server:
+   - Start the multiplayer WebSocket server (choose deployment mode):
+   
+   **Single-Threaded (Default, Recommended for most users)**:
    ```bash
    npm start
+   # or explicitly: SERVER_MODE=single npm start
    ```
-   - The server will run on port 4000 (WebSocket)
-   - See the [Multiplayer](#-multiplayer) section for detailed setup instructions
+   - Supports 100-1,000 concurrent players
+   - No additional dependencies
+   - Perfect for development and small-medium deployments
+   
+   **Multi-Worker (High Performance)**:
+   ```bash
+   SERVER_MODE=multi WORKER_COUNT=4 npm start
+   ```
+   - Supports 1,000-5,000+ concurrent players
+   - Requires Docker (auto-manages Redis)
+   - Spawns multiple worker processes
+   - Advanced load balancing
+   
+   **Slave Mode (Multi-Server Cluster)**:
+   ```bash
+   SERVER_MODE=slave MASTER_SERVER_IP=10.0.0.100 WORKER_COUNT=4 npm start
+   ```
+   - Supports 10,000+ concurrent players
+   - Requires master server and network connectivity
+   - For massive scale deployments
+   
+   - The server will run on port 4000 (WebSocket) by default
+   - Configuration via `.env` file (see `server/.env.example`)
+   - See `server/README.md` for detailed server documentation
+   - See the [Multiplayer](#-multiplayer) section for gameplay instructions
 
 4. **Development Server** (Optional, for testing):
    - From the project root, start the HTTP server:
@@ -398,11 +446,21 @@ shape_slayer/
 │       ├── boss-fractalcore.js # Fractal Core (Room 25)
 │       └── boss-vortex.js      # Vortex (Room 30)
 ├── server/             # Multiplayer server
-│   ├── mp-server.js    # WebSocket multiplayer server (port 4000)
-│   └── package.json    # Server dependencies (ws library)
+│   ├── mp-server.js    # Main entry point (routing to master or worker)
+│   ├── mp-server-master.js # Master process (cluster coordinator)
+│   ├── mp-server-worker.js # Worker process (handles WebSocket connections)
+│   ├── config.js       # Server configuration (modes, Redis, clustering)
+│   ├── .env.example    # Environment variable template
+│   └── package.json    # Server dependencies (ws, dotenv)
+├── tests/              # Automated testing
+│   ├── damage-numbers.test.js # Damage sync verification test
+│   ├── README.md       # Testing documentation
+│   └── package.json    # Test dependencies (Puppeteer)
 ├── MULTIPLAYER.md      # Detailed multiplayer documentation
 ├── spec_sheet.md       # Game design specification
-└── implementation_plan.md # Development roadmap
+├── implementation_plan.md # Development roadmap
+├── DAMAGE_NUMBERS_FIX.md # Technical documentation for damage sync fix
+└── DAMAGE_NUMBERS_FINAL_REPORT.md # Final report on damage sync fix
 ```
 
 ## 🛠️ Technologies Used

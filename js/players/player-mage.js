@@ -76,6 +76,7 @@ class Mage extends PlayerBase {
         this.baseDamage = MAGE_CONFIG.baseDamage + upgradeBonuses.damage;
         this.baseMoveSpeed = MAGE_CONFIG.baseSpeed + upgradeBonuses.speed;
         this.baseDefense = MAGE_CONFIG.baseDefense + upgradeBonuses.defense;
+        this.baseMaxHp = MAGE_CONFIG.baseHp; // Store base max HP for gear calculations
         this.maxHp = MAGE_CONFIG.baseHp;
         this.hp = MAGE_CONFIG.baseHp;
         this.baseCritChance = MAGE_CONFIG.critChance || 0; // Store base for updateEffectiveStats
@@ -177,27 +178,9 @@ class Mage extends PlayerBase {
         // Mage: Shoot magic bolt
         if (typeof Game === 'undefined') return;
         
-        // Get direction from unified input
-        let dirX, dirY;
-        if (input.getAbilityDirection) {
-            const dir = input.getAbilityDirection('basicAttack');
-            dirX = dir.x;
-            dirY = dir.y;
-        } else {
-            // Fallback to mouse
-            const mouseX = input.mouse.x || this.x;
-            const mouseY = input.mouse.y || this.y;
-            const dx = mouseX - this.x;
-            const dy = mouseY - this.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            if (distance > 0) {
-                dirX = dx / distance;
-                dirY = dy / distance;
-            } else {
-                dirX = Math.cos(this.rotation);
-                dirY = Math.sin(this.rotation);
-            }
-        }
+        // Use character rotation (already correctly calculated from mouse/joystick)
+        const dirX = Math.cos(this.rotation);
+        const dirY = Math.sin(this.rotation);
         
         // Fire multiple projectiles if projectile count bonus is active
         const numProjectiles = 1 + this.projectileCountBonus + (this.multishotCount || 0);
@@ -220,7 +203,8 @@ class Mage extends PlayerBase {
                 lifetime: MAGE_CONFIG.boltLifetime,
                 elapsed: 0,
                 type: 'magic',
-                color: this.color
+                color: this.color,
+                playerId: this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null) // For damage attribution
             });
         }
     }
@@ -385,8 +369,11 @@ class Mage extends PlayerBase {
         
         // Clamp to bounds
         if (typeof Game !== 'undefined' && Game.canvas) {
-            targetX = clamp(targetX, this.size, Game.canvas.width - this.size);
-            targetY = clamp(targetY, this.size, Game.canvas.height - this.size);
+            // Use room bounds instead of canvas bounds
+            const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : Game.canvas.width;
+            const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : Game.canvas.height;
+            targetX = clamp(targetX, this.size, roomWidth - this.size);
+            targetY = clamp(targetY, this.size, roomHeight - this.size);
         }
         
         this.blinkPreviewX = targetX;
@@ -499,8 +486,11 @@ class Mage extends PlayerBase {
         
         // Clamp to bounds
         if (typeof Game !== 'undefined' && Game.canvas) {
-            this.x = clamp(newX, this.size, Game.canvas.width - this.size);
-            this.y = clamp(newY, this.size, Game.canvas.height - this.size);
+            // Use room bounds instead of canvas bounds
+            const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : Game.canvas.width;
+            const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : Game.canvas.height;
+            this.x = clamp(newX, this.size, roomWidth - this.size);
+            this.y = clamp(newY, this.size, roomHeight - this.size);
         } else {
             this.x = newX;
             this.y = newY;

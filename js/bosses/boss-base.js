@@ -276,14 +276,9 @@ class BossBase extends EnemyBase {
     }
     
     // Override die to drop guaranteed rare+ loot
+    // NOTE: Only called on host or in solo mode. Clients receive death via game_state sync.
     die() {
         this.alive = false;
-        
-        // Only run death effects on host or in solo mode (clients receive loot via game_state)
-        if (typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient()) {
-            // Client: Don't run death logic (host handles it)
-            return;
-        }
         
         // Track kill for the last attacker
         if (this.lastAttacker && typeof Game !== 'undefined' && Game.getPlayerStats) {
@@ -296,12 +291,12 @@ class BossBase extends EnemyBase {
             createParticleBurst(this.x, this.y, this.color, 30);
         }
         
-        // Give player XP when boss dies
-        if (typeof Game !== 'undefined' && Game.player && !Game.player.dead) {
-            Game.player.addXP(this.xpValue);
+        // Give XP to all alive players (multiplayer: host distributes; solo: local player)
+        if (typeof Game !== 'undefined' && Game.distributeXPToAllPlayers && this.xpValue) {
+            Game.distributeXPToAllPlayers(this.xpValue);
         }
         
-        // Drop guaranteed rare+ loot (2-3 items) - HOST ONLY
+        // Drop guaranteed rare+ loot (2-3 items) - syncs via game_state in multiplayer
         if (typeof generateGear !== 'undefined' && typeof groundLoot !== 'undefined') {
             const lootCount = 2 + Math.floor(Math.random() * 2); // 2 or 3 items
             const roomNum = typeof Game !== 'undefined' ? (Game.roomNumber || 1) : 1;
@@ -312,7 +307,7 @@ class BossBase extends EnemyBase {
                 const offsetY = (Math.random() - 0.5) * 40;
                 const gear = generateGear(this.x + offsetX, this.y + offsetY, roomNum, 'boss');
                 groundLoot.push(gear);
-                console.log(`[Host] Boss dropped ${gear.tier} loot`);
+                console.log(`Boss dropped ${gear.tier} loot`);
             }
         }
     }

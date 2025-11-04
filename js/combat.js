@@ -15,7 +15,7 @@ function calculateDamage(baseDamage, gearMultiplier = 1, defense = 0, critMultip
 }
 
 // Check attacks vs enemies and handle collisions
-function checkAttacksVsEnemies(player, enemies) {
+function checkAttacksVsEnemies(player, enemies, playerId = null) {
     player.attackHitboxes.forEach((hitbox) => {
         // Initialize hitEnemies set if it doesn't exist (for existing hitboxes created before this change)
         if (!hitbox.hitEnemies) {
@@ -89,7 +89,8 @@ function checkAttacksVsEnemies(player, enemies) {
                 }
                 
                 // Get attacker ID for aggro system
-                const attackerId = typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
+                // Use provided playerId (for remote players) or fall back to local player ID
+                const attackerId = playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null);
                 
                 // Only apply damage if we're the host or in solo mode
                 // Clients send damage events and wait for host's authoritative response
@@ -217,9 +218,8 @@ function checkAttacksVsEnemies(player, enemies) {
                     }
                 }
                 
-                // Create damage number (show different color for weak point hits and crits)
-                // Show on both clients (for feedback) and host (for accuracy)
-                if (typeof createDamageNumber !== 'undefined') {
+                // Create damage number (host only - clients receive via damage_number event)
+                if (!isClient && typeof createDamageNumber !== 'undefined') {
                     const isCrit = hitbox.displayCrit || false;
                     // Position damage number at weak point if hit, otherwise at enemy center
                     let damageX = enemy.x;
@@ -229,9 +229,26 @@ function checkAttacksVsEnemies(player, enemies) {
                         damageX = enemy.x + enemy.weakPoints[0].offsetX;
                         damageY = enemy.y + enemy.weakPoints[0].offsetY;
                     }
-                    // Show damage (estimated on clients, accurate on host)
-                    const displayDamage = isClient ? Math.floor(damageDealt) : damageDealt;
-                    createDamageNumber(damageX, damageY, displayDamage, isCrit, hitWeakPoint);
+                    createDamageNumber(damageX, damageY, damageDealt, isCrit, hitWeakPoint);
+                    
+                    // In multiplayer, send damage number event to clients
+                    if (typeof Game !== 'undefined' && Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
+                        if (typeof DebugFlags !== 'undefined' && DebugFlags.DAMAGE_NUMBERS) {
+                            console.log(`[Host/Melee] Sending damage_number to clients: enemyId=${enemy.id}, coords=(${damageX}, ${damageY}), damage=${Math.floor(damageDealt)}, isCrit=${isCrit}`);
+                        }
+                        
+                        multiplayerManager.send({
+                            type: 'damage_number',
+                            data: {
+                                enemyId: enemy.id,
+                                x: damageX,
+                                y: damageY,
+                                damage: Math.floor(damageDealt),
+                                isCrit: isCrit,
+                                isWeakPoint: hitWeakPoint
+                            }
+                        });
+                    }
                 }
                 
                 // Track that we hit this enemy so we don't hit it again with this hitbox
@@ -290,14 +307,10 @@ function checkEnemiesVsPlayer(player, enemies) {
                     // Local player: call takeDamage directly (pass enemy for thorns)
                     p.takeDamage(enemy.damage, enemy);
                 } else {
-                    // Remote player: use damageRemotePlayer to properly track death with correct player ID
+                    // Remote player: use damageRemotePlayer to track on host
+                    // HP syncs to clients via game_state, not individual damage events
                     if (typeof Game !== 'undefined' && Game.damageRemotePlayer) {
                         Game.damageRemotePlayer(id, enemy.damage);
-                    }
-                    
-                    // Send damage event to that client
-                    if (typeof Game !== 'undefined' && Game.sendPlayerDamageEvent) {
-                        Game.sendPlayerDamageEvent(id, enemy.damage);
                     }
                 }
             }

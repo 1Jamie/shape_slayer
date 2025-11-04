@@ -72,7 +72,23 @@ function createDamageNumber(x, y, damage, isCrit = false, isWeakPoint = false) {
     if (typeof Game === 'undefined') return;
     if (!Game.damageNumbers) Game.damageNumbers = [];
     
+    // Validate coordinates
+    if (typeof x !== 'number' || typeof y !== 'number' || isNaN(x) || isNaN(y)) {
+        console.error(`[UI] Invalid coordinates for damage number: x=${x}, y=${y}`);
+        return;
+    }
+    
+    // Validate damage
+    if (typeof damage !== 'number' || isNaN(damage) || damage < 0) {
+        console.error(`[UI] Invalid damage value: ${damage}`);
+        return;
+    }
+    
     Game.damageNumbers.push(new DamageNumber(x, y, damage, isCrit, isWeakPoint));
+    
+    if (typeof DebugFlags !== 'undefined' && DebugFlags.DAMAGE_NUMBERS) {
+        console.log(`[UI] Damage number created at (${x}, ${y}), damage=${damage}, isCrit=${isCrit}, isWeakPoint=${isWeakPoint}. Total count: ${Game.damageNumbers.length}`);
+    }
 }
 
 // Update damage numbers
@@ -86,15 +102,23 @@ function updateDamageNumbers(deltaTime) {
 function renderDamageNumbers(ctx) {
     if (!Game || !Game.damageNumbers) return;
     
+    if (typeof DebugFlags !== 'undefined' && DebugFlags.DAMAGE_NUMBERS && Game.damageNumbers.length > 0) {
+        console.log(`[UI] Rendering ${Game.damageNumbers.length} damage numbers`);
+    }
+    
     Game.damageNumbers.forEach(number => number.render(ctx));
 }
 
 // Render health bar
 function renderHealthBar(ctx, player) {
+    // Scale down on mobile for better space usage
+    const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+    const mobileScale = isMobile ? 0.75 : 1.0;
+    
     const barX = 30;
     const barY = 30;
-    const barWidth = 320;
-    const barHeight = 36;
+    const barWidth = Math.floor(320 * mobileScale);
+    const barHeight = Math.floor(36 * mobileScale);
     
     // Panel background
     const panelGradient = ctx.createLinearGradient(barX - 10, barY - 10, barX - 10, barY + barHeight + 10);
@@ -148,12 +172,14 @@ function renderHealthBar(ctx, player) {
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 18px Arial';
     ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
     ctx.shadowBlur = 3;
     ctx.shadowColor = '#000000';
     const healthText = `${Math.floor(player.hp)}/${Math.floor(player.maxHp)}`;
-    ctx.fillText(healthText, barX + barWidth / 2, barY + 24);
+    ctx.fillText(healthText, barX + barWidth / 2, barY + barHeight / 2);
     ctx.shadowBlur = 0;
     ctx.textAlign = 'left'; // Reset alignment
+    ctx.textBaseline = 'alphabetic'; // Reset baseline
     
     // Phoenix Down indicator (if player has the affix)
     if (player.hasPhoenixDown) {
@@ -198,9 +224,16 @@ function renderHealthBar(ctx, player) {
 function renderXPBar(ctx, player) {
     const canvasWidth = Game ? Game.config.width : 1280;
     const canvasHeight = Game ? Game.config.height : 720;
-    const barWidth = Math.min(1200, canvasWidth - 80);
+    
+    // Scale down on mobile
+    const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+    const mobileScale = isMobile ? 0.70 : 1.0;
+    
+    const maxBarWidth = Math.floor(1200 * mobileScale);
+    const barWidth = Math.min(maxBarWidth, canvasWidth - 80);
     const barX = (canvasWidth - barWidth) / 2; // Center the bar
-    const barY = canvasHeight - 55;
+    const bottomMargin = isMobile ? 35 : 55;
+    const barY = canvasHeight - bottomMargin;
     const barHeight = 28;
     
     // Panel background
@@ -254,10 +287,16 @@ function renderXPBar(ctx, player) {
 
 // Render solo death screen (for solo mode or when all players dead)
 function renderSoloDeathScreen(ctx, player) {
-    // Record end time
+    // Record end time and death screen start time
     if (Game.endTime === 0) {
         Game.endTime = Date.now();
+        Game.deathScreenStartTime = Date.now();
     }
+    
+    // Calculate time since death screen appeared
+    const timeSinceDeath = (Date.now() - (Game.deathScreenStartTime || Date.now())) / 1000;
+    const inputDelay = 3.0; // 3 second delay before allowing input
+    const canAcceptInput = timeSinceDeath >= inputDelay;
     
     // Calculate time played
     const timePlayed = ((Game.endTime - Game.startTime) / 1000).toFixed(1);
@@ -283,15 +322,18 @@ function renderSoloDeathScreen(ctx, player) {
     const centerX = canvasWidth / 2;
     const centerY = canvasHeight / 2;
     
+    // Scale fonts based on screen height
+    const scale = Math.min(canvasHeight / 720, 1.5); // Scale up to 1.5x max
+    
     // Title
     ctx.fillStyle = '#ff0000';
-    ctx.font = 'bold 60px Arial';
+    ctx.font = `bold ${Math.floor(60 * scale)}px Arial`;
     ctx.textAlign = 'center';
-    ctx.fillText('GAME OVER', centerX, centerY - 280);
+    ctx.fillText('GAME OVER', centerX, centerY - 280 * scale);
     
     // Stats
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 24px Arial';
+    ctx.font = `bold ${Math.floor(24 * scale)}px Arial`;
     
     const stats = [
         `Level Reached: ${levelReached}`,
@@ -301,15 +343,15 @@ function renderSoloDeathScreen(ctx, player) {
     ];
     
     stats.forEach((stat, index) => {
-        ctx.fillText(stat, centerX, centerY - 200 + (index * 35));
+        ctx.fillText(stat, centerX, centerY - 200 * scale + (index * 35 * scale));
     });
     
     // Currency breakdown
-    ctx.font = 'bold 20px Arial';
+    ctx.font = `bold ${Math.floor(20 * scale)}px Arial`;
     ctx.fillStyle = '#ffff00';
-    ctx.fillText('Currency Earned:', centerX, centerY - 30);
+    ctx.fillText('Currency Earned:', centerX, centerY - 30 * scale);
     
-    ctx.font = '18px Arial';
+    ctx.font = `${Math.floor(18 * scale)}px Arial`;
     ctx.fillStyle = '#cccccc';
     ctx.textAlign = 'left';
     
@@ -320,27 +362,36 @@ function renderSoloDeathScreen(ctx, player) {
     ];
     
     currencyBreakdown.forEach((line, index) => {
-        ctx.fillText(line, centerX - 200, centerY + (index * 25));
+        ctx.fillText(line, centerX - 200 * scale, centerY + (index * 25 * scale));
     });
     
     ctx.textAlign = 'center';
     ctx.fillStyle = '#00ff00';
-    ctx.font = 'bold 22px Arial';
-    ctx.fillText(`Total Earned: ${totalEarned}`, centerX, centerY + 90);
+    ctx.font = `bold ${Math.floor(22 * scale)}px Arial`;
+    ctx.fillText(`Total Earned: ${totalEarned}`, centerX, centerY + 90 * scale);
     
     // Current total currency
     const currentTotal = typeof SaveSystem !== 'undefined' ? Math.floor(SaveSystem.getCurrency()) : 0;
     ctx.fillStyle = '#ffff00';
-    ctx.font = 'bold 20px Arial';
-    ctx.fillText(`Total Currency: ${currentTotal}`, centerX, centerY + 130);
+    ctx.font = `bold ${Math.floor(20 * scale)}px Arial`;
+    ctx.fillText(`Total Currency: ${currentTotal}`, centerX, centerY + 130 * scale);
     
-    // Instructions
-    ctx.font = 'bold 24px Arial';
-    ctx.fillStyle = '#ffff00';
-    ctx.fillText('Press R to Restart', centerX, centerY + 200);
-    ctx.fillStyle = '#00ffff';
-    ctx.font = 'bold 20px Arial';
-    ctx.fillText('Press M or Click to Continue to Nexus', centerX, centerY + 240);
+    // Instructions (with input delay)
+    if (!canAcceptInput) {
+        // Show countdown during delay
+        const timeRemaining = Math.ceil(inputDelay - timeSinceDeath);
+        ctx.font = `bold ${Math.floor(28 * scale)}px Arial`;
+        ctx.fillStyle = '#ff8888';
+        ctx.fillText(`Wait ${timeRemaining}...`, centerX, centerY + 220 * scale);
+    } else {
+        // Show normal instructions after delay
+        ctx.font = `bold ${Math.floor(24 * scale)}px Arial`;
+        ctx.fillStyle = '#ffff00';
+        ctx.fillText('Press R to Restart', centerX, centerY + 200 * scale);
+        ctx.fillStyle = '#00ffff';
+        ctx.font = `bold ${Math.floor(20 * scale)}px Arial`;
+        ctx.fillText('Press M or Click to Continue to Nexus', centerX, centerY + 240 * scale);
+    }
 }
 
 // Render individual death screen (multiplayer - when player dies)
@@ -363,19 +414,22 @@ function renderIndividualDeathScreen(ctx, player, playerId) {
     const centerX = canvasWidth / 2;
     const centerY = canvasHeight / 2;
     
+    // Scale fonts based on screen height
+    const scale = Math.min(canvasHeight / 720, 1.5);
+    
     // Title
     ctx.fillStyle = '#ff6666';
-    ctx.font = 'bold 48px Arial';
+    ctx.font = `bold ${Math.floor(48 * scale)}px Arial`;
     ctx.textAlign = 'center';
-    ctx.fillText('YOU DIED', centerX, centerY - 200);
+    ctx.fillText('YOU DIED', centerX, centerY - 200 * scale);
     
     // Your Stats
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 28px Arial';
-    ctx.fillText('Your Stats', centerX, centerY - 140);
+    ctx.font = `bold ${Math.floor(28 * scale)}px Arial`;
+    ctx.fillText('Your Stats', centerX, centerY - 140 * scale);
     
     // Stats table
-    ctx.font = '20px Arial';
+    ctx.font = `${Math.floor(20 * scale)}px Arial`;
     const statLines = [
         `Damage Dealt: ${Math.floor(stats.damageDealt)}`,
         `Kills: ${stats.kills}`,
@@ -385,18 +439,18 @@ function renderIndividualDeathScreen(ctx, player, playerId) {
     ];
     
     statLines.forEach((line, index) => {
-        ctx.fillText(line, centerX, centerY - 90 + (index * 30));
+        ctx.fillText(line, centerX, centerY - 90 * scale + (index * 30 * scale));
     });
     
     // Instructions
     if (!Game.spectateMode) {
         ctx.fillStyle = '#ffff00';
-        ctx.font = 'bold 20px Arial';
-        ctx.fillText('Press SPACE to spectate', centerX, centerY + 100);
+        ctx.font = `bold ${Math.floor(20 * scale)}px Arial`;
+        ctx.fillText('Press SPACE to spectate', centerX, centerY + 100 * scale);
     } else {
         ctx.fillStyle = '#00ff00';
-        ctx.font = 'bold 18px Arial';
-        ctx.fillText('SPECTATING - Press SPACE to show stats', centerX, centerY + 100);
+        ctx.font = `bold ${Math.floor(18 * scale)}px Arial`;
+        ctx.fillText('SPECTATING - Press SPACE to show stats', centerX, centerY + 100 * scale);
     }
 }
 
@@ -405,6 +459,16 @@ function renderCollectiveDeathScreen(ctx, player) {
     const canvasWidth = Game ? Game.config.width : 1280;
     const canvasHeight = Game ? Game.config.height : 720;
     
+    // Track death screen start time
+    if (!Game.deathScreenStartTime) {
+        Game.deathScreenStartTime = Date.now();
+    }
+    
+    // Calculate time since death screen appeared
+    const timeSinceDeath = (Date.now() - (Game.deathScreenStartTime || Date.now())) / 1000;
+    const inputDelay = 3.0; // 3 second delay before allowing input
+    const canAcceptInput = timeSinceDeath >= inputDelay;
+    
     // Dark overlay
     ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
@@ -412,37 +476,80 @@ function renderCollectiveDeathScreen(ctx, player) {
     const centerX = canvasWidth / 2;
     const centerY = canvasHeight / 2;
     
+    // Scale fonts and layout based on screen size
+    const scale = Math.min(canvasHeight / 720, canvasWidth / 1280, 1.5);
+    
     // Title
     ctx.fillStyle = '#ff0000';
-    ctx.font = 'bold 52px Arial';
+    ctx.font = `bold ${Math.floor(52 * scale)}px Arial`;
     ctx.textAlign = 'center';
-    ctx.fillText('GAME OVER - Final Scores', centerX, centerY - 260);
+    ctx.fillText('GAME OVER - Final Scores', centerX, centerY - 260 * scale);
     
-    // Get all player stats
+    // Get all player stats in lobby join order
+    // Clients use finalStats from host (authoritative), host uses local playerStats
     const allStats = [];
-    if (Game.playerStats) {
-        Game.playerStats.forEach((stats, playerId) => {
-            allStats.push({ playerId, stats });
-        });
+    const isClient = Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && !multiplayerManager.isHost;
+    
+    if (isClient && Game.finalStats) {
+        // Client: Use final stats from host (authoritative)
+        console.log('[Death Screen] Client using finalStats from host');
+        if (typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.players) {
+            multiplayerManager.players.forEach(player => {
+                const statsData = Game.finalStats[player.id];
+                if (statsData) {
+                    allStats.push({ 
+                        playerId: player.id, 
+                        stats: {
+                            damageDealt: statsData.damageDealt,
+                            kills: statsData.kills,
+                            damageTaken: statsData.damageTaken,
+                            getTimeAlive: () => statsData.timeAlive
+                        },
+                        roomsCleared: statsData.roomsCleared
+                    });
+                }
+            });
+        }
+    } else if (Game.playerStats) {
+        // Host or solo: Use local playerStats
+        console.log('[Death Screen] Using local playerStats');
+        // Use lobby player order if available (maintains consistent ordering)
+        if (typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.players) {
+            multiplayerManager.players.forEach(player => {
+                const stats = Game.playerStats.get(player.id);
+                if (stats) {
+                    allStats.push({ playerId: player.id, stats: stats });
+                }
+            });
+        } else {
+            // Fallback: use map iteration order
+            Game.playerStats.forEach((stats, playerId) => {
+                allStats.push({ playerId, stats });
+            });
+        }
     }
     
-    // Calculate table dimensions
+    console.log(`[Death Screen] Showing ${allStats.length} players:`, allStats.map(s => s.playerId));
+    console.log(`[Death Screen] Local player ID:`, Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'unknown');
+    console.log(`[Death Screen] Lobby players:`, multiplayerManager && multiplayerManager.players ? multiplayerManager.players.map(p => p.id) : 'none');
+    
+    // Calculate table dimensions (scaled)
     const columns = ['Player', 'Damage', 'Kills', 'Dmg Taken', 'Rooms', 'Time'];
-    const colWidth = 110;
-    const rowHeight = 35;
+    const colWidth = 110 * scale;
+    const rowHeight = 35 * scale;
     const tableWidth = colWidth * columns.length;
     const tableX = centerX - tableWidth / 2;
-    const tableY = centerY - 150;
+    const tableY = centerY - 150 * scale;
     
     // Draw table header
     ctx.fillStyle = '#444444';
     ctx.fillRect(tableX, tableY, tableWidth, rowHeight);
     
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 16px Arial';
+    ctx.font = `bold ${Math.floor(16 * scale)}px Arial`;
     ctx.textAlign = 'center';
     columns.forEach((col, i) => {
-        ctx.fillText(col, tableX + (i + 0.5) * colWidth, tableY + 22);
+        ctx.fillText(col, tableX + (i + 0.5) * colWidth, tableY + 22 * scale);
     });
     
     // Draw table rows
@@ -460,42 +567,49 @@ function renderCollectiveDeathScreen(ctx, player) {
         const isLocalPlayer = entry.playerId === localPlayerId;
         
         ctx.fillStyle = isLocalPlayer ? '#ffff00' : '#ffffff';
-        ctx.font = isLocalPlayer ? 'bold 16px Arial' : '16px Arial';
+        ctx.font = isLocalPlayer ? `bold ${Math.floor(16 * scale)}px Arial` : `${Math.floor(16 * scale)}px Arial`;
         ctx.textAlign = 'center';
         
-        // Draw cell values
+        // Draw cell values (use roomsCleared if available from finalStats)
+        const roomsCleared = entry.roomsCleared !== undefined ? entry.roomsCleared : (Game.roomNumber - 1);
         const values = [
             `Player ${playerNum}${isLocalPlayer ? ' (You)' : ''}`,
             Math.floor(stats.damageDealt).toString(),
             stats.kills.toString(),
             Math.floor(stats.damageTaken).toString(),
-            (Game.roomNumber - 1).toString(),
-            formatTime(stats.getTimeAlive())
+            roomsCleared.toString(),
+            formatTime(stats.getTimeAlive ? stats.getTimeAlive() : 0)
         ];
         
         values.forEach((val, i) => {
-            ctx.fillText(val, tableX + (i + 0.5) * colWidth, rowY + 22);
+            ctx.fillText(val, tableX + (i + 0.5) * colWidth, rowY + 22 * scale);
         });
     });
     
     // Draw table border
     ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2 * scale;
     ctx.strokeRect(tableX, tableY, tableWidth, rowHeight * (allStats.length + 1));
     
-    // Instructions
+    // Instructions (with input delay)
     const isHost = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.isHost;
     
-    if (isHost) {
+    if (!canAcceptInput) {
+        // Show countdown during delay
+        const timeRemaining = Math.ceil(inputDelay - timeSinceDeath);
+        ctx.font = `bold ${Math.floor(28 * scale)}px Arial`;
+        ctx.fillStyle = '#ff8888';
+        ctx.fillText(`Wait ${timeRemaining}...`, centerX, centerY + 200 * scale);
+    } else if (isHost) {
         ctx.fillStyle = '#00ff00';
-        ctx.font = 'bold 24px Arial';
+        ctx.font = `bold ${Math.floor(24 * scale)}px Arial`;
         ctx.textAlign = 'center';
-        ctx.fillText('Press M to Return to Nexus', centerX, centerY + 200);
+        ctx.fillText('Press M to Return to Nexus', centerX, centerY + 200 * scale);
     } else {
         ctx.fillStyle = '#ffaa00';
-        ctx.font = 'bold 20px Arial';
+        ctx.font = `bold ${Math.floor(20 * scale)}px Arial`;
         ctx.textAlign = 'center';
-        ctx.fillText('Waiting for host...', centerX, centerY + 200);
+        ctx.fillText('Waiting for host...', centerX, centerY + 200 * scale);
     }
 }
 
@@ -528,8 +642,73 @@ function formatTime(seconds) {
 const CharacterSheet = {
     isOpen: false,
     lastIKey: false,
-    lastTabKey: false
+    lastTabKey: false,
+    scrollOffset: 0,
+    maxScroll: 0,
+    contentHeight: 0,
+    modalBounds: null,
+    lastTouchY: null,
+    scrollVelocity: 0
 };
+
+// Handle character sheet scroll input
+function handleCharacterSheetScroll(x, y, deltaY) {
+    if (!CharacterSheet.isOpen || !CharacterSheet.modalBounds) return false;
+    
+    const bounds = CharacterSheet.modalBounds;
+    
+    // Check if touch/click is within scrollable area
+    if (x >= bounds.x && x <= bounds.x + bounds.width &&
+        y >= bounds.scrollableTop && y <= bounds.scrollableTop + bounds.scrollableHeight) {
+        
+        // Apply scroll delta
+        if (deltaY !== undefined && deltaY !== 0) {
+            CharacterSheet.scrollOffset += deltaY;
+            CharacterSheet.scrollOffset = Math.max(0, Math.min(CharacterSheet.scrollOffset, CharacterSheet.maxScroll));
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+// Convert world coordinates to screen coordinates (accounting for camera and zoom)
+function worldToScreen(worldX, worldY) {
+    // Get current zoom level (desktop only)
+    const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+    const zoom = isMobile ? 1.0 : (typeof Game !== 'undefined' && Game.baseZoom ? Game.baseZoom : 1.1);
+    
+    if (typeof Game !== 'undefined' && Game.camera && Game.state === 'PLAYING') {
+        const centerX = Game.config.width / 2;
+        const centerY = Game.config.height / 2;
+        
+        // Apply zoom to world-to-screen conversion
+        const worldDeltaX = (worldX - Game.camera.x) * zoom;
+        const worldDeltaY = (worldY - Game.camera.y) * zoom;
+        
+        return {
+            x: centerX + worldDeltaX,
+            y: centerY + worldDeltaY
+        };
+    }
+    
+    if (typeof Game !== 'undefined' && Game.nexusCamera && Game.state === 'NEXUS') {
+        const centerX = Game.config.width / 2;
+        const centerY = Game.config.height / 2;
+        
+        // Apply zoom to world-to-screen conversion
+        const worldDeltaX = (worldX - Game.nexusCamera.x) * zoom;
+        const worldDeltaY = (worldY - Game.nexusCamera.y) * zoom;
+        
+        return {
+            x: centerX + worldDeltaX,
+            y: centerY + worldDeltaY
+        };
+    }
+    
+    // No camera - world coords are screen coords
+    return { x: worldX, y: worldY };
+}
 
 // Render gear tooltip when near gear
 function renderGearTooltips(ctx, player) {
@@ -542,8 +721,10 @@ function renderGearTooltips(ctx, player) {
         
         // Show tooltip within range
         if (distance < 50) {
-            const tooltipX = gear.x;
-            let tooltipY = gear.y - gear.size - 50;
+            // Convert gear world position to screen position
+            const screenPos = worldToScreen(gear.x, gear.y);
+            const tooltipX = screenPos.x;
+            let tooltipY = screenPos.y - gear.size - 50;
             
             // Build tooltip content - TWO COLUMNS (current vs new)
             const leftLines = [];  // Current gear
@@ -728,11 +909,11 @@ function renderGearTooltips(ctx, player) {
                 ctx.fillText('Press G to pickup', tooltipX, tooltipY + tooltipHeight / 2 - 8);
             }
             
-            // Draw range indicator
+            // Draw range indicator (using screen coordinates)
             ctx.strokeStyle = 'rgba(255, 255, 0, 0.5)';
             ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.arc(gear.x, gear.y, 50, 0, Math.PI * 2);
+            ctx.arc(screenPos.x, screenPos.y, 50, 0, Math.PI * 2);
             ctx.stroke();
         }
     });
@@ -786,6 +967,8 @@ function getGearStatString(gear, slot) {
 function updateCharacterSheet(input) {
     if (!input) return;
     
+    const wasOpen = CharacterSheet.isOpen;
+    
     // Mobile: Character sheet button is handled in input.js handleTouchStart directly
     // (no need to check here to avoid double-toggling)
     
@@ -807,19 +990,39 @@ function updateCharacterSheet(input) {
         CharacterSheet.isOpen = false;
     }
     CharacterSheet.lastTabKey = tabKeyPressed;
+    
+    // Reset scroll position when opening
+    if (CharacterSheet.isOpen && !wasOpen) {
+        CharacterSheet.scrollOffset = 0;
+        CharacterSheet.lastTouchY = null;
+    }
 }
 
 // Render character sheet (inventory and stats)
 function renderCharacterSheet(ctx, player) {
     if (!CharacterSheet.isOpen || !player) return;
     
+    // Auto-close if player dies
+    if (player.dead || player.hp <= 0) {
+        CharacterSheet.isOpen = false;
+        return;
+    }
+    
     const canvas = ctx.canvas;
     const screenWidth = canvas.width;
     const screenHeight = canvas.height;
     
-    // Modal dimensions
-    const modalWidth = 600;
-    const modalHeight = 500;
+    // Detect mobile
+    const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+    
+    // Modal dimensions - responsive to screen size
+    // On mobile, maximize vertical space (minimal padding)
+    const modalWidth = isMobile ? Math.min(screenWidth * 0.96, 600) : Math.min(screenWidth * 0.90, 600);
+    // Mobile: 92% of screen height (maximize space, minimal margins)
+    // Desktop: 90% or max 700px
+    const modalHeight = isMobile 
+        ? Math.min(screenHeight * 0.92, screenHeight - 40) // Leave only 40px total margin (20px top+bottom)
+        : Math.min(screenHeight * 0.90, 700);
     const modalX = (screenWidth - modalWidth) / 2;
     const modalY = (screenHeight - modalHeight) / 2;
     
@@ -836,27 +1039,55 @@ function renderCharacterSheet(ctx, player) {
     ctx.lineWidth = 3;
     ctx.strokeRect(modalX, modalY, modalWidth, modalHeight);
     
-    // Draw title
+    // Start tracking content height for scrolling
+    let contentMaxY = modalY;
+    
+    // Save context for clipping scrollable content
+    ctx.save();
+    
+    // Clip content to modal bounds (leave space for header and footer)
+    const headerHeight = 75;
+    const footerHeight = 35;
+    const scrollableTop = modalY + headerHeight;
+    const scrollableHeight = modalHeight - headerHeight - footerHeight;
+    ctx.beginPath();
+    ctx.rect(modalX, scrollableTop, modalWidth, scrollableHeight);
+    ctx.clip();
+    
+    // Apply scroll offset
+    const scrollY = -CharacterSheet.scrollOffset;
+    
+    // Draw title (fixed, not scrolled)
+    ctx.restore();
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 24px Arial';
     ctx.textAlign = 'center';
     ctx.fillText('CHARACTER', screenWidth / 2, modalY + 30);
     
-    // Draw player class info
+    // Re-save and clip for scrollable content
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(modalX, scrollableTop, modalWidth, scrollableHeight);
+    ctx.clip();
+    
+    // Draw player class info (scrollable content starts here)
+    let currentY = scrollableTop + scrollY + 10;
     if (player.playerClass && typeof CLASS_DEFINITIONS !== 'undefined') {
         const classDef = CLASS_DEFINITIONS[player.playerClass];
         ctx.font = '18px Arial';
         ctx.fillStyle = player.color;
-        ctx.fillText(`${classDef.name} - Level ${player.level}`, screenWidth / 2, modalY + 55);
+        ctx.fillText(`${classDef.name} - Level ${player.level}`, screenWidth / 2, currentY);
+        currentY += 25;
     }
     
     // Draw horizontal divider
     ctx.strokeStyle = '#555555';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(modalX + 30, modalY + 70);
-    ctx.lineTo(modalX + modalWidth - 30, modalY + 70);
+    ctx.moveTo(modalX + 30, currentY);
+    ctx.lineTo(modalX + modalWidth - 30, currentY);
     ctx.stroke();
+    currentY += 10;
     
     // Draw class bonuses section (centered, under divider) - using dynamic descriptions
     if (player.playerClass && typeof CLASS_DEFINITIONS !== 'undefined') {
@@ -880,25 +1111,29 @@ function renderCharacterSheet(ctx, player) {
             ctx.font = 'bold 11px Arial';
             ctx.fillStyle = '#ffdd88';
             ctx.textAlign = 'center';
-            ctx.fillText('CLASS BONUSES:', screenWidth / 2, modalY + 86);
+            ctx.fillText('CLASS BONUSES:', screenWidth / 2, currentY);
+            currentY += 14;
             
             ctx.font = '12px Arial';
             ctx.fillStyle = '#ffaa55';
-            ctx.fillText(baseStatsText, screenWidth / 2, modalY + 100);
+            ctx.fillText(baseStatsText, screenWidth / 2, currentY);
+            currentY += 20;
+        } else {
+            currentY += 10;
         }
     }
     
-    // Draw stats section
-    const statsStartY = modalY + 120; // Moved down to give space for class bonuses
+    // Draw stats section (using currentY so it scrolls)
     const leftColumnX = modalX + 60;
     ctx.textAlign = 'left';
     ctx.font = 'bold 16px Arial';
     ctx.fillStyle = '#ffdd88';
-    ctx.fillText('STATS', leftColumnX, statsStartY);
+    ctx.fillText('STATS', leftColumnX, currentY);
+    currentY += 25;
     
     ctx.font = '13px Arial';
     ctx.fillStyle = '#ffffff';
-    let statY = statsStartY + 25;
+    let statY = currentY;
     const statLineHeight = 20;
     
     ctx.fillText(`HP: ${Math.floor(player.hp)} / ${Math.floor(player.maxHp)}`, leftColumnX, statY);
@@ -1062,16 +1297,16 @@ function renderCharacterSheet(ctx, player) {
         }
     }
     
-    // Draw equipped gear section
-    const gearStartY = modalY + 120; // Moved down to match stats section
+    // Draw equipped gear section (parallel to stats, using same Y position)
     const rightColumnX = modalX + modalWidth / 2 + 30;
+    const gearStartY = currentY - 25; // Same starting Y as stats section
     ctx.textAlign = 'left';
     ctx.font = 'bold 16px Arial';
     ctx.fillStyle = '#88ddff';
     ctx.fillText('EQUIPPED GEAR', rightColumnX, gearStartY);
     
     // Render each equipment slot
-    let gearY = gearStartY + 30;
+    let gearY = gearStartY + 25;
     const slots = ['weapon', 'armor', 'accessory'];
     
     slots.forEach(slot => {
@@ -1186,13 +1421,53 @@ function renderCharacterSheet(ctx, player) {
         }
     });
     
-    // Draw instructions at bottom
-    const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+    // Track maximum content Y position (for scroll calculation)
+    contentMaxY = Math.max(contentMaxY, gearY);
+    
+    // Restore context (end clipping)
+    ctx.restore();
+    
+    // Calculate content height and max scroll
+    CharacterSheet.contentHeight = contentMaxY - scrollableTop;
+    CharacterSheet.maxScroll = Math.max(0, CharacterSheet.contentHeight - scrollableHeight);
+    
+    // Clamp scroll offset
+    CharacterSheet.scrollOffset = Math.max(0, Math.min(CharacterSheet.scrollOffset, CharacterSheet.maxScroll));
+    
+    // Store modal bounds for scroll input handling
+    CharacterSheet.modalBounds = {
+        x: modalX,
+        y: modalY,
+        width: modalWidth,
+        height: modalHeight,
+        scrollableTop: scrollableTop,
+        scrollableHeight: scrollableHeight
+    };
+    
+    // Draw scrollbar if content exceeds visible area
+    if (CharacterSheet.maxScroll > 0) {
+        const scrollbarWidth = 8;
+        const scrollbarX = modalX + modalWidth - scrollbarWidth - 5;
+        const scrollbarTrackHeight = scrollableHeight - 10;
+        const scrollbarTrackY = scrollableTop + 5;
+        
+        // Scrollbar track
+        ctx.fillStyle = 'rgba(100, 100, 100, 0.3)';
+        ctx.fillRect(scrollbarX, scrollbarTrackY, scrollbarWidth, scrollbarTrackHeight);
+        
+        // Scrollbar thumb
+        const thumbHeight = Math.max(30, (scrollableHeight / CharacterSheet.contentHeight) * scrollbarTrackHeight);
+        const thumbY = scrollbarTrackY + (CharacterSheet.scrollOffset / CharacterSheet.maxScroll) * (scrollbarTrackHeight - thumbHeight);
+        ctx.fillStyle = 'rgba(150, 150, 255, 0.7)';
+        ctx.fillRect(scrollbarX, thumbY, scrollbarWidth, thumbHeight);
+    }
+    
+    // Draw instructions at bottom (fixed, not scrolled)
     ctx.textAlign = 'center';
     ctx.font = '12px Arial';
     ctx.fillStyle = '#ffff88';
     if (isMobile) {
-        ctx.fillText('Tap X to close', screenWidth / 2, modalY + modalHeight - 15);
+        ctx.fillText('Tap X to close  •  Swipe to scroll', screenWidth / 2, modalY + modalHeight - 15);
         
         // Draw close button (X) in top-right of modal
         const closeButtonSize = 40;
@@ -1218,7 +1493,8 @@ function renderCharacterSheet(ctx, player) {
             height: closeButtonSize
         };
     } else {
-        ctx.fillText('Press I or release Tab to close', screenWidth / 2, modalY + modalHeight - 15);
+        const scrollHint = CharacterSheet.maxScroll > 0 ? '  •  Scroll for more' : '';
+        ctx.fillText('Press I or release Tab to close' + scrollHint, screenWidth / 2, modalY + modalHeight - 15);
     }
 }
 
@@ -1226,11 +1502,15 @@ function renderCharacterSheet(ctx, player) {
 function renderRoomNumber(ctx) {
     if (typeof Game === 'undefined' || !Game.roomNumber) return;
     
+    // Scale down on mobile and position to avoid overlap with health bar
+    const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+    const mobileScale = isMobile ? 0.75 : 1.0;
+    
     const centerX = Game ? Game.config.width / 2 : 640;
-    const panelWidth = 280;
-    const panelHeight = 70;
+    const panelWidth = Math.floor(280 * mobileScale);
+    const panelHeight = Math.floor(70 * mobileScale);
     const panelX = centerX - panelWidth / 2;
-    const panelY = 15;
+    const panelY = isMobile ? 10 : 15;
     
     // Modern panel background with gradient
     const panelGradient = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelHeight);
@@ -1252,22 +1532,39 @@ function renderRoomNumber(ctx) {
     ctx.lineWidth = 1;
     ctx.strokeRect(panelX + 1, panelY + 1, panelWidth - 2, panelHeight - 2);
     
+    const fontSize = Math.floor(38 * mobileScale);
+    const enemyFontSize = Math.floor(18 * mobileScale);
+    
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 38px Arial';
+    ctx.font = `bold ${fontSize}px Arial`;
     ctx.textAlign = 'center';
     ctx.shadowBlur = 2;
     ctx.shadowColor = '#000000';
-    ctx.fillText(`Room ${Game.roomNumber}`, centerX, panelY + 42);
+    ctx.fillText(`Room ${Game.roomNumber}`, centerX, panelY + Math.floor(42 * mobileScale));
     ctx.shadowBlur = 0;
     
     // Draw enemy count if room not cleared
-    if (typeof currentRoom !== 'undefined' && currentRoom && !currentRoom.cleared) {
-        const enemyCount = currentRoom.enemies.filter(e => e.alive).length;
-        ctx.font = 'bold 18px Arial';
+    // In multiplayer, use Game.enemies (authoritative from host), otherwise use currentRoom.enemies
+    const inMultiplayer = typeof Game !== 'undefined' && Game.multiplayerEnabled;
+    let enemyCount = 0;
+    let roomCleared = false;
+    
+    if (inMultiplayer && typeof Game !== 'undefined' && Game.enemies) {
+        // Multiplayer: Use Game.enemies array (synced from host)
+        enemyCount = Game.enemies.filter(e => e.alive).length;
+        roomCleared = enemyCount === 0;
+    } else if (typeof currentRoom !== 'undefined' && currentRoom) {
+        // Solo: Use currentRoom.enemies
+        enemyCount = currentRoom.enemies.filter(e => e.alive).length;
+        roomCleared = currentRoom.cleared;
+    }
+    
+    if (!roomCleared && enemyCount > 0) {
+        ctx.font = `bold ${enemyFontSize}px Arial`;
         ctx.fillStyle = '#ffaaaa';
         ctx.shadowBlur = 2;
         ctx.shadowColor = '#000000';
-        ctx.fillText(`Enemies: ${enemyCount}`, centerX, panelY + 65);
+        ctx.fillText(`Enemies: ${enemyCount}`, centerX, panelY + Math.floor(65 * mobileScale));
         ctx.shadowBlur = 0;
     }
     
@@ -1462,6 +1759,14 @@ function renderClassSelection(ctx) {
 function renderCooldownIndicators(ctx, player) {
     if (!player || player.dead) return;
     
+    // On mobile, cooldowns are rendered radially around buttons in touch controls
+    // On desktop, render as bars at bottom
+    const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+    if (isMobile) {
+        // Cooldowns rendered in renderTouchControls for mobile
+        return;
+    }
+    
     const canvasHeight = Game ? Game.config.height : 720;
     const barY = canvasHeight - 90; // Position near bottom, above XP bar
     const barWidth = 140;
@@ -1568,8 +1873,8 @@ let joinCodeInput = '';
 let multiplayerError = '';
 let copyCodeFeedback = ''; // Feedback message when code is copied
 
-// Update button (circular, side of menu)
-let updateButton = { x: 0, y: 0, radius: 0, pressed: false };
+// Update button (square, like other pause menu buttons)
+let updateButton = { x: 0, y: 0, width: 0, height: 0, pressed: false };
 
 // Modal close button state
 let modalCloseButton = { x: 0, y: 0, width: 0, height: 0, pressed: false };
@@ -1656,6 +1961,57 @@ function handlePauseButtonClick(x, y) {
     return false;
 }
 
+// Render a pause menu button (square, touch-friendly)
+function renderPauseMenuButton(ctx, button, text, isHighlighted = false, hasNotification = false) {
+    const isPulsing = hasNotification;
+    const pulse = isPulsing ? (Math.sin(Date.now() / 300) * 0.2 + 0.8) : 1.0;
+    
+    // Button background with gradient
+    const btnGradient = ctx.createLinearGradient(button.x, button.y, button.x, button.y + button.height);
+    if (isHighlighted) {
+        // Highlighted button (Resume) - brighter
+        btnGradient.addColorStop(0, button.pressed ? 'rgba(120, 150, 255, 0.95)' : 'rgba(100, 130, 255, 0.85)');
+        btnGradient.addColorStop(1, button.pressed ? 'rgba(80, 110, 220, 0.95)' : 'rgba(60, 90, 200, 0.85)');
+    } else if (isPulsing) {
+        // Pulsing for notification
+        btnGradient.addColorStop(0, button.pressed ? `rgba(80, 130, 220, ${0.9 * pulse})` : `rgba(60, 100, 200, ${0.8 * pulse})`);
+        btnGradient.addColorStop(1, button.pressed ? `rgba(50, 90, 180, ${0.9 * pulse})` : `rgba(30, 70, 160, ${0.8 * pulse})`);
+    } else {
+        // Normal button
+        btnGradient.addColorStop(0, button.pressed ? 'rgba(80, 100, 150, 0.9)' : 'rgba(60, 80, 120, 0.8)');
+        btnGradient.addColorStop(1, button.pressed ? 'rgba(50, 70, 120, 0.9)' : 'rgba(30, 50, 90, 0.8)');
+    }
+    ctx.fillStyle = btnGradient;
+    ctx.fillRect(button.x, button.y, button.width, button.height);
+    
+    // Button border
+    ctx.strokeStyle = isHighlighted ? '#ffffff' : (isPulsing ? `rgba(150, 220, 255, ${pulse})` : 'rgba(150, 180, 255, 0.6)');
+    ctx.lineWidth = isHighlighted ? 3 : 2;
+    if (isPulsing) {
+        ctx.shadowBlur = 10 * pulse;
+        ctx.shadowColor = '#66ccff';
+    }
+    ctx.strokeRect(button.x, button.y, button.width, button.height);
+    ctx.shadowBlur = 0;
+    
+    // Button text (support multiline with \n)
+    ctx.fillStyle = '#ffffff';
+    const fontSize = Math.min(24, button.width * 0.16);
+    ctx.font = `bold ${fontSize}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    
+    // Handle multiline text
+    const lines = text.split('\n');
+    const lineHeight = fontSize * 1.2;
+    const totalHeight = lines.length * lineHeight;
+    const startY = button.y + button.height / 2 - totalHeight / 2 + lineHeight / 2;
+    
+    lines.forEach((line, index) => {
+        ctx.fillText(line, button.x + button.width / 2, startY + index * lineHeight);
+    });
+}
+
 // Render pause menu with touch-friendly buttons
 function renderPauseMenu(ctx) {
     const canvasWidth = Game ? Game.config.width : 1280;
@@ -1670,9 +2026,14 @@ function renderPauseMenu(ctx) {
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
     
-    // Main menu panel with modern styling
-    const panelWidth = 700;
-    const panelHeight = 680; // Increased height to accommodate new buttons
+    // Main menu panel with modern styling (responsive to screen size)
+    // On ultra-wide screens (21:9), use MORE width to reduce wasted space
+    const aspectRatio = canvasWidth / canvasHeight;
+    const isUltraWide = aspectRatio < 0.5; // 21:9 portrait or wider
+    const widthPercent = isUltraWide ? 0.96 : 0.90; // Use 96% on ultra-wide
+    
+    const panelWidth = Math.min(800, canvasWidth * widthPercent);
+    const panelHeight = Math.min(550, canvasHeight * 0.80);
     const panelX = (canvasWidth - panelWidth) / 2;
     const panelY = (canvasHeight - panelHeight) / 2;
     
@@ -1697,165 +2058,139 @@ function renderPauseMenu(ctx) {
     ctx.lineWidth = 2;
     ctx.strokeRect(panelX + 2, panelY + 2, panelWidth - 4, panelHeight - 4);
     
-    // Title with glow effect
+    // NEW LAYOUT: "PAUSED" text placement based on aspect ratio
+    let leftSectionWidth, buttonAreaWidth, buttonAreaX;
+    
+    if (isUltraWide) {
+        // On ultra-wide: smaller PAUSED section, more room for buttons
+        leftSectionWidth = panelWidth * 0.20; // 20% for "PAUSED" text (was 30%)
+        buttonAreaWidth = panelWidth * 0.78; // 78% for buttons
+        buttonAreaX = panelX + leftSectionWidth + panelWidth * 0.02;
+    } else {
+        // Normal aspect ratio
+        leftSectionWidth = panelWidth * 0.30;
+        buttonAreaWidth = panelWidth * 0.68;
+        buttonAreaX = panelX + leftSectionWidth + panelWidth * 0.02;
+    }
+    
+    const leftSectionX = panelX + 20;
+    
+    // "PAUSED" text - vertical on left side
+    ctx.save();
+    ctx.translate(leftSectionX + (isUltraWide ? 25 : 40), panelY + panelHeight / 2);
+    ctx.rotate(-Math.PI / 2); // Rotate 90 degrees counter-clockwise
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 72px Arial';
+    const pausedFontSize = Math.min(60, leftSectionWidth * 0.90);
+    ctx.font = `bold ${pausedFontSize}px Arial`;
     ctx.textAlign = 'center';
     ctx.shadowBlur = 15;
     ctx.shadowColor = '#6666ff';
-    ctx.fillText('PAUSED', centerX, panelY + 70);
+    ctx.fillText('PAUSED', 0, 0);
     ctx.shadowBlur = 0;
+    ctx.restore();
     
-    // Button configuration
-    const buttonWidth = 280;
-    const buttonHeight = 70;
-    const buttonSpacing = 20;
-    const startY = panelY + 140;
-    const fsButtonWidth = 200;
+    // TWO-COLUMN LAYOUT for buttons: Primary left (larger), Settings right (smaller)
+    // On ultra-wide, make buttons wider to fill space better
+    const primaryButtonWidth = isUltraWide ? Math.min(180, buttonAreaWidth * 0.47) : Math.min(140, buttonAreaWidth * 0.45);
+    const primaryButtonHeight = Math.min(70, panelHeight * 0.14);
+    const settingsButtonWidth = isUltraWide ? Math.min(160, buttonAreaWidth * 0.44) : Math.min(120, buttonAreaWidth * 0.38);
+    const settingsButtonHeight = Math.min(55, panelHeight * 0.12);
+    const buttonSpacing = Math.min(15, panelHeight * 0.03);
+    const columnGap = isUltraWide ? Math.min(12, buttonAreaWidth * 0.03) : Math.min(20, buttonAreaWidth * 0.05);
+    const startY = panelY + Math.min(80, panelHeight * 0.15);
+    
+    // Column positions
+    const leftColumnX = buttonAreaX;
+    const rightColumnX = buttonAreaX + primaryButtonWidth + columnGap;
+    
     // Check if paused from nexus (not just current state, since state is 'PAUSED' when paused)
     const pausedFromNexus = Game && Game.pausedFromState === 'NEXUS';
+    const inMultiplayer = Game && Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+    const isHost = inMultiplayer && multiplayerManager.isHost;
     
-    // Resume button (prominent, center)
-    pauseMenuButtons.resume.x = centerX - buttonWidth / 2;
-    pauseMenuButtons.resume.y = startY;
-    pauseMenuButtons.resume.width = buttonWidth;
-    pauseMenuButtons.resume.height = buttonHeight;
+    // LEFT COLUMN: Primary Actions (LARGE, RECTANGULAR - wider but shorter)
+    let leftY = startY;
+    
+    // Resume button (most important, always first)
+    pauseMenuButtons.resume.x = leftColumnX;
+    pauseMenuButtons.resume.y = leftY;
+    pauseMenuButtons.resume.width = primaryButtonWidth;
+    pauseMenuButtons.resume.height = primaryButtonHeight;
     renderPauseMenuButton(ctx, pauseMenuButtons.resume, 'Resume', true);
+    leftY += primaryButtonHeight + buttonSpacing;
     
-    // Show multiplayer button ONLY when paused from nexus
+    // Multiplayer button (only in nexus, left column)
     if (pausedFromNexus) {
-        pauseMenuButtons.multiplayer.x = centerX - buttonWidth / 2;
-        pauseMenuButtons.multiplayer.y = startY + buttonHeight + buttonSpacing;
-        pauseMenuButtons.multiplayer.width = buttonWidth;
-        pauseMenuButtons.multiplayer.height = buttonHeight;
-        
-        // Show lobby code if in a lobby
         let mpButtonText = 'Multiplayer';
         if (typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode) {
-            mpButtonText = `Lobby: ${multiplayerManager.lobbyCode}`;
+            mpButtonText = 'Lobby';
         }
-        
+        pauseMenuButtons.multiplayer.x = leftColumnX;
+        pauseMenuButtons.multiplayer.y = leftY;
+        pauseMenuButtons.multiplayer.width = primaryButtonWidth;
+        pauseMenuButtons.multiplayer.height = primaryButtonHeight;
         renderPauseMenuButton(ctx, pauseMenuButtons.multiplayer, mpButtonText, false);
+        leftY += primaryButtonHeight + buttonSpacing;
     }
     
-    // Only show restart and nexus buttons when NOT paused from nexus
-    if (!pausedFromNexus) {
-        // Check if in multiplayer
-        const inMultiplayer = Game && Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
-        const isHost = inMultiplayer && multiplayerManager.isHost;
-        
-        // Restart button (only show for single player or host)
-        if (!inMultiplayer || isHost) {
-            pauseMenuButtons.restart.x = centerX - buttonWidth / 2;
-            pauseMenuButtons.restart.y = startY + buttonHeight + buttonSpacing;
-            pauseMenuButtons.restart.width = buttonWidth;
-            pauseMenuButtons.restart.height = buttonHeight;
-            renderPauseMenuButton(ctx, pauseMenuButtons.restart, 'Restart', false);
-        }
-        
-        // Return to Nexus button (only show for single player or host)
-        if (!inMultiplayer || isHost) {
-            const nexusButtonY = (!inMultiplayer || isHost) ? startY + (buttonHeight + buttonSpacing) * 2 : startY + buttonHeight + buttonSpacing;
-            pauseMenuButtons.nexus.x = centerX - buttonWidth / 2;
-            pauseMenuButtons.nexus.y = nexusButtonY;
-            pauseMenuButtons.nexus.width = buttonWidth;
-            pauseMenuButtons.nexus.height = buttonHeight;
-            renderPauseMenuButton(ctx, pauseMenuButtons.nexus, 'Return to Nexus', false);
-        }
+    // Restart button (only in game, only for solo or host)
+    if (!pausedFromNexus && (!inMultiplayer || isHost)) {
+        pauseMenuButtons.restart.x = leftColumnX;
+        pauseMenuButtons.restart.y = leftY;
+        pauseMenuButtons.restart.width = primaryButtonWidth;
+        pauseMenuButtons.restart.height = primaryButtonHeight;
+        renderPauseMenuButton(ctx, pauseMenuButtons.restart, 'Restart', false);
+        leftY += primaryButtonHeight + buttonSpacing;
     }
     
-    // Fullscreen toggle button (smaller, bottom)
-    // When in nexus, position after multiplayer button; otherwise after nexus button
-    const fullscreenY = pausedFromNexus ? startY + (buttonHeight + buttonSpacing) * 2 : startY + (buttonHeight + buttonSpacing) * 3 + 10;
-    pauseMenuButtons.fullscreen.x = centerX - fsButtonWidth / 2;
-    pauseMenuButtons.fullscreen.y = fullscreenY;
-    pauseMenuButtons.fullscreen.width = fsButtonWidth;
-    pauseMenuButtons.fullscreen.height = 50;
+    // Return to Nexus button (only in game, only for solo or host)
+    if (!pausedFromNexus && (!inMultiplayer || isHost)) {
+        pauseMenuButtons.nexus.x = leftColumnX;
+        pauseMenuButtons.nexus.y = leftY;
+        pauseMenuButtons.nexus.width = primaryButtonWidth;
+        pauseMenuButtons.nexus.height = primaryButtonHeight;
+        renderPauseMenuButton(ctx, pauseMenuButtons.nexus, 'Return to Nexus', false);
+        leftY += primaryButtonHeight + buttonSpacing;
+    }
+    
+    // RIGHT COLUMN: Settings & Info (SMALLER, RECTANGULAR)
+    let rightY = startY;
+    
+    // Fullscreen toggle button
     const isFullscreen = Game && Game.fullscreenEnabled;
-    renderPauseMenuButton(ctx, pauseMenuButtons.fullscreen, isFullscreen ? 'Exit Fullscreen' : 'Fullscreen', false);
+    pauseMenuButtons.fullscreen.x = rightColumnX;
+    pauseMenuButtons.fullscreen.y = rightY;
+    pauseMenuButtons.fullscreen.width = settingsButtonWidth;
+    pauseMenuButtons.fullscreen.height = settingsButtonHeight;
+    renderPauseMenuButton(ctx, pauseMenuButtons.fullscreen, isFullscreen ? 'Exit FS' : 'Fullscreen', false);
+    rightY += settingsButtonHeight + buttonSpacing;
     
     // Control mode selector button
     const controlMode = Input && Input.controlMode ? Input.controlMode : 'auto';
-    let controlModeText = 'Control: Auto';
-    if (controlMode === 'mobile') {
-        controlModeText = 'Control: Mobile';
-    } else if (controlMode === 'desktop') {
-        controlModeText = 'Control: Desktop';
-    }
-    pauseMenuButtons.controlMode.x = centerX - fsButtonWidth / 2;
-    pauseMenuButtons.controlMode.y = fullscreenY + 50 + buttonSpacing;
-    pauseMenuButtons.controlMode.width = fsButtonWidth;
-    pauseMenuButtons.controlMode.height = 50;
-    renderPauseMenuButton(ctx, pauseMenuButtons.controlMode, controlModeText, false);
+    let controlModeText = controlMode === 'mobile' ? 'Mobile' : controlMode === 'desktop' ? 'Desktop' : 'Auto';
+    pauseMenuButtons.controlMode.x = rightColumnX;
+    pauseMenuButtons.controlMode.y = rightY;
+    pauseMenuButtons.controlMode.width = settingsButtonWidth;
+    pauseMenuButtons.controlMode.height = settingsButtonHeight;
+    renderPauseMenuButton(ctx, pauseMenuButtons.controlMode, `Ctrl: ${controlModeText}`, false);
+    rightY += settingsButtonHeight + buttonSpacing;
     
     // How to Play button
-    pauseMenuButtons.howToPlay.x = centerX - fsButtonWidth / 2;
-    pauseMenuButtons.howToPlay.y = fullscreenY + 50 + buttonSpacing * 2 + 50;
-    pauseMenuButtons.howToPlay.width = fsButtonWidth;
-    pauseMenuButtons.howToPlay.height = 50;
+    pauseMenuButtons.howToPlay.x = rightColumnX;
+    pauseMenuButtons.howToPlay.y = rightY;
+    pauseMenuButtons.howToPlay.width = settingsButtonWidth;
+    pauseMenuButtons.howToPlay.height = settingsButtonHeight;
     renderPauseMenuButton(ctx, pauseMenuButtons.howToPlay, 'How to Play', false);
+    rightY += settingsButtonHeight + buttonSpacing;
     
-    // Update button (circular, on the right side of menu) - always show
-    const updateButtonRadius = 35;
-    const updateButtonX = panelX + panelWidth - 60;
-    const updateButtonY = panelY + 120; // Position near top of menu
-    
-    updateButton.x = updateButtonX;
-    updateButton.y = updateButtonY;
-    updateButton.radius = updateButtonRadius;
-    
-    // Check if there's a new update (for visual indication)
+    // Updates button
     const hasNewUpdate = typeof SaveSystem !== 'undefined' && SaveSystem.shouldShowUpdateModal();
-    
-    const isPressed = updateButton.pressed;
-    
-    // Button background circle - brighter if new update available
-    const bgGradient = ctx.createRadialGradient(updateButtonX, updateButtonY, 0, updateButtonX, updateButtonY, updateButtonRadius);
-    if (hasNewUpdate) {
-        // Pulsing/glowing effect for new updates
-        const pulse = Math.sin(Date.now() / 300) * 0.2 + 0.8;
-        bgGradient.addColorStop(0, isPressed ? `rgba(150, 200, 255, ${0.9 * pulse})` : `rgba(100, 200, 255, ${0.8 * pulse})`);
-        bgGradient.addColorStop(1, isPressed ? `rgba(80, 150, 255, ${0.9 * pulse})` : `rgba(60, 150, 255, ${0.8 * pulse})`);
-    } else {
-        bgGradient.addColorStop(0, isPressed ? 'rgba(150, 200, 255, 0.9)' : 'rgba(100, 150, 255, 0.8)');
-        bgGradient.addColorStop(1, isPressed ? 'rgba(80, 130, 220, 0.9)' : 'rgba(60, 100, 200, 0.8)');
-    }
-    ctx.fillStyle = bgGradient;
-    ctx.beginPath();
-    ctx.arc(updateButtonX, updateButtonY, updateButtonRadius, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // Button border - stronger glow if new update
-    if (hasNewUpdate) {
-        ctx.shadowBlur = 15;
-        ctx.shadowColor = '#66ccff';
-    }
-    ctx.strokeStyle = isPressed ? 'rgba(255, 255, 255, 1.0)' : (hasNewUpdate ? 'rgba(150, 220, 255, 1.0)' : 'rgba(150, 200, 255, 0.9)');
-    ctx.lineWidth = isPressed ? 4 : 3;
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-    
-    // Icon - exclamation mark or "!" to indicate update
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 32px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('!', updateButtonX, updateButtonY);
-    
-    // Optional: glow effect for icon (stronger if new update)
-    if (hasNewUpdate) {
-        ctx.shadowBlur = 15;
-        ctx.shadowColor = '#66ccff';
-    } else {
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = '#66ccff';
-    }
-    ctx.fillText('!', updateButtonX, updateButtonY);
-    ctx.shadowBlur = 0;
-    
-    // Label below button
-    ctx.font = 'bold 14px Arial';
-    ctx.fillText('Updates', updateButtonX, updateButtonY + updateButtonRadius + 20);
+    updateButton.x = rightColumnX;
+    updateButton.y = rightY;
+    updateButton.width = settingsButtonWidth;
+    updateButton.height = settingsButtonHeight;
+    let updatesText = hasNewUpdate ? 'Updates !' : 'Updates';
+    renderPauseMenuButton(ctx, updateButton, updatesText, false, hasNewUpdate);
     
     // Handle button clicks/touches
     handlePauseMenuInput();
@@ -1877,9 +2212,9 @@ function renderMultiplayerMenu(ctx) {
     ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
     
-    // Panel
-    const panelWidth = 500;
-    const panelHeight = 520; // Increased from 450 to accommodate Paste Code button
+    // Panel (responsive to screen size)
+    const panelWidth = Math.min(500, canvasWidth * 0.85);
+    const panelHeight = Math.min(520, canvasHeight * 0.85);
     const panelX = (canvasWidth - panelWidth) / 2;
     const panelY = (canvasHeight - panelHeight) / 2;
     
@@ -1895,14 +2230,15 @@ function renderMultiplayerMenu(ctx) {
     
     // Title
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 48px Arial';
+    const titleSize = Math.min(48, panelWidth * 0.096);
+    ctx.font = `bold ${titleSize}px Arial`;
     ctx.textAlign = 'center';
     ctx.fillText('MULTIPLAYER', centerX, panelY + 60);
     
-    const buttonWidth = 250;
-    const buttonHeight = 60;
-    const buttonSpacing = 20;
-    let startY = panelY + 120;
+    const buttonWidth = Math.min(250, panelWidth * 0.7);
+    const buttonHeight = Math.min(60, panelHeight * 0.115);
+    const buttonSpacing = Math.min(20, panelHeight * 0.038);
+    let startY = panelY + Math.min(120, panelHeight * 0.23);
     
     const inLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
     
@@ -2290,13 +2626,10 @@ function checkPauseMenuButtonClick(x, y) {
         }
     }
     
-    // Check circular update button (always available)
-    if (updateButton.radius > 0) {
-        const dx = x - updateButton.x;
-        const dy = y - updateButton.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        
-        if (distance <= updateButton.radius) {
+    // Check square update button (always available)
+    if (updateButton.width > 0 && updateButton.height > 0) {
+        if (x >= updateButton.x && x <= updateButton.x + updateButton.width &&
+            y >= updateButton.y && y <= updateButton.y + updateButton.height) {
             if (Game) {
                 Game.updateModalVisible = true;
                 return true;
@@ -2471,13 +2804,23 @@ async function handlePasteCode() {
         
         // Try modern clipboard API first
         if (navigator.clipboard && navigator.clipboard.readText) {
-            pastedText = await navigator.clipboard.readText();
+            try {
+                pastedText = await navigator.clipboard.readText();
+            } catch (clipboardErr) {
+                // Clipboard access denied - user needs to use Ctrl+V
+                console.log('[UI] Clipboard access denied, user should use Ctrl+V');
+                multiplayerError = 'Use Ctrl+V to paste (or Cmd+V on Mac)';
+                setTimeout(() => {
+                    multiplayerError = '';
+                }, 3000);
+                return;
+            }
         } else {
             // Fallback for older browsers - can't really read clipboard without user paste action
-            multiplayerError = 'Press Ctrl+V to paste';
+            multiplayerError = 'Use Ctrl+V to paste (or Cmd+V on Mac)';
             setTimeout(() => {
                 multiplayerError = '';
-            }, 2000);
+            }, 3000);
             return;
         }
         
@@ -2490,15 +2833,29 @@ async function handlePasteCode() {
                 .slice(0, 6)
                 .join('');
             
-            joinCodeInput = filtered;
-            console.log('[UI] Pasted code from clipboard:', filtered);
+            if (filtered.length > 0) {
+                joinCodeInput = filtered;
+                console.log('[UI] Pasted code from clipboard:', filtered);
+                // Clear any error message
+                multiplayerError = '';
+            } else {
+                multiplayerError = 'No valid code in clipboard';
+                setTimeout(() => {
+                    multiplayerError = '';
+                }, 2000);
+            }
+        } else {
+            multiplayerError = 'Clipboard is empty';
+            setTimeout(() => {
+                multiplayerError = '';
+            }, 2000);
         }
     } catch (err) {
         console.error('[UI] Failed to read from clipboard:', err);
-        multiplayerError = 'Press Ctrl+V to paste';
+        multiplayerError = 'Use Ctrl+V to paste (or Cmd+V on Mac)';
         setTimeout(() => {
             multiplayerError = '';
-        }, 2000);
+        }, 3000);
     }
 }
 
@@ -2730,13 +3087,14 @@ function renderInteractionButton(ctx) {
         label = 'Enter Portal';
     }
     
-    // Position button (center-bottom, above touch controls)
+    // Position button (center-bottom, low on screen but above touch controls)
     const canvasWidth = Game ? Game.config.width : 1280;
     const canvasHeight = Game ? Game.config.height : 720;
     const buttonWidth = 200;
     const buttonHeight = 60;
     const buttonX = (canvasWidth - buttonWidth) / 2;
-    const buttonY = canvasHeight - 250; // Above touch controls
+    // Position at ~150px from bottom (above touch controls at ~16-18% from bottom)
+    const buttonY = canvasHeight - 150;
     
     // Create or update button
     if (!interactionButton) {
@@ -2926,6 +3284,7 @@ function renderTouchControls(ctx) {
     // Render buttons with cooldowns (conditionally based on class)
     if (Input.touchButtons && typeof Game !== 'undefined' && Game.player) {
         const player = Game.player;
+        const playerClass = player.playerClass || 'square';
         
         // Heavy attack button (always show)
         if (Input.touchButtons.heavyAttack) {
@@ -2953,7 +3312,138 @@ function renderTouchControls(ctx) {
         if (Input.touchButtons.characterSheet) {
             Input.touchButtons.characterSheet.render(ctx, 0, 1);
         }
+        
+        // RADIAL COOLDOWN INDICATORS around joysticks (mobile only)
+        // (playerClass already declared above)
+        
+        // Dodge joystick cooldown (for triangle/rogue - shows as radial arc)
+        if (Input.touchJoysticks.dodge && playerClass === 'triangle' && player.dodgeChargeCooldowns) {
+            const joystick = Input.touchJoysticks.dodge;
+            const radius = joystick.radius + 8; // Slightly outside joystick
+            
+            // Render each charge as a segment
+            const charges = player.dodgeChargeCooldowns.length;
+            const anglePerCharge = (Math.PI * 2) / charges;
+            
+            for (let i = 0; i < charges; i++) {
+                const cooldown = player.dodgeChargeCooldowns[i];
+                const maxCooldown = player.dodgeCooldownTime;
+                const startAngle = -Math.PI / 2 + (anglePerCharge * i);
+                const endAngle = startAngle + anglePerCharge;
+                
+                // Draw cooldown arc
+                ctx.lineWidth = 4;
+                ctx.strokeStyle = cooldown > 0 ? '#ff4444' : '#44ff44';
+                ctx.beginPath();
+                if (cooldown > 0) {
+                    // Show progress
+                    const progress = 1 - (cooldown / maxCooldown);
+                    ctx.arc(joystick.centerX, joystick.centerY, radius, startAngle, startAngle + anglePerCharge * progress);
+                } else {
+                    // Full charge
+                    ctx.arc(joystick.centerX, joystick.centerY, radius, startAngle, endAngle);
+                }
+                ctx.stroke();
+            }
+            
+            // Draw charge count
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 16px Arial';
+            ctx.textAlign = 'center';
+            ctx.shadowBlur = 2;
+            ctx.shadowColor = '#000000';
+            const readyCharges = player.dodgeChargeCooldowns.filter(c => c <= 0).length;
+            ctx.fillText(readyCharges, joystick.centerX + radius + 15, joystick.centerY - radius - 5);
+            ctx.shadowBlur = 0;
+        }
+        
+        // Heavy attack joystick cooldown (for classes with directional heavy)
+        if (Input.touchJoysticks.heavyAttack && player.heavyAttackCooldown !== undefined) {
+            const joystick = Input.touchJoysticks.heavyAttack;
+            if (joystick.centerX && joystick.centerY) {
+                const radius = joystick.radius + 6;
+                const cooldown = player.heavyAttackCooldown;
+                const maxCooldown = player.heavyAttackCooldownTime || 1.5;
+                
+                // Draw cooldown arc (full circle)
+                ctx.lineWidth = 4;
+                if (cooldown > 0) {
+                    const progress = 1 - (cooldown / maxCooldown);
+                    ctx.strokeStyle = '#ff4444';
+                    ctx.beginPath();
+                    ctx.arc(joystick.centerX, joystick.centerY, radius, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * progress));
+                    ctx.stroke();
+                } else {
+                    ctx.strokeStyle = '#44ff44';
+                    ctx.beginPath();
+                    ctx.arc(joystick.centerX, joystick.centerY, radius, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            }
+        }
+        
+        // Special ability joystick cooldown
+        if (Input.touchJoysticks.specialAbility && player.specialCooldown !== undefined) {
+            const joystick = Input.touchJoysticks.specialAbility;
+            if (joystick.centerX && joystick.centerY) {
+                const radius = joystick.radius + 6;
+                const cooldown = player.specialCooldown;
+                const maxCooldown = player.specialCooldownTime || 5.0;
+                
+                // Draw cooldown arc (full circle)
+                ctx.lineWidth = 4;
+                if (cooldown > 0) {
+                    const progress = 1 - (cooldown / maxCooldown);
+                    ctx.strokeStyle = '#ff4444';
+                    ctx.beginPath();
+                    ctx.arc(joystick.centerX, joystick.centerY, radius, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * progress));
+                    ctx.stroke();
+                } else {
+                    ctx.strokeStyle = '#44ff44';
+                    ctx.beginPath();
+                    ctx.arc(joystick.centerX, joystick.centerY, radius, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            }
+        }
     }
+}
+
+// Render spectator mode indicator
+function renderSpectatorIndicator(ctx) {
+    const canvasWidth = Game ? Game.config.width : 1280;
+    const canvasHeight = Game ? Game.config.height : 720;
+    
+    // Semi-transparent overlay at top
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.fillRect(0, 0, canvasWidth, 80);
+    
+    const centerX = canvasWidth / 2;
+    
+    // Main spectator text
+    ctx.fillStyle = '#ff6666';
+    ctx.font = 'bold 28px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('SPECTATING', centerX, 30);
+    
+    // Get spectated player name
+    let spectatedName = 'Player';
+    if (Game.spectatedPlayerId && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
+        const spectatedPlayer = multiplayerManager.players.find(p => p.id === Game.spectatedPlayerId);
+        if (spectatedPlayer && spectatedPlayer.name) {
+            spectatedName = spectatedPlayer.name;
+        }
+    }
+    
+    // Spectated player name
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '20px Arial';
+    ctx.fillText(`Following: ${spectatedName}`, centerX, 58);
+    
+    // Revival hint
+    ctx.fillStyle = '#aaaaaa';
+    ctx.font = 'italic 16px Arial';
+    ctx.fillText('You will be revived when the team reaches the next room', centerX, canvasHeight - 20);
 }
 
 // Main UI render function
@@ -2986,7 +3476,10 @@ function renderUI(ctx, player) {
                 renderGearTooltips(ctx, player);
             }
         }
-        // When dead but spectating (multiplayer), no overlay - just show game continuing
+        // When dead but spectating (multiplayer), show spectator indicator
+        if (player.dead && inMultiplayer && Game.spectateMode) {
+            renderSpectatorIndicator(ctx);
+        }
     } else {
         // Only show death screen in solo OR when all players dead in multiplayer
         renderDeathScreen(ctx, player);
@@ -3025,9 +3518,9 @@ function renderLaunchModal(ctx) {
     ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
     
-    // Main panel
-    const panelWidth = 900;
-    const panelHeight = 650;
+    // Main panel (responsive to screen size)
+    const panelWidth = Math.min(900, canvasWidth * 0.90);
+    const panelHeight = Math.min(650, canvasHeight * 0.85);
     const panelX = (canvasWidth - panelWidth) / 2;
     const panelY = (canvasHeight - panelHeight) / 2;
     
@@ -3054,11 +3547,12 @@ function renderLaunchModal(ctx) {
     
     // Title
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 56px Arial';
+    const titleSize = Math.min(56, panelWidth * 0.062);
+    ctx.font = `bold ${titleSize}px Arial`;
     ctx.textAlign = 'center';
     ctx.shadowBlur = 15;
     ctx.shadowColor = '#6666ff';
-    ctx.fillText('How to Play', centerX, panelY + 60);
+    ctx.fillText('How to Play', centerX, panelY + Math.min(60, panelHeight * 0.092));
     ctx.shadowBlur = 0;
     
     // Check if mobile or desktop
@@ -3067,9 +3561,9 @@ function renderLaunchModal(ctx) {
     if (isMobile) {
         // Mobile controls visual - mini preview of screen layout
         // Position controls lower and spaced out to match actual screen
-        const previewStartY = panelY + 140;
+        const previewStartY = panelY + Math.min(140, panelHeight * 0.22);
         const previewWidth = panelWidth - 60;
-        const previewHeight = 400;
+        const previewHeight = Math.min(400, panelHeight * 0.62);
         const previewX = panelX + 30;
         const previewY = previewStartY;
         
@@ -3444,9 +3938,9 @@ function renderUpdateModal(ctx) {
     ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
     
-    // Main panel
-    const panelWidth = 700;
-    const panelHeight = 500;
+    // Main panel (responsive to screen size)
+    const panelWidth = Math.min(700, canvasWidth * 0.90);
+    const panelHeight = Math.min(500, canvasHeight * 0.80);
     const panelX = (canvasWidth - panelWidth) / 2;
     const panelY = (canvasHeight - panelHeight) / 2;
     
@@ -3572,52 +4066,103 @@ function renderUpdateModal(ctx) {
         y += lineHeight + 5;
         totalContentHeight += lineHeight + 5;
         
-        // Message content
+        // Message content - parse and render markdown
         ctx.fillStyle = '#cccccc';
         ctx.font = '18px Arial';
         
         // Split by newlines first (handle both \n and literal \n in strings)
-        const paragraphs = message.split(/\\n|\n/);
+        const lines = message.split(/\\n|\n/);
         
-        paragraphs.forEach((paragraph, paragraphIndex) => {
-            // Trim whitespace from each paragraph
-            paragraph = paragraph.trim();
+        lines.forEach((line, lineIndex) => {
+            // Trim whitespace
+            line = line.trim();
             
-            if (paragraph.length === 0) {
-                // Empty paragraph - just add spacing
+            if (line.length === 0) {
+                // Empty line - add spacing
                 y += lineHeight * 0.5;
                 totalContentHeight += lineHeight * 0.5;
                 return;
             }
             
-            // Word wrap each paragraph
-            const words = paragraph.split(' ');
-            let line = '';
+            // Check if it's a bullet point
+            const isBullet = line.startsWith('•') || line.startsWith('-');
+            const isIndentedBullet = line.startsWith('  -') || line.startsWith('  •');
             
-            words.forEach((word, wordIndex) => {
-                const testLine = line + word + ' ';
-                const metrics = ctx.measureText(testLine);
-                if (metrics.width > contentWidth && line.length > 0) {
-                    ctx.fillText(line.trim(), contentX, y);
-                    line = word + ' ';
-                    y += lineHeight;
-                    totalContentHeight += lineHeight;
-                } else {
-                    line = testLine;
+            let renderX = contentX;
+            let bulletIndent = 0;
+            
+            if (isBullet) {
+                bulletIndent = 20;
+                renderX = contentX + bulletIndent;
+                
+                // Render bullet
+                ctx.fillStyle = '#88aaff';
+                ctx.font = '18px Arial';
+                ctx.fillText('•', contentX + 5, y);
+                
+                // Remove bullet from line
+                line = line.substring(1).trim();
+            } else if (isIndentedBullet) {
+                bulletIndent = 40;
+                renderX = contentX + bulletIndent;
+                
+                // Render bullet
+                ctx.fillStyle = '#88aaff';
+                ctx.font = '14px Arial';
+                ctx.fillText('•', contentX + 25, y);
+                
+                // Remove indented bullet from line
+                line = line.substring(2).trim();
+                if (line.startsWith('-') || line.startsWith('•')) {
+                    line = line.substring(1).trim();
                 }
-            });
-            
-            // Render remaining line
-            if (line.trim().length > 0) {
-                ctx.fillText(line.trim(), contentX, y);
-                y += lineHeight;
-                totalContentHeight += lineHeight;
             }
             
-            // Add extra spacing between paragraphs (except after the last one)
-            if (paragraphIndex < paragraphs.length - 1) {
-                y += lineHeight * 0.3;
-                totalContentHeight += lineHeight * 0.3;
+            // Track starting Y for this line
+            const startY = y;
+            
+            // Parse and render markdown (handles bold, wrapping, etc.)
+            const segments = parseMarkdownLine(line);
+            let currentX = renderX;
+            let maxLineY = y;
+            
+            segments.forEach((segment, segmentIndex) => {
+                // Set font style
+                const fontSize = '18px';
+                ctx.font = segment.bold ? `bold ${fontSize} Arial` : `${fontSize} Arial`;
+                ctx.fillStyle = segment.bold ? '#ffdd88' : '#cccccc';
+                
+                // Word wrap within segment
+                const words = segment.text.split(' ');
+                words.forEach((word, wordIndex) => {
+                    const wordWithSpace = wordIndex < words.length - 1 ? word + ' ' : word;
+                    const wordWidth = ctx.measureText(wordWithSpace).width;
+                    
+                    // Check if word fits on current line
+                    if (currentX + wordWidth > contentX + contentWidth && currentX > renderX) {
+                        // Move to next line, maintaining indent
+                        maxLineY += lineHeight;
+                        currentX = renderX;
+                        totalContentHeight += lineHeight;
+                    }
+                    
+                    ctx.fillText(wordWithSpace, currentX, maxLineY);
+                    currentX += wordWidth;
+                });
+            });
+            
+            // Update Y position to after the rendered content
+            y = maxLineY + lineHeight;
+            totalContentHeight += lineHeight;
+            
+            // Add extra spacing after certain lines
+            if (lineIndex < lines.length - 1) {
+                const nextLine = lines[lineIndex + 1].trim();
+                // Add extra space before section headers (bold lines) or after empty lines
+                if (nextLine.startsWith('**') || line.length === 0) {
+                    y += lineHeight * 0.3;
+                    totalContentHeight += lineHeight * 0.3;
+                }
             }
         });
         
@@ -3753,54 +4298,42 @@ document.addEventListener('keydown', (e) => {
     const inLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
     if (inLobby) return; // Don't handle input when in a lobby
     
-    // Prevent browser shortcuts and game controls when typing in multiplayer menu
-    // This prevents Shift+R (reload), Ctrl+R (reload), etc.
-    if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) {
-        // Handle Ctrl+V for paste
-        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
-            handlePasteCode();
-            e.preventDefault();
-            e.stopPropagation();
-            return;
-        }
-        
-        // Allow Shift for uppercase letters, but prevent browser shortcuts
-        if (e.key.length === 1 && /[a-zA-Z0-9]/.test(e.key)) {
-            // Allow Shift+letter for uppercase input
-            if (joinCodeInput.length < 6) {
-                joinCodeInput += e.key.toUpperCase();
-            }
-        }
-        // Always prevent default for modifier keys to block browser shortcuts
+    // Handle Ctrl+V/Cmd+V for paste
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
         e.preventDefault();
         e.stopPropagation();
+        // Don't call handlePasteCode here - let the paste event handler deal with it
         return;
     }
     
-    // Prevent ALL game controls from triggering while multiplayer menu is open
-    const gameControlKeys = ['w', 'a', 's', 'd', ' ', 'g'];
-    if (gameControlKeys.includes(e.key.toLowerCase())) {
-        e.preventDefault();
-        e.stopPropagation();
-        return;
-    }
-    
-    // Only handle alphanumeric keys for join code input
-    if (e.key.length === 1 && /[a-zA-Z0-9]/.test(e.key)) {
-        if (joinCodeInput.length < 6) {
-            joinCodeInput += e.key.toUpperCase();
-        }
-        e.preventDefault();
-        e.stopPropagation();
-    } else if (e.key === 'Backspace') {
+    // Handle special keys first
+    if (e.key === 'Backspace') {
         joinCodeInput = joinCodeInput.slice(0, -1);
         e.preventDefault();
         e.stopPropagation();
+        return;
     } else if (e.key === 'Enter' && joinCodeInput.length === 6) {
         handleJoinLobby();
         e.preventDefault();
         e.stopPropagation();
+        return;
     }
+    
+    // Handle alphanumeric input for join code
+    if (e.key.length === 1 && /[a-zA-Z0-9]/.test(e.key)) {
+        if (joinCodeInput.length < 6) {
+            // Convert any letter to uppercase, allow any number
+            joinCodeInput += e.key.toUpperCase();
+        }
+        // Always prevent default to stop game controls and browser shortcuts
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+    }
+    
+    // For any other key, prevent it from triggering game controls
+    e.preventDefault();
+    e.stopPropagation();
 }, { capture: true }); // Use capture phase to run before Input system
 
 // Handle paste event for multiplayer join code (legacy support for actual paste events)

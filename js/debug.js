@@ -1,6 +1,30 @@
 // Debug Panel System
 // Accessible from dev console for testing (e.g., DebugPanel.toggle())
 
+// Debug flags for verbose logging (toggle these to debug specific systems)
+const DebugFlags = {
+    DAMAGE_NUMBERS: false, // Verbose damage number sync logging (host, server, client, rendering)
+    
+    // Toggle a debug flag from console: DebugFlags.DAMAGE_NUMBERS = true
+    enable(flagName) {
+        if (this.hasOwnProperty(flagName)) {
+            this[flagName] = true;
+            console.log(`[Debug] Enabled: ${flagName}`);
+        } else {
+            console.warn(`[Debug] Unknown flag: ${flagName}`);
+        }
+    },
+    
+    disable(flagName) {
+        if (this.hasOwnProperty(flagName)) {
+            this[flagName] = false;
+            console.log(`[Debug] Disabled: ${flagName}`);
+        } else {
+            console.warn(`[Debug] Unknown flag: ${flagName}`);
+        }
+    }
+};
+
 const DebugPanel = {
     visible: false,
     panelElement: null,
@@ -144,6 +168,11 @@ const DebugPanel = {
         
         console.log(`[DEBUG] Warping to Room ${roomNumber}`);
         
+        // Clear any existing boss intro FIRST
+        if (Game.bossIntroActive) {
+            Game.endBossIntro();
+        }
+        
         // Update room number
         Game.roomNumber = roomNumber;
         
@@ -158,28 +187,38 @@ const DebugPanel = {
         // Update enemies array
         Game.enemies = newRoom.enemies;
         
-        // Check if this is a boss room and start intro
-        if (newRoom.type === 'boss' && Game.enemies.length > 0 && Game.enemies[0].isBoss) {
-            const boss = Game.enemies[0];
-            Game.startBossIntro(boss);
-        }
-        
         // Clear ground loot
         if (typeof groundLoot !== 'undefined') {
             groundLoot.length = 0;
         }
         
-        // Reset player position to left side
-        Game.player.x = 50;
-        Game.player.y = 300;
+        // Reset player position to spawn point (adjusted for larger rooms)
+        if (newRoom.spawnPos) {
+            Game.player.x = newRoom.spawnPos.x;
+            Game.player.y = newRoom.spawnPos.y;
+        } else {
+            Game.player.x = 200;
+            Game.player.y = currentRoom ? currentRoom.height / 2 : 675;
+        }
+        
+        // Check if this is a boss room and start intro
+        const isBossRoom = newRoom.type === 'boss' && Game.enemies.length > 0 && Game.enemies[0].isBoss;
+        
+        if (isBossRoom) {
+            const boss = Game.enemies[0];
+            // Don't initialize camera here - let the boss intro handle it
+            // The boss intro will center camera on boss, then pan to player
+            Game.startBossIntro(boss);
+        } else {
+            // For non-boss rooms, initialize camera on player
+            if (Game.camera) {
+                Game.camera.x = Game.player.x;
+                Game.camera.y = Game.player.y;
+            }
+        }
         
         // Update debug panel display
         this.updateDisplay();
-        
-        // Clear any boss intro if warping
-        if (Game.bossIntroActive) {
-            Game.endBossIntro();
-        }
         
         console.log(`[DEBUG] Warped to Room ${roomNumber}${newRoom.type === 'boss' ? ' (BOSS ROOM)' : ''}`);
     },
@@ -208,6 +247,8 @@ window.addEventListener('load', () => {
     
     // Expose to global scope for console access
     window.DebugPanel = DebugPanel;
+    window.DebugFlags = DebugFlags;
     console.log('Debug Panel initialized. Use DebugPanel.toggle() or Ctrl+D to open/close.');
+    console.log('Debug Flags available: Use DebugFlags.enable("DAMAGE_NUMBERS") to toggle verbose logging.');
 });
 

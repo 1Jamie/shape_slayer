@@ -4,13 +4,57 @@ const Input = {
     // Key states
     keys: {},
     
-    // Mouse state
+    // Mouse state (screen coordinates)
     mouse: {
         x: 0,
         y: 0
     },
     mouseLeft: false,
     mouseRight: false,
+    
+    // Get mouse position in world coordinates (accounting for camera)
+    getWorldMousePos() {
+        if (typeof Game === 'undefined') {
+            return { x: this.mouse.x, y: this.mouse.y };
+        }
+        
+        // Get current zoom level (desktop only)
+        const isMobile = this.isTouchMode && this.isTouchMode();
+        const zoom = isMobile ? 1.0 : (Game.baseZoom || 1.1);
+        
+        // Combat rooms - use combat camera
+        if (Game.camera && Game.state === 'PLAYING') {
+            const centerX = Game.config.width / 2;
+            const centerY = Game.config.height / 2;
+            
+            // Convert screen to world with zoom
+            const screenDeltaX = (this.mouse.x - centerX) / zoom;
+            const screenDeltaY = (this.mouse.y - centerY) / zoom;
+            
+            return {
+                x: Game.camera.x + screenDeltaX,
+                y: Game.camera.y + screenDeltaY
+            };
+        }
+        
+        // Nexus - use nexus camera
+        if (Game.nexusCamera && Game.state === 'NEXUS') {
+            const centerX = Game.config.width / 2;
+            const centerY = Game.config.height / 2;
+            
+            // Convert screen to world with zoom
+            const screenDeltaX = (this.mouse.x - centerX) / zoom;
+            const screenDeltaY = (this.mouse.y - centerY) / zoom;
+            
+            return {
+                x: Game.nexusCamera.x + screenDeltaX,
+                y: Game.nexusCamera.y + screenDeltaY
+            };
+        }
+        
+        // Fallback - screen coordinates
+        return { x: this.mouse.x, y: this.mouse.y };
+    },
     
     // Touch state
     touchActive: false,
@@ -165,14 +209,13 @@ const Input = {
     
     // Initialize touch control UI elements
     initTouchControls(canvas) {
-        // Always use the game's internal dimensions (1280x720)
-        // Touch coordinates are converted to these dimensions in handleTouchStart
-        const width = 1280;
-        const height = 720;
+        // Use actual canvas dimensions (now dynamic based on screen size)
+        const width = canvas.width;
+        const height = canvas.height;
         
         // Debug: Log initialization
         if (typeof Game !== 'undefined' && Game.fullscreenEnabled) {
-            console.log(`[INIT TOUCH CONTROLS] Canvas: ${canvas.width}x${canvas.height}, Game: ${width}x${height}`);
+            console.log(`[INIT TOUCH CONTROLS] Canvas: ${canvas.width}x${canvas.height}`);
             const rect = canvas.getBoundingClientRect();
             console.log(`[INIT TOUCH CONTROLS] Display rect: ${rect.width.toFixed(0)}x${rect.height.toFixed(0)} at (${rect.left.toFixed(0)}, ${rect.top.toFixed(0)})`);
         }
@@ -182,30 +225,37 @@ const Input = {
         // All controls positioned in bottom corners for natural thumb reach
         // NO OVERLAPPING - proper spacing between all controls
         
+        // Scale control sizes based on screen width (but clamp to reasonable range)
+        const widthScale = Math.max(0.7, Math.min(1.3, width / 1280));
+        const baseMovementRadius = 75;
+        const baseAttackRadius = 70;
+        const baseButtonSize = 58;
+        
+        const movementRadius = Math.floor(baseMovementRadius * widthScale);
+        const basicAttackRadius = Math.floor(baseAttackRadius * widthScale);
+        const buttonSize = Math.floor(baseButtonSize * widthScale);
+        const buttonHeight = Math.floor(52 * widthScale);
+        
         // LEFT SIDE - Movement joystick (left thumb zone)
-        // Position: Bottom-left corner, above XP bar, easily reachable with left thumb
-        const leftX = 100;
-        const leftY = height - 180; // Well above XP bar and other UI elements
-        const movementRadius = 75;
+        // Position: Lower for better thumb reach, especially on tall phones
+        const leftX = Math.max(100, width * 0.08); // ~8% from left edge, min 100px
+        const leftY = height - Math.max(120, height * 0.16); // Dynamic: ~16% from bottom, min 120px
         this.touchJoysticks.movement = new VirtualJoystick(leftX, leftY, movementRadius, 20);
         
         // RIGHT SIDE - Combat controls (right thumb zone)
         // Radial layout: Main attack joystick in center, ability buttons arranged around it
-        // Positioned for optimal thumb reach from bottom-right corner
-        const rightX = width - 130;
-        const rightY = height - 200; // Slightly higher to accommodate radial layout
+        // Position: Lower for better thumb reach
+        const rightX = width - Math.max(130, width * 0.10); // ~10% from right edge, min 130px
+        const rightY = height - Math.max(140, height * 0.18); // Dynamic: ~18% from bottom, min 140px
         
         // Basic attack joystick (CENTRAL - primary action, main right thumb position)
-        const basicAttackRadius = 70; // Slightly larger for easier use
         const centerX = rightX;
         const centerY = rightY;
         this.touchJoysticks.basicAttack = new VirtualJoystick(centerX, centerY, basicAttackRadius, 20);
         
         // Radial button layout around the central joystick
         // Create a cohesive cluster with proper spacing (increased spacing to prevent accidental hits)
-        const buttonSize = 58; // Button width
-        const buttonHeight = 52; // Button height
-        const radialRadius = basicAttackRadius + 75; // Distance from center (joystick radius + larger gap to prevent accidental hits)
+        const radialRadius = basicAttackRadius + Math.floor(75 * widthScale); // Distance from center (scaled)
         
         // Position buttons at angles around the circle (3 buttons: Heavy, Special, Dodge)
         // Angles optimized for thumb reach: Heavy (upper-left), Special (upper-right), Dodge (bottom)
@@ -228,11 +278,12 @@ const Input = {
         );
         
         // Heavy attack joystick (for warrior class - directional charge attack)
-        // Centered on button position, same as special ability joystick pattern
+        // Centered on button position - REDUCED SIZE for mobile
+        const abilityJoystickRadius = Math.floor(38 * widthScale); // Smaller than before (was 48)
         this.touchJoysticks.heavyAttack = new VirtualJoystick(
             heavyX,
             heavyY,
-            48,
+            abilityJoystickRadius,
             14
         );
         
@@ -249,10 +300,11 @@ const Input = {
         );
         
         // Special ability joystick (for directional abilities - centered on button position)
+        // REDUCED SIZE for mobile
         this.touchJoysticks.specialAbility = new VirtualJoystick(
             specialX,
             specialY,
-            48,
+            abilityJoystickRadius,
             14
         );
         
@@ -269,20 +321,22 @@ const Input = {
         );
         
         // Dodge joystick (for triangle/rogue class - directional dash attack)
-        // Centered on button position, same pattern as heavy attack joystick
+        // Centered on button position - REDUCED SIZE for mobile
         this.touchJoysticks.dodge = new VirtualJoystick(
             dodgeX,
             dodgeY,
-            48,
+            abilityJoystickRadius,
             14
         );
         
         // Character sheet button (top-right corner, away from combat controls and pause button)
+        const charButtonWidth = Math.floor(90 * widthScale);
+        const charButtonHeight = Math.floor(40 * widthScale);
         this.touchButtons.characterSheet = new TouchButton(
-            width - 220, // Positioned left of pause button (pause button is ~60px from right, button is 90px wide, so need ~150px gap)
+            width - 220 - (charButtonWidth - 90), // Adjust position for scaled size
             20,
-            90,
-            40,
+            charButtonWidth,
+            charButtonHeight,
             'Char'
         );
     },
@@ -295,6 +349,12 @@ const Input = {
         // UI handlers will call stopPropagation if they handle the touch
         if (e.defaultPrevented) {
             return;
+        }
+        
+        // Check if character sheet is open and store touch for scrolling
+        if (typeof CharacterSheet !== 'undefined' && CharacterSheet.isOpen && e.touches.length > 0) {
+            const touch = e.touches[0];
+            CharacterSheet.lastTouchY = touch.clientY;
         }
         
         // Get fresh bounding rect to ensure correct coordinates after resize/fullscreen
@@ -492,6 +552,24 @@ const Input = {
     // Handle touch move
     handleTouchMove(e, canvas) {
         if (!this.isTouchMode()) return;
+        
+        // Handle character sheet scrolling if open
+        if (typeof CharacterSheet !== 'undefined' && CharacterSheet.isOpen && e.touches.length > 0) {
+            const touch = e.touches[0];
+            if (CharacterSheet.lastTouchY !== null) {
+                const deltaY = CharacterSheet.lastTouchY - touch.clientY;
+                const gameCoords = typeof Game !== 'undefined' && Game.screenToGame 
+                    ? Game.screenToGame(touch.clientX, touch.clientY)
+                    : { x: touch.clientX, y: touch.clientY };
+                
+                if (typeof handleCharacterSheetScroll !== 'undefined' && handleCharacterSheetScroll(gameCoords.x, gameCoords.y, deltaY)) {
+                    CharacterSheet.lastTouchY = touch.clientY;
+                    e.preventDefault();
+                    return;
+                }
+            }
+            CharacterSheet.lastTouchY = touch.clientY;
+        }
         
         // Get fresh bounding rect to ensure correct coordinates after resize/fullscreen
         void canvas.offsetWidth; // Force reflow
@@ -826,10 +904,11 @@ const Input = {
             // No joystick active, return last stored angle
             return this.lastAimAngle;
         } else {
-            // Desktop mode: Mouse position
+            // Desktop mode: Mouse position (use world coordinates)
             if (typeof Game !== 'undefined' && Game.player) {
-                const dx = this.mouse.x - Game.player.x;
-                const dy = this.mouse.y - Game.player.y;
+                const worldMouse = this.getWorldMousePos();
+                const dx = worldMouse.x - Game.player.x;
+                const dy = worldMouse.y - Game.player.y;
                 return Math.atan2(dy, dx);
             }
             return 0;

@@ -581,6 +581,11 @@ class BossFractalCore extends BossBase {
         elite.damage *= 0.7;
         elite.lootChance = 0.1;
         
+        // Inherit aggro target from spawner
+        if (this.currentTarget) {
+            elite.currentTarget = this.currentTarget;
+        }
+        
         if (currentRoom) currentRoom.enemies.push(elite);
         if (Game.enemies) Game.enemies.push(elite);
     }

@@ -169,47 +169,47 @@ function getBiomeForRoom(roomNumber) {
     return BIOMES.endless;
 }
 
-// Render room background with biome styling
+// Render room background with biome styling (should be called inside camera transform)
 function renderRoomBackground(ctx, roomNumber) {
-    const canvasWidth = Game ? Game.config.width : 1280;
-    const canvasHeight = Game ? Game.config.height : 720;
+    // Use room size (larger than canvas/viewport)
+    const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : 2400;
+    const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : 1350;
     const biome = getBiomeForRoom(roomNumber);
     
-    // Base background color
-    ctx.fillStyle = biome.baseColor;
-    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    // NOTE: Base color is already cleared outside camera transform in main.js
+    // We only draw the grid pattern here (in world space, so it stays fixed to floor)
     
-    // Render grid pattern
+    // Render grid pattern over entire room (world space - fixed to floor)
     ctx.strokeStyle = biome.gridColor;
     ctx.lineWidth = 1;
     
     if (biome.pattern === 'grid') {
         // Standard grid pattern
-        for (let x = 0; x < canvasWidth; x += biome.gridSize) {
+        for (let x = 0; x < roomWidth; x += biome.gridSize) {
             ctx.beginPath();
             ctx.moveTo(x, 0);
-            ctx.lineTo(x, canvasHeight);
+            ctx.lineTo(x, roomHeight);
             ctx.stroke();
         }
-        for (let y = 0; y < canvasHeight; y += biome.gridSize) {
+        for (let y = 0; y < roomHeight; y += biome.gridSize) {
             ctx.beginPath();
             ctx.moveTo(0, y);
-            ctx.lineTo(canvasWidth, y);
+            ctx.lineTo(roomWidth, y);
             ctx.stroke();
         }
     } else if (biome.pattern === 'diagonal') {
         // Diagonal grid pattern for fractal biome
         const spacing = biome.gridSize;
-        for (let i = -canvasHeight; i < canvasWidth + canvasHeight; i += spacing) {
+        for (let i = -roomHeight; i < roomWidth + roomHeight; i += spacing) {
             ctx.beginPath();
             ctx.moveTo(i, 0);
-            ctx.lineTo(i + canvasHeight, canvasHeight);
+            ctx.lineTo(i + roomHeight, roomHeight);
             ctx.stroke();
         }
-        for (let i = -canvasWidth; i < canvasWidth + canvasHeight; i += spacing) {
+        for (let i = -roomWidth; i < roomWidth + roomHeight; i += spacing) {
             ctx.beginPath();
             ctx.moveTo(0, i);
-            ctx.lineTo(canvasWidth, i + canvasWidth);
+            ctx.lineTo(roomWidth, i + roomWidth);
             ctx.stroke();
         }
     }
@@ -227,8 +227,44 @@ function renderRoomBackground(ctx, roomNumber) {
         const b = parseInt(hex.substring(4, 6), 16);
         
         ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${pulseAlpha})`;
-        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+        ctx.fillRect(0, 0, roomWidth, roomHeight);
     }
+}
+
+// Render room boundaries (visible walls at edges)
+function renderRoomBoundaries(ctx, roomNumber) {
+    const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : 2400;
+    const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : 1350;
+    const biome = getBiomeForRoom(roomNumber);
+    
+    const wallThickness = 20;
+    
+    // Parse biome accent color
+    const hex = biome.accentColor.replace('#', '');
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    
+    // Draw walls with biome-colored borders
+    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.3)`;
+    ctx.strokeStyle = biome.accentColor;
+    ctx.lineWidth = 3;
+    
+    // Top wall
+    ctx.fillRect(0, 0, roomWidth, wallThickness);
+    ctx.strokeRect(0, 0, roomWidth, wallThickness);
+    
+    // Bottom wall
+    ctx.fillRect(0, roomHeight - wallThickness, roomWidth, wallThickness);
+    ctx.strokeRect(0, roomHeight - wallThickness, roomWidth, wallThickness);
+    
+    // Left wall
+    ctx.fillRect(0, 0, wallThickness, roomHeight);
+    ctx.strokeRect(0, 0, wallThickness, roomHeight);
+    
+    // Right wall
+    ctx.fillRect(roomWidth - wallThickness, 0, wallThickness, roomHeight);
+    ctx.strokeRect(roomWidth - wallThickness, 0, wallThickness, roomHeight);
 }
 
 const Renderer = {

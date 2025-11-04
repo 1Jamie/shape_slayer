@@ -16,10 +16,12 @@ Shape Slayer now supports co-op multiplayer for up to 4 players using a lobby-ba
 ## Architecture
 
 ### Server
-- **Location**: `server/mp-server.js`
-- **Port**: 4000 (WebSocket)
+- **Location**: `server/mp-server.js` (entry point), `server/mp-server-master.js` (clustering), `server/mp-server-worker.js` (workers)
+- **Port**: 4000 (WebSocket, configurable)
 - **Role**: Lobby management and message relay
 - **Protocol**: Native WebSockets (ws library)
+- **Deployment Modes**: Single-threaded (default), Multi-worker (clustering), Slave (multi-server)
+- **Detailed Documentation**: See `server/README.md` for complete server architecture, clustering, and deployment guides
 
 ### Client
 - **Configuration**: `js/mp-config.js` (easily change server URL)
@@ -37,20 +39,44 @@ npm install
 
 ### 2. Start the Multiplayer Server
 
+**Simple Setup (Recommended for most users)**:
 ```bash
 cd server
 npm start
 ```
 
-The server will start on port 4000. You should see:
+The server will start in single-threaded mode on port 4000. You should see:
 ```
 ========================================
   Shape Slayer Multiplayer Server
+  SINGLE-THREADED MODE
 ========================================
-  WebSocket Port: 4000
-  Status: Running
+  Local:    ws://localhost:4000
+  Network:  ws://YOUR_IP:4000
+  Status:   Running
 ========================================
 ```
+
+**Advanced Setup (High Performance)**:
+
+For high-traffic deployments with clustering support:
+```bash
+cd server
+SERVER_MODE=multi WORKER_COUNT=4 npm start
+```
+
+For multi-server cluster (requires master server):
+```bash
+cd server
+SERVER_MODE=slave MASTER_SERVER_IP=10.0.0.100 WORKER_COUNT=4 npm start
+```
+
+**Configuration Options**:
+- Single-threaded mode: 100-1,000 concurrent players (default)
+- Multi-worker mode: 1,000-5,000+ concurrent players (requires Docker for Redis)
+- Slave mode: 10,000+ concurrent players (multi-server horizontal scaling)
+
+For complete server setup documentation, deployment modes, clustering configuration, and troubleshooting, see **`server/README.md`**.
 
 ### 3. Start the Game Server
 
@@ -270,6 +296,7 @@ For issues or questions:
 2. Check browser console (F12 → Console)
 3. Verify network connectivity
 4. Test single-player first to isolate multiplayer issues
+
 
 
 

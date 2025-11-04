@@ -81,6 +81,7 @@ class Warrior extends PlayerBase {
         this.baseDamage = WARRIOR_CONFIG.baseDamage + upgradeBonuses.damage;
         this.baseMoveSpeed = WARRIOR_CONFIG.baseSpeed + upgradeBonuses.speed;
         this.baseDefense = WARRIOR_CONFIG.baseDefense + upgradeBonuses.defense;
+        this.baseMaxHp = WARRIOR_CONFIG.baseHp; // Store base max HP for gear calculations
         this.maxHp = WARRIOR_CONFIG.baseHp;
         this.hp = WARRIOR_CONFIG.baseHp;
         this.baseCritChance = WARRIOR_CONFIG.critChance || 0; // Store base for updateEffectiveStats
@@ -241,8 +242,11 @@ class Warrior extends PlayerBase {
             
             // Keep player in bounds
             if (typeof Game !== 'undefined' && Game.canvas) {
-                this.x = clamp(this.x, this.size, Game.canvas.width - this.size);
-                this.y = clamp(this.y, this.size, Game.canvas.height - this.size);
+                // Use room bounds instead of canvas bounds
+                const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : Game.canvas.width;
+                const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : Game.canvas.height;
+                this.x = clamp(this.x, this.size, roomWidth - this.size);
+                this.y = clamp(this.y, this.size, roomHeight - this.size);
             }
             
             // Deal damage to enemies along the rushing path (check every frame)
@@ -391,8 +395,11 @@ class Warrior extends PlayerBase {
         
         // Keep target in bounds
         if (typeof Game !== 'undefined' && Game.canvas) {
-            this.thrustTargetX = clamp(targetX, this.size, Game.canvas.width - this.size);
-            this.thrustTargetY = clamp(targetY, this.size, Game.canvas.height - this.size);
+            // Use room bounds instead of canvas bounds
+            const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : Game.canvas.width;
+            const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : Game.canvas.height;
+            this.thrustTargetX = clamp(targetX, this.size, roomWidth - this.size);
+            this.thrustTargetY = clamp(targetY, this.size, roomHeight - this.size);
         } else {
             this.thrustTargetX = targetX;
             this.thrustTargetY = targetY;
@@ -460,8 +467,11 @@ class Warrior extends PlayerBase {
         
         // Clamp to bounds
         if (typeof Game !== 'undefined' && Game.canvas) {
-            targetX = clamp(targetX, this.size, Game.canvas.width - this.size);
-            targetY = clamp(targetY, this.size, Game.canvas.height - this.size);
+            // Use room bounds instead of canvas bounds
+            const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : Game.canvas.width;
+            const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : Game.canvas.height;
+            targetX = clamp(targetX, this.size, roomWidth - this.size);
+            targetY = clamp(targetY, this.size, roomHeight - this.size);
         }
         
         // Calculate actual distance (may be less if clamped)

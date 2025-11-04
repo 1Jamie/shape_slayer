@@ -103,6 +103,28 @@ const Game = {
         fpsInterval: 1000 / 60
     },
     
+    // Camera system for following player in larger room (and nexus)
+    camera: {
+        x: 640,          // Camera world position X (center of viewport)
+        y: 360,          // Camera world position Y (center of viewport)
+        targetX: 640,    // Desired camera X (where camera wants to be)
+        targetY: 360,    // Desired camera Y (where camera wants to be)
+        offsetX: 0,      // Movement-based offset X
+        offsetY: 0,      // Movement-based offset Y
+        smoothSpeed: 5,  // Lerp speed (higher = faster following)
+        offsetAmount: 60, // Max offset from center based on movement
+        deadzone: 20     // Minimum movement before applying offset
+    },
+    
+    // Nexus-specific camera (separate from combat camera)
+    nexusCamera: {
+        x: 900,
+        y: 550,
+        targetX: 900,
+        targetY: 550,
+        smoothSpeed: 3   // Slower for nexus (less combat, more relaxed)
+    },
+    
     // Game objects
     player: null,
     enemies: [],
@@ -122,6 +144,7 @@ const Game = {
     deadPlayers: new Set(), // Set of dead player IDs
     allPlayersDead: false, // Flag for when all players are dead
     spectateMode: false, // Local player is spectating after death
+    spectatedPlayerId: null, // ID of player being spectated (when dead in multiplayer)
     
     // Remote player state tracking (host authority for HP, invulnerability)
     remotePlayerStates: new Map(), // Map<playerId, {hp, maxHp, invulnerable, invulnerabilityTime, size, dead}>
@@ -152,6 +175,15 @@ const Game = {
     // Boss intro system
     bossIntroActive: false,
     bossIntroData: null, // { boss, name, duration, elapsedTime, skipAvailable }
+    bossIntroCameraPan: false, // Smooth pan from boss to player after intro
+    bossIntroPanProgress: 0, // 0 to 1
+    bossIntroPanDuration: 1.0, // 1 second pan
+    bossIntroPanStartX: 0,
+    bossIntroPanStartY: 0,
+    
+    // Camera zoom
+    baseZoom: 1.1, // Desktop zoom level (10% closer)
+    bossIntroZoom: 1.3, // Extra zoom during boss intro (30% closer total)
     
     // FPS tracking
     fps: 0,
@@ -166,10 +198,13 @@ const Game = {
     // Multiplayer state
     multiplayerModuleLoaded: false,
     multiplayerEnabled: false,
+    waitingForHostReturn: false, // Client flag: waiting for host to signal return to nexus
+    finalStats: null, // Final stats from host when all players die (clients only)
     
     // Time tracking for death screen
     startTime: 0,
     endTime: 0,
+    deathScreenStartTime: 0,
     
     // Game loop control (for background execution in multiplayer)
     useSetTimeoutLoop: false,
@@ -385,7 +420,15 @@ const Game = {
             if (this.player && this.player.dead && this.state === 'PLAYING') {
                 // Only allow return when ALL players dead (in multiplayer)
                 if (!this.multiplayerEnabled || this.allPlayersDead) {
-                    this.returnToNexus();
+                    // Check for 3-second input delay
+                    const timeSinceDeath = (Date.now() - (this.deathScreenStartTime || Date.now())) / 1000;
+                    if (timeSinceDeath >= 3.0) {
+                        // Multiplayer clients: wait for host signal before returning
+                        const isClient = this.multiplayerEnabled && this.isMultiplayerClient();
+                        if (!isClient || !this.waitingForHostReturn) {
+                            this.returnToNexus();
+                        }
+                    }
                 }
             }
         });
@@ -458,7 +501,16 @@ const Game = {
                 if (this.player && this.player.dead && this.state === 'PLAYING') {
                     // Only allow return when ALL players dead (in multiplayer)
                     if (!this.multiplayerEnabled || this.allPlayersDead) {
-                        this.returnToNexus();
+                        // In multiplayer, only host can return to nexus (clients wait for signal)
+                        const isHost = this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.isHost;
+                        const isClient = this.multiplayerEnabled && this.isMultiplayerClient();
+                        if (!this.multiplayerEnabled || isHost || (isClient && !this.waitingForHostReturn)) {
+                            // Check for 3-second input delay
+                            const timeSinceDeath = (Date.now() - (this.deathScreenStartTime || Date.now())) / 1000;
+                            if (timeSinceDeath >= 3.0) {
+                                this.returnToNexus();
+                            }
+                        }
                         e.preventDefault();
                         e.stopPropagation();
                         return;
@@ -518,12 +570,25 @@ const Game = {
             }
             if (e.key === 'r' || e.key === 'R') {
                 if (this.player && this.player.dead && (!this.multiplayerEnabled || this.allPlayersDead)) {
-                    this.restart();
+                    // Check for 3-second input delay
+                    const timeSinceDeath = (Date.now() - (this.deathScreenStartTime || Date.now())) / 1000;
+                    if (timeSinceDeath >= 3.0) {
+                        this.restart();
+                    }
                 }
             }
             if (e.key === 'm' || e.key === 'M') {
                 if (this.player && this.player.dead && (!this.multiplayerEnabled || this.allPlayersDead)) {
-                    this.returnToNexus();
+                    // In multiplayer, only host can return to nexus (clients wait for signal)
+                    const isHost = this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.isHost;
+                    const isClient = this.multiplayerEnabled && this.isMultiplayerClient();
+                    if (!this.multiplayerEnabled || isHost || (isClient && !this.waitingForHostReturn)) {
+                        // Check for 3-second input delay
+                        const timeSinceDeath = (Date.now() - (this.deathScreenStartTime || Date.now())) / 1000;
+                        if (timeSinceDeath >= 3.0) {
+                            this.returnToNexus();
+                        }
+                    }
                 }
             }
             if (e.key === ' ' || e.key === 'Spacebar') {
@@ -538,48 +603,100 @@ const Game = {
         this.start();
     },
     
-    // Setup responsive canvas scaling
+    // Setup responsive canvas sizing - dynamic viewport to match screen
     setupResponsiveCanvas() {
         if (!this.canvas) return;
         
-        const gameAspect = this.config.width / this.config.height;
-        
-        // Use actual available viewport - in fullscreen on mobile, this accounts for system UI
-        // Use visualViewport if available (better for mobile with system UI bars)
+        // Use actual available viewport - must account for browser chrome on mobile
         let availableWidth, availableHeight;
+        
+        // Check if we're in fullscreen mode
+        const isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement || 
+                               document.mozFullScreenElement || document.msFullscreenElement);
+        
+        // MOBILE CHROME FIX: Use visualViewport as primary source (most accurate)
+        // Fallback chain for maximum compatibility
         if (window.visualViewport) {
+            // VisualViewport is the most accurate - it shows ACTUAL visible area
             availableWidth = window.visualViewport.width;
             availableHeight = window.visualViewport.height;
+        } else if (!isFullscreen) {
+            // Fallback for browsers without visualViewport in windowed mode
+            // Use the body's actual visible dimensions
+            const bodyRect = document.body.getBoundingClientRect();
+            availableWidth = bodyRect.width || document.documentElement.clientWidth || window.innerWidth;
+            availableHeight = bodyRect.height || document.documentElement.clientHeight || window.innerHeight;
         } else {
+            // Fullscreen fallback
             availableWidth = window.innerWidth;
             availableHeight = window.innerHeight;
         }
         
-        const windowAspect = availableWidth / availableHeight;
+        let canvasWidth = Math.floor(availableWidth);
+        let canvasHeight = Math.floor(availableHeight);
         
-        let scale, displayWidth, displayHeight;
+        // Apply minimum size constraint ONLY on desktop (not mobile)
+        // Mobile screens are often smaller and forcing minimum would cause cutoff
+        const isMobileDevice = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(
+            (navigator.userAgent || navigator.vendor || window.opera).toLowerCase()
+        );
         
-        // Calculate scale to fit screen while maintaining aspect ratio
-        // This ensures consistent game world coordinates across all devices
-        if (windowAspect > gameAspect) {
-            // Window is wider - fit to height (minimize top/bottom borders)
-            scale = availableHeight / this.config.height;
-            displayHeight = availableHeight;
-            displayWidth = this.config.width * scale;
-        } else {
-            // Window is taller - fit to width (minimize left/right borders)
-            scale = availableWidth / this.config.width;
-            displayWidth = availableWidth;
-            displayHeight = this.config.height * scale;
+        if (!isMobileDevice) {
+            // Desktop: enforce minimum size for playability
+            const minWidth = 800;
+            const minHeight = 600;
+            if (canvasWidth < minWidth || canvasHeight < minHeight) {
+                const scaleToMin = Math.max(minWidth / canvasWidth, minHeight / canvasHeight);
+                canvasWidth = Math.max(canvasWidth, minWidth);
+                canvasHeight = Math.max(canvasHeight, minHeight);
+            }
         }
         
-        // Set CSS size (these are display pixels, not game world pixels)
-        this.canvas.style.width = displayWidth + 'px';
-        this.canvas.style.height = displayHeight + 'px';
+        // Clamp aspect ratio to reasonable range
+        const aspectRatio = canvasWidth / canvasHeight;
+        const minAspect = 0.428; // 9:21 portrait
+        const maxAspect = 2.333; // 21:9 landscape
         
-        // Reset margins (flexbox will center it)
+        if (aspectRatio < minAspect) {
+            // Too tall - clamp height
+            canvasHeight = canvasWidth / minAspect;
+        } else if (aspectRatio > maxAspect) {
+            // Too wide - clamp width
+            canvasWidth = canvasHeight * maxAspect;
+        }
+        
+        // Round to whole pixels
+        canvasWidth = Math.floor(canvasWidth);
+        canvasHeight = Math.floor(canvasHeight);
+        
+        // Set canvas resolution (internal rendering size)
+        this.canvas.width = canvasWidth;
+        this.canvas.height = canvasHeight;
+        
+        // Set CSS size to match EXACTLY (1:1 scaling, no stretching)
+        this.canvas.style.width = canvasWidth + 'px';
+        this.canvas.style.height = canvasHeight + 'px';
+        this.canvas.style.maxWidth = canvasWidth + 'px';
+        this.canvas.style.maxHeight = canvasHeight + 'px';
+        
+        // Reset margins and ensure no transforms
         this.canvas.style.marginLeft = '0';
         this.canvas.style.marginTop = '0';
+        this.canvas.style.transform = 'none';
+        
+        // Update game config to match new canvas size
+        this.config.width = canvasWidth;
+        this.config.height = canvasHeight;
+        
+        // Reinitialize touch controls if in touch mode (critical for mobile)
+        if (typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode()) {
+            // Small delay to ensure canvas rect is updated
+            setTimeout(() => {
+                if (Input.initTouchControls) {
+                    Input.initTouchControls(this.canvas);
+                }
+            }, 50);
+        }
         
         // Force a reflow to ensure the canvas is positioned
         void this.canvas.offsetWidth;
@@ -587,37 +704,29 @@ const Game = {
         // Get the actual bounding rect after positioning
         const rect = this.canvas.getBoundingClientRect();
         
-        // Store scale for coordinate conversion
-        // Scale factor: game world pixels per display pixel
-        this.scale = scale;
+        // Store scale (should be 1.0 now since we match screen size)
+        this.scale = 1.0;
         
         // Calculate offset for coordinate conversion based on actual rect position
-        // In fullscreen with system UI, rect.left/top may not be 0
         this.offsetX = rect.left;
         this.offsetY = rect.top;
         
-        // Store the ACTUAL game area dimensions (what we calculated, not what the browser reports)
-        // The browser might stretch the canvas element, but the game renders only in displayWidth x displayHeight
-        this.actualGameWidth = displayWidth;
-        this.actualGameHeight = displayHeight;
+        // Store actual game dimensions
+        this.actualGameWidth = canvasWidth;
+        this.actualGameHeight = canvasHeight;
         
-        // Calculate where the game area actually starts (centered within the canvas element)
-        // The canvas element might be larger due to CSS stretching, but the game renders centered
-        const gameAreaLeft = rect.left + (rect.width - displayWidth) / 2;
-        const gameAreaTop = rect.top + (rect.height - displayHeight) / 2;
-        
-        this.gameAreaOffsetX = gameAreaLeft;
-        this.gameAreaOffsetY = gameAreaTop;
+        this.gameAreaOffsetX = rect.left;
+        this.gameAreaOffsetY = rect.top;
         
         // Store viewport info for multiplayer consistency
         this.viewport = {
-            width: displayWidth,
-            height: displayHeight,
-            scale: scale,
+            width: canvasWidth,
+            height: canvasHeight,
+            scale: 1.0,
             offsetX: this.offsetX,
             offsetY: this.offsetY,
-            gameWidth: this.config.width,
-            gameHeight: this.config.height,
+            gameWidth: canvasWidth,
+            gameHeight: canvasHeight,
             actualRect: {
                 width: rect.width,
                 height: rect.height,
@@ -625,72 +734,34 @@ const Game = {
                 top: rect.top
             },
             gameArea: {
-                width: displayWidth,
-                height: displayHeight,
-                left: gameAreaLeft,
-                top: gameAreaTop
+                width: canvasWidth,
+                height: canvasHeight,
+                left: rect.left,
+                top: rect.top
             }
         };
         
-        console.log(`Canvas scaled: ${displayWidth.toFixed(0)}x${displayHeight.toFixed(0)} (scale: ${scale.toFixed(2)}, game: ${this.config.width}x${this.config.height})`);
-        console.log(`Canvas element rect: ${rect.width.toFixed(0)}x${rect.height.toFixed(0)} at (${rect.left.toFixed(0)}, ${rect.top.toFixed(0)})`);
-        console.log(`Actual game area: ${displayWidth.toFixed(0)}x${displayHeight.toFixed(0)} at (${gameAreaLeft.toFixed(0)}, ${gameAreaTop.toFixed(0)})`);
-        console.log(`Viewport: ${availableWidth.toFixed(0)}x${availableHeight.toFixed(0)}`);
+        console.log(`Canvas dynamic sizing: ${canvasWidth}x${canvasHeight} (aspect: ${aspectRatio.toFixed(2)})`);
+        console.log(`  Available: ${Math.floor(availableWidth)}x${Math.floor(availableHeight)}, Fullscreen: ${isFullscreen}`);
+        if (window.visualViewport) {
+            console.log(`  VisualViewport: ${window.visualViewport.width}x${window.visualViewport.height}`);
+        }
+        console.log(`  DocumentElement client: ${document.documentElement.clientWidth}x${document.documentElement.clientHeight}`);
+        console.log(`  Window inner: ${window.innerWidth}x${window.innerHeight}`);
     },
     
     // Convert screen coordinates to game coordinates
     screenToGame(x, y) {
-        // Use the ACTUAL game area dimensions we calculated, not the canvas element's bounding rect
-        // The canvas element might be stretched by CSS, but the game renders only in actualGameWidth x actualGameHeight
-        if (!this.actualGameWidth || !this.actualGameHeight) {
-            // Fallback to bounding rect if not initialized yet
-            const rect = this.canvas.getBoundingClientRect();
-            if (rect.width === 0 || rect.height === 0) {
-                console.warn('[screenToGame] Invalid dimensions, using fallback');
-                return { x: 0, y: 0 };
-            }
-            const scaleX = this.config.width / rect.width;
-            const scaleY = this.config.height / rect.height;
-            return {
-                x: (x - rect.left) * scaleX,
-                y: (y - rect.top) * scaleY
-            };
-        }
-        
-        // Get fresh bounding rect to find where the canvas element is
+        // With dynamic canvas sizing, scale is 1:1 (no scaling needed)
         const rect = this.canvas.getBoundingClientRect();
         
-        // Calculate where the actual game area starts (centered within canvas element)
-        // If canvas is stretched, the game area is centered
-        const gameAreaLeft = rect.left + (rect.width - this.actualGameWidth) / 2;
-        const gameAreaTop = rect.top + (rect.height - this.actualGameHeight) / 2;
-        
-        // Convert from screen pixels to game world pixels
-        // Use the actual game area dimensions, not the stretched canvas element
-        const scaleX = this.config.width / this.actualGameWidth;
-        const scaleY = this.config.height / this.actualGameHeight;
-        
-        // Subtract game area offset to get position relative to game area (accounting for letterboxing)
-        const relativeX = x - gameAreaLeft;
-        const relativeY = y - gameAreaTop;
-        
-        // Scale to game coordinates (0-1280 for x, 0-720 for y)
-        const gameX = relativeX * scaleX;
-        const gameY = relativeY * scaleY;
+        // Simple offset conversion (canvas matches screen 1:1, no scaling)
+        const gameX = x - rect.left;
+        const gameY = y - rect.top;
         
         // Clamp to game bounds to prevent out-of-range coordinates
         const clampedX = Math.max(0, Math.min(this.config.width, gameX));
         const clampedY = Math.max(0, Math.min(this.config.height, gameY));
-        
-        // Debug logging in fullscreen mode
-        if (this.fullscreenEnabled) {
-            console.log(`[screenToGame] Screen: (${x.toFixed(0)}, ${y.toFixed(0)})`);
-            console.log(`  Canvas element rect: ${rect.width.toFixed(0)}x${rect.height.toFixed(0)} at (${rect.left.toFixed(0)}, ${rect.top.toFixed(0)})`);
-            console.log(`  Game area: ${this.actualGameWidth.toFixed(0)}x${this.actualGameHeight.toFixed(0)} at (${gameAreaLeft.toFixed(0)}, ${gameAreaTop.toFixed(0)})`);
-            console.log(`  Relative to game area: (${relativeX.toFixed(0)}, ${relativeY.toFixed(0)})`);
-            console.log(`  Scale: ${scaleX.toFixed(3)}x${scaleY.toFixed(3)}`);
-            console.log(`  Game coords: (${gameX.toFixed(0)}, ${gameY.toFixed(0)}) -> clamped: (${clampedX.toFixed(0)}, ${clampedY.toFixed(0)})`);
-        }
         
         return { x: clampedX, y: clampedY };
     },
@@ -943,6 +1014,197 @@ const Game = {
         }
     },
     
+    // Update camera to follow player
+    updateCamera(deltaTime) {
+        // Only update camera in PLAYING state
+        if (this.state !== 'PLAYING' || !this.player) return;
+        
+        // Handle boss intro camera override - center on boss
+        if (this.bossIntroActive && this.bossIntroData && this.bossIntroData.boss) {
+            // Directly center camera on boss during intro
+            this.camera.x = this.bossIntroData.boss.x;
+            this.camera.y = this.bossIntroData.boss.y;
+            return;
+        }
+        
+        // Handle smooth camera pan after boss intro
+        if (this.bossIntroCameraPan) {
+            this.bossIntroPanProgress += deltaTime / this.bossIntroPanDuration;
+            
+            if (this.bossIntroPanProgress >= 1.0) {
+                // Pan complete, resume normal camera following
+                this.bossIntroCameraPan = false;
+                this.bossIntroPanProgress = 0;
+            } else {
+                // Smooth easing (ease-out cubic)
+                const t = this.bossIntroPanProgress;
+                const eased = 1 - Math.pow(1 - t, 3);
+                
+                // Lerp from boss position to player position
+                const targetPlayer = this.player;
+                if (targetPlayer && targetPlayer.alive) {
+                    this.camera.x = this.bossIntroPanStartX + (targetPlayer.x - this.bossIntroPanStartX) * eased;
+                    this.camera.y = this.bossIntroPanStartY + (targetPlayer.y - this.bossIntroPanStartY) * eased;
+                }
+                return;
+            }
+        }
+        
+        // Get the player to follow
+        let targetPlayer = this.player;
+        
+        // In multiplayer, if local player is dead, spectate another player
+        const inMultiplayer = this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+        if (inMultiplayer && targetPlayer && targetPlayer.dead) {
+            // Local player is dead - find a living player to spectate
+            this.spectateMode = true;
+            
+            // Look for alive remote player instances (host authority)
+            let spectateTarget = null;
+            if (this.remotePlayerInstances && this.remotePlayerInstances.size > 0) {
+                // Try to find an alive remote player instance
+                for (const [playerId, playerInstance] of this.remotePlayerInstances) {
+                    if (playerInstance && playerInstance.alive && !playerInstance.dead) {
+                        spectateTarget = playerInstance;
+                        this.spectatedPlayerId = playerId;
+                        break;
+                    }
+                }
+            }
+            
+            // If no instances found, try remote players array (for clients)
+            if (!spectateTarget && this.remotePlayers && this.remotePlayers.length > 0) {
+                for (const remotePlayer of this.remotePlayers) {
+                    if (remotePlayer && !remotePlayer.dead) {
+                        spectateTarget = remotePlayer;
+                        this.spectatedPlayerId = remotePlayer.id;
+                        break;
+                    }
+                }
+            }
+            
+            if (spectateTarget) {
+                targetPlayer = spectateTarget;
+            } else {
+                // No one to spectate - just stay at current camera position
+                return;
+            }
+        } else if (targetPlayer && targetPlayer.alive) {
+            // Local player is alive - clear spectate mode
+            this.spectateMode = false;
+            this.spectatedPlayerId = null;
+        }
+        
+        if (!targetPlayer || !targetPlayer.alive) return;
+        
+        // Calculate movement-based offset
+        const playerVelX = targetPlayer.vx || 0;
+        const playerVelY = targetPlayer.vy || 0;
+        const speed = Math.sqrt(playerVelX * playerVelX + playerVelY * playerVelY);
+        
+        if (speed > this.camera.deadzone) {
+            // Player is moving - apply offset in movement direction
+            const dirX = playerVelX / speed;
+            const dirY = playerVelY / speed;
+            
+            // Scale offset based on speed (up to offsetAmount)
+            const offsetScale = Math.min(speed / 300, 1); // Max offset at 300 speed
+            this.camera.offsetX = dirX * this.camera.offsetAmount * offsetScale;
+            this.camera.offsetY = dirY * this.camera.offsetAmount * offsetScale;
+        } else {
+            // Player is stationary - gradually reduce offset
+            this.camera.offsetX *= 0.9;
+            this.camera.offsetY *= 0.9;
+            
+            // Snap to zero if very small
+            if (Math.abs(this.camera.offsetX) < 0.1) this.camera.offsetX = 0;
+            if (Math.abs(this.camera.offsetY) < 0.1) this.camera.offsetY = 0;
+        }
+        
+        // Calculate target camera position (player position + offset)
+        this.camera.targetX = targetPlayer.x + this.camera.offsetX;
+        this.camera.targetY = targetPlayer.y + this.camera.offsetY;
+        
+        // Clamp camera to room boundaries (prevent showing outside room)
+        // Account for zoom - with zoom, we see less world space, so bounds are tighter
+        if (typeof currentRoom !== 'undefined' && currentRoom) {
+            const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+            const currentZoom = isMobile ? 1.0 : this.baseZoom;
+            
+            // Visible world space is smaller when zoomed
+            const halfVisibleWorldW = (this.config.width / 2) / currentZoom;
+            const halfVisibleWorldH = (this.config.height / 2) / currentZoom;
+            
+            this.camera.targetX = Math.max(halfVisibleWorldW, Math.min(currentRoom.width - halfVisibleWorldW, this.camera.targetX));
+            this.camera.targetY = Math.max(halfVisibleWorldH, Math.min(currentRoom.height - halfVisibleWorldH, this.camera.targetY));
+        }
+        
+        // Smooth lerp toward target
+        const lerpFactor = 1 - Math.exp(-this.camera.smoothSpeed * deltaTime);
+        this.camera.x += (this.camera.targetX - this.camera.x) * lerpFactor;
+        this.camera.y += (this.camera.targetY - this.camera.y) * lerpFactor;
+    },
+    
+    // Initialize camera position (when entering room or starting game)
+    initializeCamera() {
+        if (this.player) {
+            this.camera.x = this.player.x;
+            this.camera.y = this.player.y;
+            this.camera.targetX = this.player.x;
+            this.camera.targetY = this.player.y;
+            this.camera.offsetX = 0;
+            this.camera.offsetY = 0;
+        } else {
+            // Default to room center
+            const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : 2400;
+            const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : 1350;
+            this.camera.x = roomWidth / 2;
+            this.camera.y = roomHeight / 2;
+            this.camera.targetX = this.camera.x;
+            this.camera.targetY = this.camera.y;
+        }
+    },
+    
+    // Update nexus camera to follow player
+    updateNexusCamera(deltaTime) {
+        if (!this.player || typeof nexusRoom === 'undefined' || !nexusRoom) return;
+        
+        // Target camera on player position
+        this.nexusCamera.targetX = this.player.x;
+        this.nexusCamera.targetY = this.player.y;
+        
+        // Clamp to nexus boundaries (account for zoom)
+        const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+        const currentZoom = isMobile ? 1.0 : this.baseZoom;
+        
+        // Visible world space is smaller when zoomed
+        const halfVisibleWorldW = (this.config.width / 2) / currentZoom;
+        const halfVisibleWorldH = (this.config.height / 2) / currentZoom;
+        
+        this.nexusCamera.targetX = Math.max(halfVisibleWorldW, Math.min(nexusRoom.width - halfVisibleWorldW, this.nexusCamera.targetX));
+        this.nexusCamera.targetY = Math.max(halfVisibleWorldH, Math.min(nexusRoom.height - halfVisibleWorldH, this.nexusCamera.targetY));
+        
+        // Smooth lerp toward target
+        const lerpFactor = 1 - Math.exp(-this.nexusCamera.smoothSpeed * deltaTime);
+        this.nexusCamera.x += (this.nexusCamera.targetX - this.nexusCamera.x) * lerpFactor;
+        this.nexusCamera.y += (this.nexusCamera.targetY - this.nexusCamera.y) * lerpFactor;
+    },
+    
+    // Initialize nexus camera
+    initializeNexusCamera() {
+        if (this.player) {
+            this.nexusCamera.x = this.player.x;
+            this.nexusCamera.y = this.player.y;
+            this.nexusCamera.targetX = this.player.x;
+            this.nexusCamera.targetY = this.player.y;
+        } else if (typeof nexusRoom !== 'undefined' && nexusRoom) {
+            this.nexusCamera.x = nexusRoom.width / 2;
+            this.nexusCamera.y = nexusRoom.height / 2;
+            this.nexusCamera.targetX = this.nexusCamera.x;
+            this.nexusCamera.targetY = this.nexusCamera.y;
+        }
+    },
+    
     // Get local player ID (solo = 'local', multiplayer = multiplayerManager.playerId)
     getLocalPlayerId() {
         if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.playerId) {
@@ -959,6 +1221,78 @@ const Game = {
         return this.playerStats.get(playerId);
     },
     
+    // Distribute XP to all alive players (host only in multiplayer, all in solo)
+    distributeXPToAllPlayers(xpAmount) {
+        // Only run on host in multiplayer, or in solo mode
+        if (this.multiplayerEnabled && !this.isHost()) {
+            return;
+        }
+        
+        // Collect all alive players
+        const alivePlayers = [];
+        
+        // Add local player if alive
+        if (this.player && this.player.alive && !this.player.dead) {
+            alivePlayers.push({
+                player: this.player,
+                id: this.getLocalPlayerId()
+            });
+        }
+        
+        // In multiplayer, add remote player instances if alive
+        if (this.multiplayerEnabled && this.remotePlayerInstances) {
+            this.remotePlayerInstances.forEach((playerInstance, playerId) => {
+                if (playerInstance && playerInstance.alive && !playerInstance.dead) {
+                    alivePlayers.push({
+                        player: playerInstance,
+                        id: playerId
+                    });
+                }
+            });
+        }
+        
+        // If no alive players, do nothing
+        if (alivePlayers.length === 0) {
+            return;
+        }
+        
+        // Give XP to all alive players
+        alivePlayers.forEach(({ player, id }) => {
+            const beforeXP = player.xp;
+            const beforeLevel = player.level;
+            player.addXP(xpAmount);
+            console.log(`[XP] Added ${xpAmount} XP to ${id === this.getLocalPlayerId() ? 'local' : 'remote'} player ${id}: ${beforeXP} -> ${player.xp} (Level ${beforeLevel} -> ${player.level})`);
+        });
+    },
+    
+    // Send final stats to all clients when all players die (host only)
+    sendFinalStats() {
+        if (!this.isHost() || !this.multiplayerEnabled) return;
+        if (typeof multiplayerManager === 'undefined' || !multiplayerManager) return;
+        
+        // Serialize stats for all players
+        const statsObject = {};
+        this.playerStats.forEach((stats, playerId) => {
+            statsObject[playerId] = {
+                damageDealt: stats.damageDealt,
+                kills: stats.kills,
+                damageTaken: stats.damageTaken,
+                roomsCleared: Math.max(0, this.roomNumber - 1),
+                timeAlive: stats.getTimeAlive()
+            };
+        });
+        
+        console.log('[Host] Sending final stats to clients:', statsObject);
+        
+        // Send to all clients
+        multiplayerManager.send({
+            type: 'final_stats',
+            data: {
+                playerStats: statsObject
+            }
+        });
+    },
+    
     // Initialize player stats for a new game
     initializePlayerStats() {
         this.playerStats.clear();
@@ -972,9 +1306,14 @@ const Game = {
         
         // In multiplayer, create stats for all players in lobby
         if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
+            console.log(`[Stats Init] My player ID: ${multiplayerManager.playerId}`);
+            console.log(`[Stats Init] Lobby has ${multiplayerManager.players ? multiplayerManager.players.length : 0} players`);
+            console.log(`[Stats Init] Player list:`, multiplayerManager.players ? multiplayerManager.players.map(p => `${p.id} (${p.name})`) : []);
+            
             if (multiplayerManager.players && multiplayerManager.players.length > 0) {
                 multiplayerManager.players.forEach(player => {
                     this.getPlayerStats(player.id);
+                    console.log(`[Stats Init] Created stats for ${player.id} (${player.id === localId ? 'ME' : 'REMOTE'})`);
                     
                     // Host: Initialize remote player state tracking AND player instances
                     if (this.isHost() && player.id !== localId) {
@@ -982,10 +1321,15 @@ const Game = {
                         this.initializeRemotePlayerInstance(player.id, player.class);
                     }
                 });
+            } else {
+                console.error(`[Stats Init] WARNING: No players in lobby! Cannot initialize stats.`);
             }
         }
         
-        console.log(`[Stats] Initialized stats for ${this.playerStats.size} player(s)`);
+        console.log(`[Stats] Initialized stats for ${this.playerStats.size} player(s):`);
+        this.playerStats.forEach((stats, playerId) => {
+            console.log(`  - ${playerId}: ${stats.playerId}`);
+        });
         if (this.isHost()) {
             console.log(`[Host] Initialized state tracking for ${this.remotePlayerStates.size} remote player(s)`);
             console.log(`[Host] Initialized player instances for ${this.remotePlayerInstances.size} remote player(s)`);
@@ -1000,6 +1344,7 @@ const Game = {
         if (typeof createPlayer !== 'undefined') {
             const playerInstance = createPlayer(playerClass, 100, 300);
             playerInstance.lastAimAngle = 0; // Initialize rotation state for touch controls
+            playerInstance.playerId = playerId; // Store player ID for damage attribution
             
             // Apply upgrades from host tracking (remote players have their own upgrades)
             const upgrades = this.playerUpgrades.get(playerId);
@@ -1169,10 +1514,18 @@ const Game = {
                     // No joystick active: maintain last angle
                     return remotePlayer.lastAimAngle || 0;
                 } else {
-                    // Desktop: use mouse position
-                    const dx = rawInput.mouse.x - remotePlayer.x;
-                    const dy = rawInput.mouse.y - remotePlayer.y;
-                    return Math.atan2(dy, dx);
+                    // Desktop: calculate rotation from world mouse position
+                    // Client sends world coordinates (accounting for their camera)
+                    if (rawInput.mouse && rawInput.mouse.x !== undefined && rawInput.mouse.y !== undefined) {
+                        const dx = rawInput.mouse.x - remotePlayer.x;
+                        const dy = rawInput.mouse.y - remotePlayer.y;
+                        return Math.atan2(dy, dx);
+                    }
+                    // Fallback: use sent rotation or last known angle
+                    if (rawInput.rotation !== undefined && rawInput.rotation !== null) {
+                        return rawInput.rotation;
+                    }
+                    return remotePlayer.rotation || remotePlayer.lastAimAngle || 0;
                 }
             },
             
@@ -1239,14 +1592,22 @@ const Game = {
                     }
                     return { x: 0, y: 0 };
                 } else {
-                    // Desktop mode: calculate direction from mouse to player
-                    const dx = rawInput.mouse.x - remotePlayer.x;
-                    const dy = rawInput.mouse.y - remotePlayer.y;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
-                    if (dist > 0) {
-                        return { x: dx / dist, y: dy / dist };
+                    // Desktop mode: calculate direction from world mouse position
+                    // Client now sends world coordinates (accounting for their camera)
+                    if (rawInput.mouse && rawInput.mouse.x !== undefined && rawInput.mouse.y !== undefined) {
+                        const dx = rawInput.mouse.x - remotePlayer.x;
+                        const dy = rawInput.mouse.y - remotePlayer.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist > 0) {
+                            return { x: dx / dist, y: dy / dist };
+                        }
                     }
-                    return { x: 0, y: 0 };
+                    // Fallback: use rotation
+                    const rotation = rawInput.rotation !== undefined ? rawInput.rotation : (remotePlayer.rotation || 0);
+                    return {
+                        x: Math.cos(rotation),
+                        y: Math.sin(rotation)
+                    };
                 }
             },
             
@@ -1274,8 +1635,23 @@ const Game = {
                         }
                     }
                     return 0;
+                } else {
+                    // Desktop mode: calculate angle from world mouse position
+                    if (rawInput.mouse && rawInput.mouse.x !== undefined && rawInput.mouse.y !== undefined) {
+                        const dx = rawInput.mouse.x - remotePlayer.x;
+                        const dy = rawInput.mouse.y - remotePlayer.y;
+                        return Math.atan2(dy, dx);
+                    }
+                    // Fallback: use sent rotation
+                    return rawInput.rotation !== undefined ? rawInput.rotation : (remotePlayer.rotation || 0);
                 }
-                return 0;
+            },
+            
+            // Get world mouse position (for remote player context)
+            getWorldMousePos() {
+                // Client now sends world coordinates directly (accounting for their camera)
+                // We can use them directly for abilities like Mage blink
+                return rawInput.mouse || { x: remotePlayer.x, y: remotePlayer.y };
             },
             
             // Stub update method (no-op for remote input)
@@ -1436,15 +1812,36 @@ const Game = {
             return false; // Damage not applied (invuln or dead)
         }
         
+        // Track damage taken in stats
+        if (this.getPlayerStats) {
+            const stats = this.getPlayerStats(playerId);
+            stats.addStat('damageTaken', damage);
+        }
+        
         // Apply damage
         state.hp -= damage;
         state.invulnerable = true;
         state.invulnerabilityTime = 0.5; // Same as local player
         
+        // Also update the player instance HP
+        const playerInstance = this.remotePlayerInstances.get(playerId);
+        if (playerInstance) {
+            playerInstance.hp = state.hp;
+            playerInstance.invulnerable = true;
+            playerInstance.invulnerabilityTime = 0.5;
+        }
+        
         // Check if dead
         if (state.hp <= 0) {
             state.hp = 0;
             state.dead = true;
+            
+            // CRITICAL: Also mark the player instance as dead so it's serialized correctly
+            if (playerInstance) {
+                playerInstance.dead = true;
+                playerInstance.alive = false;
+                playerInstance.hp = 0;
+            }
             
             // Add to dead players set
             this.deadPlayers.add(playerId);
@@ -1457,6 +1854,11 @@ const Game = {
             
             // Check if all players are dead
             this.allPlayersDead = this.checkAllPlayersDead();
+            
+            // If all players just died, send final stats to clients
+            if (this.allPlayersDead && this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
+                this.sendFinalStats();
+            }
             
             console.log(`[Host] Remote player ${playerId} died!`);
         }
@@ -1472,12 +1874,17 @@ const Game = {
         // Update boss intro if active (before normal updates)
         if (this.bossIntroActive) {
             this.updateBossIntro(deltaTime);
+            // Update camera during boss intro (centers on boss)
+            this.updateCamera(deltaTime);
             // Don't update normal game logic during intro
             return;
         }
         
         // Update screen shake
         this.updateScreenShake(deltaTime);
+        
+        // Update camera to follow player
+        this.updateCamera(deltaTime);
         
         // Update particles
         if (typeof updateParticles !== 'undefined') {
@@ -1601,10 +2008,18 @@ const Game = {
                             }
                         }
                     } else {
-                        // Desktop mode: clear previews
+                        // Desktop mode: clear previews and update rotation from mouse
                         this.player.dashPreviewActive = false;
                         if (this.player.clearHeavyAttackPreview) {
                             this.player.clearHeavyAttackPreview();
+                        }
+                        
+                        // Update rotation to face mouse cursor (using world coordinates with camera)
+                        if (Input.getWorldMousePos) {
+                            const worldMouse = Input.getWorldMousePos();
+                            const dx = worldMouse.x - savedX; // Use saved (host-authoritative) position
+                            const dy = worldMouse.y - savedY;
+                            this.player.rotation = Math.atan2(dy, dx);
                         }
                     }
                     
@@ -1704,14 +2119,16 @@ const Game = {
             if (this.isHost() || !this.multiplayerEnabled) {
                 // Host or solo: Check local player AND all remote player instances
                 if (this.player && this.player.alive) {
-                    checkAttacksVsEnemies(this.player, this.enemies);
+                    const localPlayerId = this.getLocalPlayerId();
+                    checkAttacksVsEnemies(this.player, this.enemies, localPlayerId);
                 }
                 
                 // Check remote player instance attacks (host only)
                 if (this.remotePlayerInstances) {
-                    this.remotePlayerInstances.forEach(playerInstance => {
+                    this.remotePlayerInstances.forEach((playerInstance, playerId) => {
                         if (playerInstance && playerInstance.alive) {
-                            checkAttacksVsEnemies(playerInstance, this.enemies);
+                            // Pass the remote player's ID so damage is attributed correctly
+                            checkAttacksVsEnemies(playerInstance, this.enemies, playerId);
                         }
                     });
                 }
@@ -1764,17 +2181,37 @@ const Game = {
         
         // Remove dead enemies and track kills
         // This happens AFTER broadcasting so clients receive the alive=false state
+        // Keep dead enemies for 1.5 seconds to allow damage numbers to display
+        const now = Date.now();
+        const DEATH_DISPLAY_DELAY = 1500; // ms
+        
         if (this.isHost() || !this.multiplayerEnabled) {
             // Host or solo: filter and track kills
             this.enemies = this.enemies.filter(enemy => {
                 if (!enemy.alive) {
-                    this.enemiesKilled++;
+                    // Check if enemy just died (no deathTime yet)
+                    if (!enemy.deathTime) {
+                        enemy.deathTime = now;
+                        this.enemiesKilled++;
+                    }
+                    // Keep dead enemies for delay period
+                    return (now - enemy.deathTime) < DEATH_DISPLAY_DELAY;
                 }
-                return enemy.alive;
+                return true; // Keep alive enemies
             });
         } else {
-            // Client: filter dead enemies (authoritative state from host)
-            this.enemies = this.enemies.filter(enemy => enemy.alive);
+            // Client: filter dead enemies after delay (authoritative state from host)
+            this.enemies = this.enemies.filter(enemy => {
+                if (!enemy.alive) {
+                    // Set deathTime if not already set
+                    if (!enemy.deathTime) {
+                        enemy.deathTime = now;
+                    }
+                    // Keep dead enemies for delay period
+                    return (now - enemy.deathTime) < DEATH_DISPLAY_DELAY;
+                }
+                return true; // Keep alive enemies
+            });
         }
     },
     
@@ -1831,10 +2268,16 @@ const Game = {
         // Mark boss intro as complete
         this.bossIntroData.boss.introComplete = true;
         
+        // Start smooth camera pan from boss to player
+        this.bossIntroCameraPan = true;
+        this.bossIntroPanProgress = 0;
+        this.bossIntroPanStartX = this.camera.x; // Current position (on boss)
+        this.bossIntroPanStartY = this.camera.y;
+        
         this.bossIntroActive = false;
         this.bossIntroData = null;
         
-        console.log('Boss intro ended');
+        console.log('Boss intro ended, starting camera pan to player');
     },
     
     // Render boss intro sequence
@@ -1850,20 +2293,33 @@ const Game = {
         const nameFadeIn = Math.min(1.0, elapsed / 0.5); // Fade in over 0.5s
         const nameScale = 0.5 + (nameFadeIn * 0.5); // Scale from 0.5 to 1.0
         
-        // Render boss (frozen during intro)
+        // Apply camera transform with boss intro zoom to render boss centered and zoomed
         ctx.save();
+        
+        // Center point of screen
+        const centerX = this.config.width / 2;
+        const centerY = this.config.height / 2;
+        
+        // Translate to center, apply zoom, then offset by camera position
+        ctx.translate(centerX, centerY);
+        ctx.scale(this.bossIntroZoom, this.bossIntroZoom);
+        ctx.translate(-this.camera.x, -this.camera.y);
+        
+        // Render boss (frozen during intro)
         ctx.globalAlpha = 1.0;
         this.bossIntroData.boss.render(ctx);
         ctx.restore();
         
-        // Boss name text
+        // Boss name text (positioned above boss to avoid health bar overlap)
         ctx.save();
         ctx.globalAlpha = nameFadeIn;
         ctx.fillStyle = '#ffffff';
         ctx.font = `bold ${48 * nameScale}px Arial`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(this.bossIntroData.name, this.config.width / 2, this.config.height / 2 - 100);
+        // Scale-aware positioning: move up based on screen height
+        const nameOffsetY = this.config.height * 0.20; // 20% from center
+        ctx.fillText(this.bossIntroData.name, this.config.width / 2, this.config.height / 2 - nameOffsetY);
         ctx.restore();
         
         // "Press any key to continue" text (after 2 seconds)
@@ -1875,7 +2331,9 @@ const Game = {
             ctx.font = '20px Arial';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText('Press any key to continue', this.config.width / 2, this.config.height / 2 + 100);
+            // Position at bottom of screen area
+            const skipOffsetY = this.config.height * 0.25; // 25% from center
+            ctx.fillText('Press any key to continue', this.config.width / 2, this.config.height / 2 + skipOffsetY);
             ctx.restore();
         }
     },
@@ -1933,10 +2391,12 @@ const Game = {
             oldGear.x = this.player.x + offsetX;
             oldGear.y = this.player.y + offsetY;
             
-            // Clamp to game bounds to prevent gear spawning outside playable area
+            // Clamp to room bounds to prevent gear spawning outside playable area
             const margin = 50;
-            oldGear.x = Math.max(margin, Math.min(this.config.width - margin, oldGear.x));
-            oldGear.y = Math.max(margin, Math.min(this.config.height - margin, oldGear.y));
+            const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : 2400;
+            const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : 1350;
+            oldGear.x = Math.max(margin, Math.min(roomWidth - margin, oldGear.x));
+            oldGear.y = Math.max(margin, Math.min(roomHeight - margin, oldGear.y));
             
             // Reset pulse animation
             oldGear.pulse = 0;
@@ -1959,6 +2419,7 @@ const Game = {
                             slot: oldGear.slot,
                             tier: oldGear.tier,
                             color: oldGear.color,
+                            size: oldGear.size || 15,
                             bonus: oldGear.bonus,
                             stats: oldGear.stats,
                             affixes: oldGear.affixes || [],
@@ -2184,9 +2645,13 @@ const Game = {
                     groundLoot.length = 0;
                 }
                 
-                // Reset player position to left side
-                this.player.x = 50;
-                this.player.y = 300;
+                // Reset player position to left side (new room size)
+                const roomHeight = 1350;
+                this.player.x = 100;
+                this.player.y = roomHeight / 2; // Vertically centered (675)
+                
+                // Initialize camera to follow player
+                this.initializeCamera();
                 
                 console.log(`[Client] Waiting for room ${this.roomNumber} from host...`);
             } else {
@@ -2222,17 +2687,21 @@ const Game = {
                     groundLoot.length = 0;
                 }
                 
-                // Reset player position to left side
-                this.player.x = 50;
-                this.player.y = 300;
+                // Reset player position to left side (new room size)
+                const roomHeight = 1350;
+                this.player.x = 100;
+                this.player.y = roomHeight / 2; // Vertically centered (675)
                 
                 // Reset remote player instances to spawn (host only)
                 if (this.isHost() && this.remotePlayerInstances) {
                     this.remotePlayerInstances.forEach((playerInstance, playerId) => {
-                        playerInstance.x = 50;
-                        playerInstance.y = 300;
+                        playerInstance.x = 100;
+                        playerInstance.y = roomHeight / 2;
                     });
                 }
+                
+                // Initialize camera to follow player
+                this.initializeCamera();
                 
                 console.log(`Advanced to Room ${this.roomNumber}${newRoom.type === 'boss' ? ' (BOSS ROOM)' : ''}`);
                 
@@ -2361,16 +2830,34 @@ const Game = {
             }
         } else {
             // PLAYING state - render game world normally
-            // Render room background with biome styling
+            // Clear canvas with solid color first (outside camera transform)
+            const biome = typeof getBiomeForRoom !== 'undefined' ? getBiomeForRoom(this.roomNumber) : { baseColor: '#1a1a2e' };
+            Renderer.clear(this.ctx, this.config.width, this.config.height, biome.baseColor);
+            
+            // Apply camera transform and screen shake
+            this.ctx.save();
+            
+            // Detect if desktop (for zoom)
+            const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+            const currentZoom = isMobile ? 1.0 : this.baseZoom; // Desktop: 1.1x zoom (10% closer)
+            
+            // Camera transform: translate to center, apply zoom, then offset by camera
+            const centerX = this.config.width / 2;
+            const centerY = this.config.height / 2;
+            this.ctx.translate(centerX + this.screenShakeOffset.x, centerY + this.screenShakeOffset.y);
+            this.ctx.scale(currentZoom, currentZoom);
+            this.ctx.translate(-this.camera.x, -this.camera.y);
+            
+            // Render room background with grid pattern (inside camera transform - world space)
             if (typeof renderRoomBackground !== 'undefined') {
                 renderRoomBackground(this.ctx, this.roomNumber);
-            } else {
-                Renderer.clear(this.ctx, this.config.width, this.config.height);
             }
             
-            // Apply screen shake
-            this.ctx.save();
-            this.ctx.translate(this.screenShakeOffset.x, this.screenShakeOffset.y);
+            // Render room boundaries (visible walls at room edges)
+            if (typeof renderRoomBoundaries !== 'undefined') {
+                renderRoomBoundaries(this.ctx, this.roomNumber);
+            }
+            
             // Draw player
             if (this.player && this.player.alive) {
                 this.player.render(this.ctx);
@@ -2449,10 +2936,13 @@ const Game = {
                 renderDamageNumbers(this.ctx);
             }
             
-            // Draw UI (on top of everything)
+            // Restore context after camera transform and screen shake
+            this.ctx.restore();
+            
+            // Draw UI (on top of everything, screen-relative coordinates)
             renderUI(this.ctx, this.player);
             
-            // Draw FPS
+            // Draw FPS (screen-relative)
             if (this.player && !this.player.dead) {
                 this.ctx.fillStyle = '#888888';
                 this.ctx.font = 'bold 14px monospace';
@@ -2468,9 +2958,6 @@ const Game = {
                 }
             }
         }
-        
-        // Restore context after screen shake
-        this.ctx.restore();
         
         // Render modals on top of everything (launch modal takes priority)
         if (this.launchModalVisible && typeof renderLaunchModal !== 'undefined') {
@@ -2619,6 +3106,12 @@ const Game = {
     
     // Return to nexus after death
     returnToNexus() {
+        // Multiplayer clients: wait for host signal
+        if (this.waitingForHostReturn && this.isMultiplayerClient()) {
+            console.log('[Client] Waiting for host to signal return to nexus');
+            return;
+        }
+        
         // Multiplayer: Host calculates and distributes currency rewards
         if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.isHost) {
             // Calculate currency for all players who died
@@ -2732,16 +3225,28 @@ const Game = {
         this.currencyEarned = 0;
         this.lastGKeyState = false;
         this.clickHandled = false;
+        this.deathScreenStartTime = 0; // Reset death screen timer
+        this.waitingForHostReturn = false; // Clear waiting flag
+        this.finalStats = null; // Clear final stats
         
         // Clear ground loot
         if (typeof groundLoot !== 'undefined') {
             groundLoot.length = 0;
         }
         
+        // Clean up multiplayer shadow instances (clients only)
+        if (this.remotePlayerShadowInstances) {
+            this.remotePlayerShadowInstances.clear();
+            console.log('[Client] Cleared shadow instances on return to nexus');
+        }
+        
         // Initialize nexus if needed
         if (typeof initNexus !== 'undefined') {
             initNexus();
         }
+        
+        // Initialize nexus camera to follow player
+        this.initializeNexusCamera();
         
         console.log('[RETURN TO NEXUS] State reset complete:', {
             state: this.state,
@@ -2816,6 +3321,7 @@ const Game = {
         
         // Create player with selected class (start at left side of screen)
         this.player = createPlayer(this.selectedClass, 100, this.config.height / 2);
+        this.player.playerId = this.getLocalPlayerId(); // Set player ID for damage attribution
         
         // Initialize room system
         if (typeof initializeRoom !== 'undefined') {
@@ -2853,6 +3359,12 @@ const Game = {
             groundLoot.length = 0;
         }
         
+        // Clean up multiplayer shadow instances (clients only)
+        if (this.remotePlayerShadowInstances) {
+            this.remotePlayerShadowInstances.clear();
+            console.log('[Client] Cleared shadow instances on game start');
+        }
+        
         // Multiplayer: Send immediate state update after starting game
         if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
             setTimeout(() => {
@@ -2867,8 +3379,10 @@ const Game = {
     
     // Restart game
     restart() {
-        // Create new player with same class (start at left side of screen)
-        this.player = createPlayer(this.selectedClass, 100, this.config.height / 2);
+        // Create new player with same class (start at left edge of new larger room)
+        const roomHeight = 1350; // New room height
+        this.player = createPlayer(this.selectedClass, 100, roomHeight / 2); // Spawn at left edge, vertically centered
+        this.player.playerId = this.getLocalPlayerId(); // Set player ID for damage attribution
         
         // Reset arrays
         this.enemies = [];
@@ -2882,6 +3396,7 @@ const Game = {
         this.doorPulse = 0;
         this.startTime = Date.now();
         this.endTime = 0; // Reset end time
+        this.deathScreenStartTime = 0; // Reset death screen timer
         
         // Initialize per-player stats tracking
         this.initializePlayerStats();
@@ -2906,6 +3421,9 @@ const Game = {
         
         // Spawn enemies
         this.spawnEnemies();
+        
+        // Initialize camera position to follow player
+        this.initializeCamera();
         
         // Reset state
         this.state = 'PLAYING';
@@ -2992,10 +3510,12 @@ const Game = {
             // Update lifetime
             projectile.elapsed += deltaTime;
             
-            // Remove if expired or out of bounds
+            // Remove if expired or out of bounds (use room bounds, not canvas bounds)
+            const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : 2400;
+            const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : 1350;
             if (projectile.elapsed >= projectile.lifetime) return false;
-            if (projectile.x < -50 || projectile.x > this.config.width + 50) return false;
-            if (projectile.y < -50 || projectile.y > this.config.height + 50) return false;
+            if (projectile.x < -50 || projectile.x > roomWidth + 50) return false;
+            if (projectile.y < -50 || projectile.y > roomHeight + 50) return false;
             
             return true;
         });
@@ -3119,6 +3639,25 @@ const Game = {
                             createDamageNumber(enemy.x, enemy.y, Math.floor(damageDealt), isCrit, false);
                         }
                         
+                        // Multiplayer: Send damage number event to clients
+                        if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
+                            if (typeof DebugFlags !== 'undefined' && DebugFlags.DAMAGE_NUMBERS) {
+                                console.log(`[Host/Projectile] Sending damage_number to clients: enemyId=${enemy.id}, coords=(${enemy.x}, ${enemy.y}), damage=${Math.floor(damageDealt)}, isCrit=${isCrit}`);
+                            }
+                            
+                            multiplayerManager.send({
+                                type: 'damage_number',
+                                data: {
+                                    enemyId: enemy.id,
+                                    x: enemy.x,
+                                    y: enemy.y,
+                                    damage: Math.floor(damageDealt),
+                                    isCrit: isCrit,
+                                    isWeakPoint: false
+                                }
+                            });
+                        }
+                        
                         // Track pierce hits
                         if (!projectile.hitEnemies) {
                             projectile.hitEnemies = new Set();
@@ -3231,11 +3770,8 @@ const Game = {
                                 this.player.takeDamage(projectile.damage);
                             } else {
                                 // Remote player - apply damage to host's state tracking
-                                const damaged = this.damageRemotePlayer(id, projectile.damage);
-                                if (damaged) {
-                                    // Only send event if damage was actually applied (not invuln)
-                                    this.sendPlayerDamageEvent(id, projectile.damage);
-                                }
+                                // HP syncs to clients via game_state, not individual damage events
+                                this.damageRemotePlayer(id, projectile.damage);
                             }
                             projectilesToRemove.push(index);
                             projectileHit = true;

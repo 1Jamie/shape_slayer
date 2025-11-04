@@ -82,6 +82,7 @@ class Tank extends PlayerBase {
         this.baseDamage = TANK_CONFIG.baseDamage + upgradeBonuses.damage;
         this.baseMoveSpeed = TANK_CONFIG.baseSpeed + upgradeBonuses.speed;
         this.baseDefense = TANK_CONFIG.baseDefense + upgradeBonuses.defense;
+        this.baseMaxHp = TANK_CONFIG.baseHp; // Store base max HP for gear calculations
         this.maxHp = TANK_CONFIG.baseHp;
         this.hp = TANK_CONFIG.baseHp;
         this.baseCritChance = TANK_CONFIG.critChance || 0; // Store base for updateEffectiveStats

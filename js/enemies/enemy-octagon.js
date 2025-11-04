@@ -11,7 +11,7 @@ const OCTAGON_CONFIG = {
     damage: 12,                    // Damage per hit
     moveSpeed: 110,                // Movement speed (pixels/second)
     xpValue: 50,                   // XP awarded when killed
-    lootChance: 0.4,               // Chance to drop loot (0.4 = 40%)
+    lootChance: 0.20,              // Chance to drop loot (0.20 = 20%, reduced for larger rooms)
     
     // Attack Behavior
     attackCooldown: 3.0,           // Time between melee attacks (seconds)
@@ -22,9 +22,10 @@ const OCTAGON_CONFIG = {
     postAttackPause: 0.3,          // Pause after attacks (seconds)
     
     // Minion Summoning
-    minionSummonCooldown: 5.0,     // Time between summons (seconds)
+    minionSummonCooldown: 8.0,     // Time between summons (seconds)
     minionMinCount: 2,             // Minimum minions to summon
     minionMaxCount: 3,             // Maximum minions to summon
+    maxMinionLimit: 5,             // Maximum minions allowed at one time
     minionSpawnDistance: 60,       // Base spawn distance from octagon (pixels)
     minionSpawnVariance: 40,       // Random variance in spawn distance (pixels)
     minionHealthMultiplier: 0.2,   // Minion health as % of basic enemy (0.2 = 20%)
@@ -77,10 +78,19 @@ class OctagonEnemy extends EnemyBase {
         this.attackRange = OCTAGON_CONFIG.attackRange;
         this.postAttackPause = 0; // Brief pause after attacks
         this.postAttackPauseTime = OCTAGON_CONFIG.postAttackPause;
+        
+        // Track spawned minions
+        this.minions = [];
     }
     
     update(deltaTime, player) {
         if (!this.alive || !player.alive) return;
+        
+        // Check detection range - only activate when player is nearby
+        if (!this.checkDetection()) {
+            // Enemy is in standby, don't update AI
+            return;
+        }
         
         // Process stun first
         this.processStun(deltaTime);
@@ -319,14 +329,9 @@ class OctagonEnemy extends EnemyBase {
     }
     
     // Override die() to use octagon (elite) difficulty for loot
+    // NOTE: Only called on host or in solo mode. Clients receive death via game_state sync.
     die() {
         this.alive = false;
-        
-        // Only run death effects on host or in solo mode (clients receive loot via game_state)
-        if (typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient()) {
-            // Client: Don't run death logic (host handles it)
-            return;
-        }
         
         // Track kill for the last attacker
         if (this.lastAttacker && typeof Game !== 'undefined' && Game.getPlayerStats) {
@@ -339,18 +344,18 @@ class OctagonEnemy extends EnemyBase {
             createParticleBurst(this.x, this.y, this.color, 12);
         }
         
-        // Give player XP when enemy dies
-        if (typeof Game !== 'undefined' && Game.player && !Game.player.dead) {
-            Game.player.addXP(this.xpValue);
+        // Give XP to all alive players (multiplayer: host distributes; solo: local player)
+        if (typeof Game !== 'undefined' && Game.distributeXPToAllPlayers && this.xpValue) {
+            Game.distributeXPToAllPlayers(this.xpValue);
         }
         
-        // Drop loot based on lootChance (HOST ONLY - clients get loot via game_state sync)
+        // Drop loot based on lootChance (loot syncs via game_state in multiplayer)
         if (typeof generateGear !== 'undefined' && typeof groundLoot !== 'undefined') {
             if (Math.random() < this.lootChance) {
                 const roomNum = typeof Game !== 'undefined' ? (Game.roomNumber || 1) : 1;
                 const gear = generateGear(this.x, this.y, roomNum, 'octagon');
                 groundLoot.push(gear);
-                console.log(`[Host] Dropped loot at (${Math.floor(this.x)}, ${Math.floor(this.y)})`);
+                console.log(`Dropped octagon loot at (${Math.floor(this.x)}, ${Math.floor(this.y)})`);
             }
         }
     }
@@ -358,8 +363,24 @@ class OctagonEnemy extends EnemyBase {
     summonMinions() {
         if (typeof Game === 'undefined') return;
         
-        // Summon minions (config-based count)
-        const count = OCTAGON_CONFIG.minionMinCount + Math.floor(Math.random() * (OCTAGON_CONFIG.minionMaxCount - OCTAGON_CONFIG.minionMinCount + 1));
+        // Clean up dead minions from tracking array
+        this.minions = this.minions.filter(minion => minion.alive);
+        
+        // Check how many minions are currently alive
+        const currentMinionCount = this.minions.length;
+        
+        // Calculate available slots
+        const availableSlots = OCTAGON_CONFIG.maxMinionLimit - currentMinionCount;
+        
+        // Don't spawn if we're at the limit
+        if (availableSlots <= 0) {
+            return;
+        }
+        
+        // Determine how many minions to spawn (respecting available slots)
+        // Can only summon 2-3 minions per summon attempt, but never more than what fits
+        const desiredCount = OCTAGON_CONFIG.minionMinCount + Math.floor(Math.random() * (OCTAGON_CONFIG.minionMaxCount - OCTAGON_CONFIG.minionMinCount + 1));
+        const count = Math.min(desiredCount, availableSlots, 2); // Cap at 2 per summon
         
         for (let i = 0; i < count; i++) {
             const angle = (Math.PI * 2 / count) * i;
@@ -375,12 +396,20 @@ class OctagonEnemy extends EnemyBase {
             minion.xpValue = Math.floor(minion.xpValue * OCTAGON_CONFIG.minionXpMultiplier);
             minion.lootChance = 0.0; // No loot from minions
             
+            // Inherit aggro target from spawner
+            if (this.currentTarget) {
+                minion.currentTarget = this.currentTarget;
+            }
+            
             if (typeof currentRoom !== 'undefined' && currentRoom) {
                 currentRoom.enemies.push(minion);
             }
             if (typeof Game !== 'undefined') {
                 Game.enemies.push(minion);
             }
+            
+            // Track the minion
+            this.minions.push(minion);
         }
     }
     

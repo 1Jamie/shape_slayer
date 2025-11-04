@@ -1,0 +1,18 @@
+{
+  "name": "shape-slayer-tests",
+  "version": "1.0.0",
+  "description": "Automated tests for Shape Slayer",
+  "main": "damage-numbers.test.js",
+  "scripts": {
+    "test": "node damage-numbers.test.js",
+    "test:damage-numbers": "node damage-numbers.test.js"
+  },
+  "keywords": ["test", "multiplayer", "game"],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "puppeteer": "^21.0.0"
+  }
+}
+
+

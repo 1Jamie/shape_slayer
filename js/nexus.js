@@ -50,33 +50,37 @@ function fillTemplate(template, values) {
 // Nexus room class
 class NexusRoom {
     constructor() {
-        this.width = 1280;
-        this.height = 720;
+        // Larger nexus size (between combat rooms and old viewport)
+        this.width = 1800;
+        this.height = 1100;
         
-        // Layout definitions - spread out more with larger canvas
-        this.classArea = {
-            x: 150,
-            y: 200,
-            width: 300,
-            height: 450
-        };
-        
-        this.upgradeArea = {
-            x: 830,
-            y: 200,
-            width: 300,
-            height: 450
-        };
-        
+        // NEW LAYOUT: Portal in center, class pads on left, upgrade pads on right
         this.portalPos = {
-            x: 640, // Center of screen
-            y: 360, // Center of screen
-            radius: 50
+            x: 900, // Center of nexus horizontally
+            y: 550, // Center of nexus vertically
+            radius: 60
         };
         
+        // Class selection area - left side of portal
+        this.classArea = {
+            x: 350,
+            y: 200,
+            width: 350,
+            height: 700
+        };
+        
+        // Upgrade area - right side of portal
+        this.upgradeArea = {
+            x: 1100,
+            y: 200,
+            width: 350,
+            height: 700
+        };
+        
+        // Spawn point - to the left of class selection area
         this.spawnPos = {
-            x: 300,
-            y: 360
+            x: 250,
+            y: 550
         };
     }
 }
@@ -84,19 +88,19 @@ class NexusRoom {
 // Nexus instance
 let nexusRoom = null;
 
-// Class stations
+// Class stations - arranged on left side of portal
 const classStations = [
-    { key: 'square', name: 'Warrior', color: '#4a90e2', x: 200, y: 250 },
-    { key: 'triangle', name: 'Rogue', color: '#ff1493', x: 200, y: 350 },
-    { key: 'pentagon', name: 'Tank', color: '#c72525', x: 200, y: 450 },
-    { key: 'hexagon', name: 'Mage', color: '#673ab7', x: 200, y: 550 }
+    { key: 'square', name: 'Warrior', color: '#4a90e2', x: 450, y: 300 },
+    { key: 'triangle', name: 'Rogue', color: '#ff1493', x: 450, y: 450 },
+    { key: 'pentagon', name: 'Tank', color: '#c72525', x: 450, y: 600 },
+    { key: 'hexagon', name: 'Mage', color: '#673ab7', x: 450, y: 750 }
 ];
 
-// Upgrade stations
+// Upgrade stations - arranged on right side of portal
 const upgradeStations = [
-    { key: 'damage', name: 'Damage', icon: '⚔', x: 980, y: 250 },
-    { key: 'defense', name: 'Defense', icon: '🛡', x: 980, y: 380 },
-    { key: 'speed', name: 'Speed', icon: '⚡', x: 980, y: 510 }
+    { key: 'damage', name: 'Damage', icon: '⚔', x: 1350, y: 300 },
+    { key: 'defense', name: 'Defense', icon: '🛡', x: 1350, y: 450 },
+    { key: 'speed', name: 'Speed', icon: '⚡', x: 1350, y: 600 }
 ];
 
 // Class config mapping (maps class keys to their config objects)
@@ -192,6 +196,9 @@ function initNexus() {
     if (!Game.player) {
         // Create warrior player for nexus (class doesn't matter in nexus)
         Game.player = createPlayer('square', nexusRoom.spawnPos.x, nexusRoom.spawnPos.y);
+        if (typeof Game !== 'undefined' && Game.getLocalPlayerId) {
+            Game.player.playerId = Game.getLocalPlayerId(); // Set player ID for damage attribution
+        }
     } else {
         // Reset player position to spawn
         Game.player.x = nexusRoom.spawnPos.x;
@@ -275,8 +282,10 @@ function updateNexus(ctx, deltaTime) {
                 if (Input.getAimDirection) {
                     Game.player.rotation = Input.getAimDirection();
                 } else if (Input.mouse.x !== undefined && Input.mouse.y !== undefined) {
-                    const dx = Input.mouse.x - Game.player.x;
-                    const dy = Input.mouse.y - Game.player.y;
+                    // Use world coordinates (nexus now has camera)
+                    const worldMouse = Input.getWorldMousePos ? Input.getWorldMousePos() : Input.mouse;
+                    const dx = worldMouse.x - Game.player.x;
+                    const dy = worldMouse.y - Game.player.y;
                     Game.player.rotation = Math.atan2(dy, dx);
                 }
             }
@@ -398,8 +407,10 @@ function updateNexus(ctx, deltaTime) {
             if (Input.getAimDirection) {
                 Game.player.rotation = Input.getAimDirection();
             } else if (Input.mouse.x !== undefined && Input.mouse.y !== undefined) {
-                const dx = Input.mouse.x - Game.player.x;
-                const dy = Input.mouse.y - Game.player.y;
+                // Use world coordinates (nexus now has camera)
+                const worldMouse = Input.getWorldMousePos ? Input.getWorldMousePos() : Input.mouse;
+                const dx = worldMouse.x - Game.player.x;
+                const dy = worldMouse.y - Game.player.y;
                 Game.player.rotation = Math.atan2(dy, dx);
             }
         }
@@ -482,6 +493,11 @@ function updateNexus(ctx, deltaTime) {
                 Game.startGame();
             }
         }
+    }
+    
+    // Update nexus camera to follow player
+    if (typeof Game !== 'undefined' && Game.updateNexusCamera) {
+        Game.updateNexusCamera(deltaTime);
     }
 }
 
@@ -683,7 +699,9 @@ function purchaseUpgrade(classType, statType) {
             if (Game.player && Game.selectedClass === classType) {
                 const currentX = Game.player.x;
                 const currentY = Game.player.y;
+                const currentPlayerId = Game.player.playerId; // Preserve player ID
                 Game.player = createPlayer(classType, currentX, currentY);
+                Game.player.playerId = currentPlayerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null);
                 console.log(`[Single-player] Recreated player to apply upgrade stats`);
             }
             
@@ -700,11 +718,31 @@ function renderNexus(ctx) {
         initNexus();
     }
     
-    // Render background (darker/mystical)
+    // Clear canvas with base color (outside camera transform)
+    const canvasWidth = Game ? Game.config.width : 1280;
+    const canvasHeight = Game ? Game.config.height : 720;
+    ctx.fillStyle = '#0f0f1a';
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    
+    // Apply nexus camera transform with zoom
+    ctx.save();
+    if (typeof Game !== 'undefined' && Game.nexusCamera) {
+        // Detect if desktop (for zoom)
+        const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+        const currentZoom = isMobile ? 1.0 : (Game.baseZoom || 1.1); // Desktop: 1.1x zoom
+        
+        const centerX = canvasWidth / 2;
+        const centerY = canvasHeight / 2;
+        ctx.translate(centerX, centerY);
+        ctx.scale(currentZoom, currentZoom);
+        ctx.translate(-Game.nexusCamera.x, -Game.nexusCamera.y);
+    }
+    
+    // Render background fill (in world space)
     ctx.fillStyle = '#0f0f1a';
     ctx.fillRect(0, 0, nexusRoom.width, nexusRoom.height);
     
-    // Render subtle grid pattern
+    // Render subtle grid pattern (in world space - fixed to floor)
     ctx.strokeStyle = 'rgba(100, 100, 150, 0.1)';
     ctx.lineWidth = 1;
     for (let x = 0; x < nexusRoom.width; x += 50) {
@@ -1139,23 +1177,26 @@ function renderNexus(ctx) {
         });
     }
     
-    // Render currency display (top left)
+    // Restore context after camera transform
+    ctx.restore();
+    
+    // Render currency display (top left) - screen space
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 18px Arial';
     ctx.textAlign = 'left';
     ctx.fillText(`Currency: ${Math.floor(Game.currentCurrency)}`, 20, 30);
     
-    // Render touch controls overlay (same as gameplay)
+    // Render touch controls overlay (same as gameplay) - screen space
     if (typeof renderTouchControls === 'function') {
         renderTouchControls(ctx);
     }
     
-    // Render interaction button (on top of touch controls)
+    // Render interaction button (on top of touch controls) - screen space
     if (typeof renderInteractionButton === 'function') {
         renderInteractionButton(ctx);
     }
     
-    // Render pause button (on top of everything)
+    // Render pause button (on top of everything) - screen space
     if (typeof renderPauseButton === 'function') {
         renderPauseButton(ctx);
     }

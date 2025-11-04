@@ -86,6 +86,7 @@ class Rogue extends PlayerBase {
         this.baseDamage = ROGUE_CONFIG.baseDamage + upgradeBonuses.damage;
         this.baseMoveSpeed = ROGUE_CONFIG.baseSpeed + upgradeBonuses.speed;
         this.baseDefense = ROGUE_CONFIG.baseDefense + upgradeBonuses.defense;
+        this.baseMaxHp = ROGUE_CONFIG.baseHp; // Store base max HP for gear calculations
         this.maxHp = ROGUE_CONFIG.baseHp;
         this.hp = ROGUE_CONFIG.baseHp;
         this.baseCritChance = ROGUE_CONFIG.critChance; // Store base for updateEffectiveStats
@@ -180,27 +181,9 @@ class Rogue extends PlayerBase {
         // Rogue: Throw knife as projectile
         if (typeof Game === 'undefined') return;
         
-        // Get direction from unified input
-        let dirX, dirY;
-        if (input.getAbilityDirection) {
-            const dir = input.getAbilityDirection('basicAttack');
-            dirX = dir.x;
-            dirY = dir.y;
-        } else {
-            // Fallback to mouse
-            const mouseX = input.mouse.x || this.x;
-            const mouseY = input.mouse.y || this.y;
-            const dx = mouseX - this.x;
-            const dy = mouseY - this.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            if (distance > 0) {
-                dirX = dx / distance;
-                dirY = dy / distance;
-            } else {
-                dirX = Math.cos(this.rotation);
-                dirY = Math.sin(this.rotation);
-            }
-        }
+        // Use character rotation (already correctly calculated from mouse/joystick)
+        const dirX = Math.cos(this.rotation);
+        const dirY = Math.sin(this.rotation);
         
         const baseKnife = {
             x: this.x,
@@ -215,7 +198,8 @@ class Rogue extends PlayerBase {
             color: this.color,
             playerX: this.x, // Store player position for backstab detection
             playerY: this.y,
-            playerClass: this.playerClass // Store class for backstab check
+            playerClass: this.playerClass, // Store class for backstab check
+            playerId: this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null) // For damage attribution
         };
         
         Game.projectiles.push(baseKnife);
@@ -320,8 +304,8 @@ class Rogue extends PlayerBase {
             
             // Keep clones in bounds
             const clone = {
-                x: Game ? clamp(cloneX, this.size, Game.canvas.width - this.size) : cloneX,
-                y: Game ? clamp(cloneY, this.size, Game.canvas.height - this.size) : cloneY,
+                x: Game ? clamp(cloneX, this.size, (typeof currentRoom !== 'undefined' && currentRoom ? currentRoom.width : Game.canvas.width) - this.size) : cloneX,
+                y: Game ? clamp(cloneY, this.size, (typeof currentRoom !== 'undefined' && currentRoom ? currentRoom.height : Game.canvas.height) - this.size) : cloneY,
                 rotation: this.rotation,
                 health: cloneMaxHealth,
                 maxHealth: cloneMaxHealth,
@@ -547,8 +531,11 @@ class Rogue extends PlayerBase {
         
         // Clamp to bounds
         if (typeof Game !== 'undefined' && Game.canvas) {
-            targetX = clamp(targetX, this.size, Game.canvas.width - this.size);
-            targetY = clamp(targetY, this.size, Game.canvas.height - this.size);
+            // Use room bounds instead of canvas bounds
+            const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : Game.canvas.width;
+            const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : Game.canvas.height;
+            targetX = clamp(targetX, this.size, roomWidth - this.size);
+            targetY = clamp(targetY, this.size, roomHeight - this.size);
         }
         
         this.dashPreviewX = targetX;

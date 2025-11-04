@@ -7,7 +7,8 @@
     "start": "node mp-server.js"
   },
   "dependencies": {
-    "ws": "^8.14.2"
+    "ws": "^8.14.2",
+    "dotenv": "^16.0.3"
   },
   "keywords": ["websocket", "multiplayer", "game-server"],
   "author": "",

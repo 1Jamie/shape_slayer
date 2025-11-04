@@ -38,6 +38,9 @@ class PlayerBase {
         this.color = '#4a90e2';
         this.rotation = 0;
         
+        // Player identification (for multiplayer damage attribution)
+        this.playerId = null; // Will be set by Game when creating player instances
+        
         // Health system
         this.maxHp = 100;
         this.baseMaxHp = 100; // Store base max HP for gear calculations
@@ -180,8 +183,12 @@ class PlayerBase {
         // Note: Mage blink knockback moved to player-mage.js updateClassAbilities()
         // Note: Rogue dodge collision damage moved to player-rogue.js updateClassAbilities()
         
-        // Keep player within canvas bounds
-        if (typeof Game !== 'undefined') {
+        // Keep player within room bounds (not canvas bounds)
+        if (typeof currentRoom !== 'undefined' && currentRoom) {
+            this.x = clamp(this.x, this.size, currentRoom.width - this.size);
+            this.y = clamp(this.y, this.size, currentRoom.height - this.size);
+        } else if (typeof Game !== 'undefined') {
+            // Fallback to canvas bounds if room not available
             this.x = clamp(this.x, this.size, Game.canvas.width - this.size);
             this.y = clamp(this.y, this.size, Game.canvas.height - this.size);
         }
@@ -190,8 +197,10 @@ class PlayerBase {
         if (input.getAimDirection) {
             this.rotation = input.getAimDirection();
         } else if (input.mouse.x !== undefined && input.mouse.y !== undefined) {
-            const dx = input.mouse.x - this.x;
-            const dy = input.mouse.y - this.y;
+            // Use world coordinates for mouse position
+            const worldMouse = input.getWorldMousePos ? input.getWorldMousePos() : input.mouse;
+            const dx = worldMouse.x - this.x;
+            const dy = worldMouse.y - this.y;
             this.rotation = Math.atan2(dy, dx);
         }
         
@@ -273,6 +282,7 @@ class PlayerBase {
                     if (button.justReleased) {
                         // Rotation already updated above, fire the attack immediately
                         this.createHeavyAttack();
+                        this.applyHeavyAttackCooldown(); // Apply cooldown after firing
                         this.isChargingHeavy = false;
                         this.heavyChargeElapsed = 0;
                         // Clear previews (subclass handles this)
@@ -291,6 +301,7 @@ class PlayerBase {
                 if (this.heavyChargeElapsed >= this.heavyAttackWindup) {
                     // Spawn heavy attack hitbox
                     this.createHeavyAttack();
+                    this.applyHeavyAttackCooldown(); // Apply cooldown after firing
                     this.isChargingHeavy = false;
                     this.heavyChargeElapsed = 0;
                 }
@@ -715,6 +726,17 @@ class PlayerBase {
         // Start charging
         this.isChargingHeavy = true;
         this.heavyChargeElapsed = 0;
+        // NOTE: Cooldown is now set when the attack is actually fired (in applyHeavyAttackCooldown)
+    }
+    
+    // Create heavy attack - override in subclass
+    createHeavyAttack() {
+        // Subclass must override this
+        throw new Error('createHeavyAttack() must be implemented by subclass');
+    }
+    
+    // Apply heavy attack cooldown after attack is fired
+    applyHeavyAttackCooldown() {
         // Apply attack speed and weapon type to heavy attack cooldown
         const weaponCooldownMult = this.weaponCooldownMultiplier || 1.0;
         const effectiveHeavyCooldown = this.heavyAttackCooldownTime * weaponCooldownMult / (1 + (this.attackSpeedMultiplier - 1));
@@ -726,12 +748,6 @@ class PlayerBase {
         } else {
             this.heavyAttackCooldown = effectiveHeavyCooldown;
         }
-    }
-    
-    // Create heavy attack - override in subclass
-    createHeavyAttack() {
-        // Subclass must override this
-        throw new Error('createHeavyAttack() must be implemented by subclass');
     }
     
     // Set special cooldown with overcharge check
@@ -833,6 +849,39 @@ class PlayerBase {
             this.dead = true;
             this.alive = false;
             
+            // In multiplayer as a client, execute minimal death logic
+            // Host will track stats and currency, but client needs to show death screen
+            const isMultiplayerClient = typeof Game !== 'undefined' && 
+                                         Game.multiplayerEnabled && 
+                                         typeof multiplayerManager !== 'undefined' && 
+                                         multiplayerManager && 
+                                         multiplayerManager.lobbyCode &&
+                                         !multiplayerManager.isHost;
+            
+            if (isMultiplayerClient) {
+                // Clients: Mark as dead locally for death screen, host confirms via game_state
+                if (typeof Game !== 'undefined' && Game.getPlayerStats && Game.getLocalPlayerId) {
+                    const playerId = Game.getLocalPlayerId();
+                    const stats = Game.getPlayerStats(playerId);
+                    stats.onDeath();
+                    
+                    // Add to dead players set
+                    Game.deadPlayers.add(playerId);
+                    
+                    // Record end time for death screen
+                    Game.endTime = Date.now();
+                    Game.currencyEarned = Game.calculateCurrency();
+                    
+                    // Set waiting flag - client must wait for host to signal return
+                    Game.waitingForHostReturn = true;
+                }
+                
+                console.log('[Client] Died - HP reached 0, waiting for host signal');
+                return;
+            }
+            
+            // Host or solo: Execute full death logic
+            
             // Track death in stats (stop counting alive time)
             if (typeof Game !== 'undefined' && Game.getPlayerStats && Game.getLocalPlayerId) {
                 const playerId = Game.getLocalPlayerId();
@@ -845,6 +894,13 @@ class PlayerBase {
                 // Check if all players are dead
                 if (Game.checkAllPlayersDead) {
                     Game.allPlayersDead = Game.checkAllPlayersDead();
+                    
+                    // If all players just died, send final stats to clients (host only)
+                    if (Game.allPlayersDead && Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.isHost) {
+                        if (Game.sendFinalStats) {
+                            Game.sendFinalStats();
+                        }
+                    }
                 }
             }
             
@@ -893,9 +949,19 @@ class PlayerBase {
         // Heal to full HP
         this.hp = this.maxHp;
         
-        // Multiplayer: Immediately sync health change
+        // Multiplayer: Send level up event and sync state
         if (typeof Game !== 'undefined' && Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
             if (multiplayerManager.isHost) {
+                // Send level up event to all clients so they can show the animation
+                multiplayerManager.send({
+                    type: 'player_leveled_up',
+                    data: {
+                        playerId: this.playerId,
+                        level: this.level,
+                        timestamp: Date.now()
+                    }
+                });
+                // Also sync game state
                 multiplayerManager.sendGameState();
             } else {
                 multiplayerManager.sendPlayerState();
@@ -910,24 +976,31 @@ class PlayerBase {
         
         // Create level up particles and screen effects
         if (typeof Game !== 'undefined') {
-            Game.triggerScreenShake(0.4, 0.3);
-            
-            // Show level up message
-            Game.levelUpMessageActive = true;
-            Game.levelUpMessageTime = 2.0; // Show for 2 seconds
-            
-            // Create celebratory particle burst
-            if (typeof createParticleBurst !== 'undefined') {
-                for (let i = 0; i < 3; i++) {
-                    const angle = Math.random() * Math.PI * 2;
-                    const offsetX = Math.cos(angle) * 50;
-                    const offsetY = Math.sin(angle) * 50;
-                    createParticleBurst(this.x + offsetX, this.y + offsetY, '#00ffff', 8);
-                }
-            }
+            this.triggerLevelUpEffects();
         }
         
         console.log(`Level Up! Now level ${this.level}`);
+    }
+    
+    // Trigger level up visual effects (can be called by levelUp or by network event)
+    triggerLevelUpEffects() {
+        if (typeof Game === 'undefined') return;
+        
+        Game.triggerScreenShake(0.4, 0.3);
+        
+        // Show level up message
+        Game.levelUpMessageActive = true;
+        Game.levelUpMessageTime = 2.0; // Show for 2 seconds
+        
+        // Create celebratory particle burst
+        if (typeof createParticleBurst !== 'undefined') {
+            for (let i = 0; i < 3; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const offsetX = Math.cos(angle) * 50;
+                const offsetY = Math.sin(angle) * 50;
+                createParticleBurst(this.x + offsetX, this.y + offsetY, '#00ffff', 8);
+            }
+        }
     }
     
     // Calculate effective stats with gear bonuses
@@ -2305,12 +2378,44 @@ class PlayerBase {
             maxHp: this.maxHp,
             level: this.level,
             xp: this.xp,
-            xpToNextLevel: this.xpToNextLevel,
+            xpToNext: this.xpToNext, // Fixed: was xpToNextLevel
             
-            // Equipped gear (for visuals and stat calculations)
-            weapon: this.weapon,
-            armor: this.armor,
-            accessory: this.accessory,
+            // Equipped gear (full objects with all affix system properties)
+            weapon: this.weapon ? {
+                id: this.weapon.id,
+                slot: this.weapon.slot,
+                tier: this.weapon.tier,
+                color: this.weapon.color,
+                stats: this.weapon.stats || {},
+                affixes: this.weapon.affixes || [],
+                weaponType: this.weapon.weaponType || null,
+                classModifier: this.weapon.classModifier || null,
+                legendaryEffect: this.weapon.legendaryEffect || null,
+                name: this.weapon.name || ''
+            } : null,
+            armor: this.armor ? {
+                id: this.armor.id,
+                slot: this.armor.slot,
+                tier: this.armor.tier,
+                color: this.armor.color,
+                stats: this.armor.stats || {},
+                affixes: this.armor.affixes || [],
+                armorType: this.armor.armorType || null,
+                classModifier: this.armor.classModifier || null,
+                legendaryEffect: this.armor.legendaryEffect || null,
+                name: this.armor.name || ''
+            } : null,
+            accessory: this.accessory ? {
+                id: this.accessory.id,
+                slot: this.accessory.slot,
+                tier: this.accessory.tier,
+                color: this.accessory.color,
+                stats: this.accessory.stats || {},
+                affixes: this.accessory.affixes || [],
+                classModifier: this.accessory.classModifier || null,
+                legendaryEffect: this.accessory.legendaryEffect || null,
+                name: this.accessory.name || ''
+            } : null,
             
             // Gear visuals (deterministic patterns for consistent appearance in multiplayer)
             weaponVisual: this.weaponVisual,
@@ -2330,6 +2435,34 @@ class PlayerBase {
             dodgeCooldown: this.dodgeCooldown,
             specialCooldown: this.specialCooldown,
             dodgeCharges: this.dodgeCharges,
+            maxDodgeCharges: this.maxDodgeCharges,
+            dodgeChargeCooldowns: this.dodgeChargeCooldowns || [],
+            
+            // Derived stats from gear/affixes (needed for remote player display)
+            damage: this.damage,
+            defense: this.defense,
+            moveSpeed: this.moveSpeed,
+            critChance: this.critChance,
+            critDamageMultiplier: this.critDamageMultiplier,
+            attackSpeedMultiplier: this.attackSpeedMultiplier,
+            lifesteal: this.lifesteal,
+            cooldownReduction: this.cooldownReduction,
+            aoeMultiplier: this.aoeMultiplier,
+            projectileSpeedMultiplier: this.projectileSpeedMultiplier,
+            knockbackMultiplier: this.knockbackMultiplier,
+            bonusDodgeCharges: this.bonusDodgeCharges,
+            bonusMaxHealth: this.bonusMaxHealth,
+            pierceCount: this.pierceCount,
+            chainLightningCount: this.chainLightningCount,
+            executeBonus: this.executeBonus,
+            rampageBonus: this.rampageBonus,
+            rampageStacks: this.rampageStacks || 0,
+            multishotCount: this.multishotCount,
+            phasingChance: this.phasingChance,
+            explosiveChance: this.explosiveChance,
+            fortifyPercent: this.fortifyPercent,
+            fortifyShield: this.fortifyShield || 0,
+            overchargeChance: this.overchargeChance,
             
             // Attack hitboxes (authoritative from host)
             attackHitboxes: this.attackHitboxes.map(h => ({
@@ -2409,15 +2542,71 @@ class PlayerBase {
         
         // Health and progression (with level up detection)
         const oldLevel = this.level;
-        if (state.hp !== undefined) this.hp = state.hp;
-        if (state.maxHp !== undefined) this.maxHp = state.maxHp;
-        if (state.level !== undefined) this.level = state.level;
-        if (state.xp !== undefined) this.xp = state.xp;
-        if (state.xpToNextLevel !== undefined) this.xpToNextLevel = state.xpToNextLevel;
         
-        // Trigger level up message if level increased
-        if (state.level !== undefined && state.level > oldLevel && typeof showLevelUpMessage === 'function') {
-            showLevelUpMessage(this.level);
+        // IMPORTANT: For multiplayer clients, DON'T overwrite our own HP/XP from host's game state
+        // The host sends what it THINKS our stats are, but we maintain our own authoritative HP/XP
+        // We only update HP from damage events, and XP from kill events
+        // This prevents the "instant heal" bug where host state overwrites damage before we see it
+        if (!isMultiplayerClient) {
+            // Host or solo: apply HP/XP directly
+            if (state.hp !== undefined) this.hp = state.hp;
+            if (state.maxHp !== undefined) this.maxHp = state.maxHp;
+            if (state.level !== undefined) this.level = state.level;
+            if (state.xp !== undefined) this.xp = state.xp;
+            if (state.xpToNext !== undefined) this.xpToNext = state.xpToNext; // Fixed property name
+            
+            // Trigger level up message if level increased
+            if (state.level !== undefined && state.level > oldLevel && typeof showLevelUpMessage === 'function') {
+                showLevelUpMessage(this.level);
+            }
+        } else {
+            // Client: Accept HP from host (authoritative) to avoid damage desync
+            // Host tracks all damage and syncs HP via game_state
+            if (state.hp !== undefined) this.hp = state.hp;
+            if (state.maxHp !== undefined) this.maxHp = state.maxHp;
+            
+            // Sync XP values from host (XP is shared among all players, host is authoritative)
+            if (state.xp !== undefined) this.xp = state.xp;
+            if (state.xpToNext !== undefined) this.xpToNext = state.xpToNext;
+            
+            // Only update level if it actually increased (from our own leveling)
+            if (state.level !== undefined && state.level > this.level) {
+                this.level = state.level;
+                if (typeof showLevelUpMessage === 'function') {
+                    showLevelUpMessage(this.level);
+                }
+            }
+            
+            // CRITICAL: Sync death status from host (authoritative)
+            // When host confirms death, client must apply it
+            if (state.dead !== undefined && state.dead && !this.dead) {
+                this.dead = true;
+                this.alive = false;
+                this.hp = 0;
+                
+                // Track death in local stats
+                if (typeof Game !== 'undefined' && Game.getPlayerStats && Game.getLocalPlayerId) {
+                    const playerId = Game.getLocalPlayerId();
+                    const stats = Game.getPlayerStats(playerId);
+                    stats.onDeath();
+                    
+                    // Add to dead players set
+                    Game.deadPlayers.add(playerId);
+                    
+                    // Check if all players are dead
+                    if (Game.checkAllPlayersDead) {
+                        Game.allPlayersDead = Game.checkAllPlayersDead();
+                    }
+                }
+                
+                // Record end time for death screen
+                if (typeof Game !== 'undefined') {
+                    Game.endTime = Date.now();
+                    Game.currencyEarned = Game.calculateCurrency();
+                }
+                
+                console.log('[Client] Death confirmed by host');
+            }
         }
         
         // Equipped gear (apply and recalculate stats)
@@ -2446,45 +2635,99 @@ class PlayerBase {
         if (state.dodgeCooldown !== undefined) this.dodgeCooldown = state.dodgeCooldown;
         if (state.specialCooldown !== undefined) this.specialCooldown = state.specialCooldown;
         if (state.dodgeCharges !== undefined) this.dodgeCharges = state.dodgeCharges;
+        if (state.maxDodgeCharges !== undefined) this.maxDodgeCharges = state.maxDodgeCharges;
+        if (state.dodgeChargeCooldowns !== undefined) this.dodgeChargeCooldowns = state.dodgeChargeCooldowns;
+        
+        // Derived stats from gear/affixes (only apply if provided by host)
+        if (state.damage !== undefined) this.damage = state.damage;
+        if (state.defense !== undefined) this.defense = state.defense;
+        if (state.moveSpeed !== undefined) this.moveSpeed = state.moveSpeed;
+        if (state.critChance !== undefined) this.critChance = state.critChance;
+        if (state.critDamageMultiplier !== undefined) this.critDamageMultiplier = state.critDamageMultiplier;
+        if (state.attackSpeedMultiplier !== undefined) this.attackSpeedMultiplier = state.attackSpeedMultiplier;
+        if (state.lifesteal !== undefined) this.lifesteal = state.lifesteal;
+        if (state.cooldownReduction !== undefined) this.cooldownReduction = state.cooldownReduction;
+        if (state.aoeMultiplier !== undefined) this.aoeMultiplier = state.aoeMultiplier;
+        if (state.projectileSpeedMultiplier !== undefined) this.projectileSpeedMultiplier = state.projectileSpeedMultiplier;
+        if (state.knockbackMultiplier !== undefined) this.knockbackMultiplier = state.knockbackMultiplier;
+        if (state.bonusDodgeCharges !== undefined) this.bonusDodgeCharges = state.bonusDodgeCharges;
+        if (state.bonusMaxHealth !== undefined) this.bonusMaxHealth = state.bonusMaxHealth;
+        if (state.pierceCount !== undefined) this.pierceCount = state.pierceCount;
+        if (state.chainLightningCount !== undefined) this.chainLightningCount = state.chainLightningCount;
+        if (state.executeBonus !== undefined) this.executeBonus = state.executeBonus;
+        if (state.rampageBonus !== undefined) this.rampageBonus = state.rampageBonus;
+        if (state.rampageStacks !== undefined) this.rampageStacks = state.rampageStacks;
+        if (state.multishotCount !== undefined) this.multishotCount = state.multishotCount;
+        if (state.phasingChance !== undefined) this.phasingChance = state.phasingChance;
+        if (state.explosiveChance !== undefined) this.explosiveChance = state.explosiveChance;
+        if (state.fortifyPercent !== undefined) this.fortifyPercent = state.fortifyPercent;
+        if (state.fortifyShield !== undefined) this.fortifyShield = state.fortifyShield;
+        if (state.overchargeChance !== undefined) this.overchargeChance = state.overchargeChance;
         
         // Attack hitboxes
         if (state.attackHitboxes !== undefined) this.attackHitboxes = state.attackHitboxes;
         
-        // Life state
-        if (state.dead !== undefined) this.dead = state.dead;
-        if (state.alive !== undefined) this.alive = state.alive;
+        // Life state (only for non-clients or if host is explicitly updating remote player instances)
+        // Clients handle death status separately above to avoid flickering
+        if (!isMultiplayerClient) {
+            if (state.dead !== undefined) this.dead = state.dead;
+            if (state.alive !== undefined) this.alive = state.alive;
+        } else {
+            // Client safeguard: if our HP is 0 or below, stay dead regardless of host state
+            // This prevents flickering while waiting for host confirmation
+            if (this.hp <= 0) {
+                this.dead = true;
+                this.alive = false;
+            }
+        }
         if (state.invulnerable !== undefined) this.invulnerable = state.invulnerable;
         if (state.invulnerabilityTime !== undefined) this.invulnerabilityTime = state.invulnerabilityTime;
         
         // Gear (update if changed)
         let gearChanged = false;
-        if (state.weapon !== undefined && this.weapon !== state.weapon) {
-            this.weapon = state.weapon;
-            gearChanged = true;
+        if (state.weapon !== undefined) {
+            // Deep compare to detect actual changes
+            const weaponChanged = !this.weapon || JSON.stringify(this.weapon) !== JSON.stringify(state.weapon);
+            if (weaponChanged) {
+                this.weapon = state.weapon;
+                gearChanged = true;
+            }
         }
-        if (state.armor !== undefined && this.armor !== state.armor) {
-            this.armor = state.armor;
-            gearChanged = true;
+        if (state.armor !== undefined) {
+            const armorChanged = !this.armor || JSON.stringify(this.armor) !== JSON.stringify(state.armor);
+            if (armorChanged) {
+                this.armor = state.armor;
+                gearChanged = true;
+            }
         }
-        if (state.accessory !== undefined && this.accessory !== state.accessory) {
-            this.accessory = state.accessory;
-            gearChanged = true;
+        if (state.accessory !== undefined) {
+            const accessoryChanged = !this.accessory || JSON.stringify(this.accessory) !== JSON.stringify(state.accessory);
+            if (accessoryChanged) {
+                this.accessory = state.accessory;
+                gearChanged = true;
+            }
+        }
+        
+        // If gear changed, recalculate all stats with affixes
+        if (gearChanged && this.updateEffectiveStats) {
+            this.updateEffectiveStats();
+            console.log(`[Remote Player] Gear changed, recalculated stats with affixes`);
         }
         
         // Gear visuals (receive from host or recalculate if gear changed)
         if (state.weaponVisual !== undefined) {
             this.weaponVisual = state.weaponVisual;
-        } else if (gearChanged) {
+        } else if (gearChanged && this.weapon) {
             this.weaponVisual = this.calculateGearPieceVisual(this.weapon);
         }
         if (state.armorVisual !== undefined) {
             this.armorVisual = state.armorVisual;
-        } else if (gearChanged) {
+        } else if (gearChanged && this.armor) {
             this.armorVisual = this.calculateGearPieceVisual(this.armor);
         }
         if (state.accessoryVisual !== undefined) {
             this.accessoryVisual = state.accessoryVisual;
-        } else if (gearChanged) {
+        } else if (gearChanged && this.accessory) {
             this.accessoryVisual = this.calculateGearPieceVisual(this.accessory);
         }
     }

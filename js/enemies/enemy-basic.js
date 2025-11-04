@@ -11,7 +11,7 @@ const BASIC_ENEMY_CONFIG = {
     damage: 5,                     // Damage per hit
     moveSpeed: 100,                // Movement speed (pixels/second)
     xpValue: 10,                   // XP awarded when killed
-    lootChance: 0.2,               // Chance to drop loot (0.2 = 20%)
+    lootChance: 0.10,              // Chance to drop loot (0.10 = 10%, reduced for larger rooms)
     
     // Attack Behavior
     attackCooldown: 2.0,           // Time between attacks (seconds)
@@ -64,6 +64,12 @@ class Enemy extends EnemyBase {
     
     update(deltaTime, player) {
         if (!this.alive || !player.alive) return;
+        
+        // Check detection range - only activate when player is nearby
+        if (!this.checkDetection()) {
+            // Enemy is in standby, don't update AI
+            return;
+        }
         
         // Process stun first
         this.processStun(deltaTime);

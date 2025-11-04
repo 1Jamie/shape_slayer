@@ -11,7 +11,7 @@ const DIAMOND_CONFIG = {
     damage: 6,                     // Damage per hit
     moveSpeed: 100,                // Movement speed (pixels/second)
     xpValue: 15,                   // XP awarded when killed
-    lootChance: 0.25,              // Chance to drop loot (0.25 = 25%)
+    lootChance: 0.12,              // Chance to drop loot (0.12 = 12%, reduced for larger rooms)
     
     // Attack Behavior
     attackCooldown: 2.0,           // Time between attacks (seconds)
@@ -64,6 +64,12 @@ class DiamondEnemy extends EnemyBase {
     
     update(deltaTime, player) {
         if (!this.alive || !player.alive) return;
+        
+        // Check detection range - only activate when player is nearby
+        if (!this.checkDetection()) {
+            // Enemy is in standby, don't update AI
+            return;
+        }
         
         // Process stun first
         this.processStun(deltaTime);
@@ -274,14 +280,9 @@ class DiamondEnemy extends EnemyBase {
     }
     
     // Override die() to use diamond difficulty for loot
+    // NOTE: Only called on host or in solo mode. Clients receive death via game_state sync.
     die() {
         this.alive = false;
-        
-        // Only run death effects on host or in solo mode (clients receive loot via game_state)
-        if (typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient()) {
-            // Client: Don't run death logic (host handles it)
-            return;
-        }
         
         // Track kill for the last attacker
         if (this.lastAttacker && typeof Game !== 'undefined' && Game.getPlayerStats) {
@@ -294,18 +295,18 @@ class DiamondEnemy extends EnemyBase {
             createParticleBurst(this.x, this.y, this.color, 12);
         }
         
-        // Give player XP when enemy dies
-        if (typeof Game !== 'undefined' && Game.player && !Game.player.dead) {
-            Game.player.addXP(this.xpValue);
+        // Give XP to all alive players (multiplayer: host distributes; solo: local player)
+        if (typeof Game !== 'undefined' && Game.distributeXPToAllPlayers && this.xpValue) {
+            Game.distributeXPToAllPlayers(this.xpValue);
         }
         
-        // Drop loot based on lootChance (HOST ONLY - clients get loot via game_state sync)
+        // Drop loot based on lootChance (loot syncs via game_state in multiplayer)
         if (typeof generateGear !== 'undefined' && typeof groundLoot !== 'undefined') {
             if (Math.random() < this.lootChance) {
                 const roomNum = typeof Game !== 'undefined' ? (Game.roomNumber || 1) : 1;
                 const gear = generateGear(this.x, this.y, roomNum, 'diamond');
                 groundLoot.push(gear);
-                console.log(`[Host] Dropped loot at (${Math.floor(this.x)}, ${Math.floor(this.y)})`);
+                console.log(`Dropped diamond loot at (${Math.floor(this.x)}, ${Math.floor(this.y)})`);
             }
         }
     }

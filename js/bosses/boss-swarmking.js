@@ -42,12 +42,11 @@ class BossSwarmKing extends BossBase {
         this.color = '#ff6b00'; // Orange-red
         
         // Add weak points at spike bases (3 weak points)
-        // Note: size is doubled by BossBase, so use half for visual positioning
-        const visualSize = 60; // Visual size of the star
+        // Use this.size (after BossBase multiplies it) for positioning
         const angleStep = (Math.PI * 2) / this.spikeCount;
         for (let i = 0; i < 3; i++) {
             const angle = angleStep * i * 2.67; // Space them out
-            const dist = visualSize * 0.4; // At base of spikes (relative to visual size)
+            const dist = this.size * 0.4; // At base of spikes (now using actual size)
             this.addWeakPoint(
                 Math.cos(angle) * dist,
                 Math.sin(angle) * dist,
@@ -353,6 +352,11 @@ class BossSwarmKing extends BossBase {
             minion.xpValue = Math.floor(minion.xpValue * 0.3);
             minion.lootChance = 0.0;
             
+            // Inherit aggro target from spawner
+            if (this.currentTarget) {
+                minion.currentTarget = this.currentTarget;
+            }
+            
             if (currentRoom) {
                 currentRoom.enemies.push(minion);
             }
@@ -426,8 +430,8 @@ class BossSwarmKing extends BossBase {
         ctx.lineWidth = 3;
         
         ctx.beginPath();
-        // Use actual visual size (not doubled like collision)
-        const visualSize = this.size / 2; // BossBase doubles size, so divide back for visual
+        // Visual size should match hitbox size (no division)
+        const visualSize = this.size; // Match the collision hitbox size
         const spikeLength = visualSize + (this.spikeExtension * this.maxSpikeExtension);
         const innerRadius = visualSize * 0.4; // Concave inward
         

@@ -153,6 +153,15 @@ class MultiplayerManager {
                 case 'upgrades_sync':
                     this.handleUpgradesSync(msg.data);
                     break;
+                case 'damage_number':
+                    this.handleDamageNumber(msg.data);
+                    break;
+                case 'final_stats':
+                    this.handleFinalStats(msg.data);
+                    break;
+                case 'player_leveled_up':
+                    this.handlePlayerLeveledUp(msg.data);
+                    break;
                 case 'heartbeat_ack':
                     // Heartbeat acknowledged
                     break;
@@ -311,6 +320,9 @@ class MultiplayerManager {
             allPlayersDead: Game.allPlayersDead || false,
             deadPlayers: Array.from(Game.deadPlayers || []),
             
+            // Player stats synchronization (for death screen)
+            playerStats: this.serializePlayerStats(),
+            
             // Serialize all players
             players: this.serializeAllPlayers(),
             
@@ -352,6 +364,24 @@ class MultiplayerManager {
         };
         
         return state;
+    }
+    
+    // Serialize player stats for all players (host only)
+    serializePlayerStats() {
+        if (typeof Game === 'undefined' || !Game.playerStats) return {};
+        
+        const statsObject = {};
+        Game.playerStats.forEach((stats, playerId) => {
+            statsObject[playerId] = {
+                damageDealt: stats.damageDealt,
+                kills: stats.kills,
+                damageTaken: stats.damageTaken,
+                roomsCleared: stats.roomsCleared,
+                timeAlive: stats.getTimeAlive() // Get current time alive
+            };
+        });
+        
+        return statsObject;
     }
     
     // Serialize all players in lobby
@@ -528,11 +558,8 @@ class MultiplayerManager {
             left: Input.getKeyState('a') || Input.getKeyState('ArrowLeft'),
             right: Input.getKeyState('d') || Input.getKeyState('ArrowRight'),
             
-            // Mouse/aim
-            mouse: { 
-                x: Input.mouse ? Input.mouse.x : 0, 
-                y: Input.mouse ? Input.mouse.y : 0 
-            },
+            // Mouse/aim - send WORLD coordinates (accounting for camera)
+            mouse: Input.getWorldMousePos ? Input.getWorldMousePos() : { x: 0, y: 0 },
             mouseLeft: Input.mouseLeft || false,
             mouseRight: Input.mouseRight || false,
             
@@ -557,6 +584,11 @@ class MultiplayerManager {
         this.isHost = data.isHost;
         this.players = data.players;
         this.updateRemotePlayers();
+        
+        // Enable multiplayer mode in the game
+        if (typeof Game !== 'undefined') {
+            Game.multiplayerEnabled = true;
+        }
         
         console.log(`[Multiplayer] Lobby created: ${this.lobbyCode}`);
         
@@ -625,6 +657,11 @@ class MultiplayerManager {
         this.isHost = data.isHost;
         this.players = data.players;
         this.updateRemotePlayers();
+        
+        // Enable multiplayer mode in the game
+        if (typeof Game !== 'undefined') {
+            Game.multiplayerEnabled = true;
+        }
         
         console.log(`[Multiplayer] Joined lobby: ${this.lobbyCode}`);
         
@@ -959,6 +996,11 @@ class MultiplayerManager {
     handleReturnToNexus(data) {
         console.log('[Multiplayer] Host returned to nexus, following...');
         
+        // Clear waiting flag - host has signaled return
+        if (typeof Game !== 'undefined') {
+            Game.waitingForHostReturn = false;
+        }
+        
         // FIRST: Reset all remote players to nexus spawn BEFORE any rendering
         if (this.remotePlayers && this.remotePlayers.length > 0) {
             this.remotePlayers.forEach(rp => {
@@ -1052,6 +1094,9 @@ class MultiplayerManager {
         // Apply damage on host
         const oldHp = enemy.hp;
         
+        // Calculate actual damage dealt (capped by enemy HP)
+        const damageDealt = Math.min(damage, oldHp);
+        
         // For bosses with weak points, pass hitbox info for proper detection
         if (enemy.isBoss && hitboxX !== undefined && hitboxY !== undefined && hitboxRadius !== undefined) {
             enemy.takeDamage(damage, hitboxX, hitboxY, hitboxRadius, attackerId);
@@ -1062,12 +1107,19 @@ class MultiplayerManager {
         // Track last attacker (already done in takeDamage, but ensure it's set)
         enemy.lastAttacker = attackerId;
         
-        // Track damage in stats for the attacker
-        if (typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
-            const damageDealt = Math.min(damage, oldHp);
+        // Track damage stats for the attacker (includes remote players)
+        // NOTE: For local player (host), stats are tracked in combat.js
+        // For remote players, this is the ONLY place stats are tracked
+        const localPlayerId = typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
+        if (attackerId !== localPlayerId && typeof Game !== 'undefined' && Game.getPlayerStats) {
             const stats = Game.getPlayerStats(attackerId);
             if (stats) {
                 stats.addStat('damageDealt', damageDealt);
+                
+                // Track kill if enemy died
+                if (oldHp > 0 && enemy.hp <= 0) {
+                    stats.addStat('kills', 1);
+                }
             }
         }
         
@@ -1075,6 +1127,33 @@ class MultiplayerManager {
         const died = enemy.hp <= 0 || !enemy.alive;
         
         console.log(`[Multiplayer Host] Enemy ${enemyIndex} took ${damage} damage from ${attackerId}. HP: ${oldHp} → ${enemy.hp}${died ? ' (DIED)' : ''}`);
+        
+        // Create damage number locally (host sees remote player damage)
+        if (typeof createDamageNumber !== 'undefined') {
+            const damageToDisplay = Math.floor(damageDealt);
+            createDamageNumber(enemy.x, enemy.y, damageToDisplay, false, hitWeakPoint || false);
+            
+            if (typeof DebugFlags !== 'undefined' && DebugFlags.DAMAGE_NUMBERS) {
+                console.log(`[Host] Created local damage number for remote attack: (${enemy.x}, ${enemy.y}), damage=${damageToDisplay}`);
+            }
+        }
+        
+        // Broadcast damage number event to all clients for visual feedback
+        if (typeof DebugFlags !== 'undefined' && DebugFlags.DAMAGE_NUMBERS) {
+            console.log(`[Host] Sending damage_number to clients: enemyId=${enemy.id}, coords=(${enemy.x}, ${enemy.y}), damage=${Math.floor(damageDealt)}`);
+        }
+        
+        this.send({
+            type: 'damage_number',
+            data: {
+                enemyId: enemy.id,
+                x: enemy.x,
+                y: enemy.y,
+                damage: Math.floor(damageDealt),
+                isCrit: false, // Melee attacks: crit info not passed from client yet
+                isWeakPoint: hitWeakPoint || false
+            }
+        });
         
         // Broadcast state update to all clients (including the attacker for validation)
         this.send({
@@ -1113,39 +1192,25 @@ class MultiplayerManager {
             enemy.lastAttacker = lastAttacker;
         }
         
-        // If enemy just died, trigger death effects
+        // If enemy just died, trigger visual effects only
+        // XP and loot are handled by host and synced via game_state
         if (died && !enemy.alive) {
             console.log(`[Multiplayer Client] Enemy ${enemyIndex} died (killed by ${lastAttacker})`);
             
-            // Trigger visual effects (particles)
+            // Trigger visual effects (particles) for client-side feedback
             if (typeof createParticleBurst !== 'undefined') {
                 createParticleBurst(enemy.x, enemy.y, enemy.color, 12);
             }
-            
-            // Give XP to local player if still alive
-            if (typeof Game !== 'undefined' && Game.player && !Game.player.dead) {
-                Game.player.addXP(enemy.xpValue);
-            }
-            
-            // DON'T drop loot on client - loot comes from host via game_state
-            // Host is authoritative for loot generation
         }
     }
     
     // Handle player damaged event (clients only)
     handlePlayerDamaged(data) {
-        if (typeof Game === 'undefined' || !Game.player) return;
-        
-        const { targetPlayerId, damage } = data;
-        
-        // Check if this damage is for local player
-        const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
-        
-        if (localPlayerId === targetPlayerId) {
-            // Apply damage to local player
-            Game.player.takeDamage(damage);
-            console.log(`[Multiplayer] Received damage from enemy: ${damage}`);
-        }
+        // NOTE: This handler is now DEPRECATED - HP syncs via game_state instead
+        // Kept for backwards compatibility but does nothing
+        // Damage is applied on host and HP is synced to clients via game_state
+        // This prevents double damage application
+        console.log('[Multiplayer] Received player_damaged event (deprecated - HP syncs via game_state)');
     }
     
     // Handle loot pickup (from any player)
@@ -1169,6 +1234,8 @@ class MultiplayerManager {
             if (playerId !== localPlayerId && Game.remotePlayerInstances) {
                 const remotePlayer = Game.remotePlayerInstances.get(playerId);
                 if (remotePlayer && remotePlayer.equipGear) {
+                    // Equip gear on remote player instance
+                    // Note: oldGear is handled by the client's gear_dropped message, not here
                     remotePlayer.equipGear(gear);
                     console.log(`[Host] Equipped ${gear.tier} ${gear.slot} on remote player ${playerId}`);
                 }
@@ -1184,7 +1251,13 @@ class MultiplayerManager {
         
         // Add the dropped gear to ground loot for all clients
         if (gear) {
-            groundLoot.push(gear);
+            // Ensure gear has all required properties for rendering
+            const fullGear = {
+                ...gear,
+                size: gear.size || 15,
+                pulse: gear.pulse || 0
+            };
+            groundLoot.push(fullGear);
             console.log(`[Multiplayer] Player ${playerId} dropped ${gear.tier} ${gear.slot} at (${gear.x.toFixed(0)}, ${gear.y.toFixed(0)})`);
         }
     }
@@ -1265,6 +1338,7 @@ class MultiplayerManager {
                 const currentX = Game.player.x;
                 const currentY = Game.player.y;
                 Game.player = createPlayer(classType, currentX, currentY);
+                Game.player.playerId = localPlayerId; // Preserve player ID
                 console.log(`[Host] Recreated local player to apply upgrade stats`);
             }
         }
@@ -1292,7 +1366,9 @@ class MultiplayerManager {
         if (Game.player && Game.selectedClass === classType) {
             const currentX = Game.player.x;
             const currentY = Game.player.y;
+            const currentPlayerId = Game.player.playerId; // Preserve player ID
             Game.player = createPlayer(classType, currentX, currentY);
+            Game.player.playerId = currentPlayerId; // Restore player ID
             console.log(`[Multiplayer] Recreated player to apply upgrade stats`);
         }
     }
@@ -1339,6 +1415,92 @@ class MultiplayerManager {
         }
     }
     
+    // Handle damage number event (from host)
+    handleDamageNumber(data) {
+        if (this.isHost) return; // Host doesn't need to receive their own damage numbers
+        
+        // Validate data object
+        if (!data) {
+            console.error('[Client] Received damage_number event with no data');
+            return;
+        }
+        
+        const { enemyId, x, y, damage, isCrit, isWeakPoint } = data;
+        
+        // Validate required fields
+        if (typeof x !== 'number' || typeof y !== 'number' || typeof damage !== 'number') {
+            console.error(`[Client] Invalid damage_number data: x=${x}, y=${y}, damage=${damage}`);
+            return;
+        }
+        
+        if (typeof DebugFlags !== 'undefined' && DebugFlags.DAMAGE_NUMBERS) {
+            console.log(`[Client] Received damage_number: enemyId=${enemyId}, coords=(${x}, ${y}), damage=${damage}, isCrit=${isCrit}, isWeakPoint=${isWeakPoint}`);
+        }
+        
+        // Use coordinates from host (accurate at damage time)
+        // Don't override with client's enemy position (may be interpolated/stale)
+        const displayX = x;
+        const displayY = y;
+        
+        // Optional: Verify enemy exists for validation (but don't use its position)
+        if (typeof DebugFlags !== 'undefined' && DebugFlags.DAMAGE_NUMBERS) {
+            if (enemyId && typeof Game !== 'undefined' && Game.enemies) {
+                const enemy = Game.enemies.find(e => e.id === enemyId);
+                if (enemy) {
+                    console.log(`[Client] Enemy ${enemyId} found at (${enemy.x}, ${enemy.y}), using host coords (${x}, ${y}) instead`);
+                } else {
+                    console.log(`[Client] Enemy ${enemyId} not found (may have died), using host coords (${x}, ${y})`);
+                }
+            }
+        }
+        
+        // Create damage number on client
+        if (typeof createDamageNumber !== 'undefined') {
+            if (typeof DebugFlags !== 'undefined' && DebugFlags.DAMAGE_NUMBERS) {
+                console.log(`[Client] Creating damage number at (${displayX}, ${displayY}) with damage=${damage}`);
+            }
+            createDamageNumber(displayX, displayY, damage, isCrit, isWeakPoint);
+        } else {
+            console.warn('[Client] createDamageNumber function not available!');
+        }
+    }
+    
+    // Handle final stats message (from host when all players die)
+    handleFinalStats(data) {
+        if (this.isHost) return; // Host doesn't need to receive their own stats
+        
+        if (typeof Game === 'undefined') return;
+        
+        // Store final stats for death screen
+        Game.finalStats = data.playerStats;
+        
+        console.log('[Multiplayer] Received final stats from host:', data.playerStats);
+    }
+    
+    // Handle player level up event (from host)
+    handlePlayerLeveledUp(data) {
+        if (typeof Game === 'undefined') return;
+        
+        const { playerId, level } = data;
+        const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
+        
+        console.log(`[Multiplayer] Player ${playerId} leveled up to level ${level}`);
+        
+        // If this is the local player, trigger level up effects
+        if (playerId === localPlayerId && Game.player) {
+            console.log('[Multiplayer] Triggering level up effects for local player');
+            Game.player.triggerLevelUpEffects();
+        }
+        // If this is a remote player, trigger effects on their instance
+        else if (Game.remotePlayerInstances) {
+            const remotePlayer = Game.remotePlayerInstances.get(playerId);
+            if (remotePlayer && typeof remotePlayer.triggerLevelUpEffects === 'function') {
+                console.log(`[Multiplayer] Triggering level up effects for remote player ${playerId}`);
+                remotePlayer.triggerLevelUpEffects();
+            }
+        }
+    }
+    
     // Apply full game state (clients)
     applyGameState(state) {
         if (!state) return;
@@ -1349,6 +1511,28 @@ class MultiplayerManager {
         // Update room number
         if (state.roomNumber) {
             Game.roomNumber = state.roomNumber;
+        }
+        
+        // Sync player stats from host (authoritative for all stats)
+        if (state.playerStats && typeof Game !== 'undefined' && Game.playerStats) {
+            Object.keys(state.playerStats).forEach(playerId => {
+                const statsData = state.playerStats[playerId];
+                let stats = Game.playerStats.get(playerId);
+                
+                // Create stats object if it doesn't exist
+                if (!stats) {
+                    stats = Game.getPlayerStats(playerId);
+                    console.log(`[Client] Created missing stats for ${playerId}`);
+                }
+                
+                // Update stats from host
+                stats.damageDealt = statsData.damageDealt || 0;
+                stats.kills = statsData.kills || 0;
+                stats.damageTaken = statsData.damageTaken || 0;
+                stats.roomsCleared = statsData.roomsCleared || 0;
+                stats.timeAlive = statsData.timeAlive || 0;
+                // Note: lastAliveTimestamp and isAlive are managed locally
+            });
         }
         
         // Update door state (only if in PLAYING state)
@@ -1417,6 +1601,23 @@ class MultiplayerManager {
                 
                 // CLIENT: Create or update shadow instances for rendering
                 if (!this.isHost) {
+                    // Build set of current player IDs (excluding self)
+                    const currentPlayerIds = new Set();
+                    state.players.forEach(playerData => {
+                        if (playerData.id !== this.playerId) {
+                            currentPlayerIds.add(playerData.id);
+                        }
+                    });
+                    
+                    // Remove shadow instances for players no longer in game
+                    Game.remotePlayerShadowInstances.forEach((shadowInstance, playerId) => {
+                        if (!currentPlayerIds.has(playerId)) {
+                            Game.remotePlayerShadowInstances.delete(playerId);
+                            console.log(`[Client] Removed stale shadow instance for ${playerId}`);
+                        }
+                    });
+                    
+                    // Create or update shadow instances
                     state.players.forEach(playerData => {
                         if (playerData.id !== this.playerId) {
                             // Get or create shadow instance
@@ -1555,7 +1756,7 @@ class MultiplayerManager {
                     let existingGear = groundLoot.find(g => g.id === lootData.id);
                     
                     if (!existingGear) {
-                        // New loot from host - create it
+                        // New loot from host - create it with ALL affix system properties
                         const tierColors = {
                             'gray': '#999999',
                             'green': '#4caf50',
@@ -1570,17 +1771,29 @@ class MultiplayerManager {
                             y: lootData.y,
                             slot: lootData.slot,
                             tier: lootData.tier,
-                            stats: lootData.stats,
+                            stats: lootData.stats || {},
+                            affixes: lootData.affixes || [],                    // NEW: Affix system
+                            weaponType: lootData.weaponType || null,           // NEW: Weapon types
+                            armorType: lootData.armorType || null,             // NEW: Armor types
+                            classModifier: lootData.classModifier || null,     // NEW: Class modifiers
+                            legendaryEffect: lootData.legendaryEffect || null, // NEW: Legendary effects
+                            name: lootData.name || '',                         // NEW: Gear names
                             size: 15,
                             color: tierColors[lootData.tier] || '#999999',
                             pulse: 0
                         };
                         groundLoot.push(gear);
-                        console.log(`[Client] New loot ${gear.id} (${gear.tier} ${gear.slot})`);
+                        console.log(`[Client] New loot ${gear.id} (${gear.tier} ${gear.slot}) with ${gear.affixes.length} affixes`);
                     } else {
-                        // Update existing (position might change)
+                        // Update existing (position and properties might change)
                         existingGear.x = lootData.x;
                         existingGear.y = lootData.y;
+                        existingGear.affixes = lootData.affixes || [];
+                        existingGear.weaponType = lootData.weaponType || null;
+                        existingGear.armorType = lootData.armorType || null;
+                        existingGear.classModifier = lootData.classModifier || null;
+                        existingGear.legendaryEffect = lootData.legendaryEffect || null;
+                        existingGear.name = lootData.name || '';
                     }
                 });
             }

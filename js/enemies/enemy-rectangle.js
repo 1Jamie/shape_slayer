@@ -18,7 +18,7 @@ class RectangleEnemy extends EnemyBase {
         this.color = '#cd7f32'; // Bronze
         this.shape = 'rectangle';
         this.xpValue = 25;
-        this.lootChance = 0.4;
+        this.lootChance = 0.18; // Reduced from 0.4 for larger rooms
         
         // Attack system
         this.state = 'chase'; // 'chase', 'charge', 'slam'
@@ -34,6 +34,12 @@ class RectangleEnemy extends EnemyBase {
     
     update(deltaTime, player) {
         if (!this.alive || !player.alive) return;
+        
+        // Check detection range - only activate when player is nearby
+        if (!this.checkDetection()) {
+            // Enemy is in standby, don't update AI
+            return;
+        }
         
         // Process stun first
         this.processStun(deltaTime);

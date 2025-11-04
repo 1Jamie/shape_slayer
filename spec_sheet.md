@@ -533,9 +533,113 @@ Shape Slayer supports co-op multiplayer for up to 4 players using a lobby-based 
 
 ### Server Architecture
 
-#### WebSocket Server (`server/mp-server.js`)
-- **Port:** 4000 (WebSocket)
-- **Dependencies:** `ws` library (Node.js)
+The multiplayer server supports three deployment modes for different scale requirements:
+
+#### Deployment Modes
+
+**Single-Threaded Mode (Default)**:
+- **Capacity:** 100-1,000 concurrent players
+- **Requirements:** Node.js only, no additional dependencies
+- **Use Case:** Development, small-medium deployments, most users
+- **Setup:** `npm start` or `SERVER_MODE=single npm start`
+- **Architecture:** Single process handles all connections
+- **Benefits:** Simple, reliable, no external dependencies
+- **Files:** mp-server.js, mp-server-worker.js
+
+**Multi-Worker Mode (Clustering)**:
+- **Capacity:** 1,000-5,000+ concurrent players
+- **Requirements:** Node.js + Docker (for Redis)
+- **Use Case:** High-traffic single server, production deployments
+- **Setup:** `SERVER_MODE=multi WORKER_COUNT=4 npm start`
+- **Architecture:** 
+  - Master process coordinates multiple worker processes
+  - Workers share lobby state via Redis
+  - Automatic Redis management via Docker
+  - No sticky sessions needed (Redis handles coordination)
+- **Benefits:** Utilizes multiple CPU cores, dynamic load balancing
+- **Files:** mp-server.js, mp-server-master.js, mp-server-worker.js, config.js
+
+**Slave Mode (Multi-Server Cluster)**:
+- **Capacity:** 10,000+ concurrent players (horizontal scaling)
+- **Requirements:** Network connectivity to master server
+- **Use Case:** Massive scale, geographic distribution
+- **Setup:** `SERVER_MODE=slave MASTER_SERVER_IP=10.0.0.100 WORKER_COUNT=4 npm start`
+- **Architecture:**
+  - Master server runs Redis + game server
+  - Slave servers connect to master's Redis
+  - All servers share lobby state
+  - Players stay on original server (no transfers)
+  - Load balancer distributes new connections
+- **Benefits:** Horizontal scaling, geographic distribution
+- **Files:** Same as multi-worker + master server coordination
+
+#### Configuration System
+
+**Environment Variables** (via `.env` file or direct export):
+- `SERVER_MODE`: 'single' | 'multi' | 'slave' (default: single)
+- `WORKER_COUNT`: Number of worker processes (default: 2)
+- `PORT`: WebSocket port (default: 4000)
+- `MASTER_SERVER_IP`: Master server IP (required for slave mode)
+- `LOG_LEVEL`: 'debug' | 'info' | 'warn' | 'error'
+- `ENABLE_CLUSTERING`: true/false (legacy, use SERVER_MODE instead)
+- Redis settings (for multi/slave modes)
+
+**Configuration File** (`server/config.js`):
+- Centralized configuration management
+- Validates environment variables
+- Provides defaults for all settings
+- Includes load balancing thresholds
+- Worker health monitoring settings
+
+#### Redis Integration (Multi/Slave Modes)
+
+**Purpose**:
+- Share lobby state across workers/servers
+- Enable cross-worker lobby lookups
+- Coordinate distributed game state
+
+**Auto-Management**:
+- Automatically creates Docker container for Redis
+- Starts/stops Redis with server
+- No manual Redis setup required for multi mode
+- Slave mode connects to master's Redis
+
+**Data Stored**:
+- Lobby directory (code → workerId/serverId)
+- Worker metrics and health status
+- Lobby migration state
+
+#### Worker Management (Multi Mode)
+
+**Master Process** (`mp-server-master.js`):
+- Forks and manages worker processes
+- Maintains lobby directory (code → workerId)
+- Monitors worker health metrics
+- Handles dynamic load balancing
+- Migrates lobbies between overloaded workers
+- Automatically restarts crashed workers
+
+**Worker Processes** (`mp-server-worker.js`):
+- Handle WebSocket connections
+- Manage lobby state and game messages
+- Report health metrics to master
+- Share lobby state via Redis
+
+**Health Metrics**:
+- Active connections per worker
+- Lobbies managed per worker
+- Event loop lag (performance indicator)
+- Messages per second
+
+**Load Balancing**:
+- Master monitors worker health every 2 seconds
+- Identifies overloaded workers (high connections, lag, etc.)
+- Migrates lobbies to less-loaded workers
+- Thresholds configurable via environment variables
+
+#### WebSocket Server (All Modes)
+- **Port:** 4000 (WebSocket, configurable)
+- **Dependencies:** `ws` library (Node.js), `dotenv` for config
 - **Binding:** `0.0.0.0` (accepts connections from any network interface)
 - **Role:** Lobby management and message relay (NOT authoritative game server)
   - Server does NOT run game logic
@@ -712,6 +816,140 @@ Shape Slayer supports co-op multiplayer for up to 4 players using a lobby-based 
 4. Server broadcasts to all clients
 5. Clients revive dead players, reset positions
 6. Host starts new room generation
+
+### Damage Numbers Synchronization
+
+**Purpose**: Display floating damage numbers to all players showing accurate damage dealt.
+
+**Critical Requirement**: `Game.multiplayerEnabled` flag must be set to `true` when players join lobbies.
+
+**Synchronization Flow**:
+
+**Host Creates Damage** (3 paths):
+1. **Melee attacks** (`combat.js:232`): Host deals damage → sends `damage_number` event
+2. **Projectiles** (`main.js:3639`): Host projectile hits → sends `damage_number` event  
+3. **Remote player attacks** (`multiplayer.js:1121`): Host validates client damage → creates local damage number + sends event
+
+**Event Structure**:
+```javascript
+{
+  type: 'damage_number',
+  data: {
+    enemyId: 'enemy-123',
+    x: 450,        // World coordinates (accurate at damage time)
+    y: 300,
+    damage: 25,
+    isCrit: false,
+    isWeakPoint: false
+  }
+}
+```
+
+**Server Relay** (`mp-server-worker.js:526-538`):
+- Validates sender is host
+- Broadcasts to all clients (excluding host)
+- No modification of data
+
+**Client Reception** (`multiplayer.js:156-157`):
+- Receives `damage_number` event
+- Validates data (coordinates, damage value)
+- **Uses provided coordinates** (NOT client's interpolated enemy position)
+- Calls `createDamageNumber(x, y, damage, isCrit, isWeakPoint)`
+- Damage number added to `Game.damageNumbers` array
+
+**Rendering** (`ui.js:86-98`):
+- Rendered inside camera transform (`main.js:2936`)
+- Uses world coordinates (automatic screen conversion)
+- Fades over 1.5 seconds
+- Only visible if within player's viewport (~455px radius)
+
+**Coordinate System**:
+- Damage numbers use **world coordinates** (enemy position at damage time)
+- Rendered **inside camera transform** for automatic conversion
+- Each player has own camera following their player
+- Prevents misalignment from network lag/interpolation
+
+**Validation**:
+- Coordinates validated as numbers (not NaN/undefined)
+- Damage validated as positive number
+- Invalid data logs error and returns early (no crash)
+
+**Debug System**:
+- Toggle verbose logging: `DebugFlags.DAMAGE_NUMBERS = true` (in console)
+- Logs creation, transmission, reception, and rendering
+- OFF by default to prevent log spam
+
+**Common Issues Fixed**:
+- ✓ `Game.multiplayerEnabled` not set → damage events never sent
+- ✓ Using client's interpolated coordinates → misalignment
+- ✓ Host not seeing remote player damage → local creation added
+- ✓ Missing validation → crashes from bad data
+
+### Testing Infrastructure
+
+**Automated Test Suite** (`tests/damage-numbers.test.js`):
+
+**Purpose**: Verify multiplayer damage number synchronization works correctly.
+
+**Test Framework**: Puppeteer (headless Chrome automation)
+
+**Test Flow**:
+1. Start local WebSocket server (`ws://localhost:4000`)
+2. Start HTTP server for game files (`http://localhost:8080`)
+3. Launch two headless browsers (host + client)
+4. Create lobby and join game
+5. Simulate CLIENT attacking (should see damage in own viewport)
+6. Simulate HOST attacking (sends to client)
+7. Verify damage numbers created, synced, and rendered
+8. Check viewport visibility based on camera positions
+9. Take screenshots for visual verification
+10. Report detailed results with color-coded output
+
+**Test Verification**:
+- ✓ Host sent `damage_number` event
+- ✓ Client received `damage_number` event
+- ✓ Client created damage number
+- ✓ Client has damage numbers in array
+- ✓ Client damage numbers in viewport
+- ✓ Client rendering damage numbers
+
+**Running Tests**:
+```bash
+cd tests
+npm install  # First time only
+npm test     # Run test suite
+```
+
+**Test Results**: Outputs colored pass/fail with detailed logs.
+
+**Debug Flags System** (`js/debug.js`):
+
+**Purpose**: Toggle verbose logging at runtime without code changes.
+
+**Structure**:
+```javascript
+const DebugFlags = {
+    DAMAGE_NUMBERS: false,  // Damage number sync logging
+    // Future flags can be added here
+    enable(flagName) { this[flagName] = true; },
+    disable(flagName) { this[flagName] = false; }
+};
+```
+
+**Usage**:
+```javascript
+// In browser console (F12)
+DebugFlags.DAMAGE_NUMBERS = true   // Enable
+DebugFlags.DAMAGE_NUMBERS = false  // Disable
+```
+
+**Benefits**:
+- No code modification needed
+- Toggle at runtime (no restart)
+- Prevents log spam when disabled
+- Easy to add new debug categories
+
+**Test Documentation**: See `tests/README.md` for detailed testing guide.
 
 ### Performance Considerations
 
@@ -1142,6 +1380,120 @@ The enemy system uses a modular inheritance pattern:
 - `BossBase`: Extends `EnemyBase` with boss-specific systems (phases, weak points, environmental hazards)
 - Individual boss files: Each boss extends `BossBase` with unique attacks and mechanics
 - Benefits: Easy to add new enemies/bosses, reduce code duplication, maintainable structure
+
+### Class Configuration System
+
+**Purpose**: Centralize all game balance values in configuration objects for easy tuning without code modifications.
+
+**Architecture**:
+
+Each player class has a corresponding configuration object at the top of its file:
+- `ROGUE_CONFIG` (`js/players/player-rogue.js`)
+- `WARRIOR_CONFIG` (`js/players/player-warrior.js`)
+- `TANK_CONFIG` (`js/players/player-tank.js`)
+- `MAGE_CONFIG` (`js/players/player-mage.js`)
+
+**Configuration Structure**:
+
+```javascript
+const ROGUE_CONFIG = {
+    // Base Stats
+    baseHp: 75,
+    baseDamage: 12,
+    baseSpeed: 287.5,
+    baseDefense: 0,
+    critChance: 0.15,
+    
+    // Level Up Bonuses (per upgrade level in nexus)
+    damagePerLevel: 0.5,
+    defensePerLevel: 0.005,
+    speedPerLevel: 2,
+    
+    // Dodge System
+    dodgeCharges: 2,
+    dodgeCooldown: 2.0,
+    dodgeSpeed: 720,
+    dodgeDuration: 0.3,
+    dodgeDamage: 0.775,
+    
+    // Basic Attack
+    knifeSpeed: 350,
+    knifeLifetime: 1.5,
+    knifeSize: 8,
+    
+    // Heavy Attack
+    heavyAttackCooldown: 3.0,
+    fanKnifeCount: 7,
+    fanSpreadAngle: Math.PI / 3,
+    fanKnifeSpeed: 400,
+    fanKnifeDamage: 1.8,
+    
+    // Special Ability
+    specialCooldown: 5.0,
+    shadowCloneCount: 2,
+    shadowCloneDuration: 3.0,
+    shadowCloneMaxHealth: 50,
+    shadowCloneHealthDecay: 10,
+    
+    // Descriptions for UI
+    descriptions: {
+        playstyle: "High mobility assassin with critical hits",
+        basic: "Quick Stab - Fast triangle projectile",
+        heavy: "Fan of Knives - {fanKnifeCount} knives...",
+        special: "Shadow Clones - Creates {shadowCloneCount} decoys...",
+        passive: "Backstab - 2x damage from behind...",
+        baseStats: "{critChance|percent} Base Crit Chance..."
+    }
+};
+```
+
+**Benefits**:
+
+1. **Single Source of Truth**: All balance values in one place per class
+2. **Easy Balance Changes**: Modify numbers without touching implementation code
+3. **Clear Documentation**: Config serves as documentation of class mechanics
+4. **Testing**: Easy to test different balance scenarios
+5. **Upgrade Integration**: Bonus calculations use config values
+6. **Class Modifiers**: Gear affixes reference config for class-specific bonuses
+
+**Usage Pattern**:
+
+```javascript
+class Rogue extends PlayerBase {
+    constructor(x, y) {
+        super(x, y);
+        
+        // Load upgrade bonuses from save system
+        const upgrades = SaveSystem.getUpgrades('triangle');
+        const bonusDamage = upgrades.damage * ROGUE_CONFIG.damagePerLevel;
+        
+        // Set base stats from config
+        this.baseDamage = ROGUE_CONFIG.baseDamage + bonusDamage;
+        this.dodgeCharges = ROGUE_CONFIG.dodgeCharges;
+        this.heavyAttackCooldownTime = ROGUE_CONFIG.heavyAttackCooldown;
+        
+        // Config values used throughout implementation
+        this.throwKnife() {
+            // Uses ROGUE_CONFIG.knifeSpeed, knifeLifetime, etc.
+        }
+    }
+}
+```
+
+**Class Modifiers**:
+
+Gear can have class-specific modifiers that reference config values:
+- `dodgeDamageMultiplier`: Multiplies ROGUE_CONFIG.dodgeDamage
+- `knifeCountBonus`: Adds to ROGUE_CONFIG.fanKnifeCount
+- `shadowCloneCountBonus`: Adds to ROGUE_CONFIG.shadowCloneCount
+- Similar modifiers exist for all classes
+
+**Separation of Concerns**:
+- **Config**: What the numbers are (game design)
+- **Implementation**: How the mechanics work (code)
+- **Modifiers**: How gear affects the class (affixes)
+
+This makes it easy for game designers to balance without touching code, and for programmers to implement mechanics without hardcoding values.
 
 ---
 

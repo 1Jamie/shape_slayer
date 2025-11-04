@@ -5,10 +5,9 @@ class Room {
     constructor(number) {
         this.number = number;
         this.type = 'normal'; // normal, arena, boss
-        const roomWidth = typeof Game !== 'undefined' ? Game.config.width : 1280;
-        const roomHeight = typeof Game !== 'undefined' ? Game.config.height : 720;
-        this.width = roomWidth;
-        this.height = roomHeight;
+        // New larger room size: 2400x1350 (87.5% larger than original 1280x720)
+        this.width = 2400;
+        this.height = 1350;
         this.enemies = [];
         this.loot = [];
         this.cleared = false;
@@ -108,7 +107,8 @@ function generateRoom(roomNumber) {
     const mpScaling = getMultiplayerScaling();
     
     // Calculate enemy count based on room number and multiplayer scaling
-    const baseEnemyCount = 3 + Math.floor(roomNumber * 0.5);
+    // Increased significantly for larger room
+    const baseEnemyCount = 8 + Math.floor(roomNumber * 1.2);
     const enemyCount = Math.floor(baseEnemyCount * mpScaling.enemyCount);
     
     // Debug logging for multiplayer scaling
@@ -116,52 +116,103 @@ function generateRoom(roomNumber) {
         console.log(`[Multiplayer] Room ${roomNumber} scaling: ${baseEnemyCount} → ${enemyCount} enemies (${mpScaling.enemyCount}x), HP: ${mpScaling.enemyHP}x, Damage: ${mpScaling.enemyDamage}x`);
     }
     
-    // Calculate enemy stat scaling
-    const enemyScale = 1 + (roomNumber * 0.19);
+    // Calculate enemy stat scaling - faster progression for larger rooms
+    const enemyScale = 1 + (roomNumber * 0.30);
     
     // Spawn enemies with buffer from player spawn area
     const minDistance = 200; // Increased from 150 to 200 for better safety buffer
     const margin = 50;
     
-    // Define spawn safety zone (left side where player enters)
+    // Define spawn safety zone (left side where player enters at room center vertically)
     const spawnZoneX = 50;
-    const spawnZoneY = 300;
-    const spawnZoneRadius = 180; // No enemies within 180px of spawn point
+    const spawnZoneY = room.height / 2; // Center vertically (675 for 1350 height)
+    const spawnZoneRadius = 300; // No enemies within 300px of spawn point
     
-    for (let i = 0; i < enemyCount; i++) {
-        let x, y;
+    // Calculate number of groups based on enemy count (1 group per 3-4 enemies)
+    // This ensures we get multiple groups that are relatively balanced
+    const avgEnemiesPerGroup = 3.5;
+    const numGroups = Math.max(1, Math.ceil(enemyCount / avgEnemiesPerGroup));
+    const enemyGroups = [];
+    
+    // Distribute enemies evenly across groups
+    const baseGroupSize = Math.floor(enemyCount / numGroups);
+    const remainder = enemyCount % numGroups;
+    const groupSizes = [];
+    
+    for (let g = 0; g < numGroups; g++) {
+        // First 'remainder' groups get an extra enemy to distribute evenly
+        const size = g < remainder ? baseGroupSize + 1 : baseGroupSize;
+        groupSizes.push(size);
+    }
+    
+    console.log(`[Room ${roomNumber}] Spawning ${enemyCount} enemies in ${numGroups} groups:`, groupSizes);
+    
+    // Generate group center positions
+    for (let g = 0; g < numGroups; g++) {
+        let groupX, groupY;
         let attempts = 0;
         let validPosition = false;
         
-        const roomWidth = typeof Game !== 'undefined' ? Game.config.width : 1280;
-        const roomHeight = typeof Game !== 'undefined' ? Game.config.height : 720;
         while (!validPosition && attempts < 100) {
-            x = random(margin, roomWidth - margin);
-            y = random(margin, roomHeight - margin);
+            groupX = random(margin + 200, room.width - margin - 200);
+            groupY = random(margin + 200, room.height - margin - 200);
             
             // Check distance from spawn zone
-            const dx = x - spawnZoneX;
-            const dy = y - spawnZoneY;
+            const dx = groupX - spawnZoneX;
+            const dy = groupY - spawnZoneY;
             const distFromSpawn = Math.sqrt(dx * dx + dy * dy);
             
-            // Check distance from current player position (if exists)
-            let distFromPlayer = 0;
-            if (typeof Game !== 'undefined' && Game.player) {
-                const dxPlayer = x - Game.player.x;
-                const dyPlayer = y - Game.player.y;
-                distFromPlayer = Math.sqrt(dxPlayer * dxPlayer + dyPlayer * dyPlayer);
+            // Ensure group center is far from spawn and other groups
+            let farFromOtherGroups = true;
+            for (let other of enemyGroups) {
+                const odx = groupX - other.x;
+                const ody = groupY - other.y;
+                const dist = Math.sqrt(odx * odx + ody * ody);
+                if (dist < 300) { // Groups at least 300px apart
+                    farFromOtherGroups = false;
+                    break;
+                }
             }
             
-            // Position is valid if far enough from spawn zone AND from player
-            if (distFromSpawn >= spawnZoneRadius && distFromPlayer >= minDistance) {
+            if (distFromSpawn >= spawnZoneRadius + 200 && farFromOtherGroups) {
                 validPosition = true;
             }
             attempts++;
         }
         
-        // Choose enemy type based on room number
-        let enemy;
-        const rand = Math.random();
+        enemyGroups.push({ x: groupX, y: groupY });
+    }
+    
+    // Spawn enemies in groups with even distribution
+    let enemyIndex = 0;
+    for (let groupIndex = 0; groupIndex < numGroups; groupIndex++) {
+        const groupSize = groupSizes[groupIndex];
+        const group = enemyGroups[groupIndex];
+        
+        for (let i = 0; i < groupSize; i++) {
+            let x, y;
+            let attempts = 0;
+            let validPosition = false;
+            
+            while (!validPosition && attempts < 100) {
+                // Spawn within 100px radius of group center
+                const angle = Math.random() * Math.PI * 2;
+                const distance = Math.random() * 100;
+                x = group.x + Math.cos(angle) * distance;
+                y = group.y + Math.sin(angle) * distance;
+                
+                // Clamp to room bounds
+                x = Math.max(margin, Math.min(room.width - margin, x));
+                y = Math.max(margin, Math.min(room.height - margin, y));
+                
+                // Position is valid if within bounds
+                validPosition = true;
+                attempts++;
+            }
+            
+            // Choose enemy type based on room number
+            let enemy;
+            const rand = Math.random();
         
         if (roomNumber < 3) {
             // Rooms 1-2: Only basic enemies
@@ -214,7 +265,14 @@ function generateRoom(roomNumber) {
         enemy.damage = enemy.damage * enemyScale * mpScaling.enemyDamage;
         enemy.xpValue = Math.floor(enemy.xpValue * enemyScale);
         
-        room.enemies.push(enemy);
+            // Set initial state to standby (will activate when player gets close)
+            enemy.state = 'standby';
+            enemy.detectionRange = 800; // Activate when player within ~camera view distance
+            enemy.activated = false; // Track if enemy has ever been activated
+            
+            room.enemies.push(enemy);
+            enemyIndex++;
+        }
     }
     
     return room;
@@ -236,8 +294,9 @@ function checkRoomCleared() {
 
 // Get door position and size for collision
 function getDoorPosition() {
-    const roomWidth = typeof Game !== 'undefined' ? Game.config.width : 1280;
-    const roomHeight = typeof Game !== 'undefined' ? Game.config.height : 720;
+    // Use current room dimensions if available, otherwise use default
+    const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : 2400;
+    const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : 1350;
     return {
         x: roomWidth - 100,
         y: roomHeight / 2 - 50,
@@ -248,11 +307,11 @@ function getDoorPosition() {
 
 // Generate boss based on room number
 function generateBoss(roomNumber) {
-    // Boss spawns at center of room
-    const roomWidth = typeof Game !== 'undefined' ? Game.config.width : 1280;
-    const roomHeight = typeof Game !== 'undefined' ? Game.config.height : 720;
-    const spawnX = roomWidth / 2;
-    const spawnY = roomHeight / 2;
+    // Boss spawns at center of room (use new room size)
+    const roomWidth = 2400;
+    const roomHeight = 1350;
+    const spawnX = roomWidth / 2; // 1200
+    const spawnY = roomHeight / 2; // 675
     
     // Get multiplayer scaling multipliers
     const mpScaling = getMultiplayerScaling();
@@ -282,8 +341,9 @@ function generateBoss(roomNumber) {
     }
     
     // Apply room scaling and multiplayer scaling to boss stats
+    // Increased scaling to match faster progression
     if (boss) {
-        const enemyScale = 1 + (roomNumber * 0.165);
+        const enemyScale = 1 + (roomNumber * 0.28);
         const baseHP = boss.maxHp * enemyScale;
         boss.maxHp = Math.floor(baseHP * mpScaling.bossHP);
         boss.hp = boss.maxHp;

@@ -331,6 +331,12 @@ class BossFortress extends BossBase {
             guard.hp = guard.maxHp;
             guard.damage *= 0.6;
             guard.lootChance = 0;
+            
+            // Inherit aggro target from spawner
+            if (this.currentTarget) {
+                guard.currentTarget = this.currentTarget;
+            }
+            
             if (currentRoom) currentRoom.enemies.push(guard);
             if (Game.enemies) Game.enemies.push(guard);
         }

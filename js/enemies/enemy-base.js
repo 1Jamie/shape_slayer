@@ -34,7 +34,7 @@ class EnemyBase {
         this.moveSpeed = 100;
         this.color = '#ff6b6b';
         this.xpValue = 10;
-        this.lootChance = 0.2;
+        this.lootChance = 0.10; // Reduced from 0.2 for larger rooms
         
         // Track last attacker for kill attribution
         this.lastAttacker = null;
@@ -56,6 +56,10 @@ class EnemyBase {
         this.targetLock = null; // Locked target { x, y, type: 'player'|'clone'|'decoy', ref }
         this.targetLockDuration = 1.5; // How long to maintain lock (seconds)
         this.targetLockTimer = 0; // Time remaining on current lock
+        
+        // Detection/activation system
+        this.detectionRange = 400; // Range to detect and activate on player proximity (pixels)
+        this.activated = false; // Whether enemy has been activated (detected a player)
     }
     
     // Apply knockback force
@@ -94,6 +98,54 @@ class EnemyBase {
                 this.targetLockTimer = 0;
             }
         }
+    }
+    
+    // Check if enemy should activate based on player proximity
+    checkDetection() {
+        // If already activated, stay activated
+        if (this.activated) return true;
+        
+        // If enemy has an inherited aggro target (from spawner), activate immediately
+        if (this.currentTarget) {
+            this.activated = true;
+            // Switch from standby to normal state (each enemy type has different initial state)
+            if (this.state === 'standby') {
+                // Determine appropriate state based on enemy type
+                if (this.shape === 'diamond') {
+                    this.state = 'circle';
+                } else {
+                    this.state = 'chase'; // Default for basic, rectangle, octagon enemies
+                }
+            }
+            return true;
+        }
+        
+        // Check distance to all alive players
+        const allPlayers = this.getAllAlivePlayers();
+        if (allPlayers.length === 0) return false;
+        
+        for (const playerData of allPlayers) {
+            const dx = playerData.player.x - this.x;
+            const dy = playerData.player.y - this.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            // If any player is within detection range, activate
+            if (distance <= this.detectionRange) {
+                this.activated = true;
+                // Switch from standby to normal state (each enemy type has different initial state)
+                if (this.state === 'standby') {
+                    // Determine appropriate state based on enemy type
+                    if (this.shape === 'diamond') {
+                        this.state = 'circle';
+                    } else {
+                        this.state = 'chase'; // Default for basic, rectangle, octagon enemies
+                    }
+                }
+                return true;
+            }
+        }
+        
+        return false;
     }
     
     // Find the target to chase (handles aggro in multiplayer, decoy/clone logic)
@@ -145,85 +197,85 @@ class EnemyBase {
         // No valid lock, find new target and create lock
         let targetX, targetY, lockType, lockPlayerRef, lockCloneIndex;
         
-        // In multiplayer, use aggro system
+        // Unified system for both single player and multiplayer
+        // Use radius-based targeting with damage override via currentTarget
         if (typeof Game !== 'undefined' && Game.multiplayerEnabled) {
-            // Update aggro target based on threat
-            this.updateAggroTarget();
+            // In multiplayer, check if we have a currentTarget (from damage or spawn inheritance)
+            let targetPlayer = null;
             
-            // Get target player object
             if (this.currentTarget) {
-                const targetPlayer = this.getPlayerById(this.currentTarget);
-                if (targetPlayer && (targetPlayer.alive || targetPlayer.hp > 0)) {
-                    // Check for decoys/clones on aggro target (prioritize decoys/clones)
-                    if (targetPlayer.blinkDecoyActive) {
-                        targetX = targetPlayer.blinkDecoyX;
-                        targetY = targetPlayer.blinkDecoyY;
-                        lockType = 'decoy';
-                        lockPlayerRef = targetPlayer;
-                    } else if (targetPlayer.shadowClonesActive && targetPlayer.shadowClones && targetPlayer.shadowClones.length > 0) {
-                        // Target nearest shadow clone and LOCK onto it
-                        let nearestDist = Infinity;
-                        let nearestClone = null;
-                        let nearestIndex = -1;
-                        
-                        targetPlayer.shadowClones.forEach((clone, index) => {
-                            if (clone.health > 0) {
-                                const dist = Math.sqrt((clone.x - this.x) ** 2 + (clone.y - this.y) ** 2);
-                                if (dist < nearestDist) {
-                                    nearestDist = dist;
-                                    nearestClone = clone;
-                                    nearestIndex = index;
-                                }
-                            }
-                        });
-                        
-                        if (nearestClone) {
-                            targetX = nearestClone.x;
-                            targetY = nearestClone.y;
-                            lockType = 'clone';
-                            lockPlayerRef = targetPlayer;
-                            lockCloneIndex = nearestIndex;
-                        } else {
-                            // No valid clones, target player
-                            targetX = targetPlayer.x;
-                            targetY = targetPlayer.y;
-                            lockType = 'player';
-                            lockPlayerRef = targetPlayer;
-                        }
-                    } else {
-                        // No decoys/clones, target player
-                        targetX = targetPlayer.x;
-                        targetY = targetPlayer.y;
-                        lockType = 'player';
-                        lockPlayerRef = targetPlayer;
-                    }
-                    
-                    // Create target lock
-                    this.targetLock = {
-                        x: targetX,
-                        y: targetY,
-                        type: lockType,
-                        playerRef: lockPlayerRef,
-                        cloneIndex: lockCloneIndex
-                    };
-                    this.targetLockTimer = this.targetLockDuration;
-                    
-                    return { x: targetX, y: targetY };
+                targetPlayer = this.getPlayerById(this.currentTarget);
+                // Verify target is still alive
+                if (!targetPlayer || !targetPlayer.alive || (targetPlayer.hp !== undefined && targetPlayer.hp <= 0)) {
+                    // Current target died, clear it and find nearest player
+                    this.currentTarget = null;
+                    targetPlayer = null;
                 }
             }
             
-            // Fallback to nearest player if no aggro target
-            const nearestPlayer = this.getNearestPlayer();
-            targetX = nearestPlayer.x;
-            targetY = nearestPlayer.y;
-            lockType = 'player';
-            lockPlayerRef = nearestPlayer;
+            // If no current target or target died, find nearest player
+            if (!targetPlayer) {
+                const nearestPlayerData = this.getNearestPlayer();
+                if (nearestPlayerData && nearestPlayerData.alive) {
+                    targetPlayer = nearestPlayerData;
+                    // Don't set currentTarget here - only damage sets it
+                } else {
+                    // No alive players, return current position
+                    return { x: this.x, y: this.y };
+                }
+            }
             
+            // Now we have a valid target player, check for decoys/clones
+            if (targetPlayer.blinkDecoyActive) {
+                targetX = targetPlayer.blinkDecoyX;
+                targetY = targetPlayer.blinkDecoyY;
+                lockType = 'decoy';
+                lockPlayerRef = targetPlayer;
+            } else if (targetPlayer.shadowClonesActive && targetPlayer.shadowClones && targetPlayer.shadowClones.length > 0) {
+                // Target nearest shadow clone and LOCK onto it
+                let nearestDist = Infinity;
+                let nearestClone = null;
+                let nearestIndex = -1;
+                
+                targetPlayer.shadowClones.forEach((clone, index) => {
+                    if (clone.health > 0) {
+                        const dist = Math.sqrt((clone.x - this.x) ** 2 + (clone.y - this.y) ** 2);
+                        if (dist < nearestDist) {
+                            nearestDist = dist;
+                            nearestClone = clone;
+                            nearestIndex = index;
+                        }
+                    }
+                });
+                
+                if (nearestClone) {
+                    targetX = nearestClone.x;
+                    targetY = nearestClone.y;
+                    lockType = 'clone';
+                    lockPlayerRef = targetPlayer;
+                    lockCloneIndex = nearestIndex;
+                } else {
+                    // No valid clones, target player
+                    targetX = targetPlayer.x;
+                    targetY = targetPlayer.y;
+                    lockType = 'player';
+                    lockPlayerRef = targetPlayer;
+                }
+            } else {
+                // No decoys/clones, target player
+                targetX = targetPlayer.x;
+                targetY = targetPlayer.y;
+                lockType = 'player';
+                lockPlayerRef = targetPlayer;
+            }
+            
+            // Create target lock
             this.targetLock = {
                 x: targetX,
                 y: targetY,
                 type: lockType,
-                playerRef: lockPlayerRef
+                playerRef: lockPlayerRef,
+                cloneIndex: lockCloneIndex
             };
             this.targetLockTimer = this.targetLockDuration;
             
@@ -326,14 +378,10 @@ class EnemyBase {
     }
     
     // Die and handle death logic
+    // NOTE: Only called on host or in solo mode. Clients receive death via game_state sync.
     die() {
         this.alive = false;
-        
-        // Only run death effects on host or in solo mode (clients receive loot via game_state)
-        if (typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient()) {
-            // Client: Don't run death logic (host handles it)
-            return;
-        }
+        this.deathTime = Date.now(); // Track when enemy died (for delayed removal)
         
         // Track kill for the last attacker
         if (this.lastAttacker && typeof Game !== 'undefined' && Game.getPlayerStats) {
@@ -346,26 +394,30 @@ class EnemyBase {
             createParticleBurst(this.x, this.y, this.color, 12);
         }
         
-        // Give player XP when enemy dies
-        if (typeof Game !== 'undefined' && Game.player && !Game.player.dead) {
-            Game.player.addXP(this.xpValue);
+        // Give XP to all alive players (multiplayer: host distributes; solo: local player)
+        if (typeof Game !== 'undefined' && Game.distributeXPToAllPlayers && this.xpValue) {
+            Game.distributeXPToAllPlayers(this.xpValue);
         }
         
-        // Drop loot based on lootChance (HOST ONLY - clients get loot via game_state sync)
+        // Drop loot based on lootChance (loot syncs via game_state in multiplayer)
         if (typeof generateGear !== 'undefined' && typeof groundLoot !== 'undefined') {
             if (Math.random() < this.lootChance) {
                 const roomNum = typeof Game !== 'undefined' ? (Game.roomNumber || 1) : 1;
                 // Default to 'basic' difficulty for base class (can be overridden in subclasses)
                 const gear = generateGear(this.x, this.y, roomNum, 'basic');
                 groundLoot.push(gear);
-                console.log(`[Host] Dropped loot at (${Math.floor(this.x)}, ${Math.floor(this.y)})`);
+                console.log(`Dropped loot at (${Math.floor(this.x)}, ${Math.floor(this.y)})`);
             }
         }
     }
     
-    // Keep enemy within canvas bounds
+    // Keep enemy within room bounds (not canvas bounds)
     keepInBounds() {
-        if (typeof Game !== 'undefined') {
+        if (typeof currentRoom !== 'undefined' && currentRoom) {
+            this.x = clamp(this.x, this.size, currentRoom.width - this.size);
+            this.y = clamp(this.y, this.size, currentRoom.height - this.size);
+        } else if (typeof Game !== 'undefined') {
+            // Fallback to canvas bounds if room not available
             this.x = clamp(this.x, this.size, Game.canvas.width - this.size);
             this.y = clamp(this.y, this.size, Game.canvas.height - this.size);
         }
@@ -527,7 +579,20 @@ class EnemyBase {
     }
     
     // Add threat to a player (for aggro system)
+    // Simplified: damage-based aggro override - directly set currentTarget
     addThreat(playerId, amount) {
+        // In multiplayer, switch aggro to the player who damaged us
+        if (typeof Game !== 'undefined' && Game.multiplayerEnabled) {
+            // Only switch if this is a significant amount of damage or we have no target
+            if (!this.currentTarget || amount > 0) {
+                this.currentTarget = playerId;
+                // Clear target lock so findTarget() picks up the new currentTarget
+                this.targetLock = null;
+                this.targetLockTimer = 0;
+            }
+        }
+        
+        // Keep threat table for potential future use, but it's no longer used for targeting
         if (!this.threatTable.has(playerId)) {
             this.threatTable.set(playerId, []);
         }
@@ -586,19 +651,14 @@ class EnemyBase {
         return targetId;
     }
     
-    // Update current target based on threat
+    // Legacy function - no longer used (kept for compatibility)
+    // Aggro is now radius-based with damage override via addThreat()
     updateAggroTarget() {
-        const highestThreat = this.getHighestThreatTarget();
-        
-        if (highestThreat && highestThreat !== this.currentTarget) {
-            this.currentTarget = highestThreat;
-            // Removed console log to reduce spam
-        } else if (!highestThreat && !this.currentTarget) {
-            // No threat yet - assign initial target if in multiplayer
-            if (typeof Game !== 'undefined' && Game.multiplayerEnabled) {
-                this.assignInitialTarget();
-            }
-        }
+        // This function is deprecated and no longer called
+        // Aggro targeting is now handled in findTarget() with a simpler system:
+        // - Use currentTarget if set (from damage or spawn inheritance)
+        // - Otherwise use nearest player (radius-based)
+        // - addThreat() sets currentTarget directly for damage-based override
     }
     
     // Interpolate toward target position (for multiplayer clients)

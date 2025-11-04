@@ -445,6 +445,11 @@ class BossVortex extends BossBase {
             minion.xpValue = Math.floor(minion.xpValue * 0.3);
             minion.lootChance = 0.0;
             
+            // Inherit aggro target from spawner
+            if (this.currentTarget) {
+                minion.currentTarget = this.currentTarget;
+            }
+            
             if (currentRoom) currentRoom.enemies.push(minion);
             if (Game.enemies) Game.enemies.push(minion);
             this.orbitMinions.push(minion);
