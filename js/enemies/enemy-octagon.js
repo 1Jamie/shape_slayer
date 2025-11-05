@@ -181,7 +181,15 @@ class OctagonEnemy extends EnemyBase {
             
             // State-based priority decision making
             const healthPercent = this.hp / this.maxHp;
-            const playerAttacking = player.attackHitboxes && player.attackHitboxes.length > 0;
+            // Check if any player is attacking
+            let playerAttacking = false;
+            const allPlayers = this.getAllAlivePlayers();
+            for (const { player: p } of allPlayers) {
+                if (p.attackHitboxes && p.attackHitboxes.length > 0) {
+                    playerAttacking = true;
+                    break;
+                }
+            }
             
             // Count nearby enemies (same type) for group tactics
             let nearbyEnemyCount = 0;

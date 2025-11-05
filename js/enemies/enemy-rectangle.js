@@ -85,7 +85,14 @@ class RectangleEnemy extends EnemyBase {
             // Check if in range and cooldown ready
             if (distance < this.attackRange && this.attackCooldown <= 0) {
                 // Avoid starting charge if player is actively attacking (gives player time to react)
-                const avoidance = this.avoidPlayerAttacks(player, 100);
+                // Check all alive players for attacks
+                let avoidance = { x: 0, y: 0 };
+                const allPlayers = this.getAllAlivePlayers();
+                allPlayers.forEach(({ player: p }) => {
+                    const playerAvoidance = this.avoidPlayerAttacks(p, 100);
+                    avoidance.x += playerAvoidance.x;
+                    avoidance.y += playerAvoidance.y;
+                });
                 const avoidDist = Math.sqrt(avoidance.x * avoidance.x + avoidance.y * avoidance.y);
                 
                 // If player is attacking nearby, wait and move away instead of charging
@@ -158,12 +165,28 @@ class RectangleEnemy extends EnemyBase {
             this.sizeMultiplier = 1.0 + (this.chargeElapsed / this.chargeDuration) * 0.5;
             
             if (this.chargeElapsed >= this.chargeDuration) {
-                // Perform slam - damage enemies in radius
+                // Perform slam - damage all players in radius
                 if (typeof Game !== 'undefined') {
-                    const distToPlayer = Math.sqrt((player.x - this.x) ** 2 + (player.y - this.y) ** 2);
-                    if (distToPlayer < this.slamRadius && !player.invulnerable) {
-                        player.takeDamage(this.damage);
-                    }
+                    const allPlayers = this.getAllAlivePlayers();
+                    allPlayers.forEach(({ id, player: p }) => {
+                        // Skip clones/decoys (they don't have x/y properties or takeDamage)
+                        if (!p.x || !p.y || typeof p.takeDamage !== 'function') return;
+                        
+                        const distToPlayer = Math.sqrt((p.x - this.x) ** 2 + (p.y - this.y) ** 2);
+                        if (distToPlayer < this.slamRadius && !p.invulnerable) {
+                            // Use takeDamage directly for local player, or damageRemotePlayer for remote players
+                            if (typeof Game.getLocalPlayerId !== 'undefined' && Game.getLocalPlayerId() === id) {
+                                p.takeDamage(this.damage);
+                            } else if (typeof Game.damageRemotePlayer !== 'undefined' && id && !id.startsWith('local-')) {
+                                Game.damageRemotePlayer(id, this.damage);
+                            } else {
+                                // Fallback for solo mode or local player
+                                if (typeof p.takeDamage === 'function') {
+                                    p.takeDamage(this.damage);
+                                }
+                            }
+                        }
+                    });
                 }
                 this.state = 'cooldown';
                 this.attackCooldown = 3.0;

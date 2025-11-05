@@ -145,8 +145,14 @@ class DiamondEnemy extends EnemyBase {
                     const perpY = moveX;
                     const weaveOffset = Math.sin(this.weaveTimer) * this.weaveAmplitude;
                     
-                    // Apply attack avoidance
-                    const avoidance = this.avoidPlayerAttacks(player, DIAMOND_CONFIG.avoidanceRadius);
+                    // Apply attack avoidance (check all alive players)
+                    let avoidance = { x: 0, y: 0 };
+                    const allPlayers = this.getAllAlivePlayers();
+                    allPlayers.forEach(({ player: p }) => {
+                        const playerAvoidance = this.avoidPlayerAttacks(p, DIAMOND_CONFIG.avoidanceRadius);
+                        avoidance.x += playerAvoidance.x;
+                        avoidance.y += playerAvoidance.y;
+                    });
                     const avoidDist = Math.sqrt(avoidance.x * avoidance.x + avoidance.y * avoidance.y);
                     
                     if (avoidDist > 0) {
@@ -192,7 +198,7 @@ class DiamondEnemy extends EnemyBase {
             this.dashElapsed += deltaTime;
             
             // Get current target position (handles clones/decoys)
-            const currentTarget = this.findTarget(player);
+            const currentTarget = this.findTarget(null);
             const dashTargetX = currentTarget.x;
             const dashTargetY = currentTarget.y;
             
