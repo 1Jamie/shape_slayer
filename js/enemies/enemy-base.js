@@ -283,21 +283,27 @@ class EnemyBase {
         }
         
         // Solo mode - target local player
-        if (!player || !player.alive) return { x: this.x, y: this.y };
+        // If player is null/undefined, get local player from Game
+        let targetPlayer = player;
+        if (!targetPlayer && typeof Game !== 'undefined' && Game.player) {
+            targetPlayer = Game.player;
+        }
+        
+        if (!targetPlayer || !targetPlayer.alive) return { x: this.x, y: this.y };
         
         // Check if player has a blink decoy or shadow clones active - target decoy/clone instead of player
-        if (player.blinkDecoyActive) {
-            targetX = player.blinkDecoyX;
-            targetY = player.blinkDecoyY;
+        if (targetPlayer.blinkDecoyActive) {
+            targetX = targetPlayer.blinkDecoyX;
+            targetY = targetPlayer.blinkDecoyY;
             lockType = 'decoy';
-            lockPlayerRef = player;
-        } else if (player.shadowClonesActive && player.shadowClones && player.shadowClones.length > 0) {
+            lockPlayerRef = targetPlayer;
+        } else if (targetPlayer.shadowClonesActive && targetPlayer.shadowClones && targetPlayer.shadowClones.length > 0) {
             // Target the nearest shadow clone instead of the player and LOCK onto it
             let nearestDist = Infinity;
             let nearestClone = null;
             let nearestIndex = -1;
             
-            player.shadowClones.forEach((clone, index) => {
+            targetPlayer.shadowClones.forEach((clone, index) => {
                 if (clone.health > 0) {
                     const dist = Math.sqrt((clone.x - this.x) ** 2 + (clone.y - this.y) ** 2);
                     if (dist < nearestDist) {
@@ -312,21 +318,21 @@ class EnemyBase {
                 targetX = nearestClone.x;
                 targetY = nearestClone.y;
                 lockType = 'clone';
-                lockPlayerRef = player;
+                lockPlayerRef = targetPlayer;
                 lockCloneIndex = nearestIndex;
             } else {
                 // No valid clones, target player
-                targetX = player.x;
-                targetY = player.y;
+                targetX = targetPlayer.x;
+                targetY = targetPlayer.y;
                 lockType = 'player';
-                lockPlayerRef = player;
+                lockPlayerRef = targetPlayer;
             }
         } else {
             // No decoys/clones, target player
-            targetX = player.x;
-            targetY = player.y;
+            targetX = targetPlayer.x;
+            targetY = targetPlayer.y;
             lockType = 'player';
-            lockPlayerRef = player;
+            lockPlayerRef = targetPlayer;
         }
         
         // Create target lock

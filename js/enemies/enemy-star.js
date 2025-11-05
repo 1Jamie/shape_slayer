@@ -61,8 +61,8 @@ class StarEnemy extends EnemyBase {
         this.strafeAmplitude = STAR_CONFIG.strafeAmplitude;
     }
     
-    update(deltaTime, player) {
-        if (!this.alive || !player.alive) return;
+    update(deltaTime) {
+        if (!this.alive) return;
         
         // Check detection range - only activate when player is nearby
         if (!this.checkDetection()) {
@@ -89,8 +89,8 @@ class StarEnemy extends EnemyBase {
             this.attackCooldown -= cooldownDelta;
         }
         
-        // Get target (handles decoy/clone logic)
-        const target = this.findTarget(player);
+        // Get target (handles decoy/clone logic, uses internal getAllAlivePlayers)
+        const target = this.findTarget(null);
         const targetX = target.x;
         const targetY = target.y;
         
