@@ -888,6 +888,7 @@ class PlayerBase {
                     
                     // Record end time for death screen
                     Game.endTime = Date.now();
+                    Game.deathScreenStartTime = Date.now(); // Initialize death screen timer
                     Game.currencyEarned = Game.calculateCurrency();
                     
                     // Set waiting flag - client must wait for host to signal return
@@ -925,6 +926,7 @@ class PlayerBase {
             // Record end time for death screen and calculate currency
             if (typeof Game !== 'undefined') {
                 Game.endTime = Date.now();
+                Game.deathScreenStartTime = Date.now(); // Initialize death screen timer
                 Game.currencyEarned = Game.calculateCurrency();
             }
             

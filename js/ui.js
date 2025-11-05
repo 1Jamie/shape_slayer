@@ -287,9 +287,8 @@ function renderXPBar(ctx, player) {
 
 // Render solo death screen (for solo mode or when all players dead)
 function renderSoloDeathScreen(ctx, player) {
-    // Record end time and death screen start time
-    if (Game.endTime === 0) {
-        Game.endTime = Date.now();
+    // Initialize death screen start time if not set
+    if (Game.deathScreenStartTime === 0) {
         Game.deathScreenStartTime = Date.now();
     }
     
@@ -742,21 +741,21 @@ function renderGearTooltips(ctx, player) {
                 if (currentGear.armorType && typeof ARMOR_TYPES !== 'undefined') {
                     currentTitle = `${ARMOR_TYPES[currentGear.armorType].name}`;
                 }
-                leftLines.push({ text: currentTitle, color: currentGear.color, font: 'bold 12px Arial' });
+                leftLines.push({ text: currentTitle, color: currentGear.color, font: 'bold 14px Arial' });
                 
                 if (currentGear.stats.damage) {
-                    leftLines.push({ text: `+${currentGear.stats.damage.toFixed(1)} Dmg`, color: '#ff8888', font: '10px Arial' });
+                    leftLines.push({ text: `+${currentGear.stats.damage.toFixed(1)} Dmg`, color: '#ff8888', font: '12px Arial' });
                 }
                 if (currentGear.stats.defense) {
-                    leftLines.push({ text: `+${(currentGear.stats.defense * 100).toFixed(1)}% Def`, color: '#88aaff', font: '10px Arial' });
+                    leftLines.push({ text: `+${(currentGear.stats.defense * 100).toFixed(1)}% Def`, color: '#88aaff', font: '12px Arial' });
                 }
                 if (currentGear.stats.speed) {
-                    leftLines.push({ text: `+${(currentGear.stats.speed * 100).toFixed(0)}% Spd`, color: '#88ff88', font: '10px Arial' });
+                    leftLines.push({ text: `+${(currentGear.stats.speed * 100).toFixed(0)}% Spd`, color: '#88ff88', font: '12px Arial' });
                 }
                 
                 const affixCount = (currentGear.affixes && currentGear.affixes.length) || 0;
                 if (affixCount > 0) {
-                    leftLines.push({ text: `${affixCount} affixes`, color: '#aaddff', font: '9px Arial' });
+                    leftLines.push({ text: `${affixCount} affixes`, color: '#aaddff', font: '11px Arial' });
                     // Show first 3 affixes for current gear too
                     for (let i = 0; i < Math.min(3, currentGear.affixes.length); i++) {
                         const affix = currentGear.affixes[i];
@@ -779,11 +778,11 @@ function renderGearTooltips(ctx, player) {
                             displayName = affix.type.replace(/([A-Z])/g, ' $1').trim();
                         }
                         
-                        leftLines.push({ text: `  ${displayName}: ${displayValue}`, color: '#aaddff', font: '9px Arial' });
+                        leftLines.push({ text: `  ${displayName}: ${displayValue}`, color: '#aaddff', font: '11px Arial' });
                     }
                 }
             } else {
-                leftLines.push({ text: 'NONE EQUIPPED', color: '#888888', font: 'bold 12px Arial' });
+                leftLines.push({ text: 'NONE EQUIPPED', color: '#888888', font: 'bold 14px Arial' });
             }
             
             // === RIGHT COLUMN: NEW GEAR ===
@@ -794,25 +793,25 @@ function renderGearTooltips(ctx, player) {
             if (gear.armorType && typeof ARMOR_TYPES !== 'undefined') {
                 newTitle = `${ARMOR_TYPES[gear.armorType].name}`;
             }
-            rightLines.push({ text: newTitle, color: gear.color, font: 'bold 12px Arial' });
+            rightLines.push({ text: newTitle, color: gear.color, font: 'bold 14px Arial' });
             
             if (gear.name) {
-                rightLines.push({ text: gear.name, color: '#ffffff', font: '10px Arial' });
+                rightLines.push({ text: gear.name, color: '#ffffff', font: '12px Arial' });
             }
             
             if (gear.stats.damage) {
-                rightLines.push({ text: `+${gear.stats.damage.toFixed(1)} Dmg`, color: '#ff8888', font: '10px Arial' });
+                rightLines.push({ text: `+${gear.stats.damage.toFixed(1)} Dmg`, color: '#ff8888', font: '12px Arial' });
             }
             if (gear.stats.defense) {
-                rightLines.push({ text: `+${(gear.stats.defense * 100).toFixed(1)}% Def`, color: '#88aaff', font: '10px Arial' });
+                rightLines.push({ text: `+${(gear.stats.defense * 100).toFixed(1)}% Def`, color: '#88aaff', font: '12px Arial' });
             }
             if (gear.stats.speed) {
-                rightLines.push({ text: `+${(gear.stats.speed * 100).toFixed(0)}% Spd`, color: '#88ff88', font: '10px Arial' });
+                rightLines.push({ text: `+${(gear.stats.speed * 100).toFixed(0)}% Spd`, color: '#88ff88', font: '12px Arial' });
             }
             
             const newAffixCount = (gear.affixes && gear.affixes.length) || 0;
             if (newAffixCount > 0) {
-                rightLines.push({ text: `${newAffixCount} affixes`, color: '#aaddff', font: '9px Arial' });
+                rightLines.push({ text: `${newAffixCount} affixes`, color: '#aaddff', font: '11px Arial' });
                 // Show first 3 affixes
                 for (let i = 0; i < Math.min(3, gear.affixes.length); i++) {
                     const affix = gear.affixes[i];
@@ -835,26 +834,26 @@ function renderGearTooltips(ctx, player) {
                         displayName = affix.type.replace(/([A-Z])/g, ' $1').trim();
                     }
                     
-                    rightLines.push({ text: `  ${displayName}: ${displayValue}`, color: '#aaddff', font: '9px Arial' });
+                    rightLines.push({ text: `  ${displayName}: ${displayValue}`, color: '#aaddff', font: '11px Arial' });
                 }
             }
             
             if (gear.classModifier) {
                 const classIcon = gear.classModifier.class === 'universal' ? '[All]' : `[${gear.classModifier.class}]`;
-                rightLines.push({ text: `${classIcon} ${gear.classModifier.description}`, color: '#ffaa00', font: 'bold 9px Arial' });
+                rightLines.push({ text: `${classIcon} ${gear.classModifier.description}`, color: '#ffaa00', font: 'bold 11px Arial' });
             }
             
             if (gear.legendaryEffect) {
-                rightLines.push({ text: '[LEGENDARY]', color: '#ff9800', font: 'bold 10px Arial' });
-                rightLines.push({ text: gear.legendaryEffect.description, color: '#ff9800', font: '9px Arial' });
+                rightLines.push({ text: '[LEGENDARY]', color: '#ff9800', font: 'bold 12px Arial' });
+                rightLines.push({ text: gear.legendaryEffect.description, color: '#ff9800', font: '11px Arial' });
             }
             
             // Calculate tooltip size
-            const lineHeight = 13;
-            const columnWidth = 140;
+            const lineHeight = 16;
+            const columnWidth = 150;
             const tooltipWidth = columnWidth * 2 + 20; // Two columns + padding
             const maxLines = Math.max(leftLines.length, rightLines.length);
-            const tooltipHeight = Math.max(110, maxLines * lineHeight + 50);
+            const tooltipHeight = Math.max(120, maxLines * lineHeight + 50);
             
             // Adjust position to stay on screen
             if (tooltipY - tooltipHeight / 2 < 10) {
@@ -2209,7 +2208,7 @@ function renderPauseMenu(ctx) {
         pauseMenuButtons.nexus.y = leftY;
         pauseMenuButtons.nexus.width = primaryButtonWidth;
         pauseMenuButtons.nexus.height = primaryButtonHeight;
-        renderPauseMenuButton(ctx, pauseMenuButtons.nexus, 'Return to Nexus', false);
+        renderPauseMenuButton(ctx, pauseMenuButtons.nexus, 'To Nexus', false);
         leftY += primaryButtonHeight + buttonSpacing;
     }
     
@@ -3707,13 +3706,14 @@ function renderLaunchModal(ctx) {
         ctx.arc(rightJoystickX, rightJoystickY, 25 * scale, 0, Math.PI * 2);
         ctx.fill();
         
-        // Label
+        // Label - positioned to the LEFT of the cluster for clarity
         ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 22px Arial';
-        ctx.fillText('Primary Fire', rightJoystickX, rightJoystickY + joystickRadius + 30);
-        ctx.font = '16px Arial';
+        ctx.font = 'bold 18px Arial';
+        ctx.textAlign = 'right';
+        ctx.fillText('Primary Fire', rightJoystickX - joystickRadius - 25, rightJoystickY - 10);
+        ctx.font = '14px Arial';
         ctx.fillStyle = '#aaaaaa';
-        ctx.fillText('Aim & Attack', rightJoystickX, rightJoystickY + joystickRadius + 50);
+        ctx.fillText('Aim & Attack', rightJoystickX - joystickRadius - 25, rightJoystickY + 10);
         
         // Three radial buttons around right joystick - CORRECT POSITIONS
         // Dodge button (TOP of joystick)
@@ -3762,7 +3762,34 @@ function renderLaunchModal(ctx) {
         ctx.fillText('Special', specialX, specialY - 5);
         ctx.fillText('Attack', specialX, specialY + 10);
         
-        // Pause button representation (top-right of preview)
+        // Character sheet button representation (top-right, next to pause button)
+        const charButtonWidth = 70 * scale;
+        const charButtonHeight = 35 * scale;
+        const charButtonX = previewX + previewWidth - 140; // Position to the left of pause button
+        const charButtonY = previewY + 40;
+        
+        // Character sheet button background
+        ctx.fillStyle = 'rgba(60, 60, 90, 0.8)';
+        ctx.fillRect(charButtonX - charButtonWidth / 2, charButtonY - charButtonHeight / 2, charButtonWidth, charButtonHeight);
+        
+        // Character sheet button border
+        ctx.strokeStyle = 'rgba(200, 200, 255, 0.8)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(charButtonX - charButtonWidth / 2, charButtonY - charButtonHeight / 2, charButtonWidth, charButtonHeight);
+        
+        // Character sheet button label
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 15px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Char', charButtonX, charButtonY);
+        
+        // Label below character sheet button
+        ctx.font = 'bold 12px Arial';
+        ctx.textBaseline = 'top';
+        ctx.fillText('Character Sheet', charButtonX, charButtonY + charButtonHeight / 2 + 8);
+        
+        // Pause button representation (top-right of preview, next to char button)
         const pauseButtonX = previewX + previewWidth - 50;
         const pauseButtonY = previewY + 40;
         const pauseButtonSize = 40 * scale;
@@ -3789,11 +3816,11 @@ function renderLaunchModal(ctx) {
         ctx.fillRect(iconX, iconY, barWidth, barHeight);
         ctx.fillRect(iconX + barWidth + barSpacing, iconY, barWidth, barHeight);
         
-        // Label next to pause button
+        // Label below pause button (to avoid hanging off edge)
         ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 18px Arial';
-        ctx.textAlign = 'left';
-        ctx.fillText('Pause Button', pauseButtonX + pauseButtonSize / 2 + 15, pauseButtonY + 5);
+        ctx.font = 'bold 16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Pause', pauseButtonX, pauseButtonY + pauseButtonSize / 2 + 28);
         
     } else {
         // Desktop controls visual - better organized layout
@@ -3939,6 +3966,16 @@ function renderLaunchModal(ctx) {
         ctx.fillStyle = '#ffffff';
         ctx.fillText('Movement', wasdX, wasdY + keySpacing + 25);
         
+        // Add extra spacing indicator - a subtle line to separate sections
+        ctx.strokeStyle = 'rgba(100, 100, 150, 0.3)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(controlsCenterX - 350, wasdY + keySpacing + 60);
+        ctx.lineTo(controlsCenterX + 350, wasdY + keySpacing + 60);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
         // Right side: Shift and Space keys
         const keysX = controlsCenterX + 250;
         const keysY = controlsStartY + 150;
@@ -3972,11 +4009,46 @@ function renderLaunchModal(ctx) {
         ctx.fillStyle = '#aaaaaa';
         ctx.fillText('Special', keysX, keysY + spaceOffset + 45); // Moved down below the Space button
         
+        // Character sheet keys (bottom of control area - moved down more for better spacing)
+        const charKeysY = controlsStartY + 300;
+        const charKeySpacing = 60;
+        
+        // Tab key
+        const tabWidth = 70;
+        const tabHeight = 40;
+        ctx.fillStyle = 'rgba(150, 150, 200, 0.9)';
+        ctx.fillRect(centerX - charKeySpacing - tabWidth/2, charKeysY - tabHeight/2, tabWidth, tabHeight);
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(centerX - charKeySpacing - tabWidth/2, charKeysY - tabHeight/2, tabWidth, tabHeight);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 18px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Tab', centerX - charKeySpacing, charKeysY);
+        
+        // I key
+        const iKeySize = 40;
+        ctx.fillStyle = 'rgba(150, 150, 200, 0.9)';
+        ctx.fillRect(centerX + charKeySpacing - iKeySize/2, charKeysY - iKeySize/2, iKeySize, iKeySize);
+        ctx.strokeRect(centerX + charKeySpacing - iKeySize/2, charKeysY - iKeySize/2, iKeySize, iKeySize);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 22px Arial';
+        ctx.fillText('I', centerX + charKeySpacing, charKeysY);
+        
+        // Character sheet label
+        ctx.font = '14px Arial';
+        ctx.fillStyle = '#aaaaaa';
+        ctx.fillText('Hold', centerX - charKeySpacing, charKeysY + 30);
+        ctx.fillText('Toggle', centerX + charKeySpacing, charKeysY + 30);
+        ctx.font = '16px Arial';
+        ctx.fillStyle = '#88ccff';
+        ctx.fillText('Character Sheet', centerX, charKeysY + 52);
+        
         // Class variations explanation (centered at bottom of controls area)
         ctx.font = '18px Arial';
         ctx.fillStyle = '#ffffaa';
         ctx.textAlign = 'center';
-        ctx.fillText('Each class has variations you\'ll discover!', centerX, controlsStartY + 280);
+        ctx.fillText('Each class has variations you\'ll discover!', centerX, controlsStartY + 385);
     }
     
     // Thank you message
