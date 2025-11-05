@@ -7,7 +7,7 @@
 const TANK_CONFIG = {
     // Base Stats (from CLASS_DEFINITIONS)
     baseHp: 150,                   // Starting health points
-    baseDamage: 8,                 // Base damage per attack
+    baseDamage: 12,                 // Base damage per attack
     baseSpeed: 172.5,              // Movement speed (pixels/second)
     baseDefense: 0.2,              // Damage reduction (0.2 = 20%)
     critChance: 0,                 // Critical hit chance (0 = 0%)
@@ -30,7 +30,7 @@ const TANK_CONFIG = {
     smashHitboxCount: 8,           // Number of hitboxes in ring
     smashHitboxDistance: 40,       // Distance from player to hitboxes (pixels)
     smashHitboxRadius: 25,         // Radius of each hitbox (pixels)
-    smashKnockback: 375,           // Knockback force applied to enemies (pixels)
+    smashKnockback: 350,           // Knockback force applied to enemies (pixels)
     
     // Special Ability (Shield)
     specialCooldown: 5.0,          // Special ability cooldown (seconds)
@@ -41,11 +41,11 @@ const TANK_CONFIG = {
     shieldWaveDamage: 2.5,         // Damage multiplier for shield wave
     shieldWaveRange: 200,          // Maximum range of shield wave (pixels)
     shieldWaveWidth: 150,          // Width of shield wave (pixels)
-    shieldWaveKnockback: 500,      // Knockback force of shield wave (pixels)
+    shieldWaveKnockback: 300,      // Knockback force of shield wave (pixels)
     shieldDistance: 5,             // Distance shield starts from player (pixels)
     shieldDepth: 20,               // Forward extent of shield (pixels)
     shieldWidth: 120,              // Lateral width of shield (pixels)
-    shieldKnockbackDistance: 30,   // Knockback distance per frame (pixels)
+    shieldKnockbackDistance: 15,   // Knockback distance per frame (pixels)
     
     // Descriptions for UI (tooltips, character sheet)
     descriptions: {
@@ -175,14 +175,17 @@ class Tank extends PlayerBase {
         const arcWidth = (TANK_CONFIG.hammerArcWidth * Math.PI) / 180; // Convert degrees to radians
         const arcHalf = arcWidth / 2;
         
+        // Get gameplay position (authoritative position in multiplayer)
+        const pos = this.getGameplayPosition();
+        
         // Calculate start angle based on swing direction
         // For right swing (1): start at -65° and sweep to +65°
         // For left swing (-1): start at +65° and sweep to -65°
         const startAngle = this.rotation + (this.hammerSwingDirection * -arcHalf);
         
         // Initial hammer position
-        const hammerX = this.x + Math.cos(startAngle) * hammerDistance;
-        const hammerY = this.y + Math.sin(startAngle) * hammerDistance;
+        const hammerX = pos.x + Math.cos(startAngle) * hammerDistance;
+        const hammerY = pos.y + Math.sin(startAngle) * hammerDistance;
         
         this.attackHitboxes.push({
             x: hammerX,
@@ -232,14 +235,17 @@ class Tank extends PlayerBase {
         const smashDamage = this.damage * TANK_CONFIG.smashDamage;
         const smashRadius = TANK_CONFIG.smashRadius + this.smashRadiusBonus; // Apply class modifier
         
+        // Get gameplay position (authoritative position in multiplayer)
+        const pos = this.getGameplayPosition();
+        
         // Create hitboxes in a ring around the player
         const numHitboxes = TANK_CONFIG.smashHitboxCount;
         for (let i = 0; i < numHitboxes; i++) {
             const angle = (Math.PI * 2 / numHitboxes) * i;
             const distance = this.size + TANK_CONFIG.smashHitboxDistance;
             
-            const hitboxX = this.x + Math.cos(angle) * distance;
-            const hitboxY = this.y + Math.sin(angle) * distance;
+            const hitboxX = pos.x + Math.cos(angle) * distance;
+            const hitboxY = pos.y + Math.sin(angle) * distance;
         
             this.attackHitboxes.push({
                 x: hitboxX,
@@ -477,8 +483,29 @@ class Tank extends PlayerBase {
                                     // Deal damage and apply knockback when hit by wave
                                     if (!this.shieldWaveHitEnemies.has(enemy)) {
                                         const damageDealt = Math.min(waveDamage, enemy.hp);
-                                        enemy.takeDamage(waveDamage);
+                                        
+                                        // Get player ID for damage attribution
+                                        const attackerId = this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null);
+                                        
+                                        enemy.takeDamage(waveDamage, attackerId);
                                         this.shieldWaveHitEnemies.add(enemy);
+                                        
+                                        // Track stats (host/solo only)
+                                        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+                                        if (!isClient && typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
+                                            const stats = Game.getPlayerStats(attackerId);
+                                            if (stats) {
+                                                stats.addStat('damageDealt', damageDealt);
+                                            }
+                                            
+                                            // Track kill if enemy died
+                                            if (enemy.hp <= 0) {
+                                                const killStats = Game.getPlayerStats(attackerId);
+                                                if (killStats) {
+                                                    killStats.addStat('kills', 1);
+                                                }
+                                            }
+                                        }
                                         
                                         // Create damage number for special ability
                                         if (typeof createDamageNumber !== 'undefined') {

@@ -210,7 +210,27 @@ class Warrior extends PlayerBase {
                             // Calculate damage dealt BEFORE applying damage
                             const damageDealt = Math.min(whirlwindDamage, enemy.hp);
                             
-                            enemy.takeDamage(whirlwindDamage);
+                            // Get player ID for damage attribution
+                            const attackerId = this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null);
+                            
+                            enemy.takeDamage(whirlwindDamage, attackerId);
+                            
+                            // Track stats (host/solo only)
+                            const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+                            if (!isClient && typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
+                                const stats = Game.getPlayerStats(attackerId);
+                                if (stats) {
+                                    stats.addStat('damageDealt', damageDealt);
+                                }
+                                
+                                // Track kill if enemy died
+                                if (enemy.hp <= 0) {
+                                    const killStats = Game.getPlayerStats(attackerId);
+                                    if (killStats) {
+                                        killStats.addStat('kills', 1);
+                                    }
+                                }
+                            }
                             
                             // Create damage number for special ability
                             if (typeof createDamageNumber !== 'undefined') {
@@ -283,7 +303,27 @@ class Warrior extends PlayerBase {
                                 // Calculate damage dealt BEFORE applying damage
                                 const damageDealt = Math.min(thrustDamage, enemy.hp);
                                 
-                                enemy.takeDamage(thrustDamage);
+                                // Get player ID for damage attribution
+                                const attackerId = this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null);
+                                
+                                enemy.takeDamage(thrustDamage, attackerId);
+                                
+                                // Track stats (host/solo only)
+                                const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+                                if (!isClient && typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
+                                    const stats = Game.getPlayerStats(attackerId);
+                                    if (stats) {
+                                        stats.addStat('damageDealt', damageDealt);
+                                    }
+                                    
+                                    // Track kill if enemy died
+                                    if (enemy.hp <= 0) {
+                                        const killStats = Game.getPlayerStats(attackerId);
+                                        if (killStats) {
+                                            killStats.addStat('kills', 1);
+                                        }
+                                    }
+                                }
                                 
                                 // Create damage number for heavy attack
                                 if (typeof createDamageNumber !== 'undefined') {
@@ -335,14 +375,17 @@ class Warrior extends PlayerBase {
         const hitboxRadius = WARRIOR_CONFIG.cleaveHitboxRadius * (this.aoeMultiplier || 1.0); // Apply AoE multiplier
         const cleaveDamage = this.damage * WARRIOR_CONFIG.cleaveDamage;
         
+        // Get gameplay position (authoritative position in multiplayer)
+        const pos = this.getGameplayPosition();
+        
         // Create hitboxes in a straight line in front of the player
         const baseDistance = this.size + WARRIOR_CONFIG.cleaveBaseDistance;
         const spacing = WARRIOR_CONFIG.cleaveSpacing;
         
         for (let i = 0; i < WARRIOR_CONFIG.cleaveHitboxCount; i++) {
             const distance = baseDistance + (i * spacing);
-            const hitboxX = this.x + Math.cos(this.rotation) * distance;
-            const hitboxY = this.y + Math.sin(this.rotation) * distance;
+            const hitboxX = pos.x + Math.cos(this.rotation) * distance;
+            const hitboxY = pos.y + Math.sin(this.rotation) * distance;
         
             this.attackHitboxes.push({
                 x: hitboxX,
@@ -382,16 +425,19 @@ class Warrior extends PlayerBase {
         const thrustDirX = Math.cos(this.rotation);
         const thrustDirY = Math.sin(this.rotation);
         
+        // Get gameplay position (authoritative position in multiplayer)
+        const pos = this.getGameplayPosition();
+        
         // Clear preview when thrust starts
         this.thrustPreviewActive = false;
         
         // Save start position
-        this.thrustStartX = this.x;
-        this.thrustStartY = this.y;
+        this.thrustStartX = pos.x;
+        this.thrustStartY = pos.y;
         
         // Calculate target position
-        const targetX = this.x + thrustDirX * thrustDistance;
-        const targetY = this.y + thrustDirY * thrustDistance;
+        const targetX = pos.x + thrustDirX * thrustDistance;
+        const targetY = pos.y + thrustDirY * thrustDistance;
         
         // Keep target in bounds
         if (typeof Game !== 'undefined' && Game.canvas) {

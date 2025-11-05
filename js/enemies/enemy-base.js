@@ -1,7 +1,7 @@
 // Base enemy class with common functionality
 
 class EnemyBase {
-    constructor(x, y) {
+    constructor(x, y, inheritedTarget = null) {
         // Position
         this.x = x;
         this.y = y;
@@ -47,9 +47,9 @@ class EnemyBase {
         this.lastVelocityX = 0;
         this.lastVelocityY = 0;
         
-        // Threat/aggro system for multiplayer
+        // Threat/aggro system for multiplayer (per-enemy independent tracking)
         this.threatTable = new Map(); // playerId -> [{damage, timestamp}]
-        this.currentTarget = null; // Current aggro target (playerId)
+        this.currentTarget = inheritedTarget; // Current aggro target (playerId), inherited from parent if spawned
         this.threatWindowDuration = 5.0; // 5 second rolling window
         
         // Target lock system (prevents jittering when targeting clones/decoys)
@@ -579,20 +579,15 @@ class EnemyBase {
     }
     
     // Add threat to a player (for aggro system)
-    // Simplified: damage-based aggro override - directly set currentTarget
+    // Records damage for per-enemy sliding window threat calculation
+    // Does NOT immediately switch targets - that's handled by updateAggroTarget()
     addThreat(playerId, amount) {
-        // In multiplayer, switch aggro to the player who damaged us
-        if (typeof Game !== 'undefined' && Game.multiplayerEnabled) {
-            // Only switch if this is a significant amount of damage or we have no target
-            if (!this.currentTarget || amount > 0) {
-                this.currentTarget = playerId;
-                // Clear target lock so findTarget() picks up the new currentTarget
-                this.targetLock = null;
-                this.targetLockTimer = 0;
-            }
+        // Skip if currently locked to a clone/decoy (absolute aggro)
+        if (this.targetLock && (this.targetLock.type === 'clone' || this.targetLock.type === 'decoy')) {
+            return; // Absolute aggro: never leave clone/decoy
         }
         
-        // Keep threat table for potential future use, but it's no longer used for targeting
+        // Record damage in THIS enemy's threat table
         if (!this.threatTable.has(playerId)) {
             this.threatTable.set(playerId, []);
         }
@@ -601,6 +596,13 @@ class EnemyBase {
             damage: amount,
             timestamp: Date.now()
         });
+        
+        // If we have no current target, set initial target to this player
+        if (!this.currentTarget) {
+            this.currentTarget = playerId;
+            this.targetLock = null;
+            this.targetLockTimer = 0;
+        }
     }
     
     // Calculate total threat for a player (within time window)
@@ -651,14 +653,39 @@ class EnemyBase {
         return targetId;
     }
     
-    // Legacy function - no longer used (kept for compatibility)
-    // Aggro is now radius-based with damage override via addThreat()
+    // Update aggro target based on sliding window threat calculation
+    // Called periodically in enemy update loops
+    // Each enemy makes independent targeting decisions based on its own threat table
     updateAggroTarget() {
-        // This function is deprecated and no longer called
-        // Aggro targeting is now handled in findTarget() with a simpler system:
-        // - Use currentTarget if set (from damage or spawn inheritance)
-        // - Otherwise use nearest player (radius-based)
-        // - addThreat() sets currentTarget directly for damage-based override
+        // Clean old threat entries from THIS enemy's threat table
+        this.cleanOldThreat();
+        
+        // Absolute aggro: never leave clone/decoy until they die
+        if (this.targetLock && (this.targetLock.type === 'clone' || this.targetLock.type === 'decoy')) {
+            return;
+        }
+        
+        // Get highest threat player from THIS enemy's perspective
+        const highestThreatId = this.getHighestThreatTarget();
+        
+        // No threat recorded yet - stick with current target or find nearest
+        if (!highestThreatId) {
+            return;
+        }
+        
+        // Switch if new target has 20%+ more threat than current
+        if (highestThreatId && highestThreatId !== this.currentTarget) {
+            const currentThreat = this.getThreat(this.currentTarget || '');
+            const newThreat = this.getThreat(highestThreatId);
+            
+            // Switch targets if new target has significantly more threat (20% threshold)
+            if (newThreat > currentThreat * 1.2) {
+                this.currentTarget = highestThreatId;
+                // Clear target lock to force retargeting in findTarget()
+                this.targetLock = null;
+                this.targetLockTimer = 0;
+            }
+        }
     }
     
     // Interpolate toward target position (for multiplayer clients)

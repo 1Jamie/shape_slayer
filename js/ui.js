@@ -1294,6 +1294,45 @@ function renderCharacterSheet(ctx, player) {
             const actualSpecialCooldown = specialCooldown * (1 - (player.cooldownReduction || 0));
             ctx.fillText(`Special Ability: ${actualSpecialCooldown.toFixed(1)}s`, leftColumnX, statY);
             statY += 16;
+            
+            // Mage-specific beam stats
+            if (classKey === 'hexagon') {
+                statY += 5; // Add spacing
+                
+                ctx.font = 'bold 14px Arial';
+                ctx.fillStyle = '#ffdd88';
+                ctx.fillText('BEAM STATS', leftColumnX, statY);
+                statY += 18;
+                
+                ctx.font = '12px Arial';
+                ctx.fillStyle = '#ffffff';
+                
+                // Beam charges (current/max)
+                const currentCharges = player.beamCharges || 0;
+                const maxCharges = player.maxBeamCharges || 2;
+                ctx.fillText(`Beam Charges: ${currentCharges}/${maxCharges}`, leftColumnX, statY);
+                statY += 16;
+                
+                // Beam duration
+                const beamDuration = player.effectiveBeamDuration || config.beamDuration || 1.5;
+                ctx.fillText(`Beam Duration: ${beamDuration.toFixed(2)}s`, leftColumnX, statY);
+                statY += 16;
+                
+                // Beam tick rate
+                const beamTickRate = player.effectiveBeamTickRate || config.beamTickRate || 0.2;
+                ctx.fillText(`Beam Tick Rate: ${beamTickRate.toFixed(3)}s`, leftColumnX, statY);
+                statY += 16;
+                
+                // Beam damage per tick
+                const beamDamagePerTick = config.beamDamagePerTick || 0.4;
+                ctx.fillText(`Beam Damage/Tick: ${(beamDamagePerTick * 100).toFixed(0)}%`, leftColumnX, statY);
+                statY += 16;
+                
+                // Beam max penetration
+                const maxPenetration = player.effectiveBeamMaxPenetration || config.beamMaxPenetration || 2;
+                ctx.fillText(`Beam Max Penetration: ${maxPenetration}`, leftColumnX, statY);
+                statY += 16;
+            }
         }
     }
     
@@ -1362,10 +1401,18 @@ function renderCharacterSheet(ctx, player) {
                 ctx.fillStyle = '#aaddff';
                 gear.affixes.forEach(affix => {
                     // Integer affixes (count-based)
-                    const isIntegerAffix = ['dodgeCharges', 'maxHealth', 'pierce', 'chainLightning', 'multishot'].includes(affix.type);
-                    const displayValue = isIntegerAffix
-                        ? `+${affix.value.toFixed(0)}` 
-                        : `+${(affix.value * 100).toFixed(0)}%`;
+                    const isIntegerAffix = ['dodgeCharges', 'maxHealth', 'pierce', 'chainLightning', 'multishot', 'beamCharges', 'beamPenetration'].includes(affix.type);
+                    let displayValue;
+                    
+                    // Special handling for beam affixes
+                    if (affix.type === 'beamTickRate') {
+                        displayValue = `-${(affix.value * 100).toFixed(0)}%`;
+                    } else if (isIntegerAffix) {
+                        displayValue = `+${affix.value.toFixed(0)}`;
+                    } else {
+                        displayValue = `+${(affix.value * 100).toFixed(0)}%`;
+                    }
+                    
                     let displayName = affix.type.replace(/([A-Z])/g, ' $1').trim();
                     
                     // Special formatting for specific affixes
@@ -1843,9 +1890,22 @@ function renderCooldownIndicators(ctx, player) {
     
     // Heavy attack cooldown indicator
     const heavyBarX = player.playerClass === 'triangle' ? startX + spacing * 2.5 : startX + spacing * 2;
-    const heavyCooldown = player.heavyAttackCooldown || 0;
-    const heavyMaxCooldown = player.heavyAttackCooldownTime || 1.5;
-    renderCooldownBar(heavyBarX, barY, barWidth, barHeight, heavyCooldown, heavyMaxCooldown, 'Heavy');
+    
+    // Mage (hexagon) uses charge-based heavy attack
+    if (player.playerClass === 'hexagon' && player.maxBeamCharges > 1) {
+        // Render multiple charge bars for beam
+        for (let i = 0; i < player.maxBeamCharges; i++) {
+            const barX = heavyBarX + i * 45;
+            const cooldown = player.beamChargeCooldowns[i];
+            const maxCooldown = player.heavyAttackCooldownTime;
+            renderCooldownBar(barX, barY, 40, barHeight, cooldown, maxCooldown, 'B');
+        }
+    } else {
+        // Single heavy attack cooldown for other classes
+        const heavyCooldown = player.heavyAttackCooldown || 0;
+        const heavyMaxCooldown = player.heavyAttackCooldownTime || 1.5;
+        renderCooldownBar(heavyBarX, barY, barWidth, barHeight, heavyCooldown, heavyMaxCooldown, 'Heavy');
+    }
 }
 
 // Pause menu button state tracking
@@ -2093,7 +2153,7 @@ function renderPauseMenu(ctx) {
     // On ultra-wide, make buttons wider to fill space better
     const primaryButtonWidth = isUltraWide ? Math.min(180, buttonAreaWidth * 0.47) : Math.min(140, buttonAreaWidth * 0.45);
     const primaryButtonHeight = Math.min(70, panelHeight * 0.14);
-    const settingsButtonWidth = isUltraWide ? Math.min(160, buttonAreaWidth * 0.44) : Math.min(120, buttonAreaWidth * 0.38);
+    const settingsButtonWidth = isUltraWide ? Math.min(200, buttonAreaWidth * 0.48) : Math.min(160, buttonAreaWidth * 0.42);
     const settingsButtonHeight = Math.min(55, panelHeight * 0.12);
     const buttonSpacing = Math.min(15, panelHeight * 0.03);
     const columnGap = isUltraWide ? Math.min(12, buttonAreaWidth * 0.03) : Math.min(20, buttonAreaWidth * 0.05);
@@ -3288,9 +3348,19 @@ function renderTouchControls(ctx) {
         
         // Heavy attack button (always show)
         if (Input.touchButtons.heavyAttack) {
-            Input.touchButtons.heavyAttack.render(ctx, 
-                player.heavyAttackCooldown || 0, 
-                player.heavyAttackCooldownTime || 1.5);
+            // For Mage, show charge count instead of cooldown
+            if (player.playerClass === 'hexagon' && player.maxBeamCharges > 1) {
+                // Pass charges instead of cooldown for touch button display
+                const longestCooldown = Math.max(...player.beamChargeCooldowns);
+                Input.touchButtons.heavyAttack.render(ctx, 
+                    longestCooldown,
+                    player.heavyAttackCooldownTime || 1.5,
+                    player.beamCharges); // Pass current charges
+            } else {
+                Input.touchButtons.heavyAttack.render(ctx, 
+                    player.heavyAttackCooldown || 0, 
+                    player.heavyAttackCooldownTime || 1.5);
+            }
         }
         
         // Special ability button (always show, joystick hidden for triangle/square)
@@ -3362,7 +3432,10 @@ function renderTouchControls(ctx) {
             const joystick = Input.touchJoysticks.heavyAttack;
             if (joystick.centerX && joystick.centerY) {
                 const radius = joystick.radius + 6;
-                const cooldown = player.heavyAttackCooldown;
+                // For Mage with charges, use longest cooldown
+                const cooldown = (player.playerClass === 'hexagon' && player.maxBeamCharges > 1) 
+                    ? Math.max(...player.beamChargeCooldowns) 
+                    : player.heavyAttackCooldown;
                 const maxCooldown = player.heavyAttackCooldownTime || 1.5;
                 
                 // Draw cooldown arc (full circle)
@@ -3378,6 +3451,19 @@ function renderTouchControls(ctx) {
                     ctx.beginPath();
                     ctx.arc(joystick.centerX, joystick.centerY, radius, 0, Math.PI * 2);
                     ctx.stroke();
+                }
+                
+                // Show charge count for Mage beam
+                if (player.playerClass === 'hexagon' && player.maxBeamCharges > 1) {
+                    ctx.font = 'bold 18px Arial';
+                    ctx.fillStyle = '#ffffff';
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'middle';
+                    ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+                    ctx.shadowBlur = 4;
+                    const readyCharges = player.beamCharges || 0;
+                    ctx.fillText(readyCharges, joystick.centerX + radius + 15, joystick.centerY - radius - 5);
+                    ctx.shadowBlur = 0;
                 }
             }
         }
@@ -4435,6 +4521,30 @@ function onHostMigrated(data, wasHost, isHost) {
         console.log('[Multiplayer] You are now the host');
         multiplayerError = 'You are now the host!';
         setTimeout(() => { multiplayerError = ''; }, 3000);
+        
+        // Check if all remaining players are dead after host migration
+        // This handles the edge case where a dead client becomes host after the host leaves
+        if (typeof Game !== 'undefined' && Game.checkAllPlayersDead) {
+            Game.allPlayersDead = Game.checkAllPlayersDead();
+            
+            // If all players are dead, trigger game over
+            if (Game.allPlayersDead && Game.multiplayerEnabled) {
+                console.log('[Host Migration] All players are dead - triggering game over');
+                
+                // Send final stats to any remaining clients (if any)
+                if (typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.isHost) {
+                    if (Game.sendFinalStats) {
+                        Game.sendFinalStats();
+                    }
+                }
+                
+                // Record end time for death screen (if not already set)
+                if (!Game.endTime) {
+                    Game.endTime = Date.now();
+                    Game.currencyEarned = Game.calculateCurrency();
+                }
+            }
+        }
     }
 }
 

@@ -447,6 +447,9 @@ function checkEnemiesVsClones(player, enemies) {
 function chainLightningAffix(player, sourceEnemy, chainCount, damage, enemies) {
     if (!enemies || enemies.length === 0) return;
     
+    // Get player ID for damage attribution
+    const attackerId = player ? (player.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null)) : null;
+    
     const chainRange = 150;
     const hitEnemies = new Set([sourceEnemy]);
     let currentTarget = sourceEnemy;
@@ -472,8 +475,27 @@ function chainLightningAffix(player, sourceEnemy, chainCount, damage, enemies) {
         if (nearestEnemy) {
             // Apply reduced damage
             const chainDamage = damage * Math.pow(0.7, i + 1); // 70% per chain
-            nearestEnemy.takeDamage(chainDamage);
+            const damageDealt = Math.min(chainDamage, nearestEnemy.hp);
+            
+            nearestEnemy.takeDamage(chainDamage, attackerId);
             hitEnemies.add(nearestEnemy);
+            
+            // Track stats (host/solo only)
+            const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+            if (!isClient && typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
+                const stats = Game.getPlayerStats(attackerId);
+                if (stats) {
+                    stats.addStat('damageDealt', damageDealt);
+                }
+                
+                // Track kill if enemy died
+                if (nearestEnemy.hp <= 0) {
+                    const killStats = Game.getPlayerStats(attackerId);
+                    if (killStats) {
+                        killStats.addStat('kills', 1);
+                    }
+                }
+            }
             
             // Create visual arc
             if (typeof createLightningArc !== 'undefined') {
@@ -496,6 +518,9 @@ function chainLightningAffix(player, sourceEnemy, chainCount, damage, enemies) {
 function createExplosion(x, y, radius, damage, player, enemies) {
     if (!enemies || enemies.length === 0) return;
     
+    // Get player ID for damage attribution
+    const attackerId = player ? (player.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null)) : null;
+    
     // Visual effect
     if (typeof createParticleBurst !== 'undefined') {
         createParticleBurst(x, y, '#ff9900', 12);
@@ -510,7 +535,26 @@ function createExplosion(x, y, radius, damage, player, enemies) {
         const dist = Math.sqrt(dx * dx + dy * dy);
         
         if (dist < radius + enemy.size) {
-            enemy.takeDamage(damage);
+            const damageDealt = Math.min(damage, enemy.hp);
+            
+            enemy.takeDamage(damage, attackerId);
+            
+            // Track stats (host/solo only)
+            const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+            if (!isClient && typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
+                const stats = Game.getPlayerStats(attackerId);
+                if (stats) {
+                    stats.addStat('damageDealt', damageDealt);
+                }
+                
+                // Track kill if enemy died
+                if (enemy.hp <= 0) {
+                    const killStats = Game.getPlayerStats(attackerId);
+                    if (killStats) {
+                        killStats.addStat('kills', 1);
+                    }
+                }
+            }
             
             // Damage number
             if (typeof createDamageNumber !== 'undefined') {

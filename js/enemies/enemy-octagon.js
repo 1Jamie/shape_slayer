@@ -46,8 +46,8 @@ const OCTAGON_CONFIG = {
 };
 
 class OctagonEnemy extends EnemyBase {
-    constructor(x, y) {
-        super(x, y);
+    constructor(x, y, inheritedTarget = null) {
+        super(x, y, inheritedTarget);
         
         // Stats (from config)
         this.size = OCTAGON_CONFIG.size;
@@ -83,10 +83,10 @@ class OctagonEnemy extends EnemyBase {
         this.minions = [];
     }
     
-    update(deltaTime, player) {
-        if (!this.alive || !player.alive) return;
+    update(deltaTime) {
+        if (!this.alive) return;
         
-        // Check detection range - only activate when player is nearby
+        // Check detection range - only activate when any player is nearby
         if (!this.checkDetection()) {
             // Enemy is in standby, don't update AI
             return;
@@ -97,6 +97,9 @@ class OctagonEnemy extends EnemyBase {
         
         // Update target lock timer
         this.updateTargetLock(deltaTime);
+        
+        // Update aggro target based on sliding window threat calculation
+        this.updateAggroTarget();
         
         // Apply stun slow factor to movement speed
         if (this.stunned) {
@@ -120,8 +123,8 @@ class OctagonEnemy extends EnemyBase {
         
         this.minionSummonElapsed += deltaTime;
         
-        // Get target (handles decoy/clone logic)
-        const target = this.findTarget(player);
+        // Get target (handles decoy/clone logic, uses internal getAllAlivePlayers)
+        const target = this.findTarget(null);
         const targetX = target.x;
         const targetY = target.y;
         
@@ -389,17 +392,13 @@ class OctagonEnemy extends EnemyBase {
             const minionX = this.x + Math.cos(angle) * distance;
             const minionY = this.y + Math.sin(angle) * distance;
             
-            const minion = new Enemy(minionX, minionY);
+            // Pass parent's currentTarget to minion constructor for aggro inheritance
+            const minion = new Enemy(minionX, minionY, this.currentTarget);
             minion.maxHp = Math.floor(minion.maxHp * OCTAGON_CONFIG.minionHealthMultiplier);
             minion.hp = minion.maxHp;
             minion.damage = Math.floor(minion.damage * OCTAGON_CONFIG.minionDamageMultiplier);
             minion.xpValue = Math.floor(minion.xpValue * OCTAGON_CONFIG.minionXpMultiplier);
             minion.lootChance = 0.0; // No loot from minions
-            
-            // Inherit aggro target from spawner
-            if (this.currentTarget) {
-                minion.currentTarget = this.currentTarget;
-            }
             
             if (typeof currentRoom !== 'undefined' && currentRoom) {
                 currentRoom.enemies.push(minion);

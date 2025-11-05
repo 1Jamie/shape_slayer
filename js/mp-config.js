@@ -24,6 +24,13 @@ const MultiplayerConfig = {
     BASE_LERP_SPEED: 10, // base interpolation speed (higher = faster catch-up)
     MIN_LERP_SPEED: 5, // minimum lerp speed
     MAX_LERP_SPEED: 20, // maximum lerp speed
-    SNAP_DISTANCE: 100 // pixels - snap to target if further than this
+    SNAP_DISTANCE: 100, // pixels - snap to target if further than this
+    
+    // Advanced interpolation parameters for smoother movement
+    EXTRAPOLATION_WEIGHT: 0.7, // Blend factor for extrapolation (0-1, higher = more prediction)
+    SMOOTHING_FACTOR: 0.15, // Exponential smoothing factor (0-1, lower = smoother)
+    VELOCITY_SMOOTHING: 0.8, // Smooth velocity changes (0-1, higher = more smoothing)
+    MAX_EXTRAPOLATION_DISTANCE: 50, // Max pixels to extrapolate from last known position
+    POSITION_HISTORY_SIZE: 3 // Number of recent positions to track for velocity calculation
 };
 

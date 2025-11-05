@@ -435,20 +435,17 @@ class BossVortex extends BossBase {
         for (let i = 0; i < count; i++) {
             const angle = (Math.PI * 2 / count) * i;
             const distance = 200;
+            // Pass parent's currentTarget to minion constructor for aggro inheritance
             const minion = new Enemy(
                 this.x + Math.cos(angle) * distance,
-                this.y + Math.sin(angle) * distance
+                this.y + Math.sin(angle) * distance,
+                this.currentTarget
             );
             minion.maxHp = Math.floor(minion.maxHp * 0.25);
             minion.hp = minion.maxHp;
             minion.damage *= 0.6;
             minion.xpValue = Math.floor(minion.xpValue * 0.3);
             minion.lootChance = 0.0;
-            
-            // Inherit aggro target from spawner
-            if (this.currentTarget) {
-                minion.currentTarget = this.currentTarget;
-            }
             
             if (currentRoom) currentRoom.enemies.push(minion);
             if (Game.enemies) Game.enemies.push(minion);

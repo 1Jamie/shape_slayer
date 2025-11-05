@@ -11,13 +11,36 @@ class PlayerStats {
         
         // Time tracking - only counts time while alive (NOT total run time)
         this.timeAlive = 0; // Accumulated alive time in seconds
-        this.lastAliveTimestamp = Date.now(); // When player last became alive
+        this.lastAliveTimestamp = null; // When player last became alive (null = timer not started)
         this.isAlive = true;
+        this.timerStarted = false; // Whether the timer has been started (game must start first)
+        this.timerStopped = false; // Whether the timer is frozen (game ended)
+    }
+    
+    // Start the timer - called when game actually begins
+    startTimer() {
+        if (!this.timerStarted && !this.timerStopped) {
+            this.lastAliveTimestamp = Date.now();
+            this.timerStarted = true;
+            this.isAlive = true;
+        }
+    }
+    
+    // Stop the timer - freeze the value (game ended)
+    stopTimer() {
+        if (this.timerStarted && !this.timerStopped) {
+            // Accumulate any remaining time before stopping
+            if (this.isAlive && this.lastAliveTimestamp) {
+                this.timeAlive += (Date.now() - this.lastAliveTimestamp) / 1000;
+            }
+            this.timerStopped = true;
+            this.lastAliveTimestamp = null;
+        }
     }
     
     // Called when player dies - accumulate time from this life
     onDeath() {
-        if (this.isAlive) {
+        if (this.isAlive && this.timerStarted && !this.timerStopped) {
             this.timeAlive += (Date.now() - this.lastAliveTimestamp) / 1000;
             this.isAlive = false;
             this.lastAliveTimestamp = null;
@@ -26,17 +49,27 @@ class PlayerStats {
     
     // Called when player revives - start new life timer
     onRevive() {
-        if (!this.isAlive) {
+        if (!this.isAlive && this.timerStarted && !this.timerStopped) {
             this.lastAliveTimestamp = Date.now();
             this.isAlive = true;
         }
     }
     
-    // Get total time alive (includes current life if still alive)
+    // Get total time alive (includes current life if still alive, but frozen if timer stopped)
     getTimeAlive() {
+        // If timer is stopped, return frozen value
+        if (this.timerStopped) {
+            return this.timeAlive;
+        }
+        // If timer hasn't started yet, return 0
+        if (!this.timerStarted) {
+            return 0;
+        }
+        // If alive and timer is running, calculate current time
         if (this.isAlive && this.lastAliveTimestamp) {
             return this.timeAlive + (Date.now() - this.lastAliveTimestamp) / 1000;
         }
+        // Otherwise return accumulated time
         return this.timeAlive;
     }
     
@@ -54,8 +87,10 @@ class PlayerStats {
         this.damageTaken = 0;
         this.roomsCleared = 0;
         this.timeAlive = 0;
-        this.lastAliveTimestamp = Date.now();
+        this.lastAliveTimestamp = null;
         this.isAlive = true;
+        this.timerStarted = false;
+        this.timerStopped = false;
     }
 }
 
@@ -1270,7 +1305,12 @@ const Game = {
         if (!this.isHost() || !this.multiplayerEnabled) return;
         if (typeof multiplayerManager === 'undefined' || !multiplayerManager) return;
         
-        // Serialize stats for all players
+        // Stop all timers to freeze values
+        this.playerStats.forEach((stats, playerId) => {
+            stats.stopTimer();
+        });
+        
+        // Serialize stats for all players (using frozen values)
         const statsObject = {};
         this.playerStats.forEach((stats, playerId) => {
             statsObject[playerId] = {
@@ -1278,7 +1318,7 @@ const Game = {
                 kills: stats.kills,
                 damageTaken: stats.damageTaken,
                 roomsCleared: Math.max(0, this.roomNumber - 1),
-                timeAlive: stats.getTimeAlive()
+                timeAlive: stats.getTimeAlive() // This will return frozen value since timer is stopped
             };
         });
         
@@ -1325,6 +1365,11 @@ const Game = {
                 console.error(`[Stats Init] WARNING: No players in lobby! Cannot initialize stats.`);
             }
         }
+        
+        // Start timers for all players when game actually begins
+        this.playerStats.forEach((stats, playerId) => {
+            stats.startTimer();
+        });
         
         console.log(`[Stats] Initialized stats for ${this.playerStats.size} player(s):`);
         this.playerStats.forEach((stats, playerId) => {
@@ -2069,31 +2114,17 @@ const Game = {
         
         // Update enemies (host simulates AI, clients interpolate positions)
         if (this.isHost() || !this.multiplayerEnabled) {
-            // Get any alive player for enemy targeting
-            let targetPlayer = this.player;
-            
-            // If local player is dead, find an alive remote player (host only)
-            if (this.multiplayerEnabled && (!this.player || this.player.dead)) {
-                for (const [playerId, playerInstance] of this.remotePlayerInstances) {
-                    if (playerInstance.alive && !playerInstance.dead) {
-                        targetPlayer = playerInstance;
-                        break;
+            // Host or solo: Run full enemy AI and movement
+            // Enemies handle their own targeting internally via getAllAlivePlayers()
+            this.enemies.forEach(enemy => {
+                if (enemy.alive) {
+                    // Skip update if this is a boss and intro not complete
+                    if (enemy.isBoss && !enemy.introComplete) {
+                        return;
                     }
+                    enemy.update(deltaTime);
                 }
-            }
-            
-            // Host or solo: Run full enemy AI and movement (continue even if host is dead)
-            if (targetPlayer) {
-                this.enemies.forEach(enemy => {
-                    if (enemy.alive) {
-                        // Skip update if this is a boss and intro not complete
-                        if (enemy.isBoss && !enemy.introComplete) {
-                            return;
-                        }
-                        enemy.update(deltaTime, targetPlayer);
-                    }
-                });
-            }
+            });
         } else {
             // Client: Only interpolate positions from host
             this.enemies.forEach(enemy => {
@@ -2666,14 +2697,7 @@ const Game = {
                 // Update enemies array
                 this.enemies = newRoom.enemies;
                 
-                // Assign initial targets for aggro system (host only, multiplayer only)
-                if (this.isHost()) {
-                    this.enemies.forEach(enemy => {
-                        if (enemy.assignInitialTarget) {
-                            enemy.assignInitialTarget();
-                        }
-                    });
-                }
+                // No longer pre-assign targets - proximity detection and damage-based aggro handle targeting
                 
                 // Check if this is a boss room and start intro
                 if (newRoom.type === 'boss' && this.enemies.length > 0 && this.enemies[0].isBoss) {
@@ -3451,14 +3475,7 @@ const Game = {
             currentRoom = generateRoom(1);
             this.enemies = currentRoom.enemies;
             
-            // Assign initial targets for aggro system (host only, multiplayer only)
-            if (this.isHost()) {
-                this.enemies.forEach(enemy => {
-                    if (enemy.assignInitialTarget) {
-                        enemy.assignInitialTarget();
-                    }
-                });
-            }
+            // No longer pre-assign targets - proximity detection and damage-based aggro handle targeting
             
             // Check if this is a boss room and start intro
             if (currentRoom.type === 'boss' && this.enemies.length > 0 && this.enemies[0].isBoss) {

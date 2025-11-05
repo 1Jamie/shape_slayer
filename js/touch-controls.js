@@ -248,9 +248,9 @@ class TouchButton {
     }
     
     // Render button
-    render(ctx, cooldown = 0, maxCooldown = 0) {
+    render(ctx, cooldown = 0, maxCooldown = 0, charges = null) {
         const cooldownPercent = maxCooldown > 0 ? cooldown / maxCooldown : 0;
-        const isReady = cooldownPercent === 0;
+        const isReady = charges !== null ? charges > 0 : cooldownPercent === 0;
         const isPressed = this.pressed;
         
         // Rounded rectangle background for cohesive design
@@ -289,6 +289,18 @@ class TouchButton {
             ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
             ctx.fillText(this.label, this.x + this.width / 2, this.y + this.height / 2);
             ctx.shadowBlur = 0;
+            
+            // Show charge count if provided (like dodge charges for Rogue)
+            if (charges !== null && charges !== undefined) {
+                ctx.font = 'bold 14px Arial';
+                ctx.fillStyle = '#ffffff';
+                ctx.textAlign = 'right';
+                ctx.textBaseline = 'top';
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+                ctx.shadowBlur = 3;
+                ctx.fillText(charges, this.x + this.width - 8, this.y + 6);
+                ctx.shadowBlur = 0;
+            }
         }
     }
 }

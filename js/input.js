@@ -91,8 +91,8 @@ const Input = {
         },
         hexagon: { // Mage
             dodge: 'button',                        // Standard dodge
-            heavyAttack: 'button',                  // AoE blast
-            specialAbility: 'joystick-press-release' // Blink (directional, press-release)
+            heavyAttack: 'button',                  // Energy beam (charge-based)
+            specialAbility: 'joystick-press-release' // Blink (directional teleport with aim)
         }
     },
     

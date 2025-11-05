@@ -181,13 +181,16 @@ class Rogue extends PlayerBase {
         // Rogue: Throw knife as projectile
         if (typeof Game === 'undefined') return;
         
+        // Get gameplay position (authoritative position in multiplayer)
+        const pos = this.getGameplayPosition();
+        
         // Use character rotation (already correctly calculated from mouse/joystick)
         const dirX = Math.cos(this.rotation);
         const dirY = Math.sin(this.rotation);
         
         const baseKnife = {
-            x: this.x,
-            y: this.y,
+            x: pos.x,
+            y: pos.y,
             vx: dirX * ROGUE_CONFIG.knifeSpeed * (this.projectileSpeedMultiplier || 1.0),
             vy: dirY * ROGUE_CONFIG.knifeSpeed * (this.projectileSpeedMultiplier || 1.0),
             damage: this.damage,
@@ -250,6 +253,9 @@ class Rogue extends PlayerBase {
         const spreadAngle = ROGUE_CONFIG.fanSpreadAngle;
         const knifeSpeed = ROGUE_CONFIG.fanKnifeSpeed;
         
+        // Get gameplay position (authoritative position in multiplayer)
+        const pos = this.getGameplayPosition();
+        
         if (typeof Game !== 'undefined') {
             for (let i = 0; i < numKnives; i++) {
                 // Calculate angle for this knife
@@ -259,8 +265,8 @@ class Rogue extends PlayerBase {
                 
                 // Create knife projectile
                 Game.projectiles.push({
-                    x: this.x,
-                    y: this.y,
+                    x: pos.x,
+                    y: pos.y,
                     vx: dirX * knifeSpeed * (this.projectileSpeedMultiplier || 1.0),
                     vy: dirY * knifeSpeed * (this.projectileSpeedMultiplier || 1.0),
                     damage: knifeDamage,
@@ -314,10 +320,27 @@ class Rogue extends PlayerBase {
             this.shadowClones.push(clone);
         }
         
-        // Clear enemy target locks to force immediate retargeting to clones
+        // Clear enemy target locks for enemies within detection range of ANY clone
+        // This provides proximity-based aggro for clones
         if (typeof Game !== 'undefined' && Game.enemies) {
             Game.enemies.forEach(enemy => {
-                if (enemy.alive && enemy.targetLock && enemy.targetLock.playerRef === this) {
+                if (!enemy.alive) return;
+                
+                // Check if enemy is within detection range of ANY clone
+                let withinRange = false;
+                for (const clone of this.shadowClones) {
+                    const dx = clone.x - enemy.x;
+                    const dy = clone.y - enemy.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance <= enemy.detectionRange) {
+                        withinRange = true;
+                        break;
+                    }
+                }
+                
+                // Only clear lock if nearby AND enemy was targeting this player
+                if (withinRange && enemy.targetLock && enemy.targetLock.playerRef === this) {
                     enemy.targetLock = null;
                     enemy.targetLockTimer = 0;
                 }
@@ -476,8 +499,28 @@ class Rogue extends PlayerBase {
                         // Calculate damage dealt BEFORE applying damage
                         const damageDealt = Math.min(dodgeDamage, enemy.hp);
                         
+                        // Get player ID for damage attribution
+                        const attackerId = this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null);
+                        
                         // Collision during dodge - deal damage
-                        enemy.takeDamage(dodgeDamage);
+                        enemy.takeDamage(dodgeDamage, attackerId);
+                        
+                        // Track stats (host/solo only)
+                        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+                        if (!isClient && typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
+                            const stats = Game.getPlayerStats(attackerId);
+                            if (stats) {
+                                stats.addStat('damageDealt', damageDealt);
+                            }
+                            
+                            // Track kill if enemy died
+                            if (enemy.hp <= 0) {
+                                const killStats = Game.getPlayerStats(attackerId);
+                                if (killStats) {
+                                    killStats.addStat('kills', 1);
+                                }
+                            }
+                        }
                         
                         // Show damage number for rogue dodge damage
                         if (typeof createDamageNumber !== 'undefined') {

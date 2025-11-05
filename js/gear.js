@@ -21,8 +21,8 @@ const TIER_BONUSES = {
 // Affix tiers by power level
 const AFFIX_TIERS = {
     basic: ['movementSpeed', 'attackSpeed', 'projectileSpeed', 'maxHealth', 'knockbackPower'],
-    advanced: ['critChance', 'critDamage', 'lifesteal', 'cooldownReduction', 'areaOfEffect'],
-    rare: ['dodgeCharges', 'pierce', 'chainLightning', 'execute', 'rampage', 'multishot', 'phasing', 'explosiveAttacks', 'fortify', 'overcharge']
+    advanced: ['critChance', 'critDamage', 'lifesteal', 'cooldownReduction', 'areaOfEffect', 'beamTickRate', 'beamDuration'],
+    rare: ['dodgeCharges', 'pierce', 'chainLightning', 'execute', 'rampage', 'multishot', 'phasing', 'explosiveAttacks', 'fortify', 'overcharge', 'beamCharges', 'beamPenetration']
 };
 
 // Affix pool with balanced value ranges
@@ -51,7 +51,13 @@ const AFFIX_POOL = {
     phasing: { min: 0.1, max: 0.25, slot: ['armor', 'accessory'], weight: 0.4, tier: 'rare' },
     explosiveAttacks: { min: 0.15, max: 0.3, slot: ['weapon'], weight: 0.5, tier: 'rare' },
     fortify: { min: 0.05, max: 0.15, slot: ['armor'], weight: 0.5, tier: 'rare' },
-    overcharge: { min: 0.15, max: 0.3, slot: ['accessory'], weight: 0.3, tier: 'rare' }
+    overcharge: { min: 0.15, max: 0.3, slot: ['accessory'], weight: 0.3, tier: 'rare' },
+    beamCharges: { min: 1, max: 1, slot: ['weapon', 'accessory'], weight: 0.3, tier: 'rare' },
+    beamPenetration: { min: 1, max: 2, slot: ['weapon', 'accessory'], weight: 0.4, tier: 'rare' },
+    
+    // MAGE-SPECIFIC ADVANCED TIER
+    beamTickRate: { min: 0.15, max: 0.35, slot: ['weapon', 'accessory'], weight: 1.0, tier: 'advanced' },
+    beamDuration: { min: 0.2, max: 0.5, slot: ['weapon', 'accessory'], weight: 1.0, tier: 'advanced' }
 };
 
 // Tiered affix slot allocation per gear tier
@@ -84,7 +90,11 @@ const CLASS_MODIFIER_POOL = {
         { type: 'blink_range', value: 150, description: '+150 Blink Range' },
         { type: 'blink_damage', value: 1.0, description: '+100% Blink Dmg' },
         { type: 'aoe_radius', value: 30, description: '+30 AoE Radius' },
-        { type: 'explosion_radius', value: 25, description: '+25 Explosion Radius' }
+        { type: 'explosion_radius', value: 25, description: '+25 Explosion Radius' },
+        { type: 'beam_charges', value: 1, description: '+1 Beam Charge' },
+        { type: 'beam_tick_rate', value: 0.25, description: '-25% Beam Tick Rate' },
+        { type: 'beam_duration', value: 0.5, description: '+50% Beam Duration' },
+        { type: 'beam_penetration', value: 1, description: '+1 Beam Penetration' }
     ],
     pentagon: [
         { type: 'shield_duration', value: 1.0, description: '+1s Shield' },
@@ -561,7 +571,13 @@ const AFFIX_VISUAL_MAP = {
     phasing: { shape: 'ghost', color: { r: 200, g: 200, b: 255 } },
     explosiveAttacks: { shape: 'explosion', color: { r: 255, g: 200, b: 0 } },
     fortify: { shape: 'shield', color: { r: 150, g: 150, b: 255 } },
-    overcharge: { shape: 'lightning', color: { r: 255, g: 255, b: 150 } }
+    overcharge: { shape: 'lightning', color: { r: 255, g: 255, b: 150 } },
+    
+    // Mage beam affixes
+    beamCharges: { shape: 'charge', color: { r: 150, g: 100, b: 255 } },
+    beamTickRate: { shape: 'pulse', color: { r: 255, g: 150, b: 200 } },
+    beamDuration: { shape: 'extend', color: { r: 200, g: 100, b: 255 } },
+    beamPenetration: { shape: 'penetrate', color: { r: 100, g: 200, b: 255 } }
 };
 
 // Tier opacity settings
@@ -757,10 +773,19 @@ function getGearStatsString(gear) {
     // Add affixes
     if (gear.affixes && gear.affixes.length > 0) {
         gear.affixes.forEach(affix => {
-            const isIntegerAffix = ['dodgeCharges', 'maxHealth', 'pierce', 'chainLightning', 'multishot'].includes(affix.type);
-            const displayValue = isIntegerAffix
-                ? `+${affix.value.toFixed(0)}` 
-                : `+${(affix.value * 100).toFixed(0)}%`;
+            const isIntegerAffix = ['dodgeCharges', 'maxHealth', 'pierce', 'chainLightning', 'multishot', 'beamCharges', 'beamPenetration'].includes(affix.type);
+            let displayValue;
+            
+            // Special handling for beam affixes
+            if (affix.type === 'beamTickRate') {
+                // Display as reduction (negative percentage)
+                displayValue = `-${(affix.value * 100).toFixed(0)}%`;
+            } else if (isIntegerAffix) {
+                displayValue = `+${affix.value.toFixed(0)}`;
+            } else {
+                displayValue = `+${(affix.value * 100).toFixed(0)}%`;
+            }
+            
             const displayName = affix.type.replace(/([A-Z])/g, ' $1').trim();
             const tierBadge = affix.tier ? `[${affix.tier}]` : '';
             statsStr.push(`${tierBadge} ${displayName}: ${displayValue}`);

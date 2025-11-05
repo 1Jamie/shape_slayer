@@ -28,8 +28,8 @@ const BASIC_ENEMY_CONFIG = {
 };
 
 class Enemy extends EnemyBase {
-    constructor(x, y) {
-        super(x, y);
+    constructor(x, y, inheritedTarget = null) {
+        super(x, y, inheritedTarget);
         
         // Stats (from config)
         this.size = BASIC_ENEMY_CONFIG.size;
@@ -62,10 +62,10 @@ class Enemy extends EnemyBase {
         this.currentAttackRange = this.attackRange + (Math.random() - 0.5) * this.attackRangeVariance * 2;
     }
     
-    update(deltaTime, player) {
-        if (!this.alive || !player.alive) return;
+    update(deltaTime) {
+        if (!this.alive) return;
         
-        // Check detection range - only activate when player is nearby
+        // Check detection range - only activate when any player is nearby
         if (!this.checkDetection()) {
             // Enemy is in standby, don't update AI
             return;
@@ -76,6 +76,9 @@ class Enemy extends EnemyBase {
         
         // Update target lock timer
         this.updateTargetLock(deltaTime);
+        
+        // Update aggro target based on sliding window threat calculation
+        this.updateAggroTarget();
         
         // Apply stun slow factor to movement speed
         if (this.stunned) {
@@ -90,8 +93,8 @@ class Enemy extends EnemyBase {
             this.attackCooldown -= cooldownDelta;
         }
         
-        // Get target (handles decoy/clone logic)
-        const target = this.findTarget(player);
+        // Get target (handles decoy/clone logic, uses internal getAllAlivePlayers)
+        const target = this.findTarget(null);
         const targetX = target.x;
         const targetY = target.y;
         

@@ -1471,6 +1471,13 @@ class MultiplayerManager {
         
         if (typeof Game === 'undefined') return;
         
+        // Stop all timers on client to freeze values (match host behavior)
+        if (Game.playerStats) {
+            Game.playerStats.forEach((stats, playerId) => {
+                stats.stopTimer();
+            });
+        }
+        
         // Store final stats for death screen
         Game.finalStats = data.playerStats;
         
@@ -1490,13 +1497,30 @@ class MultiplayerManager {
         if (playerId === localPlayerId && Game.player) {
             console.log('[Multiplayer] Triggering level up effects for local player');
             Game.player.triggerLevelUpEffects();
+            return;
         }
+        
         // If this is a remote player, trigger effects on their instance
-        else if (Game.remotePlayerInstances) {
+        // Host uses remotePlayerInstances, clients use remotePlayerShadowInstances
+        const isClient = Game.multiplayerEnabled && Game.isMultiplayerClient && Game.isMultiplayerClient();
+        
+        if (isClient && Game.remotePlayerShadowInstances) {
+            // CLIENT: Use shadow instances for remote players
+            const remotePlayer = Game.remotePlayerShadowInstances.get(playerId);
+            if (remotePlayer && typeof remotePlayer.triggerLevelUpEffects === 'function') {
+                console.log(`[Multiplayer] Triggering level up effects for remote player ${playerId} (client shadow instance)`);
+                remotePlayer.triggerLevelUpEffects();
+            } else {
+                console.warn(`[Multiplayer] Could not find shadow instance for remote player ${playerId}`);
+            }
+        } else if (!isClient && Game.remotePlayerInstances) {
+            // HOST: Use remote player instances
             const remotePlayer = Game.remotePlayerInstances.get(playerId);
             if (remotePlayer && typeof remotePlayer.triggerLevelUpEffects === 'function') {
-                console.log(`[Multiplayer] Triggering level up effects for remote player ${playerId}`);
+                console.log(`[Multiplayer] Triggering level up effects for remote player ${playerId} (host instance)`);
                 remotePlayer.triggerLevelUpEffects();
+            } else {
+                console.warn(`[Multiplayer] Could not find instance for remote player ${playerId}`);
             }
         }
     }

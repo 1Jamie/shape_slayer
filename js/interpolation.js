@@ -213,6 +213,92 @@ class InterpolationManager {
         };
     }
     
+    // Smooth interpolation with velocity-based extrapolation for players
+    // Returns the position to render at, given current position and target
+    getSmoothedPosition(entityId, currentX, currentY, currentRotation, targetX, targetY, targetRotation, deltaTime) {
+        const snapDistance = typeof MultiplayerConfig !== 'undefined' 
+            ? MultiplayerConfig.SNAP_DISTANCE 
+            : 100;
+        const extrapolationWeight = typeof MultiplayerConfig !== 'undefined'
+            ? MultiplayerConfig.EXTRAPOLATION_WEIGHT
+            : 0.7;
+        const smoothingFactor = typeof MultiplayerConfig !== 'undefined'
+            ? MultiplayerConfig.SMOOTHING_FACTOR
+            : 0.15;
+        const maxExtrapolationDist = typeof MultiplayerConfig !== 'undefined'
+            ? MultiplayerConfig.MAX_EXTRAPOLATION_DISTANCE
+            : 50;
+        
+        // Get buffer for velocity calculation
+        const buffer = this.buffers.get(entityId);
+        if (!buffer) {
+            // No buffer, just return target
+            return { x: targetX, y: targetY, rotation: targetRotation };
+        }
+        
+        // Calculate time since last update
+        const latestTimestamp = buffer.states[buffer.states.length - 1]?.timestamp;
+        const timeSinceUpdate = latestTimestamp 
+            ? (Date.now() - latestTimestamp) / 1000 
+            : 0;
+        
+        // Calculate velocity-based extrapolated position
+        let extrapolatedX = targetX;
+        let extrapolatedY = targetY;
+        
+        if (timeSinceUpdate > 0 && timeSinceUpdate < 0.2) { // Max 200ms extrapolation
+            const velocity = buffer.calculateVelocity();
+            if (velocity) {
+                const extrapolationDx = velocity.vx * timeSinceUpdate;
+                const extrapolationDy = velocity.vy * timeSinceUpdate;
+                
+                // Limit extrapolation distance to prevent overshooting
+                const extrapolationDist = Math.sqrt(extrapolationDx * extrapolationDx + extrapolationDy * extrapolationDy);
+                if (extrapolationDist > 0 && extrapolationDist < maxExtrapolationDist) {
+                    extrapolatedX = targetX + extrapolationDx;
+                    extrapolatedY = targetY + extrapolationDy;
+                }
+            }
+        }
+        
+        // Blend between target position and extrapolated position
+        const blendedTargetX = targetX * (1 - extrapolationWeight) + extrapolatedX * extrapolationWeight;
+        const blendedTargetY = targetY * (1 - extrapolationWeight) + extrapolatedY * extrapolationWeight;
+        
+        // Calculate distance to blended target
+        const dx = blendedTargetX - currentX;
+        const dy = blendedTargetY - currentY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        // If very far from target, snap to prevent rubber-banding
+        if (distance > snapDistance) {
+            return { x: targetX, y: targetY, rotation: targetRotation };
+        }
+        
+        // Use exponential smoothing for very smooth interpolation
+        const smoothingT = 1 - Math.pow(1 - smoothingFactor, deltaTime * 60);
+        
+        const newX = currentX + dx * smoothingT;
+        const newY = currentY + dy * smoothingT;
+        
+        // Interpolate rotation (handle wrapping)
+        let newRotation = currentRotation;
+        if (targetRotation !== null && targetRotation !== undefined) {
+            let rotDiff = targetRotation - currentRotation;
+            // Normalize to [-PI, PI]
+            while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
+            while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
+            newRotation = currentRotation + rotDiff * smoothingT;
+        }
+        
+        // Snap to target if very close to prevent micro-jitter
+        if (distance < 0.5) {
+            return { x: targetX, y: targetY, rotation: targetRotation };
+        }
+        
+        return { x: newX, y: newY, rotation: newRotation };
+    }
+    
     // Remove entity buffer (when entity is destroyed)
     removeEntity(entityId) {
         this.buffers.delete(entityId);

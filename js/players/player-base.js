@@ -126,9 +126,6 @@ class PlayerBase {
         this.targetX = null;
         this.targetY = null;
         this.targetRotation = null;
-        this.lastUpdateTime = 0;
-        this.lastVelocityX = 0;
-        this.lastVelocityY = 0;
         
         // Initialize effective stats (will be calculated based on base + gear)
         this.damage = this.baseDamage;
@@ -414,9 +411,10 @@ class PlayerBase {
                     hitbox.currentAngle = hitbox.startAngle + (hitbox.arcWidth * progress);
                 }
                 
-                // Update hammer position
-                hitbox.x = this.x + Math.cos(hitbox.currentAngle) * hitbox.hammerDistance;
-                hitbox.y = this.y + Math.sin(hitbox.currentAngle) * hitbox.hammerDistance;
+                // Update hammer position (use gameplay position for authoritative positioning)
+                const pos = this.getGameplayPosition();
+                hitbox.x = pos.x + Math.cos(hitbox.currentAngle) * hitbox.hammerDistance;
+                hitbox.y = pos.y + Math.sin(hitbox.currentAngle) * hitbox.hammerDistance;
                 
                 // Add current position to trail (for visual effect)
                 const trailAge = 0.25; // Trail lasts 0.25 seconds
@@ -807,7 +805,27 @@ class PlayerBase {
             // Calculate damage dealt BEFORE applying damage
             const damageDealt = Math.min(reflectedDamage, sourceEnemy.hp);
             
-            sourceEnemy.takeDamage(reflectedDamage);
+            // Get player ID for damage attribution
+            const attackerId = this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null);
+            
+            sourceEnemy.takeDamage(reflectedDamage, attackerId);
+            
+            // Track stats (host/solo only)
+            const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+            if (!isClient && typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
+                const stats = Game.getPlayerStats(attackerId);
+                if (stats) {
+                    stats.addStat('damageDealt', damageDealt);
+                }
+                
+                // Track kill if enemy died
+                if (sourceEnemy.hp <= 0) {
+                    const killStats = Game.getPlayerStats(attackerId);
+                    if (killStats) {
+                        killStats.addStat('kills', 1);
+                    }
+                }
+            }
             
             // Visual feedback for thorns
             if (typeof createDamageNumber !== 'undefined') {
@@ -1024,6 +1042,11 @@ class PlayerBase {
         this.explosiveChance = 0;
         this.fortifyPercent = 0;
         this.overchargeChance = 0;
+        // Mage beam-specific affixes
+        this.bonusBeamCharges = 0;
+        this.beamTickRateMultiplier = 1.0;
+        this.beamDurationMultiplier = 1.0;
+        this.bonusBeamPenetration = 0;
         
         // Reset crit chance to base class value stored during construction
         this.critChance = this.baseCritChance || 0;
@@ -1234,6 +1257,20 @@ class PlayerBase {
                 break;
             case 'overcharge':
                 this.overchargeChance += affix.value;
+                break;
+            case 'beamCharges':
+                this.bonusBeamCharges += Math.floor(affix.value);
+                break;
+            case 'beamTickRate':
+                // Reduction - subtract from multiplier (e.g., 0.25 = 25% faster = 0.75x multiplier)
+                this.beamTickRateMultiplier -= affix.value;
+                break;
+            case 'beamDuration':
+                // Increase - add to multiplier (e.g., 0.3 = 30% longer = 1.3x multiplier)
+                this.beamDurationMultiplier += affix.value;
+                break;
+            case 'beamPenetration':
+                this.bonusBeamPenetration += Math.floor(affix.value);
                 break;
         }
     }
@@ -1881,6 +1918,30 @@ class PlayerBase {
                 shape: 'lightning', 
                 waveType: 'digital',
                 modR: 255, modG: 255, modB: 150 
+            },
+            beamCharges: {
+                freq: 3.5,
+                shape: 'charge',
+                waveType: 'pulse',
+                modR: 150, modG: 100, modB: 255
+            },
+            beamTickRate: {
+                freq: 6.0,
+                shape: 'pulse',
+                waveType: 'digital',
+                modR: 255, modG: 150, modB: 200
+            },
+            beamDuration: {
+                freq: 2.5,
+                shape: 'extend',
+                waveType: 'linear',
+                modR: 200, modG: 100, modB: 255
+            },
+            beamPenetration: {
+                freq: 3.0,
+                shape: 'penetrate',
+                waveType: 'linear',
+                modR: 100, modG: 200, modB: 255
             }
         };
         
@@ -2496,33 +2557,24 @@ class PlayerBase {
                                      !multiplayerManager.isHost;
         
         // Position and movement - use interpolation for clients, direct update for host/solo
-        if (state.x !== undefined) {
+        if (state.x !== undefined && state.y !== undefined) {
             if (isMultiplayerClient) {
-                // Set interpolation target instead of direct position
-                this.targetX = state.x;
-                // Calculate velocity for extrapolation
-                if (this.targetX !== null && this.x !== undefined) {
-                    const dt = (Date.now() - this.lastUpdateTime) / 1000;
-                    if (dt > 0 && dt < 1) { // Sanity check
-                        this.lastVelocityX = (state.x - this.x) / dt;
-                    }
+                // Add state to interpolation buffer for smooth rendering
+                if (typeof interpolationManager !== 'undefined' && interpolationManager && this.playerId) {
+                    interpolationManager.addEntityState(this.playerId, Date.now(), {
+                        x: state.x,
+                        y: state.y,
+                        rotation: state.rotation,
+                        timestamp: Date.now()
+                    });
                 }
+                
+                // Set interpolation targets
+                this.targetX = state.x;
+                this.targetY = state.y;
             } else {
                 // Host or solo: direct update
                 this.x = state.x;
-            }
-        }
-        
-        if (state.y !== undefined) {
-            if (isMultiplayerClient) {
-                this.targetY = state.y;
-                if (this.targetY !== null && this.y !== undefined) {
-                    const dt = (Date.now() - this.lastUpdateTime) / 1000;
-                    if (dt > 0 && dt < 1) {
-                        this.lastVelocityY = (state.y - this.y) / dt;
-                    }
-                }
-            } else {
                 this.y = state.y;
             }
         }
@@ -2533,11 +2585,6 @@ class PlayerBase {
             } else {
                 this.rotation = state.rotation;
             }
-        }
-        
-        // Update timestamp for velocity calculation
-        if (isMultiplayerClient) {
-            this.lastUpdateTime = Date.now();
         }
         
         // Health and progression (with level up detection)
@@ -2732,56 +2779,79 @@ class PlayerBase {
         }
     }
     
+    // Get gameplay position (authoritative position for multiplayer clients, visual position otherwise)
+    // Use this for attack creation, collision detection, etc.
+    getGameplayPosition() {
+        // Check if we're a multiplayer client (not host, not solo)
+        const isMultiplayerClient = typeof Game !== 'undefined' && 
+                                     Game.multiplayerEnabled && 
+                                     typeof multiplayerManager !== 'undefined' && 
+                                     multiplayerManager && 
+                                     !multiplayerManager.isHost;
+        
+        if (isMultiplayerClient && this.targetX !== null && this.targetY !== null) {
+            // Use authoritative position from host
+            return { x: this.targetX, y: this.targetY };
+        }
+        
+        // Use current visual position
+        return { x: this.x, y: this.y };
+    }
+    
     // Interpolate position toward target (for multiplayer clients)
     interpolatePosition(deltaTime) {
         // Only interpolate if we have targets set
         if (this.targetX === null || this.targetY === null) return;
         
-        // Calculate distance to target
-        const dx = this.targetX - this.x;
-        const dy = this.targetY - this.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        
-        // If very far from target, snap to prevent rubber-banding
-        if (distance > MultiplayerConfig.SNAP_DISTANCE) {
-            this.x = this.targetX;
-            this.y = this.targetY;
-            if (this.targetRotation !== null) {
-                this.rotation = this.targetRotation;
-            }
-            return;
-        }
-        
-        // Adaptive lerp speed based on distance
-        // Closer to target = slower lerp (smoother), further = faster (catch up)
-        const baseSpeed = MultiplayerConfig.BASE_LERP_SPEED;
-        const distanceFactor = Math.min(distance / 50, 2); // Scale up to 2x speed when far
-        const lerpSpeed = clamp(
-            baseSpeed * (1 + distanceFactor),
-            MultiplayerConfig.MIN_LERP_SPEED,
-            MultiplayerConfig.MAX_LERP_SPEED
-        );
-        
-        // Smooth lerp toward target
-        const t = Math.min(1, deltaTime * lerpSpeed);
-        this.x += dx * t;
-        this.y += dy * t;
-        
-        // Interpolate rotation (handle wrapping)
-        if (this.targetRotation !== null) {
-            let rotDiff = this.targetRotation - this.rotation;
-            // Normalize to [-PI, PI]
-            while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
-            while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
-            this.rotation += rotDiff * t;
-        }
-        
-        // Clear targets if very close (snap the last bit)
-        if (distance < 0.1) {
-            this.x = this.targetX;
-            this.y = this.targetY;
-            if (this.targetRotation !== null) {
-                this.rotation = this.targetRotation;
+        // Use InterpolationManager for smooth interpolation with velocity-based extrapolation
+        if (typeof interpolationManager !== 'undefined' && interpolationManager && this.playerId) {
+            const smoothed = interpolationManager.getSmoothedPosition(
+                this.playerId,
+                this.x,
+                this.y,
+                this.rotation,
+                this.targetX,
+                this.targetY,
+                this.targetRotation,
+                deltaTime
+            );
+            
+            this.x = smoothed.x;
+            this.y = smoothed.y;
+            this.rotation = smoothed.rotation;
+        } else {
+            // Fallback: simple lerp if InterpolationManager not available
+            const snapDistance = typeof MultiplayerConfig !== 'undefined' 
+                ? MultiplayerConfig.SNAP_DISTANCE 
+                : 100;
+            const dx = this.targetX - this.x;
+            const dy = this.targetY - this.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance > snapDistance) {
+                this.x = this.targetX;
+                this.y = this.targetY;
+                if (this.targetRotation !== null) {
+                    this.rotation = this.targetRotation;
+                }
+            } else if (distance > 0.5) {
+                const smoothingFactor = 0.15;
+                const t = 1 - Math.pow(1 - smoothingFactor, deltaTime * 60);
+                this.x += dx * t;
+                this.y += dy * t;
+                
+                if (this.targetRotation !== null) {
+                    let rotDiff = this.targetRotation - this.rotation;
+                    while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
+                    while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
+                    this.rotation += rotDiff * t;
+                }
+            } else {
+                this.x = this.targetX;
+                this.y = this.targetY;
+                if (this.targetRotation !== null) {
+                    this.rotation = this.targetRotation;
+                }
             }
         }
     }
