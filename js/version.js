@@ -140,9 +140,11 @@ const GameVersion = {
 **🏃 Speed Scaling Rework (Because Sonic the Shapegon Was Getting Out of Hand):**
 *"NASA called. They want their escape velocity back."*
 
-• ** Added arrows to help guide players to the last few enemies since everyone seems to dislike having to search the whole room for the last few enemies... lazy bums!!!**
+•  Added arrows to help guide players to the last few enemies
+    *"everyone seems to dislike having to search the whole room for the last few enemies... you should try to find this javascript file  in my nuthouse of a codebase!!!"*
 
-• ** Adjusted tool tips so they dont show when enemies are nearby... apparently people cant work around some ui clutter, boy would you hate my developtment environment. o_O **
+•  Adjusted tool tips so they dont show when enemies are nearby 
+    *"apparently people cant work around some ui clutter, boy would you hate my developtment environment. o_O "*
 
 • **Level-Up Speed Gains:** Reduced to a modest +5% per level for first 5 levels (all classes)
     *"I heard you like going fast, but not THAT fast"*
