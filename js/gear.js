@@ -36,20 +36,20 @@ const AFFIX_POOL = {
     
     // ADVANCED TIER
     critChance: { min: 0.05, max: 0.15, slot: ['weapon', 'accessory'], weight: 1.0, tier: 'advanced' },
-    critDamage: { min: 0.2, max: 0.6, slot: ['weapon'], weight: 1.0, tier: 'advanced' },
+    critDamage: { min: 0.15, max: 0.45, slot: ['weapon'], weight: 1.0, tier: 'advanced' },
     lifesteal: { min: 0.03, max: 0.1, slot: ['weapon', 'armor'], weight: 1.0, tier: 'advanced' },
     cooldownReduction: { min: 0.08, max: 0.15, slot: ['accessory', 'armor'], weight: 1.0, tier: 'advanced' }, // Reduced from 0.2 max
-    areaOfEffect: { min: 0.15, max: 0.35, slot: ['weapon'], weight: 1.0, tier: 'advanced' },
+    areaOfEffect: { min: 0.12, max: 0.28, slot: ['weapon'], weight: 1.0, tier: 'advanced' },
     
     // RARE TIER
     dodgeCharges: { min: 1, max: 1, slot: ['armor', 'accessory'], weight: 0.3, tier: 'rare' },
     pierce: { min: 1, max: 3, slot: ['weapon'], weight: 0.5, tier: 'rare' },
     chainLightning: { min: 1, max: 2, slot: ['weapon'], weight: 0.4, tier: 'rare' },
-    execute: { min: 0.3, max: 0.6, slot: ['weapon'], weight: 0.5, tier: 'rare' },
-    rampage: { min: 0.05, max: 0.15, slot: ['weapon', 'accessory'], weight: 0.4, tier: 'rare' },
+    execute: { min: 0.25, max: 0.50, slot: ['weapon'], weight: 0.5, tier: 'rare' },
+    rampage: { min: 0.04, max: 0.12, slot: ['weapon', 'accessory'], weight: 0.4, tier: 'rare' },
     multishot: { min: 1, max: 2, slot: ['weapon'], weight: 0.3, tier: 'rare' },
     phasing: { min: 0.1, max: 0.25, slot: ['armor', 'accessory'], weight: 0.4, tier: 'rare' },
-    explosiveAttacks: { min: 0.15, max: 0.3, slot: ['weapon'], weight: 0.5, tier: 'rare' },
+    explosiveAttacks: { min: 0.12, max: 0.25, slot: ['weapon'], weight: 0.5, tier: 'rare' },
     fortify: { min: 0.05, max: 0.15, slot: ['armor'], weight: 0.5, tier: 'rare' },
     overcharge: { min: 0.15, max: 0.3, slot: ['accessory'], weight: 0.3, tier: 'rare' },
     beamCharges: { min: 1, max: 1, slot: ['weapon', 'accessory'], weight: 0.3, tier: 'rare' },
@@ -73,22 +73,22 @@ const TIERED_AFFIX_SLOTS = {
 const CLASS_MODIFIER_POOL = {
     square: [
         { type: 'whirlwind_duration', value: 1.0, description: '+1s Whirlwind' },
-        { type: 'whirlwind_damage', value: 0.5, description: '+50% Whirlwind Dmg' },
+        { type: 'whirlwind_damage', value: 0.4, description: '+40% Whirlwind Dmg' },
         { type: 'thrust_distance', value: 100, description: '+100 Thrust Range' },
-        { type: 'thrust_damage', value: 0.5, description: '+50% Thrust Dmg' },
+        { type: 'thrust_damage', value: 0.4, description: '+40% Thrust Dmg' },
         { type: 'block_reduction', value: 0.2, description: '+20% Block Reduction' }
     ],
     triangle: [
-        { type: 'dodge_damage', value: 0.5, description: '+50% Dodge Dmg' },
+        { type: 'dodge_damage', value: 0.4, description: '+40% Dodge Dmg' },
         { type: 'dodge_charges', value: 1, description: '+1 Dodge Charge' },
         { type: 'knife_count', value: 3, description: '+3 Knives' },
         { type: 'shadow_clone_count', value: 1, description: '+1 Shadow Clone' },
-        { type: 'backstab_multiplier', value: 0.5, description: '+50% Backstab' }
+        { type: 'backstab_multiplier', value: 0.4, description: '+40% Backstab' }
     ],
     hexagon: [
         { type: 'projectile_count', value: 1, description: '+1 Projectile' },
         { type: 'blink_range', value: 150, description: '+150 Blink Range' },
-        { type: 'blink_damage', value: 1.0, description: '+100% Blink Dmg' },
+        { type: 'blink_damage', value: 0.8, description: '+80% Blink Dmg' },
         { type: 'aoe_radius', value: 30, description: '+30 AoE Radius' },
         { type: 'explosion_radius', value: 25, description: '+25 Explosion Radius' },
         { type: 'beam_charges', value: 1, description: '+1 Beam Charge' },
@@ -98,7 +98,7 @@ const CLASS_MODIFIER_POOL = {
     ],
     pentagon: [
         { type: 'shield_duration', value: 1.0, description: '+1s Shield' },
-        { type: 'shield_wave_damage', value: 1.0, description: '+100% Wave Dmg' },
+        { type: 'shield_wave_damage', value: 0.8, description: '+80% Wave Dmg' },
         { type: 'smash_radius', value: 40, description: '+40 Smash Radius' },
         { type: 'hammer_knockback', value: 0.5, description: '+50% Hammer KB' },
         { type: 'shield_reduction', value: 0.2, description: '+20% Shield Reduction' }
@@ -107,7 +107,7 @@ const CLASS_MODIFIER_POOL = {
         { type: 'heavy_cooldown', value: -0.5, description: '-0.5s Heavy CD' },
         { type: 'special_cooldown', value: -1.0, description: '-1s Special CD' },
         { type: 'dodge_cooldown', value: -0.3, description: '-0.3s Dodge CD' },
-        { type: 'basic_damage', value: 0.25, description: '+25% Basic Dmg' }
+        { type: 'basic_damage', value: 0.20, description: '+20% Basic Dmg' }
     ]
 };
 
@@ -116,27 +116,27 @@ const groundLoot = [];
 
 // Get gear scaling based on room number
 function getGearScaling(roomNumber) {
-    return 1 + (roomNumber * 0.05); // +5% per room (reduced from +10%)
+    return 1 + (roomNumber * 0.04); // +4% per room (balanced for difficulty curve)
 }
 
 // Flat stat ranges for weapons and armor
 const FLAT_STAT_RANGES = {
     weapon: {
         damage: {
-            gray: { min: 3, max: 6 },
-            green: { min: 8, max: 12 },
-            blue: { min: 15, max: 22 },
-            purple: { min: 25, max: 35 },
-            orange: { min: 35, max: 50 }
+            gray: { min: 2, max: 4 },
+            green: { min: 6, max: 9 },
+            blue: { min: 11, max: 16 },
+            purple: { min: 18, max: 26 },
+            orange: { min: 26, max: 38 }
         }
     },
     armor: {
         defense: {
-            gray: { min: 0.02, max: 0.05 },
-            green: { min: 0.06, max: 0.10 },
-            blue: { min: 0.12, max: 0.18 },
-            purple: { min: 0.20, max: 0.28 },
-            orange: { min: 0.30, max: 0.45 }
+            gray: { min: 0.02, max: 0.04 },
+            green: { min: 0.05, max: 0.08 },
+            blue: { min: 0.10, max: 0.15 },
+            purple: { min: 0.16, max: 0.23 },
+            orange: { min: 0.24, max: 0.36 }
         }
     }
 };
@@ -145,14 +145,14 @@ const FLAT_STAT_RANGES = {
 const WEAPON_TYPES = {
     fast: {
         name: 'Acute',
-        damageMultiplier: 1.0,
+        damageMultiplier: 0.95,
         cooldownMultiplier: 0.7,  // 30% faster attacks
         movementSpeedBonus: 0.15,
         color: '#00ffff'
     },
     heavy: {
         name: 'Obtuse',
-        damageMultiplier: 1.4,
+        damageMultiplier: 1.25,
         cooldownMultiplier: 1.1,  // 10% slower attacks
         knockbackBonus: 0.5,
         stunChance: 0.15,
@@ -167,7 +167,7 @@ const WEAPON_TYPES = {
     },
     dual: {
         name: 'Parallel',
-        damageMultiplier: 0.75,
+        damageMultiplier: 0.80,
         hitCount: 2,
         critBonus: 0.10,
         color: '#ff00ff'
@@ -178,7 +178,7 @@ const WEAPON_TYPES = {
 const ARMOR_TYPES = {
     light: {
         name: 'Fractal',
-        defenseMultiplier: 0.7,
+        defenseMultiplier: 0.75,
         movementSpeedBonus: 0.20,
         dodgeBonus: 1, // +1 charge
         dodgeDamageReduction: 0.15,
@@ -192,7 +192,7 @@ const ARMOR_TYPES = {
     },
     heavy: {
         name: 'Tessellated',
-        defenseMultiplier: 1.4,
+        defenseMultiplier: 1.30,
         movementSpeedPenalty: -0.10,
         interruptImmune: true,
         knockbackImmune: true,
@@ -200,7 +200,7 @@ const ARMOR_TYPES = {
     },
     cloth: {
         name: 'Membrane',
-        defenseMultiplier: 0.5,
+        defenseMultiplier: 0.60,
         cooldownReduction: 0.15,
         projectileSpeedBonus: 0.20,
         color: '#ffaaff'
@@ -213,11 +213,11 @@ const LEGENDARY_EFFECTS = {
     incendiary: { burnDuration: 3, burnDPS: 0.3, description: 'Burns enemies for 3s' },
     freezing: { slowChance: 0.20, slowAmount: 0.5, slowDuration: 2, description: '20% chance to slow' },
     thorns: { reflectPercent: 0.25, description: 'Reflects 25% damage' },
-    berserker_rage: { damageBonus: 0.30, defensePenalty: -0.15, description: 'Berserker Rage: +30% Dmg, -15% Def' },
-    glass_cannon: { damageBonus: 0.60, healthPenalty: -0.50, description: 'Glass Cannon: +60% Dmg, -50% HP' },
+    berserker_rage: { damageBonus: 0.25, defensePenalty: -0.20, description: 'Berserker Rage: +25% Dmg, -20% Def' },
+    glass_cannon: { damageBonus: 0.45, healthPenalty: -0.40, description: 'Glass Cannon: +45% Dmg, -40% HP' },
     phoenix_down: { reviveHealth: 0.30, description: 'Revive once per room at 30% HP' },
     time_dilation: { timeSlow: 0.20, description: 'Slow time 20%' },
-    chain_lightning: { chainCount: 2, chainDamage: 0.7, chainRange: 150, description: 'Chains to 2 enemies (70% dmg)' }
+    chain_lightning: { chainCount: 2, chainDamage: 0.6, chainRange: 150, description: 'Chains to 2 enemies (60% dmg)' }
 };
 
 // Generate affixes using tiered slot system

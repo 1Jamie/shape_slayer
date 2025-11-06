@@ -106,6 +106,7 @@ class PlayerBase {
         this.baseDamage = 10;
         this.baseDefense = 0;
         this.baseMoveSpeed = 200;
+        this.initialBaseMoveSpeed = 200; // Store original for level scaling calculations
         
         // Special abilities
         this.specialCooldown = 0;
@@ -973,10 +974,40 @@ class PlayerBase {
         
         this.level++;
         
-        // Increase base stats by 10%
-        this.baseDamage *= 1.1;
-        this.baseMoveSpeed *= 1.1;
+        // Increase base stats (damage 7%, HP 10%)
+        this.baseDamage *= 1.07;
         this.maxHp *= 1.1;
+        
+        // Apply class-specific speed scaling with cap
+        let speedBoost = 0;
+        
+        // Levels 1-5: All classes get +5% per level
+        if (this.level >= 2 && this.level <= 5) {
+            const levelsCompleted = this.level - 1; // Level 2 = 1 boost, Level 5 = 4 boosts
+            speedBoost = this.initialBaseMoveSpeed * 0.05 * levelsCompleted;
+        } else if (this.level > 5) {
+            // After level 5, base boost is 4 * 5% = 20%
+            speedBoost = this.initialBaseMoveSpeed * 0.20;
+            
+            // Rogue gets additional boosts on levels 6, 8, 10
+            if (this.playerClass === 'triangle') {
+                let rogueExtraBoosts = 0;
+                if (this.level >= 6) rogueExtraBoosts++;
+                if (this.level >= 8) rogueExtraBoosts++;
+                if (this.level >= 10) rogueExtraBoosts++;
+                
+                speedBoost += this.initialBaseMoveSpeed * 0.08 * rogueExtraBoosts;
+            }
+        }
+        
+        // Apply speed boost with cap
+        this.baseMoveSpeed = this.initialBaseMoveSpeed + speedBoost;
+        
+        // Cap at 450 pixels/second or 1.5x initial speed, whichever is higher
+        const maxSpeedCap = Math.max(450, this.initialBaseMoveSpeed * 1.5);
+        if (this.baseMoveSpeed > maxSpeedCap) {
+            this.baseMoveSpeed = maxSpeedCap;
+        }
         
         // Recalculate effective stats with gear bonuses
         this.updateEffectiveStats();

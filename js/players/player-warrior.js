@@ -80,6 +80,7 @@ class Warrior extends PlayerBase {
         // Set base stats from CONFIG (single source of truth)
         this.baseDamage = WARRIOR_CONFIG.baseDamage + upgradeBonuses.damage;
         this.baseMoveSpeed = WARRIOR_CONFIG.baseSpeed + upgradeBonuses.speed;
+        this.initialBaseMoveSpeed = this.baseMoveSpeed; // Store original for level scaling
         this.baseDefense = WARRIOR_CONFIG.baseDefense + upgradeBonuses.defense;
         this.baseMaxHp = WARRIOR_CONFIG.baseHp; // Store base max HP for gear calculations
         this.maxHp = WARRIOR_CONFIG.baseHp;

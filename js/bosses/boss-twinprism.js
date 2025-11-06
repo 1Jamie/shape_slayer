@@ -71,7 +71,7 @@ class BossTwinPrism extends BossBase {
         
         // Override base stats
         this.size = 50; // Each diamond is 50px (doubled to 100 for collision)
-        this.maxHp = 1842; // Increased base HP (~3.68x) to match Swarm King change
+        this.maxHp = 1500; // BossBase will multiply by 12
         this.hp = this.maxHp;
         this.damage = 10;
         this.moveSpeed = 235.4; // Increased from 150 for assassin-like speed

@@ -85,6 +85,7 @@ class Rogue extends PlayerBase {
         // Set base stats from CONFIG (single source of truth)
         this.baseDamage = ROGUE_CONFIG.baseDamage + upgradeBonuses.damage;
         this.baseMoveSpeed = ROGUE_CONFIG.baseSpeed + upgradeBonuses.speed;
+        this.initialBaseMoveSpeed = this.baseMoveSpeed; // Store original for level scaling
         this.baseDefense = ROGUE_CONFIG.baseDefense + upgradeBonuses.defense;
         this.baseMaxHp = ROGUE_CONFIG.baseHp; // Store base max HP for gear calculations
         this.maxHp = ROGUE_CONFIG.baseHp;

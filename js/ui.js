@@ -713,13 +713,21 @@ function worldToScreen(worldX, worldY) {
 function renderGearTooltips(ctx, player) {
     if (!player || !player.alive || typeof groundLoot === 'undefined') return;
     
-    groundLoot.forEach(gear => {
-        const dx = gear.x - player.x;
-        const dy = gear.y - player.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        
-        // Show tooltip within range
-        if (distance < 50) {
+    // Update nearby items list
+    LootSelection.updateNearbyItems(player);
+    const selectedGear = LootSelection.getSelectedGear();
+    const nearbyCount = LootSelection.getCount();
+    
+    // Only show tooltip for selected gear (or if only one nearby)
+    if (!selectedGear) return;
+    
+    const gear = selectedGear;
+    const dx = gear.x - player.x;
+    const dy = gear.y - player.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    // Show tooltip within range
+    if (distance < 50) {
             // Convert gear world position to screen position
             const screenPos = worldToScreen(gear.x, gear.y);
             const tooltipX = screenPos.x;
@@ -905,17 +913,38 @@ function renderGearTooltips(ctx, player) {
             if (typeof Input !== 'undefined' && (!Input.isTouchMode || !Input.isTouchMode())) {
                 ctx.fillStyle = '#ffff00';
                 ctx.font = 'bold 12px Arial';
-                ctx.fillText('Press G to pickup', tooltipX, tooltipY + tooltipHeight / 2 - 8);
+                ctx.textAlign = 'center';
+                
+                let promptY = tooltipY + tooltipHeight / 2 - 8;
+                ctx.fillText('Press G to pickup', tooltipX, promptY);
+                
+                // Show cycling instructions if multiple items nearby
+                if (nearbyCount > 1) {
+                    promptY += 18;
+                    ctx.fillStyle = '#aaaaaa';
+                    ctx.font = '11px Arial';
+                    ctx.fillText(`← → to cycle (${LootSelection.selectedIndex + 1}/${nearbyCount})`, tooltipX, promptY);
+                }
             }
             
             // Draw range indicator (using screen coordinates)
-            ctx.strokeStyle = 'rgba(255, 255, 0, 0.5)';
-            ctx.lineWidth = 2;
+            // Highlight selected item more prominently
+            const isSelected = nearbyCount > 1;
+            ctx.strokeStyle = isSelected ? 'rgba(255, 255, 0, 0.8)' : 'rgba(255, 255, 0, 0.5)';
+            ctx.lineWidth = isSelected ? 3 : 2;
             ctx.beginPath();
             ctx.arc(screenPos.x, screenPos.y, 50, 0, Math.PI * 2);
             ctx.stroke();
-        }
-    });
+            
+            // Draw selection indicator for selected item
+            if (isSelected) {
+                ctx.strokeStyle = gear.color;
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                ctx.arc(screenPos.x, screenPos.y, gear.size + 8, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+    }
 }
 
 // Get gear stat as string for tooltip (comprehensive version)
@@ -3070,29 +3099,113 @@ class InteractionButton {
 // Global interaction button instance
 let interactionButton = null;
 
+// Loot selection system - handles cycling through nearby items
+const LootSelection = {
+    nearbyItems: [], // Array of gear items within pickup range
+    selectedIndex: 0, // Currently selected item index
+    lastCycleTime: 0, // Prevent rapid cycling
+    cycleCooldown: 150, // ms between cycles
+    
+    // Update nearby items list
+    updateNearbyItems(player) {
+        if (!player || !player.alive || typeof groundLoot === 'undefined') {
+            this.nearbyItems = [];
+            this.selectedIndex = 0;
+            return;
+        }
+        
+        const pickupRange = 50;
+        const nearby = [];
+        
+        groundLoot.forEach(gear => {
+            const dx = gear.x - player.x;
+            const dy = gear.y - player.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance < pickupRange) {
+                nearby.push({
+                    gear: gear,
+                    distance: distance
+                });
+            }
+        });
+        
+        // Sort by distance (closest first)
+        nearby.sort((a, b) => a.distance - b.distance);
+        
+        // Update list
+        const previousSelectedGear = this.getSelectedGear();
+        this.nearbyItems = nearby.map(item => item.gear);
+        
+        // Try to maintain selection if possible
+        if (previousSelectedGear && this.nearbyItems.length > 0) {
+            const previousIndex = this.nearbyItems.findIndex(g => g.id === previousSelectedGear.id);
+            if (previousIndex !== -1) {
+                this.selectedIndex = previousIndex;
+            } else {
+                // Previous selection no longer nearby, reset to closest
+                this.selectedIndex = 0;
+            }
+        } else {
+            this.selectedIndex = 0;
+        }
+        
+        // Clamp index
+        if (this.selectedIndex >= this.nearbyItems.length) {
+            this.selectedIndex = Math.max(0, this.nearbyItems.length - 1);
+        }
+    },
+    
+    // Get currently selected gear
+    getSelectedGear() {
+        if (this.nearbyItems.length === 0) return null;
+        return this.nearbyItems[this.selectedIndex] || null;
+    },
+    
+    // Cycle to next item
+    cycleNext() {
+        const now = Date.now();
+        if (now - this.lastCycleTime < this.cycleCooldown) return;
+        
+        if (this.nearbyItems.length > 1) {
+            this.selectedIndex = (this.selectedIndex + 1) % this.nearbyItems.length;
+            this.lastCycleTime = now;
+            return true;
+        }
+        return false;
+    },
+    
+    // Cycle to previous item
+    cyclePrevious() {
+        const now = Date.now();
+        if (now - this.lastCycleTime < this.cycleCooldown) return;
+        
+        if (this.nearbyItems.length > 1) {
+            this.selectedIndex = (this.selectedIndex - 1 + this.nearbyItems.length) % this.nearbyItems.length;
+            this.lastCycleTime = now;
+            return true;
+        }
+        return false;
+    },
+    
+    // Get count of nearby items
+    getCount() {
+        return this.nearbyItems.length;
+    }
+};
+
 // Check for gear pickup interaction
 function checkGearInteraction() {
     if (!Game || !Game.player || !Game.player.alive || typeof groundLoot === 'undefined') {
         return null;
     }
     
-    // Find closest gear within pickup range
-    let closestGear = null;
-    let closestDistance = 50; // pickup range
+    // Update nearby items and get selected gear
+    LootSelection.updateNearbyItems(Game.player);
+    const selectedGear = LootSelection.getSelectedGear();
     
-    groundLoot.forEach(gear => {
-        const dx = gear.x - Game.player.x;
-        const dy = gear.y - Game.player.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        
-        if (distance < closestDistance) {
-            closestDistance = distance;
-            closestGear = gear;
-        }
-    });
-    
-    if (closestGear) {
-        return { type: 'gear', data: closestGear };
+    if (selectedGear) {
+        return { type: 'gear', data: selectedGear };
     }
     
     return null;
@@ -3224,25 +3337,33 @@ function handleInteractionButtonClick(x, y) {
         
         // Trigger the interaction directly
         if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'gear') {
-            // Trigger gear pickup directly
-            if (Game.checkGearPickup && Game.player && Game.player.alive && typeof groundLoot !== 'undefined') {
-                // Find closest gear and pick it up
-                let closestGear = null;
-                let closestDistance = 50;
-                
-                groundLoot.forEach(gear => {
-                    const dx = gear.x - Game.player.x;
-                    const dy = gear.y - Game.player.y;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
+            // Use selected gear from LootSelection
+            if (typeof LootSelection !== 'undefined') {
+                LootSelection.updateNearbyItems(Game.player);
+                const selectedGear = LootSelection.getSelectedGear();
+                if (selectedGear && Game.pickupGear) {
+                    Game.pickupGear(selectedGear);
+                }
+            } else {
+                // Fallback to closest gear
+                if (Game.checkGearPickup && Game.player && Game.player.alive && typeof groundLoot !== 'undefined') {
+                    let closestGear = null;
+                    let closestDistance = 50;
                     
-                    if (distance < closestDistance) {
-                        closestDistance = distance;
-                        closestGear = gear;
+                    groundLoot.forEach(gear => {
+                        const dx = gear.x - Game.player.x;
+                        const dy = gear.y - Game.player.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        
+                        if (distance < closestDistance) {
+                            closestDistance = distance;
+                            closestGear = gear;
+                        }
+                    });
+                    
+                    if (closestGear && Game.pickupGear) {
+                        Game.pickupGear(closestGear);
                     }
-                });
-                
-                if (closestGear && Game.pickupGear) {
-                    Game.pickupGear(closestGear);
                 }
             }
         } else if (Game && Game.state === 'NEXUS') {
@@ -3259,6 +3380,129 @@ function handleInteractionButtonClick(x, y) {
             }
         }
         
+        return true;
+    }
+    
+    return false;
+}
+
+// Render mobile loot selection UI (when multiple items nearby)
+function renderMobileLootSelection(ctx) {
+    if (!Input || !Input.isTouchMode || !Input.isTouchMode()) {
+        return;
+    }
+    
+    if (!Game || Game.state !== 'PLAYING' || !Game.player || !Game.player.alive) {
+        return;
+    }
+    
+    // Update nearby items
+    if (typeof LootSelection === 'undefined') return;
+    LootSelection.updateNearbyItems(Game.player);
+    const nearbyCount = LootSelection.getCount();
+    
+    // Only show if multiple items nearby
+    if (nearbyCount <= 1) return;
+    
+    const canvasWidth = Game ? Game.config.width : 1280;
+    const canvasHeight = Game ? Game.config.height : 720;
+    
+    // Create loot selection panel at top-center
+    const panelWidth = Math.min(400, canvasWidth - 40);
+    const panelHeight = 80;
+    const panelX = (canvasWidth - panelWidth) / 2;
+    const panelY = 20;
+    
+    // Background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+    ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
+    
+    // Border
+    ctx.strokeStyle = '#ffff00';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
+    
+    // Title
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 14px Arial';
+    ctx.textAlign = 'left';
+    ctx.fillText(`Select Loot (${LootSelection.selectedIndex + 1}/${nearbyCount}):`, panelX + 10, panelY + 22);
+    
+    // Cycle buttons
+    const buttonSize = 40;
+    const buttonY = panelY + 35;
+    const leftButtonX = panelX + 10;
+    const rightButtonX = panelX + panelWidth - buttonSize - 10;
+    
+    // Left arrow button (always enabled when multiple items)
+    ctx.fillStyle = 'rgba(100, 150, 255, 0.8)';
+    ctx.fillRect(leftButtonX, buttonY, buttonSize, buttonSize);
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(leftButtonX, buttonY, buttonSize, buttonSize);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 24px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('←', leftButtonX + buttonSize / 2, buttonY + buttonSize / 2);
+    
+    // Right arrow button (always enabled when multiple items)
+    ctx.fillStyle = 'rgba(100, 150, 255, 0.8)';
+    ctx.fillRect(rightButtonX, buttonY, buttonSize, buttonSize);
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(rightButtonX, buttonY, buttonSize, buttonSize);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('→', rightButtonX + buttonSize / 2, buttonY + buttonSize / 2);
+    
+    // Selected item name (center)
+    const selectedGear = LootSelection.getSelectedGear();
+    if (selectedGear) {
+        const centerX = panelX + panelWidth / 2;
+        ctx.fillStyle = selectedGear.color || '#ffffff';
+        ctx.font = 'bold 12px Arial';
+        ctx.textAlign = 'center';
+        const gearName = selectedGear.name || `${selectedGear.tier} ${selectedGear.slot}`;
+        ctx.fillText(gearName, centerX, buttonY + buttonSize / 2);
+    }
+}
+
+// Handle mobile loot selection button clicks
+function handleMobileLootSelectionClick(x, y) {
+    if (!Input || !Input.isTouchMode || !Input.isTouchMode()) {
+        return false;
+    }
+    
+    if (!Game || Game.state !== 'PLAYING') {
+        return false;
+    }
+    
+    if (typeof LootSelection === 'undefined') return false;
+    LootSelection.updateNearbyItems(Game.player);
+    const nearbyCount = LootSelection.getCount();
+    
+    if (nearbyCount <= 1) return false;
+    
+    const canvasWidth = Game ? Game.config.width : 1280;
+    const panelWidth = Math.min(400, canvasWidth - 40);
+    const panelX = (canvasWidth - panelWidth) / 2;
+    const panelY = 20;
+    const buttonSize = 40;
+    const buttonY = panelY + 35;
+    const leftButtonX = panelX + 10;
+    const rightButtonX = panelX + panelWidth - buttonSize - 10;
+    
+    // Check left button (wraps around)
+    if (x >= leftButtonX && x <= leftButtonX + buttonSize &&
+        y >= buttonY && y <= buttonY + buttonSize) {
+        LootSelection.cyclePrevious();
+        return true;
+    }
+    
+    // Check right button (wraps around)
+    if (x >= rightButtonX && x <= rightButtonX + buttonSize &&
+        y >= buttonY && y <= buttonY + buttonSize) {
+        LootSelection.cycleNext();
         return true;
     }
     
@@ -3629,6 +3873,11 @@ function renderUI(ctx, player) {
     // Render interaction button (on top of touch controls)
     if (typeof renderInteractionButton === 'function') {
         renderInteractionButton(ctx);
+    }
+    
+    // Render mobile loot selection UI (when multiple items nearby)
+    if (typeof renderMobileLootSelection === 'function') {
+        renderMobileLootSelection(ctx);
     }
 }
 
@@ -4084,11 +4333,20 @@ function renderLaunchModal(ctx) {
         ctx.fillStyle = '#88ccff';
         ctx.fillText('Character Sheet', centerX, charKeysY + 52);
         
+        // Loot controls section (below character sheet)
+        const lootY = charKeysY + 85;
+        ctx.font = '15px Arial';
+        ctx.fillStyle = '#aaddff';
+        ctx.fillText('Loot:', centerX, lootY);
+        ctx.font = '14px Arial';
+        ctx.fillStyle = '#cccccc';
+        ctx.fillText('G to pickup  •  Arrow keys to cycle nearby items', centerX, lootY + 22);
+        
         // Class variations explanation (centered at bottom of controls area)
         ctx.font = '18px Arial';
         ctx.fillStyle = '#ffffaa';
         ctx.textAlign = 'center';
-        ctx.fillText('Each class has variations you\'ll discover!', centerX, controlsStartY + 385);
+        ctx.fillText('Each class has variations you\'ll discover!', centerX, controlsStartY + 430);
     }
     
     // Thank you message

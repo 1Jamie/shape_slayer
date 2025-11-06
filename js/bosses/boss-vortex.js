@@ -7,7 +7,7 @@ class BossVortex extends BossBase {
         this.bossName = 'Vortex';
         
         this.size = 80;
-        this.maxHp = 1842; // Increased base HP (~3.68x) to match Swarm King change
+        this.maxHp = 1500; // BossBase will multiply by 12
         this.hp = this.maxHp;
         this.damage = 16;
         this.moveSpeed = 117.7; // Increased from 90 for better mobility

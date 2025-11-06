@@ -229,6 +229,8 @@ const Game = {
     lastGKeyState: false,
     lastRKeyState: false,
     lastMKeyState: false,
+    lastLeftArrowState: false,
+    lastRightArrowState: false,
     
     // Multiplayer state
     multiplayerModuleLoaded: false,
@@ -442,6 +444,15 @@ const Game = {
                 }
             }
             
+            // Check mobile loot selection buttons (if in touch mode)
+            if (typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode()) {
+                if (typeof handleMobileLootSelectionClick === 'function') {
+                    if (handleMobileLootSelectionClick(gameCoords.x, gameCoords.y)) {
+                        return;
+                    }
+                }
+            }
+            
             // Check interaction button (if in touch mode)
             if (typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode()) {
                 if (typeof handleInteractionButtonClick === 'function') {
@@ -523,6 +534,15 @@ const Game = {
                 
                 // Check interaction button (if in touch mode)
                 if (typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode()) {
+                    // Check mobile loot selection buttons first
+                    if (typeof handleMobileLootSelectionClick === 'function') {
+                        if (handleMobileLootSelectionClick(gameCoords.x, gameCoords.y)) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            return;
+                        }
+                    }
+                    
                     if (typeof handleInteractionButtonClick === 'function') {
                         if (handleInteractionButtonClick(gameCoords.x, gameCoords.y)) {
                             e.preventDefault();
@@ -2388,12 +2408,40 @@ const Game = {
             this.lastGKeyState = false;
         }
         
-        if (shouldPickup) {
-            // Find closest gear within pickup range
-            let closestGear = null;
-            let closestDistance = 50; // pickup range
+        // Handle loot cycling (desktop only)
+        if (typeof LootSelection !== 'undefined' && (!Input.isTouchMode || !Input.isTouchMode())) {
+            // Update nearby items
+            LootSelection.updateNearbyItems(this.player);
             
-            if (typeof groundLoot !== 'undefined') {
+            // Check for cycle input
+            if (Input.keys && Input.keys['arrowleft'] && !this.lastLeftArrowState) {
+                this.lastLeftArrowState = true;
+                LootSelection.cyclePrevious();
+            } else if (Input.keys && Input.keys['arrowleft'] === false) {
+                this.lastLeftArrowState = false;
+            }
+            
+            if (Input.keys && Input.keys['arrowright'] && !this.lastRightArrowState) {
+                this.lastRightArrowState = true;
+                LootSelection.cycleNext();
+            } else if (Input.keys && Input.keys['arrowright'] === false) {
+                this.lastRightArrowState = false;
+            }
+        }
+        
+        if (shouldPickup) {
+            // Use selected gear from LootSelection if available
+            let gearToPickup = null;
+            
+            if (typeof LootSelection !== 'undefined') {
+                LootSelection.updateNearbyItems(this.player);
+                gearToPickup = LootSelection.getSelectedGear();
+            }
+            
+            // Fallback to closest gear if selection system not available
+            if (!gearToPickup && typeof groundLoot !== 'undefined') {
+                let closestDistance = 50; // pickup range
+                
                 groundLoot.forEach(gear => {
                     const dx = gear.x - this.player.x;
                     const dy = gear.y - this.player.y;
@@ -2401,14 +2449,14 @@ const Game = {
                     
                     if (distance < closestDistance) {
                         closestDistance = distance;
-                        closestGear = gear;
+                        gearToPickup = gear;
                     }
                 });
-                
-                // Pick up the gear if found
-                if (closestGear) {
-                    this.pickupGear(closestGear);
-                }
+            }
+            
+            // Pick up the gear if found
+            if (gearToPickup) {
+                this.pickupGear(gearToPickup);
             }
         }
     },

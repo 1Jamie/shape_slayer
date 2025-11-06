@@ -7,7 +7,7 @@ class BossFractalCore extends BossBase {
         this.bossName = 'Fractal Core';
         
         this.size = 70;
-        this.maxHp = 917; // Increased base HP (~3.68x) to match Swarm King change
+        this.maxHp = 750; // BossBase will multiply by 12
         this.hp = this.maxHp;
         this.damage = 14;
         this.moveSpeed = 128.4; // Increased from 100 for better mobility

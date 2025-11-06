@@ -79,6 +79,7 @@ class Mage extends PlayerBase {
         // Set base stats from CONFIG (single source of truth)
         this.baseDamage = MAGE_CONFIG.baseDamage + upgradeBonuses.damage;
         this.baseMoveSpeed = MAGE_CONFIG.baseSpeed + upgradeBonuses.speed;
+        this.initialBaseMoveSpeed = this.baseMoveSpeed; // Store original for level scaling
         this.baseDefense = MAGE_CONFIG.baseDefense + upgradeBonuses.defense;
         this.baseMaxHp = MAGE_CONFIG.baseHp; // Store base max HP for gear calculations
         this.maxHp = MAGE_CONFIG.baseHp;

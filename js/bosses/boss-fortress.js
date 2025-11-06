@@ -9,7 +9,7 @@ class BossFortress extends BossBase {
         this.width = 100;
         this.height = 80;
         this.size = Math.max(this.width, this.height);
-        this.maxHp = 1473; // Increased base HP (~3.68x) to match Swarm King change
+        this.maxHp = 1200; // BossBase will multiply by 12
         this.hp = this.maxHp;
         this.damage = 12;
         this.moveSpeed = 85.6; // Increased from 60 for better mobility
