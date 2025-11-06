@@ -3026,6 +3026,11 @@ const Game = {
             // Restore context after camera transform and screen shake
             this.ctx.restore();
             
+            // Draw enemy direction arrows (when 5 or fewer enemies remain and off-screen)
+            if (typeof renderEnemyDirectionArrows !== 'undefined') {
+                renderEnemyDirectionArrows(this.ctx, this.player);
+            }
+            
             // Draw UI (on top of everything, screen-relative coordinates)
             renderUI(this.ctx, this.player);
             

@@ -18,10 +18,10 @@ const TANK_CONFIG = {
     speedPerLevel: 2,              // Speed increase per level (pixels/second)
     
     // Basic Attack (Hammer Swing)
-    hammerDistance: 70,            // Distance from player center to hammer (pixels)
+    hammerDistance: 81,            // Distance from player center to hammer (pixels) - increased 15%
     hammerArcWidth: 130,           // Arc width in degrees
     hammerSwingDuration: 0.3,      // Duration of hammer swing animation (seconds)
-    hammerHitboxRadius: 30,        // Radius of hammer hitbox (pixels)
+    hammerHitboxRadius: 35,        // Radius of hammer hitbox (pixels) - increased 15%
     hammerHealOnHit: 0.05,         // Heal 5% of damage dealt with hammer attacks
     
     // Heavy Attack (Shout)

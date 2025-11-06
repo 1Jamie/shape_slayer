@@ -709,6 +709,186 @@ function worldToScreen(worldX, worldY) {
     return { x: worldX, y: worldY };
 }
 
+// Check if enemy is within viewport (visible on screen)
+function isEnemyInViewport(enemy, camera, zoom, canvasWidth, canvasHeight) {
+    if (!enemy || !camera) return false;
+    
+    // Calculate visible world space bounds
+    const halfVisibleWorldW = (canvasWidth / 2) / zoom;
+    const halfVisibleWorldH = (canvasHeight / 2) / zoom;
+    
+    // Get viewport bounds in world coordinates
+    const viewportLeft = camera.x - halfVisibleWorldW;
+    const viewportRight = camera.x + halfVisibleWorldW;
+    const viewportTop = camera.y - halfVisibleWorldH;
+    const viewportBottom = camera.y + halfVisibleWorldH;
+    
+    // Check if enemy is within bounds (with some padding for size)
+    const padding = enemy.size || 20;
+    return (
+        enemy.x + padding >= viewportLeft &&
+        enemy.x - padding <= viewportRight &&
+        enemy.y + padding >= viewportTop &&
+        enemy.y - padding <= viewportBottom
+    );
+}
+
+// Calculate arrow position and angle for off-screen enemy indicator
+function calculateEnemyArrowPosition(enemy, player, camera, zoom, canvasWidth, canvasHeight) {
+    if (!enemy || !player || !camera) return null;
+    
+    // Convert player position to screen coordinates
+    const playerScreen = worldToScreen(player.x, player.y);
+    
+    // Get direction from player to enemy (in world space)
+    const dx = enemy.x - player.x;
+    const dy = enemy.y - player.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    if (distance === 0) return null;
+    
+    // Normalize direction
+    const dirX = dx / distance;
+    const dirY = dy / distance;
+    
+    // Calculate angle for arrow rotation
+    const angle = Math.atan2(dy, dx);
+    
+    // Find intersection with screen edges
+    // We'll cast a ray from player center toward enemy and find where it hits screen edge
+    const centerX = canvasWidth / 2;
+    const centerY = canvasHeight / 2;
+    
+    // Calculate how far to extend the ray to hit screen edge
+    let tX = Infinity;
+    let tY = Infinity;
+    
+    if (dirX !== 0) {
+        const tLeft = (0 - centerX - (playerScreen.x - centerX)) / (dirX * zoom);
+        const tRight = (canvasWidth - centerX - (playerScreen.x - centerX)) / (dirX * zoom);
+        tX = dirX > 0 ? tRight : tLeft;
+    }
+    
+    if (dirY !== 0) {
+        const tTop = (0 - centerY - (playerScreen.y - centerY)) / (dirY * zoom);
+        const tBottom = (canvasHeight - centerY - (playerScreen.y - centerY)) / (dirY * zoom);
+        tY = dirY > 0 ? tBottom : tTop;
+    }
+    
+    // Use the smaller t value (first intersection)
+    const t = Math.min(Math.abs(tX), Math.abs(tY));
+    
+    // Calculate edge intersection point in screen space
+    const edgeX = playerScreen.x + dirX * t * zoom;
+    const edgeY = playerScreen.y + dirY * t * zoom;
+    
+    // Position arrow at midpoint between edge and player center
+    const arrowX = (edgeX + centerX) / 2;
+    const arrowY = (edgeY + centerY) / 2;
+    
+    // Add some margin from edges to account for UI elements
+    const margin = 60; // pixels from edge
+    const clampedX = Math.max(margin, Math.min(canvasWidth - margin, arrowX));
+    const clampedY = Math.max(margin, Math.min(canvasHeight - margin, arrowY));
+    
+    return {
+        x: clampedX,
+        y: clampedY,
+        angle: angle
+    };
+}
+
+// Render directional arrows pointing to off-screen enemies (when 5 or fewer remain)
+function renderEnemyDirectionArrows(ctx, player) {
+    if (!player) return;
+    
+    // Check if we're in playing state
+    if (typeof Game === 'undefined' || Game.state !== 'PLAYING') return;
+    
+    // Determine the reference player for arrow positioning
+    // In multiplayer spectate mode, use the spectated player
+    let referencePlayer = player;
+    const inMultiplayer = Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+    
+    if (inMultiplayer && player.dead && Game.spectateMode) {
+        // Local player is dead and spectating - find the spectated player
+        if (Game.spectatedPlayerId) {
+            // Try to find spectated player from remotePlayerInstances
+            if (Game.remotePlayerInstances && Game.remotePlayerInstances.has(Game.spectatedPlayerId)) {
+                referencePlayer = Game.remotePlayerInstances.get(Game.spectatedPlayerId);
+            } 
+            // Or from remotePlayers array
+            else if (Game.remotePlayers && Game.remotePlayers.length > 0) {
+                const spectated = Game.remotePlayers.find(rp => rp.id === Game.spectatedPlayerId);
+                if (spectated) {
+                    referencePlayer = spectated;
+                }
+            }
+        }
+    }
+    
+    // If no valid reference player, don't show arrows
+    if (!referencePlayer || !referencePlayer.alive) return;
+    
+    // Get enemy list based on multiplayer state
+    let enemies = [];
+    
+    if (inMultiplayer && Game.enemies) {
+        enemies = Game.enemies.filter(e => e.alive);
+    } else if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.enemies) {
+        enemies = currentRoom.enemies.filter(e => e.alive);
+    }
+    
+    // Only show arrows when 5 or fewer enemies remain
+    if (enemies.length === 0 || enemies.length > 5) return;
+    
+    // Get camera and viewport info
+    const camera = Game.camera;
+    if (!camera) return;
+    
+    const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+    const zoom = isMobile ? 1.0 : (Game.baseZoom || 1.1);
+    const canvasWidth = Game.config.width;
+    const canvasHeight = Game.config.height;
+    
+    // Render arrows for each off-screen enemy
+    enemies.forEach(enemy => {
+        // Check if enemy is off-screen
+        if (isEnemyInViewport(enemy, camera, zoom, canvasWidth, canvasHeight)) {
+            return; // Enemy is visible, skip
+        }
+        
+        // Calculate arrow position using the reference player (local or spectated)
+        const arrowData = calculateEnemyArrowPosition(enemy, referencePlayer, camera, zoom, canvasWidth, canvasHeight);
+        if (!arrowData) return;
+        
+        // Render the arrow
+        ctx.save();
+        ctx.translate(arrowData.x, arrowData.y);
+        ctx.rotate(arrowData.angle);
+        
+        // Draw white arrow/caret pointing toward enemy
+        const arrowSize = 10;
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 2;
+        
+        // Draw arrow as a triangle pointing right (will be rotated)
+        ctx.beginPath();
+        ctx.moveTo(arrowSize, 0); // Tip
+        ctx.lineTo(-arrowSize / 2, -arrowSize);
+        ctx.lineTo(-arrowSize / 2, arrowSize);
+        ctx.closePath();
+        
+        // Draw outline first (black stroke)
+        ctx.stroke();
+        // Then fill with white
+        ctx.fill();
+        
+        ctx.restore();
+    });
+}
+
 // Render gear tooltip when near gear
 function renderGearTooltips(ctx, player) {
     if (!player || !player.alive || typeof groundLoot === 'undefined') return;
@@ -728,6 +908,33 @@ function renderGearTooltips(ctx, player) {
     
     // Show tooltip within range
     if (distance < 50) {
+            // Check if any enemy is within 150px of the gear
+            // If so, don't show tooltip to avoid obstructing combat
+            
+            // Get enemy list based on multiplayer vs solo mode
+            let enemies = [];
+            if (typeof Game !== 'undefined') {
+                const inMultiplayer = Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+                
+                if (inMultiplayer && Game.enemies) {
+                    enemies = Game.enemies.filter(e => e.alive);
+                } else if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.enemies) {
+                    enemies = currentRoom.enemies.filter(e => e.alive);
+                }
+            }
+            
+            // Check if any enemy is too close to the gear
+            const enemyTooClose = enemies.some(enemy => {
+                const edx = enemy.x - gear.x;
+                const edy = enemy.y - gear.y;
+                const enemyDistance = Math.sqrt(edx * edx + edy * edy);
+                return enemyDistance < 150;
+            });
+            
+            if (enemyTooClose) {
+                return; // Don't show tooltip when enemies are nearby
+            }
+            
             // Convert gear world position to screen position
             const screenPos = worldToScreen(gear.x, gear.y);
             const tooltipX = screenPos.x;
