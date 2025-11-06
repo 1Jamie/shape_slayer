@@ -20,6 +20,19 @@ class EnemyBase {
         this.stunSlowFactor = 0.5; // 50% speed reduction when stunned
         this.baseMoveSpeed = 100; // Store original move speed before stun
         
+        // Slow system (separate from stun)
+        this.slowed = false;
+        this.slowDuration = 0;
+        this.slowAmount = 0; // 0.5 = 50% slow
+        
+        // Burn DoT system (damage over time from incendiary legendary effect)
+        this.burning = false;
+        this.burnDuration = 0;
+        this.burnDPS = 0; // Damage per second
+        this.burnTickTimer = 0; // Timer for burn damage ticks
+        this.burnTickRate = 0.5; // How often burn damage ticks (seconds)
+        this.burnAttackerId = null; // Who applied the burn (for damage attribution)
+        
         // Unique ID for multiplayer synchronization
         this.id = `enemy-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         
@@ -50,7 +63,7 @@ class EnemyBase {
         // Threat/aggro system for multiplayer (per-enemy independent tracking)
         this.threatTable = new Map(); // playerId -> [{damage, timestamp}]
         this.currentTarget = inheritedTarget; // Current aggro target (playerId), inherited from parent if spawned
-        this.threatWindowDuration = 5.0; // 5 second rolling window
+        this.threatWindowDuration = 8.0; // 8 second rolling window (extended for better tank aggro)
         
         // Target lock system (prevents jittering when targeting clones/decoys)
         this.targetLock = null; // Locked target { x, y, type: 'player'|'clone'|'decoy', ref }
@@ -87,6 +100,105 @@ class EnemyBase {
                 this.stunDuration = 0;
             }
         }
+    }
+    
+    // Apply slow effect (separate from stun, activates after stun if both applied)
+    applySlow(slowAmount, duration) {
+        this.slowed = true;
+        this.slowAmount = slowAmount;
+        this.slowDuration = duration;
+        // Store base move speed if not already stored
+        if (this.baseMoveSpeed === undefined || this.baseMoveSpeed === null) {
+            this.baseMoveSpeed = this.moveSpeed;
+        }
+    }
+    
+    // Process slow (should be called in update before movement)
+    processSlow(deltaTime) {
+        if (this.slowed && this.slowDuration > 0) {
+            this.slowDuration -= deltaTime;
+            if (this.slowDuration <= 0) {
+                this.slowed = false;
+                this.slowDuration = 0;
+                this.slowAmount = 0;
+            }
+        }
+    }
+    
+    // Apply burn DoT effect
+    applyBurn(dps, duration, attackerId = null) {
+        this.burning = true;
+        this.burnDPS = dps;
+        this.burnDuration = duration;
+        this.burnAttackerId = attackerId;
+        this.burnTickTimer = 0; // Reset tick timer to apply damage immediately on next tick
+    }
+    
+    // Process burn DoT (should be called in update)
+    processBurn(deltaTime) {
+        if (this.burning && this.burnDuration > 0) {
+            this.burnDuration -= deltaTime;
+            this.burnTickTimer += deltaTime;
+            
+            // Apply burn damage at tick rate
+            if (this.burnTickTimer >= this.burnTickRate) {
+                const tickDamage = this.burnDPS * this.burnTickRate;
+                const damageDealt = Math.min(tickDamage, this.hp);
+                
+                // Apply damage
+                this.takeDamage(tickDamage, this.burnAttackerId);
+                
+                // Track stats (host/solo only)
+                const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+                if (!isClient && typeof Game !== 'undefined' && Game.getPlayerStats && this.burnAttackerId) {
+                    const stats = Game.getPlayerStats(this.burnAttackerId);
+                    if (stats) {
+                        stats.addStat('damageDealt', damageDealt);
+                    }
+                    
+                    // Track kill if enemy died
+                    if (this.hp <= 0) {
+                        const killStats = Game.getPlayerStats(this.burnAttackerId);
+                        if (killStats) {
+                            killStats.addStat('kills', 1);
+                        }
+                    }
+                }
+                
+                // Reset tick timer
+                this.burnTickTimer = 0;
+                
+                // Create damage number for burn tick
+                if (typeof createDamageNumber !== 'undefined') {
+                    createDamageNumber(this.x, this.y, Math.floor(tickDamage), false, false);
+                }
+            }
+            
+            // End burn if duration expired
+            if (this.burnDuration <= 0) {
+                this.burning = false;
+                this.burnDuration = 0;
+                this.burnDPS = 0;
+                this.burnTickTimer = 0;
+                this.burnAttackerId = null;
+            }
+        }
+    }
+    
+    // Get effective movement speed considering stun and slow
+    getEffectiveMoveSpeed() {
+        let speed = this.baseMoveSpeed;
+        
+        // Apply stun (takes priority, cannot be slowed while stunned)
+        if (this.stunned) {
+            speed *= this.stunSlowFactor;
+        } 
+        // Apply slow (only if not stunned)
+        else if (this.slowed) {
+            speed *= (1 - this.slowAmount);
+        }
+        
+        return speed;
     }
     
     // Update target lock timer (should be called in update)

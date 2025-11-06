@@ -22,15 +22,19 @@ const TANK_CONFIG = {
     hammerArcWidth: 130,           // Arc width in degrees
     hammerSwingDuration: 0.3,      // Duration of hammer swing animation (seconds)
     hammerHitboxRadius: 30,        // Radius of hammer hitbox (pixels)
+    hammerHealOnHit: 0.05,         // Heal 5% of damage dealt with hammer attacks
     
-    // Heavy Attack (Ground Smash)
+    // Heavy Attack (Shout)
     heavyAttackCooldown: 2.5,      // Cooldown for heavy attack (seconds)
-    smashDamage: 1.1,              // Damage multiplier for ground smash
-    smashRadius: 120,              // Radius of ground smash (pixels)
-    smashHitboxCount: 8,           // Number of hitboxes in ring
-    smashHitboxDistance: 40,       // Distance from player to hitboxes (pixels)
-    smashHitboxRadius: 25,         // Radius of each hitbox (pixels)
-    smashKnockback: 350,           // Knockback force applied to enemies (pixels)
+    shoutDamage: 0.975,            // Damage multiplier for shout (reduced by 25% from 1.3)
+    shoutRadius: 140,              // Radius of shout AoE (increased from 120)
+    shoutHitboxCount: 8,           // Number of hitboxes in ring
+    shoutHitboxDistance: 70,       // Distance from player to hitboxes (increased for coverage)
+    shoutHitboxRadius: 50,         // Radius of each hitbox (increased for coverage)
+    shoutStunDuration: 1.5,        // Stun duration on enemies hit (seconds)
+    shoutSlowAmount: 0.5,          // Slow percentage after stun (0.5 = 50% slow)
+    shoutSlowDuration: 2.0,        // Slow duration after stun expires (seconds)
+    shoutAggroMultiplier: 3.0,     // Aggro threat multiplier (false damage spike)
     
     // Special Ability (Shield)
     specialCooldown: 5.0,          // Special ability cooldown (seconds)
@@ -47,13 +51,18 @@ const TANK_CONFIG = {
     shieldWidth: 120,              // Lateral width of shield (pixels)
     shieldKnockbackDistance: 15,   // Knockback distance per frame (pixels)
     
+    // Passive Ability (Retaliatory Knockback)
+    passiveKnockbackRadius: 80,    // Radius for passive knockback (small)
+    passiveKnockbackForce: 200,    // Knockback force (small)
+    passiveKnockbackCooldown: 3.0, // Cooldown between passive triggers (seconds)
+    
     // Descriptions for UI (tooltips, character sheet)
     descriptions: {
-        playstyle: "High HP damage sponge with crowd control",
-        basic: "Cone Slam - Wide cone attack with multiple hitboxes",
-        heavy: "Ground Smash - AoE ring, {smashDamage|mult} damage + knockback",
+        playstyle: "Crowd control tank with sustain and aggro management",
+        basic: "Hammer Slam - Wide cone attack with life steal on hit",
+        heavy: "Shout - AoE stun + slow, {shoutDamage|mult} damage + aggro spike",
         special: "Shield Defense - Block for {shieldDuration}s, then wave pulse attack",
-        passive: "High HP - Slow but extremely durable",
+        passive: "Retaliatory Knockback - Small knockback when hit",
         baseStats: "{baseDefense|percent} Base Defense, {baseHp} HP"
     }
 };
@@ -112,10 +121,13 @@ class Tank extends PlayerBase {
         // Hammer swing attack
         this.hammerSwingDirection = 1; // Alternates between 1 (right) and -1 (left)
         
+        // Passive ability (retaliatory knockback)
+        this.passiveKnockbackCooldown = 0;
+        
         // Class modifier storage
         this.shieldDurationBonus = 0;
         this.shieldWaveDamageMultiplier = 1.0;
-        this.smashRadiusBonus = 0;
+        this.shoutRadiusBonus = 0;
         this.hammerKnockbackMultiplier = 1.0;
         this.shieldReductionBonus = 0;
         
@@ -123,6 +135,19 @@ class Tank extends PlayerBase {
         this.updateEffectiveStats();
         
         console.log('Tank class initialized');
+    }
+    
+    // Override updateEffectiveStats to reset class modifiers
+    updateEffectiveStats() {
+        // Reset class modifier storage
+        this.shieldDurationBonus = 0;
+        this.shieldWaveDamageMultiplier = 1.0;
+        this.shoutRadiusBonus = 0;
+        this.hammerKnockbackMultiplier = 1.0;
+        this.shieldReductionBonus = 0;
+        
+        // Call parent
+        super.updateEffectiveStats();
     }
     
     // Override to apply Tank-specific class modifiers
@@ -139,8 +164,9 @@ class Tank extends PlayerBase {
                 case 'shield_wave_damage':
                     this.shieldWaveDamageMultiplier += modifier.value;
                     break;
-                case 'smash_radius':
-                    this.smashRadiusBonus += modifier.value;
+                case 'shout_radius':
+                case 'smash_radius': // Keep old name for backward compatibility
+                    this.shoutRadiusBonus += modifier.value;
                     break;
                 case 'hammer_knockback':
                     this.hammerKnockbackMultiplier += modifier.value;
@@ -149,6 +175,46 @@ class Tank extends PlayerBase {
                     this.shieldReductionBonus += modifier.value;
                     break;
             }
+        }
+    }
+    
+    // Override takeDamage for passive knockback
+    takeDamage(damage, sourceEnemy = null) {
+        // Call parent takeDamage first
+        super.takeDamage(damage, sourceEnemy);
+        
+        // Trigger passive knockback if cooldown is ready and not dead
+        if (this.passiveKnockbackCooldown <= 0 && this.alive && !this.dead) {
+            this.triggerPassiveKnockback();
+            this.passiveKnockbackCooldown = TANK_CONFIG.passiveKnockbackCooldown;
+        }
+    }
+    
+    // Trigger passive knockback (when hit)
+    triggerPassiveKnockback() {
+        if (typeof Game === 'undefined' || !Game.enemies) return;
+        
+        const knockbackRadius = TANK_CONFIG.passiveKnockbackRadius;
+        const knockbackForce = TANK_CONFIG.passiveKnockbackForce;
+        
+        Game.enemies.forEach(enemy => {
+            if (enemy.alive) {
+                const dx = enemy.x - this.x;
+                const dy = enemy.y - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < knockbackRadius + enemy.size) {
+                    // Push enemy away from tank
+                    const pushDirX = dx / distance;
+                    const pushDirY = dy / distance;
+                    enemy.applyKnockback(pushDirX * knockbackForce, pushDirY * knockbackForce);
+                }
+            }
+        });
+        
+        // Visual feedback
+        if (typeof createParticleBurst !== 'undefined') {
+            createParticleBurst(this.x, this.y, '#ff6666', 8);
         }
     }
     
@@ -169,6 +235,11 @@ class Tank extends PlayerBase {
     }
     
     hammerSwingAttack() {
+        // Play tank basic attack sound
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+            AudioManager.sounds.tankBasicAttack();
+        }
+        
         // Tank: Hammer swing in arc
         const hammerDamage = this.damage;
         const hammerDistance = TANK_CONFIG.hammerDistance;
@@ -210,9 +281,9 @@ class Tank extends PlayerBase {
         this.hammerSwingDirection *= -1;
     }
     
-    // Override createHeavyAttack for ground smash
+    // Override createHeavyAttack for shout
     createHeavyAttack() {
-        this.createGroundSmash();
+        this.createShout();
         
         this.isAttacking = true;
         setTimeout(() => {
@@ -230,19 +301,24 @@ class Tank extends PlayerBase {
         }
     }
     
-    createGroundSmash() {
-        // Tank ground smash - AoE around player that pushes enemies back
-        const smashDamage = this.damage * TANK_CONFIG.smashDamage;
-        const smashRadius = TANK_CONFIG.smashRadius + this.smashRadiusBonus; // Apply class modifier
+    createShout() {
+        // Play tank heavy attack sound
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+            AudioManager.sounds.tankHeavyAttack();
+        }
+        
+        // Tank shout - AoE around player that stuns, slows, and generates massive aggro
+        const shoutDamage = this.damage * TANK_CONFIG.shoutDamage;
+        const shoutRadius = TANK_CONFIG.shoutRadius + this.shoutRadiusBonus; // Apply class modifier
         
         // Get gameplay position (authoritative position in multiplayer)
         const pos = this.getGameplayPosition();
         
         // Create hitboxes in a ring around the player
-        const numHitboxes = TANK_CONFIG.smashHitboxCount;
+        const numHitboxes = TANK_CONFIG.shoutHitboxCount;
         for (let i = 0; i < numHitboxes; i++) {
             const angle = (Math.PI * 2 / numHitboxes) * i;
-            const distance = this.size + TANK_CONFIG.smashHitboxDistance;
+            const distance = this.size + TANK_CONFIG.shoutHitboxDistance;
             
             const hitboxX = pos.x + Math.cos(angle) * distance;
             const hitboxY = pos.y + Math.sin(angle) * distance;
@@ -250,29 +326,43 @@ class Tank extends PlayerBase {
             this.attackHitboxes.push({
                 x: hitboxX,
                 y: hitboxY,
-                radius: TANK_CONFIG.smashHitboxRadius,
-                damage: smashDamage,
+                radius: TANK_CONFIG.shoutHitboxRadius,
+                damage: shoutDamage,
                 duration: this.attackDuration,
                 elapsed: 0,
                 heavy: true,
+                type: 'shout', // Mark as shout for special handling
                 hitEnemies: new Set()
             });
         }
         
-        // Push enemies away from player
+        // Apply stun, slow, and aggro spike to enemies in range
         if (typeof Game !== 'undefined' && Game.enemies) {
+            // Get player ID for aggro attribution
+            const attackerId = this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null);
+            
             Game.enemies.forEach(enemy => {
                 if (enemy.alive) {
                     const dx = enemy.x - this.x;
                     const dy = enemy.y - this.y;
                     const distance = Math.sqrt(dx * dx + dy * dy);
                     
-                    if (distance < smashRadius) {
-                        // Push away from player with knockback force
-                        const pushForce = TANK_CONFIG.smashKnockback;
-                        const pushDirX = dx / distance;
-                        const pushDirY = dy / distance;
-                        enemy.applyKnockback(pushDirX * pushForce, pushDirY * pushForce);
+                    if (distance < shoutRadius) {
+                        // Apply stun
+                        if (enemy.applyStun) {
+                            enemy.applyStun(TANK_CONFIG.shoutStunDuration);
+                        }
+                        
+                        // Apply slow (will activate after stun expires)
+                        if (enemy.applySlow) {
+                            enemy.applySlow(TANK_CONFIG.shoutSlowAmount, TANK_CONFIG.shoutSlowDuration);
+                        }
+                        
+                        // Add massive aggro spike (false damage for threat)
+                        if (enemy.addThreat && attackerId) {
+                            const aggroSpike = shoutDamage * TANK_CONFIG.shoutAggroMultiplier;
+                            enemy.addThreat(attackerId, aggroSpike);
+                        }
                     }
                 }
             });
@@ -332,6 +422,11 @@ class Tank extends PlayerBase {
     }
     
     activateShield(input) {
+        // Play tank shield activation sound
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+            AudioManager.sounds.tankShieldStart();
+        }
+        
         this.shieldActive = true;
         this.shieldElapsed = 0;
         // Apply cooldown reduction
@@ -354,6 +449,11 @@ class Tank extends PlayerBase {
     
     // Override updateClassAbilities for Tank-specific updates
     updateClassAbilities(deltaTime, input) {
+        // Update passive knockback cooldown
+        if (this.passiveKnockbackCooldown > 0) {
+            this.passiveKnockbackCooldown -= deltaTime;
+        }
+        
         // Update shield ability
         if (this.shieldActive) {
             this.shieldElapsed += deltaTime;
@@ -650,7 +750,7 @@ class Tank extends PlayerBase {
             ctx.restore();
         }
         
-        // Draw heavy charge effect - Tank ground smash indicator
+        // Draw heavy charge effect - Tank shout indicator
         if (this.heavyChargeEffectActive) {
             const chargeProgress = this.heavyChargeEffectElapsed / this.heavyChargeEffectDuration;
             const pulseSize = 1.0 + Math.sin(chargeProgress * Math.PI * 4) * 0.1;
@@ -658,30 +758,62 @@ class Tank extends PlayerBase {
             ctx.save();
             ctx.globalAlpha = 0.6;
             
-            // Tank: Circular ground smash indicator
-            const smashRadius = 120;
-            ctx.strokeStyle = '#ff6666';
-            ctx.lineWidth = 4;
-            ctx.beginPath();
-            ctx.arc(this.x, this.y, smashRadius * pulseSize, 0, Math.PI * 2);
-            ctx.stroke();
+            // Tank: Circular shout indicator (expanding sound waves)
+            const shoutRadius = TANK_CONFIG.shoutRadius;
+            
+            // Draw multiple expanding rings for sound wave effect
+            for (let i = 0; i < 3; i++) {
+                const ringOffset = i * 30;
+                const ringPhase = (chargeProgress * Math.PI * 4 + i * Math.PI / 1.5) % (Math.PI * 2);
+                const ringAlpha = 0.4 + Math.sin(ringPhase) * 0.2;
+                
+                ctx.globalAlpha = ringAlpha;
+                ctx.strokeStyle = '#ff6666';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, (shoutRadius - ringOffset) * pulseSize, 0, Math.PI * 2);
+                ctx.stroke();
+            }
             
             ctx.restore();
         }
         
-        // Draw ground smash shockwave (only during heavy attacks)
+        // Draw shout sound waves (only during heavy attacks)
         const hasHeavyHitbox = this.attackHitboxes.some(h => h.heavy);
         if (this.isAttacking && hasHeavyHitbox && !this.heavyChargeEffectActive) {
             ctx.save();
-            ctx.globalAlpha = 0.4;
             
-            // Draw expanding shockwave
-            ctx.strokeStyle = '#ff8844';
-            ctx.lineWidth = 5;
+            // Draw multiple expanding sound wave rings
+            const shoutRadius = TANK_CONFIG.shoutRadius;
+            for (let i = 0; i < 4; i++) {
+                const ringRadius = shoutRadius * (0.3 + i * 0.25);
+                const alpha = 0.5 - i * 0.1;
+                
+                ctx.globalAlpha = alpha;
+                ctx.strokeStyle = '#ff8844';
+                ctx.lineWidth = 4 - i;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, ringRadius, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+            
+            ctx.restore();
+        }
+        
+        // Draw passive knockback visual (small shockwave when triggered)
+        // Note: Particle burst is already created in triggerPassiveKnockback()
+        // This adds a brief ring visual
+        if (this.passiveKnockbackCooldown >= TANK_CONFIG.passiveKnockbackCooldown - 0.2) {
+            const elapsed = TANK_CONFIG.passiveKnockbackCooldown - this.passiveKnockbackCooldown;
+            const progress = elapsed / 0.2; // 0.2 second visual duration
+            
+            ctx.save();
+            ctx.globalAlpha = 0.6 * (1 - progress);
+            ctx.strokeStyle = '#ff6666';
+            ctx.lineWidth = 3;
             ctx.beginPath();
-            ctx.arc(this.x, this.y, 120, 0, Math.PI * 2);
+            ctx.arc(this.x, this.y, TANK_CONFIG.passiveKnockbackRadius * (0.5 + progress * 0.5), 0, Math.PI * 2);
             ctx.stroke();
-            
             ctx.restore();
         }
     }

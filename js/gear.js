@@ -28,9 +28,9 @@ const AFFIX_TIERS = {
 // Affix pool with balanced value ranges
 const AFFIX_POOL = {
     // BASIC TIER
-    movementSpeed: { min: 0.1, max: 0.25, slot: ['armor', 'accessory'], weight: 1.0, tier: 'basic' },
-    attackSpeed: { min: 0.1, max: 0.3, slot: ['weapon', 'accessory'], weight: 1.0, tier: 'basic' },
-    projectileSpeed: { min: 0.15, max: 0.4, slot: ['weapon', 'accessory'], weight: 1.0, tier: 'basic' },
+    movementSpeed: { min: 0.1, max: 0.15, slot: ['armor', 'accessory'], weight: 0.7, tier: 'basic' }, // Reduced from 0.25 max, weight 1.0
+    attackSpeed: { min: 0.1, max: 0.2, slot: ['weapon', 'accessory'], weight: 0.8, tier: 'basic' }, // Reduced from 0.3 max, weight 1.0
+    projectileSpeed: { min: 0.15, max: 0.25, slot: ['weapon', 'accessory'], weight: 1.0, tier: 'basic' }, // Reduced from 0.4 max
     maxHealth: { min: 15, max: 40, slot: ['armor'], weight: 1.0, tier: 'basic' },
     knockbackPower: { min: 0.2, max: 0.5, slot: ['weapon'], weight: 1.0, tier: 'basic' },
     
@@ -38,7 +38,7 @@ const AFFIX_POOL = {
     critChance: { min: 0.05, max: 0.15, slot: ['weapon', 'accessory'], weight: 1.0, tier: 'advanced' },
     critDamage: { min: 0.2, max: 0.6, slot: ['weapon'], weight: 1.0, tier: 'advanced' },
     lifesteal: { min: 0.03, max: 0.1, slot: ['weapon', 'armor'], weight: 1.0, tier: 'advanced' },
-    cooldownReduction: { min: 0.08, max: 0.2, slot: ['accessory', 'armor'], weight: 1.0, tier: 'advanced' },
+    cooldownReduction: { min: 0.08, max: 0.15, slot: ['accessory', 'armor'], weight: 1.0, tier: 'advanced' }, // Reduced from 0.2 max
     areaOfEffect: { min: 0.15, max: 0.35, slot: ['weapon'], weight: 1.0, tier: 'advanced' },
     
     // RARE TIER

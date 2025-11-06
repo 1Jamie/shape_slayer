@@ -1914,6 +1914,7 @@ let pauseMenuButtons = {
     nexus: { x: 0, y: 0, width: 0, height: 0, pressed: false },
     fullscreen: { x: 0, y: 0, width: 0, height: 0, pressed: false },
     controlMode: { x: 0, y: 0, width: 0, height: 0, pressed: false },
+    volume: { x: 0, y: 0, width: 0, height: 0, pressed: false },
     howToPlay: { x: 0, y: 0, width: 0, height: 0, pressed: false },
     multiplayer: { x: 0, y: 0, width: 0, height: 0, pressed: false }
 };
@@ -2232,6 +2233,17 @@ function renderPauseMenu(ctx) {
     pauseMenuButtons.controlMode.width = settingsButtonWidth;
     pauseMenuButtons.controlMode.height = settingsButtonHeight;
     renderPauseMenuButton(ctx, pauseMenuButtons.controlMode, `Ctrl: ${controlModeText}`, false);
+    rightY += settingsButtonHeight + buttonSpacing;
+    
+    // Volume button
+    const volumePercent = typeof AudioManager !== 'undefined' && AudioManager.initialized ? Math.round(AudioManager.masterVolume * 100) : 50;
+    const volumeMuted = typeof AudioManager !== 'undefined' && AudioManager.initialized ? AudioManager.muted : false;
+    const volumeText = volumeMuted ? 'Vol: Muted' : `Vol: ${volumePercent}%`;
+    pauseMenuButtons.volume.x = rightColumnX;
+    pauseMenuButtons.volume.y = rightY;
+    pauseMenuButtons.volume.width = settingsButtonWidth;
+    pauseMenuButtons.volume.height = settingsButtonHeight;
+    renderPauseMenuButton(ctx, pauseMenuButtons.volume, volumeText, false);
     rightY += settingsButtonHeight + buttonSpacing;
     
     // How to Play button
@@ -2672,6 +2684,34 @@ function checkPauseMenuButtonClick(x, y) {
                 }
             }
             
+            return true;
+        }
+    }
+    
+    // Check volume button
+    if (x >= pauseMenuButtons.volume.x && x <= pauseMenuButtons.volume.x + pauseMenuButtons.volume.width &&
+        y >= pauseMenuButtons.volume.y && y <= pauseMenuButtons.volume.y + pauseMenuButtons.volume.height) {
+        if (typeof AudioManager !== 'undefined') {
+            // Initialize audio if not initialized
+            if (!AudioManager.initialized) {
+                AudioManager.init();
+            }
+            
+            // Cycle volume: 100% -> 75% -> 50% -> 25% -> 0% (muted) -> 100%
+            if (AudioManager.muted || AudioManager.masterVolume === 0) {
+                AudioManager.setMute(false);
+                AudioManager.setVolume(1.0);
+            } else if (AudioManager.masterVolume > 0.75) {
+                AudioManager.setVolume(0.75);
+            } else if (AudioManager.masterVolume > 0.50) {
+                AudioManager.setVolume(0.50);
+            } else if (AudioManager.masterVolume > 0.25) {
+                AudioManager.setVolume(0.25);
+            } else {
+                AudioManager.setMute(true);
+            }
+            
+            console.log(`Volume: ${AudioManager.muted ? 'Muted' : Math.round(AudioManager.masterVolume * 100) + '%'}`);
             return true;
         }
     }

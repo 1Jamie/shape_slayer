@@ -8,8 +8,8 @@ class RectangleEnemy extends EnemyBase {
         this.width = 25;
         this.height = 40;
         this.size = Math.max(this.width, this.height);
-        this.maxHp = 75;
-        this.hp = 75;
+        this.maxHp = 100;
+        this.hp = 100;
         this.damage = 8;
         this.moveSpeed = 60;
         this.baseMoveSpeed = 60; // Store for stun system
@@ -27,8 +27,8 @@ class RectangleEnemy extends EnemyBase {
         this.slamDuration = 0.3;
         this.chargeElapsed = 0;
         this.slamElapsed = 0;
-        this.attackRange = 80;
-        this.slamRadius = 80;
+        this.attackRange = 100;
+        this.slamRadius = 100;
         this.sizeMultiplier = 1.0;
     }
     
@@ -44,18 +44,20 @@ class RectangleEnemy extends EnemyBase {
         // Process stun first
         this.processStun(deltaTime);
         
+        // Process slow timer
+        this.processSlow(deltaTime);
+        
+        // Process burn DoT
+        this.processBurn(deltaTime);
+        
         // Update target lock timer
         this.updateTargetLock(deltaTime);
         
         // Update aggro target based on sliding window threat calculation
         this.updateAggroTarget();
         
-        // Apply stun slow factor to movement speed
-        if (this.stunned) {
-            this.moveSpeed = this.baseMoveSpeed * this.stunSlowFactor;
-        } else {
-            this.moveSpeed = this.baseMoveSpeed;
-        }
+        // Apply stun/slow to movement speed using base class helper
+        this.moveSpeed = this.getEffectiveMoveSpeed();
         
         // Update attack cooldown (slower when stunned)
         if (this.attackCooldown > 0) {
@@ -120,6 +122,11 @@ class RectangleEnemy extends EnemyBase {
                         this.rotation = Math.atan2(moveY, moveX);
                     }
                 } else {
+                    // Play slam charge sound
+                    if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+                        AudioManager.sounds.enemySlam();
+                    }
+                    
                     // No player attacks nearby (or very weak), start charge normally
                     this.state = 'charge';
                     this.chargeElapsed = 0;
@@ -237,6 +244,14 @@ class RectangleEnemy extends EnemyBase {
         ctx.fill();
         
         ctx.restore();
+        
+        // Draw status effects (burn, freeze)
+        if (typeof renderBurnEffect !== 'undefined') {
+            renderBurnEffect(ctx, this);
+        }
+        if (typeof renderFreezeEffect !== 'undefined') {
+            renderFreezeEffect(ctx, this);
+        }
         
         // Draw slam AoE indicator with pulsing effect
         if (this.state === 'charge') {

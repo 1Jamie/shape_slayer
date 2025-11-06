@@ -31,6 +31,8 @@ const OCTAGON_CONFIG = {
     minionHealthMultiplier: 0.2,   // Minion health as % of basic enemy (0.2 = 20%)
     minionDamageMultiplier: 0.5,   // Minion damage as % of basic enemy (0.5 = 50%)
     minionXpMultiplier: 0.5,       // Minion XP as % of basic enemy (0.5 = 50%)
+    outOfRangeDistance: 400,       // Distance threshold for out-of-range behavior (pixels)
+    outOfRangeSummonCooldown: 6.0, // Cooldown for out-of-range summons (seconds, faster than normal)
     
     // Projectile Attack
     projectileCount: 3,            // Number of projectiles per volley
@@ -58,7 +60,7 @@ class OctagonEnemy extends EnemyBase {
         this.baseMoveSpeed = OCTAGON_CONFIG.moveSpeed; // Store for stun system
         
         // Properties
-        this.color = '#ffd700'; // Gold
+        this.color = '#9b59b6'; // Purple (distinct from yellow rangers)
         this.shape = 'octagon';
         this.xpValue = OCTAGON_CONFIG.xpValue;
         this.lootChance = OCTAGON_CONFIG.lootChance;
@@ -81,6 +83,12 @@ class OctagonEnemy extends EnemyBase {
         
         // Track spawned minions
         this.minions = [];
+        
+        // Initial summon tracking (spawn minions when first activated)
+        this.hasPerformedInitialSummon = false;
+        
+        // Out-of-range summon tracking (spawn when player is far away)
+        this.outOfRangeSummonElapsed = 0;
     }
     
     update(deltaTime) {
@@ -92,8 +100,21 @@ class OctagonEnemy extends EnemyBase {
             return;
         }
         
+        // Perform initial summon when first activated (spawn 2 minions immediately)
+        if (this.activated && !this.hasPerformedInitialSummon) {
+            this.hasPerformedInitialSummon = true;
+            // Summon exactly 2 minions as initial bodyguards
+            this.summonInitialMinions();
+        }
+        
         // Process stun first
         this.processStun(deltaTime);
+        
+        // Process slow timer
+        this.processSlow(deltaTime);
+        
+        // Process burn DoT
+        this.processBurn(deltaTime);
         
         // Update target lock timer
         this.updateTargetLock(deltaTime);
@@ -101,12 +122,8 @@ class OctagonEnemy extends EnemyBase {
         // Update aggro target based on sliding window threat calculation
         this.updateAggroTarget();
         
-        // Apply stun slow factor to movement speed
-        if (this.stunned) {
-            this.moveSpeed = this.baseMoveSpeed * this.stunSlowFactor;
-        } else {
-            this.moveSpeed = this.baseMoveSpeed;
-        }
+        // Apply stun/slow to movement speed using base class helper
+        this.moveSpeed = this.getEffectiveMoveSpeed();
         
         // Update attack cooldowns (slower when stunned)
         const cooldownDelta = this.stunned ? deltaTime * this.stunSlowFactor : deltaTime;
@@ -122,6 +139,7 @@ class OctagonEnemy extends EnemyBase {
         }
         
         this.minionSummonElapsed += deltaTime;
+        this.outOfRangeSummonElapsed += deltaTime;
         
         // Get target (handles decoy/clone logic, uses internal getAllAlivePlayers)
         const target = this.findTarget(null);
@@ -179,76 +197,91 @@ class OctagonEnemy extends EnemyBase {
                 return;
             }
             
-            // State-based priority decision making
-            const healthPercent = this.hp / this.maxHp;
-            // Check if any player is attacking
-            let playerAttacking = false;
-            const allPlayers = this.getAllAlivePlayers();
-            for (const { player: p } of allPlayers) {
-                if (p.attackHitboxes && p.attackHitboxes.length > 0) {
-                    playerAttacking = true;
-                    break;
+            // Out-of-range behavior: Only summon when far away, don't use combat moveset
+            if (distance > OCTAGON_CONFIG.outOfRangeDistance) {
+                // When out of range, only summon minions (no combat abilities)
+                if (this.outOfRangeSummonElapsed >= OCTAGON_CONFIG.outOfRangeSummonCooldown) {
+                    this.summonMinions();
+                    this.outOfRangeSummonElapsed = 0;
+                    this.postAttackPause = this.postAttackPauseTime;
                 }
-            }
-            
-            // Count nearby enemies (same type) for group tactics
-            let nearbyEnemyCount = 0;
-            enemies.forEach(other => {
-                if (other !== this && other.alive && other.constructor === this.constructor) {
-                    const otherDx = other.x - this.x;
-                    const otherDy = other.y - this.y;
-                    const otherDist = Math.sqrt(otherDx * otherDx + otherDy * otherDy);
-                    if (otherDist < 100) {
-                        nearbyEnemyCount++;
+                
+                // Continue chasing player (handled below), but don't use combat abilities
+                // Skip all combat priority checks when out of range
+            } else {
+                // In-range combat behavior: Use normal moveset, don't use out-of-range summon
+                const healthPercent = this.hp / this.maxHp;
+                
+                // Check if any player is attacking
+                let playerAttacking = false;
+                const allPlayers = this.getAllAlivePlayers();
+                for (const { player: p } of allPlayers) {
+                    if (p.attackHitboxes && p.attackHitboxes.length > 0) {
+                        playerAttacking = true;
+                        break;
                     }
                 }
-            });
             
-            // Priority 1: Low HP → prioritize summoning
-            if (healthPercent < 0.4 && this.minionSummonElapsed >= this.minionSummonCooldown) {
-                this.summonMinions();
-                this.minionSummonElapsed = 0;
-                this.postAttackPause = this.postAttackPauseTime;
-                return;
-            }
-            
-            // Priority 2: Player attacking → prioritize shooting (safer)
-            if (playerAttacking && this.shootCooldown <= 0) {
-                this.shootRapidProjectiles(targetX, targetY);
-                this.shootCooldown = this.shootCooldownTime;
-                this.postAttackPause = this.postAttackPauseTime;
-                return;
-            }
-            
-            // Priority 3: Multiple nearby enemies → use spin attack (group coordination)
-            if (nearbyEnemyCount >= 2 && distance < this.attackRange && this.attackCooldown <= 0) {
-                this.state = 'spin';
-                this.spinElapsed = 0;
-                return;
-            }
-            
-            // Priority 4: Close range → spin attack
-            if (distance < this.attackRange && this.attackCooldown <= 0) {
-                this.state = 'spin';
-                this.spinElapsed = 0;
-                return;
-            }
-            
-            // Priority 5: Can summon and not in danger → summon
-            if (this.minionSummonElapsed >= this.minionSummonCooldown && healthPercent > 0.5) {
-                this.summonMinions();
-                this.minionSummonElapsed = 0;
-                this.postAttackPause = this.postAttackPauseTime;
-                return;
-            }
-            
-            // Priority 6: Can shoot → shoot
-            if (this.shootCooldown <= 0) {
-                this.shootRapidProjectiles(targetX, targetY);
-                this.shootCooldown = this.shootCooldownTime;
-                this.postAttackPause = this.postAttackPauseTime;
-                return;
-            }
+                
+                // Count nearby enemies (same type) for group tactics
+                let nearbyEnemyCount = 0;
+                enemies.forEach(other => {
+                    if (other !== this && other.alive && other.constructor === this.constructor) {
+                        const otherDx = other.x - this.x;
+                        const otherDy = other.y - this.y;
+                        const otherDist = Math.sqrt(otherDx * otherDx + otherDy * otherDy);
+                        if (otherDist < 100) {
+                            nearbyEnemyCount++;
+                        }
+                    }
+                });
+                
+                // Priority 1: Low HP → prioritize summoning
+                if (healthPercent < 0.4 && this.minionSummonElapsed >= this.minionSummonCooldown) {
+                    this.summonMinions();
+                    this.minionSummonElapsed = 0;
+                    this.postAttackPause = this.postAttackPauseTime;
+                    return;
+                }
+                
+                // Priority 2: Player attacking → prioritize shooting (safer)
+                if (playerAttacking && this.shootCooldown <= 0) {
+                    this.shootRapidProjectiles(targetX, targetY);
+                    this.shootCooldown = this.shootCooldownTime;
+                    this.postAttackPause = this.postAttackPauseTime;
+                    return;
+                }
+                
+                // Priority 3: Multiple nearby enemies → use spin attack (group coordination)
+                if (nearbyEnemyCount >= 2 && distance < this.attackRange && this.attackCooldown <= 0) {
+                    this.state = 'spin';
+                    this.spinElapsed = 0;
+                    return;
+                }
+                
+                // Priority 4: Close range → spin attack
+                if (distance < this.attackRange && this.attackCooldown <= 0) {
+                    this.state = 'spin';
+                    this.spinElapsed = 0;
+                    return;
+                }
+                
+                // Priority 5: Can summon and not in danger → summon
+                if (this.minionSummonElapsed >= this.minionSummonCooldown && healthPercent > 0.5) {
+                    this.summonMinions();
+                    this.minionSummonElapsed = 0;
+                    this.postAttackPause = this.postAttackPauseTime;
+                    return;
+                }
+                
+                // Priority 6: Can shoot → shoot
+                if (this.shootCooldown <= 0) {
+                    this.shootRapidProjectiles(targetX, targetY);
+                    this.shootCooldown = this.shootCooldownTime;
+                    this.postAttackPause = this.postAttackPauseTime;
+                    return;
+                }
+            } // End of in-range combat behavior
             
             // Normal chase with separation
             const separation = this.getSeparationForce(enemies, OCTAGON_CONFIG.separationRadius, OCTAGON_CONFIG.separationStrength);
@@ -371,6 +404,39 @@ class OctagonEnemy extends EnemyBase {
         }
     }
     
+    summonInitialMinions() {
+        if (typeof Game === 'undefined') return;
+        
+        // Always spawn exactly 2 minions as initial bodyguards
+        const count = 2;
+        
+        for (let i = 0; i < count; i++) {
+            const angle = (Math.PI * 2 / count) * i;
+            const distance = OCTAGON_CONFIG.minionSpawnDistance + Math.random() * OCTAGON_CONFIG.minionSpawnVariance;
+            
+            const minionX = this.x + Math.cos(angle) * distance;
+            const minionY = this.y + Math.sin(angle) * distance;
+            
+            // Pass parent's currentTarget to minion constructor for aggro inheritance
+            const minion = new Enemy(minionX, minionY, this.currentTarget);
+            minion.maxHp = Math.floor(minion.maxHp * OCTAGON_CONFIG.minionHealthMultiplier);
+            minion.hp = minion.maxHp;
+            minion.damage = Math.floor(minion.damage * OCTAGON_CONFIG.minionDamageMultiplier);
+            minion.xpValue = Math.floor(minion.xpValue * OCTAGON_CONFIG.minionXpMultiplier);
+            minion.lootChance = 0.0; // No loot from minions
+            
+            if (typeof currentRoom !== 'undefined' && currentRoom) {
+                currentRoom.enemies.push(minion);
+            }
+            if (typeof Game !== 'undefined') {
+                Game.enemies.push(minion);
+            }
+            
+            // Track the minion
+            this.minions.push(minion);
+        }
+    }
+    
     summonMinions() {
         if (typeof Game === 'undefined') return;
         
@@ -451,7 +517,7 @@ class OctagonEnemy extends EnemyBase {
         let drawColor = this.color;
         
         if (this.state === 'spin' || this.state === 'charge') {
-            drawColor = '#ff6b00'; // Orange when attacking
+            drawColor = '#bb86fc'; // Light purple when attacking (still distinct from rangers)
         }
         
         // Draw octagon shape
@@ -474,12 +540,25 @@ class OctagonEnemy extends EnemyBase {
         ctx.closePath();
         ctx.fill();
         
-        // Draw outline
-        ctx.strokeStyle = '#ffaa00';
-        ctx.lineWidth = 2;
+        // Draw outline with purple glow effect
+        ctx.strokeStyle = '#dda0dd'; // Light purple outline
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        
+        // Add subtle inner glow for elite distinction
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1;
         ctx.stroke();
         
         ctx.restore();
+        
+        // Draw status effects (burn, freeze)
+        if (typeof renderBurnEffect !== 'undefined') {
+            renderBurnEffect(ctx, this);
+        }
+        if (typeof renderFreezeEffect !== 'undefined') {
+            renderFreezeEffect(ctx, this);
+        }
         
         this.renderHealthBar(ctx);
         

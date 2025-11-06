@@ -74,18 +74,20 @@ class DiamondEnemy extends EnemyBase {
         // Process stun first
         this.processStun(deltaTime);
         
+        // Process slow timer
+        this.processSlow(deltaTime);
+        
+        // Process burn DoT
+        this.processBurn(deltaTime);
+        
         // Update target lock timer
         this.updateTargetLock(deltaTime);
         
         // Update aggro target based on sliding window threat calculation
         this.updateAggroTarget();
         
-        // Apply stun slow factor to movement speed
-        if (this.stunned) {
-            this.moveSpeed = this.baseMoveSpeed * this.stunSlowFactor;
-        } else {
-            this.moveSpeed = this.baseMoveSpeed;
-        }
+        // Apply stun/slow to movement speed using base class helper
+        this.moveSpeed = this.getEffectiveMoveSpeed();
         
         // Update attack cooldown (slower when stunned)
         if (this.attackCooldown > 0) {
@@ -190,6 +192,11 @@ class DiamondEnemy extends EnemyBase {
             // Stay in place during telegraph (acts as visual telegraph)
             this.telegraphElapsed += deltaTime;
             if (this.telegraphElapsed >= this.telegraphDuration) {
+                // Play dash sound
+                if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+                    AudioManager.sounds.enemyDash();
+                }
+                
                 this.state = 'dash';
                 this.dashElapsed = 0;
             }
@@ -341,6 +348,14 @@ class DiamondEnemy extends EnemyBase {
         ctx.fill();
         
         ctx.restore();
+        
+        // Draw status effects (burn, freeze)
+        if (typeof renderBurnEffect !== 'undefined') {
+            renderBurnEffect(ctx, this);
+        }
+        if (typeof renderFreezeEffect !== 'undefined') {
+            renderFreezeEffect(ctx, this);
+        }
         
         this.renderHealthBar(ctx);
         

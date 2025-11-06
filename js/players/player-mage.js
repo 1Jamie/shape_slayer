@@ -143,12 +143,19 @@ class Mage extends PlayerBase {
     
     // Override updateEffectiveStats to apply beam bonuses
     updateEffectiveStats() {
+        // Reset class modifier storage
+        this.projectileCountBonus = 0;
+        this.blinkRangeBonus = 0;
+        this.blinkDamageMultiplier = 1.0;
+        this.aoeRadiusBonus = 0;
+        
         // Call parent first
         super.updateEffectiveStats();
         
         // Apply beam charge bonuses and resize cooldown array if needed
         const newMaxBeamCharges = MAGE_CONFIG.beamCharges + this.bonusBeamCharges;
         if (newMaxBeamCharges !== this.maxBeamCharges) {
+            const oldMaxBeamCharges = this.maxBeamCharges;
             this.maxBeamCharges = newMaxBeamCharges;
             
             // Resize cooldown array
@@ -160,8 +167,14 @@ class Mage extends PlayerBase {
                 this.beamChargeCooldowns[i] = oldCooldowns[i];
             }
             
-            // Update current charges (don't exceed max)
-            this.beamCharges = Math.min(this.beamCharges || 0, this.maxBeamCharges);
+            // Grant extra charges when max increases (e.g., from 2 to 3, grant 1 charge)
+            const chargeIncrease = this.maxBeamCharges - oldMaxBeamCharges;
+            if (chargeIncrease > 0) {
+                this.beamCharges = Math.min((this.beamCharges || 0) + chargeIncrease, this.maxBeamCharges);
+            } else {
+                // If max decreased, clamp current charges
+                this.beamCharges = Math.min(this.beamCharges || 0, this.maxBeamCharges);
+            }
         }
         
         // Apply tick rate and duration multipliers
@@ -251,6 +264,11 @@ class Mage extends PlayerBase {
     }
     
     shootProjectile(input) {
+        // Play mage basic attack sound
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+            AudioManager.sounds.mageBasicAttack();
+        }
+        
         // Mage: Shoot magic bolt
         if (typeof Game === 'undefined') return;
         
@@ -290,6 +308,11 @@ class Mage extends PlayerBase {
     
     // Override createHeavyAttack for energy beam
     createHeavyAttack() {
+        // Play mage heavy attack beam sound
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+            AudioManager.sounds.mageHeavyAttackBeam();
+        }
+        
         // Get gameplay position (authoritative position in multiplayer)
         const pos = this.getGameplayPosition();
         
@@ -430,6 +453,11 @@ class Mage extends PlayerBase {
     }
     
     activateBlink(input) {
+        // Play mage blink sound
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+            AudioManager.sounds.mageBlink();
+        }
+        
         // Save old position for decoy
         const oldX = this.x;
         const oldY = this.y;
@@ -576,6 +604,7 @@ class Mage extends PlayerBase {
         this.blinkExplosionElapsed = 0;
         this.blinkExplosionX = newX;
         this.blinkExplosionY = newY;
+        this.blinkHasChainedLegendary = false; // Reset chain flag for this blink
         
         // Deal damage at destination
         if (typeof Game !== 'undefined' && Game.enemies) {
@@ -617,6 +646,25 @@ class Mage extends PlayerBase {
                                     killStats.addStat('kills', 1);
                                 }
                             }
+                        }
+                        
+                        // Apply lifesteal
+                        if (typeof applyLifesteal !== 'undefined') {
+                            applyLifesteal(this, damageDealt);
+                        }
+                        
+                        // Apply legendary effects
+                        if (typeof applyLegendaryEffects !== 'undefined') {
+                            applyLegendaryEffects(this, enemy, damageDealt, attackerId);
+                        }
+                        // Chain lightning (only once per blink)
+                        if (this.activeLegendaryEffects && !this.blinkHasChainedLegendary) {
+                            this.activeLegendaryEffects.forEach(effect => {
+                                if (effect.type === 'chain_lightning' && typeof chainLightningAttack !== 'undefined') {
+                                    chainLightningAttack(this, enemy, effect, explosionDamage);
+                                    this.blinkHasChainedLegendary = true;
+                                }
+                            });
                         }
                         
                         if (typeof createDamageNumber !== 'undefined') {
@@ -908,6 +956,25 @@ class Mage extends PlayerBase {
                         killStats.addStat('kills', 1);
                     }
                 }
+            }
+            
+            // Apply lifesteal
+            if (typeof applyLifesteal !== 'undefined') {
+                applyLifesteal(this, damageDealt);
+            }
+            
+            // Apply legendary effects (burn, freeze) and chain lightning
+            if (typeof applyLegendaryEffects !== 'undefined') {
+                applyLegendaryEffects(this, enemy, damageDealt, attackerId);
+            }
+            // Chain lightning (separate check to prevent multiple chains per beam)
+            if (this.activeLegendaryEffects && !beam.hasChainedLegendary) {
+                this.activeLegendaryEffects.forEach(effect => {
+                    if (effect.type === 'chain_lightning' && typeof chainLightningAttack !== 'undefined') {
+                        chainLightningAttack(this, enemy, effect, finalDamage);
+                        beam.hasChainedLegendary = true;
+                    }
+                });
             }
             
             if (typeof createDamageNumber !== 'undefined') {

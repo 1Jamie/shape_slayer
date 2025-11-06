@@ -86,6 +86,201 @@ function createParticleBurst(x, y, color, count = 10) {
     }
 }
 
+// Create lightning arc visual effect between two points
+function createLightningArc(x1, y1, x2, y2) {
+    if (typeof Game === 'undefined') return;
+    if (!Game.lightningArcs) Game.lightningArcs = [];
+    
+    // Create lightning arc object
+    const arc = {
+        x1: x1,
+        y1: y1,
+        x2: x2,
+        y2: y2,
+        life: 0.3, // Short duration for lightning
+        maxLife: 0.3,
+        alpha: 1.0,
+        segments: [] // Zigzag points for lightning effect
+    };
+    
+    // Generate zigzag lightning path
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    const segmentCount = Math.floor(distance / 30) + 2; // One segment per 30px
+    
+    arc.segments.push({ x: x1, y: y1 });
+    
+    for (let i = 1; i < segmentCount - 1; i++) {
+        const t = i / (segmentCount - 1);
+        const baseX = x1 + dx * t;
+        const baseY = y1 + dy * t;
+        
+        // Add random perpendicular offset for zigzag
+        const perpX = -dy / distance;
+        const perpY = dx / distance;
+        const offset = (Math.random() - 0.5) * 20;
+        
+        arc.segments.push({
+            x: baseX + perpX * offset,
+            y: baseY + perpY * offset
+        });
+    }
+    
+    arc.segments.push({ x: x2, y: y2 });
+    
+    Game.lightningArcs.push(arc);
+}
+
+// Update lightning arcs
+function updateLightningArcs(deltaTime) {
+    if (!Game || !Game.lightningArcs) return;
+    
+    Game.lightningArcs = Game.lightningArcs.filter(arc => {
+        arc.life -= deltaTime;
+        arc.alpha = arc.life / arc.maxLife;
+        return arc.life > 0;
+    });
+}
+
+// Render lightning arcs
+function renderLightningArcs(ctx) {
+    if (!Game || !Game.lightningArcs) return;
+    
+    Game.lightningArcs.forEach(arc => {
+        ctx.save();
+        ctx.globalAlpha = arc.alpha;
+        
+        // Draw outer glow
+        ctx.strokeStyle = `rgba(150, 200, 255, ${arc.alpha * 0.6})`;
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        
+        ctx.beginPath();
+        arc.segments.forEach((segment, i) => {
+            if (i === 0) {
+                ctx.moveTo(segment.x, segment.y);
+            } else {
+                ctx.lineTo(segment.x, segment.y);
+            }
+        });
+        ctx.stroke();
+        
+        // Draw inner core
+        ctx.strokeStyle = `rgba(255, 255, 255, ${arc.alpha})`;
+        ctx.lineWidth = 2;
+        
+        ctx.beginPath();
+        arc.segments.forEach((segment, i) => {
+            if (i === 0) {
+                ctx.moveTo(segment.x, segment.y);
+            } else {
+                ctx.lineTo(segment.x, segment.y);
+            }
+        });
+        ctx.stroke();
+        
+        ctx.restore();
+    });
+}
+
+// Render burn effect on an enemy (orange/red pulsing glow with rising particles)
+function renderBurnEffect(ctx, enemy) {
+    if (!enemy || !enemy.burning) return;
+    
+    ctx.save();
+    
+    // Pulsing orange/red glow
+    const burnPulse = Math.sin(Date.now() / 100) * 0.5 + 0.5;
+    const glowRadius = enemy.size + 5 + burnPulse * 3;
+    
+    // Outer glow
+    ctx.fillStyle = `rgba(255, 100, 0, ${0.3 * burnPulse})`;
+    ctx.beginPath();
+    ctx.arc(enemy.x, enemy.y, glowRadius, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Inner glow
+    ctx.fillStyle = `rgba(255, 150, 50, ${0.5 * burnPulse})`;
+    ctx.beginPath();
+    ctx.arc(enemy.x, enemy.y, enemy.size + 3, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Rising fire particles
+    if (Math.random() < 0.3) { // 30% chance per frame to spawn particle
+        const angle = Math.random() * Math.PI * 2;
+        const offset = Math.random() * enemy.size;
+        const px = enemy.x + Math.cos(angle) * offset;
+        const py = enemy.y + Math.sin(angle) * offset;
+        
+        let particle = getParticle();
+        if (!particle) {
+            particle = new Particle(px, py, 0, -50 - Math.random() * 30, '#ff6600', 2 + Math.random() * 2, 0.3);
+        } else {
+            particle.x = px;
+            particle.y = py;
+            particle.vx = 0;
+            particle.vy = -50 - Math.random() * 30; // Rise upward
+            particle.color = '#ff6600';
+            particle.size = 2 + Math.random() * 2;
+            particle.life = 0.3;
+            particle.maxLife = 0.3;
+            particle.alpha = 1.0;
+        }
+        
+        if (typeof Game !== 'undefined' && Game.particles) {
+            Game.particles.push(particle);
+        }
+    }
+    
+    ctx.restore();
+}
+
+// Render freeze/slow effect on an enemy (blue/cyan glow with frost)
+function renderFreezeEffect(ctx, enemy) {
+    if (!enemy || !enemy.slowed) return;
+    
+    ctx.save();
+    
+    // Pulsing blue/cyan glow
+    const freezePulse = Math.sin(Date.now() / 150) * 0.5 + 0.5;
+    const glowRadius = enemy.size + 4 + freezePulse * 2;
+    
+    // Outer glow
+    ctx.fillStyle = `rgba(100, 200, 255, ${0.25 * freezePulse})`;
+    ctx.beginPath();
+    ctx.arc(enemy.x, enemy.y, glowRadius, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Inner glow
+    ctx.fillStyle = `rgba(150, 220, 255, ${0.4 * freezePulse})`;
+    ctx.beginPath();
+    ctx.arc(enemy.x, enemy.y, enemy.size + 2, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Ice crystals/frost particles around enemy
+    const time = Date.now() / 1000;
+    for (let i = 0; i < 4; i++) {
+        const angle = (time + i * Math.PI / 2) * 0.5; // Slow rotation
+        const distance = enemy.size + 8;
+        const px = enemy.x + Math.cos(angle) * distance;
+        const py = enemy.y + Math.sin(angle) * distance;
+        
+        ctx.fillStyle = `rgba(200, 240, 255, ${0.7 * freezePulse})`;
+        ctx.beginPath();
+        // Draw small diamond crystal
+        ctx.moveTo(px, py - 3);
+        ctx.lineTo(px + 2, py);
+        ctx.lineTo(px, py + 3);
+        ctx.lineTo(px - 2, py);
+        ctx.closePath();
+        ctx.fill();
+    }
+    
+    ctx.restore();
+}
+
 // Update and render particles
 function updateParticles(deltaTime) {
     if (!Game || !Game.particles) return;

@@ -7,8 +7,8 @@
 const WARRIOR_CONFIG = {
     // Base Stats (from CLASS_DEFINITIONS)
     baseHp: 100,                   // Starting health points
-    baseDamage: 14,                // Base damage per attack
-    baseSpeed: 230,                // Movement speed (pixels/second)
+    baseDamage: 12,                // Base damage per attack
+    baseSpeed: 210,                // Movement speed (pixels/second)
     baseDefense: 0.1,              // Damage reduction (0.1 = 10%)
     critChance: 0,                 // Critical hit chance (0 = 0%)
     
@@ -28,13 +28,13 @@ const WARRIOR_CONFIG = {
     heavyAttackCooldown: 2.5,      // Cooldown for heavy attack (seconds)
     thrustDistance: 300,           // Distance of forward thrust (pixels)
     thrustDuration: 0.12,          // How long the thrust takes (seconds)
-    thrustDamage: 2.0,             // Damage multiplier for thrust
-    thrustHitRadius: 15,           // Hit detection radius around thrust path (pixels)
-    thrustKnockback: 100,          // Knockback force applied to hit enemies
+    thrustDamage: 1.6,             // Damage multiplier for thrust
+    thrustHitRadius: 13,           // Hit detection radius around thrust path (pixels)
+    thrustKnockback: 120,          // Knockback force applied to hit enemies
     
     // Special Ability (Whirlwind)
-    specialCooldown: 5.0,          // Special ability cooldown (seconds)
-    whirlwindDuration: 2.0,        // How long whirlwind lasts (seconds)
+    specialCooldown: 5.5,          // Special ability cooldown (seconds)
+    whirlwindDuration: 2.1,        // How long whirlwind lasts (seconds)
     whirlwindDamage: 2.0,          // Damage multiplier per hit
     whirlwindRadius: 90,           // Radius from player edge (pixels)
     whirlwindHitInterval: 0.2,     // Time between damage ticks (seconds)
@@ -50,7 +50,7 @@ const WARRIOR_CONFIG = {
     descriptions: {
         playstyle: "Balanced melee fighter with defensive options",
         basic: "Sword Swing - Wide coverage with {cleaveHitboxCount} hitboxes",
-        heavy: "Forward Thrust - Rush {thrustDistance}px forward, {thrustDamage|mult} damage + knockback",
+        heavy: "Forward Thrust - Rush forward, {thrustDamage|mult} damage + knockback",
         special: "Whirlwind - Spinning blades rotate around player for {whirlwindDuration}s",
         passive: "Block Stance - 50% damage reduction when standing still",
         baseStats: "{baseDefense|percent} Base Defense, Balanced Stats"
@@ -137,6 +137,18 @@ class Warrior extends PlayerBase {
         console.log('Warrior class initialized');
     }
     
+    // Override updateEffectiveStats to reset class modifiers
+    updateEffectiveStats() {
+        // Reset class modifier storage
+        this.whirlwindDamageMultiplier = 1.0;
+        this.thrustDistanceBonus = 0;
+        this.thrustDamageMultiplier = 1.0;
+        this.blockReductionBonus = 0;
+        
+        // Call parent
+        super.updateEffectiveStats();
+    }
+    
     // Override to apply Warrior-specific class modifiers
     applyClassModifier(modifier) {
         // Call parent for universal modifiers
@@ -192,6 +204,11 @@ class Warrior extends PlayerBase {
             
             // Deal damage at regular intervals to nearby enemies
             if (this.whirlwindHitTimer >= WARRIOR_CONFIG.whirlwindHitInterval && typeof Game !== 'undefined' && Game.enemies) {
+                // Play whirlwind hit sound
+                if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+                    AudioManager.sounds.warriorWhirlwindHit();
+                }
+                
                 const baseWhirlwindDamage = this.damage * WARRIOR_CONFIG.whirlwindDamage * this.whirlwindDamageMultiplier; // Apply class modifier
                 const whirlwindRadius = this.size + WARRIOR_CONFIG.whirlwindRadius;
                 
@@ -274,6 +291,7 @@ class Warrior extends PlayerBase {
                 const thrustDirX = Math.cos(this.rotation);
                 const thrustDirY = Math.sin(this.rotation);
                 const baseThrustDamage = this.damage * WARRIOR_CONFIG.thrustDamage * this.thrustDamageMultiplier; // Apply class modifier
+                const effectiveThrustDistance = WARRIOR_CONFIG.thrustDistance + this.thrustDistanceBonus; // Include bonus
                 
                 Game.enemies.forEach(enemy => {
                     if (enemy.alive) {
@@ -286,8 +304,8 @@ class Warrior extends PlayerBase {
                         const forwardDist = dot; // Distance along thrust direction
                         
                         // Check if enemy is along the thrust path (behind player, in the rushing area)
-                        // Extended range to match 300px thrust distance
-                        if (forwardDist >= -this.size - enemy.size - 10 && forwardDist <= 310) {
+                        // Use effective thrust distance (base + bonuses)
+                        if (forwardDist >= -this.size - enemy.size - 10 && forwardDist <= effectiveThrustDistance + 10) {
                             // Calculate perpendicular distance from thrust line
                             const perpX = enemyDx - thrustDirX * dot;
                             const perpY = enemyDy - thrustDirY * dot;
@@ -325,6 +343,25 @@ class Warrior extends PlayerBase {
                                     }
                                 }
                                 
+                                // Apply lifesteal
+                                if (typeof applyLifesteal !== 'undefined') {
+                                    applyLifesteal(this, damageDealt);
+                                }
+                                
+                                // Apply legendary effects
+                                if (typeof applyLegendaryEffects !== 'undefined') {
+                                    applyLegendaryEffects(this, enemy, damageDealt, attackerId);
+                                }
+                                // Chain lightning (only once per thrust)
+                                if (this.activeLegendaryEffects && !this.thrustHasChainedLegendary) {
+                                    this.activeLegendaryEffects.forEach(effect => {
+                                        if (effect.type === 'chain_lightning' && typeof chainLightningAttack !== 'undefined') {
+                                            chainLightningAttack(this, enemy, effect, thrustDamage);
+                                            this.thrustHasChainedLegendary = true;
+                                        }
+                                    });
+                                }
+                                
                                 // Create damage number for heavy attack
                                 if (typeof createDamageNumber !== 'undefined') {
                                     createDamageNumber(enemy.x, enemy.y, damageDealt, isCrit, false);
@@ -345,6 +382,7 @@ class Warrior extends PlayerBase {
             if (this.thrustElapsed >= this.thrustDuration) {
                 this.thrustActive = false;
                 this.thrustElapsed = 0;
+                this.thrustDuration = WARRIOR_CONFIG.thrustDuration; // Reset to base duration
             }
         }
         
@@ -371,6 +409,11 @@ class Warrior extends PlayerBase {
     }
     
     meleeAttack() {
+        // Play warrior basic attack sound
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+            AudioManager.sounds.warriorBasicAttack();
+        }
+        
         // Warrior: Sword swing with hitboxes spread out in a line
         const hitboxRadius = WARRIOR_CONFIG.cleaveHitboxRadius * (this.aoeMultiplier || 1.0); // Apply AoE multiplier
         const cleaveDamage = this.damage * WARRIOR_CONFIG.cleaveDamage;
@@ -420,6 +463,11 @@ class Warrior extends PlayerBase {
     }
     
     createForwardThrust() {
+        // Play warrior heavy attack sound
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+            AudioManager.sounds.warriorHeavyAttack();
+        }
+        
         // Warrior forward thrust - rush forward while dealing damage along the path
         const thrustDistance = WARRIOR_CONFIG.thrustDistance + this.thrustDistanceBonus; // Apply class modifier
         const thrustDirX = Math.cos(this.rotation);
@@ -454,6 +502,21 @@ class Warrior extends PlayerBase {
         // Start thrust animation
         this.thrustActive = true;
         this.thrustElapsed = 0;
+        this.thrustHasChainedLegendary = false; // Reset chain flag for this thrust
+        
+        // Scale thrust duration based on actual distance traveled (maintains constant speed)
+        // Base: 300px in 0.12s, with +100 bonus: 400px in 0.16s
+        const actualDistance = Math.sqrt(
+            (this.thrustTargetX - this.thrustStartX) ** 2 + 
+            (this.thrustTargetY - this.thrustStartY) ** 2
+        );
+        const baseThrustDistance = WARRIOR_CONFIG.thrustDistance;
+        const scaledThrustDuration = WARRIOR_CONFIG.thrustDuration * (actualDistance / baseThrustDistance);
+        this.thrustDuration = scaledThrustDuration;
+        
+        // Grant invincibility during thrust (scaled with distance)
+        this.invulnerable = true;
+        this.invulnerabilityTime = scaledThrustDuration;
     }
     
     // Override activateSpecialAbility for whirlwind
@@ -462,6 +525,11 @@ class Warrior extends PlayerBase {
     }
     
     activateWhirlwind() {
+        // Play whirlwind activation sound
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+            AudioManager.sounds.warriorWhirlwindStart();
+        }
+        
         this.whirlwindActive = true;
         this.whirlwindElapsed = 0;
         this.whirlwindStartTime = Date.now(); // Track start time for smooth visual rotation
@@ -504,7 +572,7 @@ class Warrior extends PlayerBase {
         this.thrustPreviewActive = true;
         
         // Calculate thrust destination based on current rotation
-        const thrustDistance = WARRIOR_CONFIG.thrustDistance;
+        const thrustDistance = WARRIOR_CONFIG.thrustDistance + this.thrustDistanceBonus; // Include bonus
         const thrustDirX = Math.cos(this.rotation);
         const thrustDirY = Math.sin(this.rotation);
         

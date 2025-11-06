@@ -170,11 +170,11 @@ const CLASS_DESCRIPTIONS = {
     },
     pentagon: {
         name: 'Tank',
-        playstyle: 'High HP damage sponge with crowd control',
-        basic: 'Cone Slam - Wide cone attack with multiple hitboxes',
-        heavy: 'Ground Smash - AoE ring, 1.1x damage + knockback',
-        special: 'Shield Defense - Block for 1.5s, then wave pulse attack',
-        passive: 'High HP - Slow but extremely durable',
+        playstyle: 'Crowd control tank with sustain and aggro management',
+        basic: 'Hammer Slam - Wide cone attack with life steal on hit',
+        heavy: 'Shout - AoE stun + slow, 0.975x damage + aggro spike',
+        special: 'Shield Defense - Block for 2.1s, then wave pulse attack',
+        passive: 'Retaliatory Knockback - Small knockback when hit',
         baseStats: '20% Base Defense, 150 HP'
     },
     hexagon: {

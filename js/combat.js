@@ -14,6 +14,49 @@ function calculateDamage(baseDamage, gearMultiplier = 1, defense = 0, critMultip
     return mitigatedDamage * critMultiplier;
 }
 
+// Apply lifesteal healing to player (host/solo only)
+function applyLifesteal(player, damageDealt) {
+    // Only apply on host/solo (not clients)
+    const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+    if (isClient) return;
+    
+    // Check if player has lifesteal
+    if (!player || !player.lifesteal || player.lifesteal <= 0) return;
+    
+    // Calculate heal amount
+    const healAmount = damageDealt * player.lifesteal;
+    
+    // Apply healing (clamped to maxHp)
+    player.hp = Math.min(player.hp + healAmount, player.maxHp);
+}
+
+// Apply legendary effects to an enemy (host/solo only)
+function applyLegendaryEffects(player, enemy, damageDealt, attackerId) {
+    // Only apply on host/solo (not clients)
+    const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+    if (isClient) return;
+    
+    if (!player || !player.activeLegendaryEffects || !enemy) return;
+    
+    player.activeLegendaryEffects.forEach(effect => {
+        if (effect.type === 'incendiary') {
+            // Apply burn DoT
+            if (enemy.applyBurn) {
+                const burnDPS = damageDealt * effect.burnDPS; // DPS as percentage of damage dealt
+                enemy.applyBurn(burnDPS, effect.burnDuration, attackerId);
+            }
+        } else if (effect.type === 'freezing') {
+            // Apply slow with chance
+            if (enemy.applySlow && Math.random() < effect.slowChance) {
+                enemy.applySlow(effect.slowAmount, effect.slowDuration);
+            }
+        } else if (effect.type === 'chain_lightning') {
+            // Note: chain lightning is applied separately from this function
+            // to prevent duplicate chains (controlled by hasChained flags)
+        }
+    });
+}
+
 // Check attacks vs enemies and handle collisions
 function checkAttacksVsEnemies(player, enemies, playerId = null) {
     player.attackHitboxes.forEach((hitbox) => {
@@ -132,6 +175,18 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                     // Apply light stun (0.5-0.8 seconds)
                     const stunDuration = 0.65;
                     enemy.applyStun(stunDuration);
+                    
+                    // Tank heal on hit (host/solo only)
+                    if (!isClient && player.playerClass === 'pentagon') {
+                        const healPercent = typeof TANK_CONFIG !== 'undefined' ? TANK_CONFIG.hammerHealOnHit : 0.075;
+                        const healAmount = damageDealt * healPercent;
+                        player.hp = Math.min(player.hp + healAmount, player.maxHp);
+                        
+                        // Visual feedback for heal
+                        if (typeof createHealNumber !== 'undefined') {
+                            createHealNumber(player.x, player.y, healAmount);
+                        }
+                    }
                 }
                 
                 // Track damage stats (host/solo only for consistency)
@@ -248,6 +303,31 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                                 isWeakPoint: hitWeakPoint
                             }
                         });
+                    }
+                }
+                
+                // Play impact sound based on hit type
+                if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+                    // Normalize damage for intensity (assuming typical damage ranges from 10-100)
+                    const intensity = Math.min(damageDealt / 50, 2.0);
+                    
+                    if (hitWeakPoint) {
+                        AudioManager.sounds.hitWeakPoint(intensity);
+                    } else if (hitbox.displayCrit) {
+                        AudioManager.sounds.hitCritical(intensity);
+                    } else if (isBackstab) {
+                        AudioManager.sounds.hitBackstab(intensity);
+                    } else {
+                        AudioManager.sounds.hitNormal(intensity);
+                    }
+                    
+                    // Play death sound if enemy died
+                    if (!isClient && enemy.hp <= 0) {
+                        setTimeout(() => {
+                            if (AudioManager.sounds) {
+                                AudioManager.sounds.enemyDeath();
+                            }
+                        }, 50);
                     }
                 }
                 
@@ -443,6 +523,86 @@ function checkEnemiesVsClones(player, enemies) {
     }
 }
 
+// Chain Lightning legendary effect - chains to nearby enemies
+function chainLightningAttack(player, sourceEnemy, effect, damage) {
+    if (!effect || typeof Game === 'undefined' || !Game.enemies) return;
+    
+    const enemies = Game.enemies;
+    const chainCount = effect.chainCount || 2;
+    const chainDamageMultiplier = effect.chainDamage || 0.7;
+    const chainRange = effect.chainRange || 150;
+    
+    // Get player ID for damage attribution
+    const attackerId = player ? (player.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null)) : null;
+    
+    const hitEnemies = new Set([sourceEnemy]);
+    let currentTarget = sourceEnemy;
+    
+    for (let i = 0; i < chainCount; i++) {
+        // Find nearest enemy within range that hasn't been hit
+        let nearestEnemy = null;
+        let nearestDist = chainRange;
+        
+        enemies.forEach(enemy => {
+            if (!enemy.alive || hitEnemies.has(enemy)) return;
+            
+            const dx = enemy.x - currentTarget.x;
+            const dy = enemy.y - currentTarget.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            if (dist < nearestDist) {
+                nearestDist = dist;
+                nearestEnemy = enemy;
+            }
+        });
+        
+        if (nearestEnemy) {
+            // Apply reduced damage per chain
+            const chainDamage = damage * Math.pow(chainDamageMultiplier, i + 1);
+            const damageDealt = Math.min(chainDamage, nearestEnemy.hp);
+            
+            nearestEnemy.takeDamage(chainDamage, attackerId);
+            hitEnemies.add(nearestEnemy);
+            
+            // Track stats (host/solo only)
+            const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+            if (!isClient && typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
+                const stats = Game.getPlayerStats(attackerId);
+                if (stats) {
+                    stats.addStat('damageDealt', damageDealt);
+                }
+                
+                // Track kill if enemy died
+                if (nearestEnemy.hp <= 0) {
+                    const killStats = Game.getPlayerStats(attackerId);
+                    if (killStats) {
+                        killStats.addStat('kills', 1);
+                    }
+                }
+            }
+            
+            // Apply lifesteal
+            if (player) {
+                applyLifesteal(player, damageDealt);
+            }
+            
+            // Create visual arc
+            if (typeof createLightningArc !== 'undefined') {
+                createLightningArc(currentTarget.x, currentTarget.y, nearestEnemy.x, nearestEnemy.y);
+            }
+            
+            // Damage number
+            if (typeof createDamageNumber !== 'undefined') {
+                createDamageNumber(nearestEnemy.x, nearestEnemy.y, Math.floor(chainDamage), false, false);
+            }
+            
+            currentTarget = nearestEnemy;
+        } else {
+            break; // No more enemies in range
+        }
+    }
+}
+
 // Chain Lightning affix - chains to nearby enemies
 function chainLightningAffix(player, sourceEnemy, chainCount, damage, enemies) {
     if (!enemies || enemies.length === 0) return;
@@ -495,6 +655,11 @@ function chainLightningAffix(player, sourceEnemy, chainCount, damage, enemies) {
                         killStats.addStat('kills', 1);
                     }
                 }
+            }
+            
+            // Apply lifesteal
+            if (player) {
+                applyLifesteal(player, damageDealt);
             }
             
             // Create visual arc
@@ -554,6 +719,11 @@ function createExplosion(x, y, radius, damage, player, enemies) {
                         killStats.addStat('kills', 1);
                     }
                 }
+            }
+            
+            // Apply lifesteal
+            if (player) {
+                applyLifesteal(player, damageDealt);
             }
             
             // Damage number

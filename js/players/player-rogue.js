@@ -134,6 +134,18 @@ class Rogue extends PlayerBase {
         console.log('Rogue class initialized');
     }
     
+    // Override updateEffectiveStats to reset class modifiers
+    updateEffectiveStats() {
+        // Reset class modifier storage
+        this.dodgeDamageMultiplier = 1.0;
+        this.knifeCountBonus = 0;
+        this.shadowCloneCountBonus = 0;
+        this.backstabMultiplierBonus = 0;
+        
+        // Call parent
+        super.updateEffectiveStats();
+    }
+    
     // Override to apply Rogue-specific class modifiers
     applyClassModifier(modifier) {
         // Call parent for universal modifiers
@@ -178,6 +190,11 @@ class Rogue extends PlayerBase {
     }
     
     throwKnife(input) {
+        // Play rogue basic attack sound
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+            AudioManager.sounds.rogueBasicAttack();
+        }
+        
         // Rogue: Throw knife as projectile
         if (typeof Game === 'undefined') return;
         
@@ -247,6 +264,11 @@ class Rogue extends PlayerBase {
     }
     
     createFanOfKnives() {
+        // Play rogue heavy attack sound
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+            AudioManager.sounds.rogueHeavyAttack();
+        }
+        
         // Rogue: Fan of knives - throw multiple knives in a spread pattern
         const knifeDamage = this.damage * ROGUE_CONFIG.fanKnifeDamage;
         const numKnives = ROGUE_CONFIG.fanKnifeCount + this.knifeCountBonus; // Apply class modifier
@@ -289,6 +311,11 @@ class Rogue extends PlayerBase {
     }
     
     activateShadowClones() {
+        // Play shadow clones sound
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+            AudioManager.sounds.rogueShadowClones();
+        }
+        
         this.shadowClonesActive = true;
         this.shadowClonesElapsed = 0;
         // Apply cooldown reduction
@@ -354,6 +381,11 @@ class Rogue extends PlayerBase {
     
     // Override startDodge for Rogue directional dodge
     startDodge(input) {
+        // Play rogue-specific dodge sound (replaces generic dodge sound)
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+            AudioManager.sounds.rogueDodge();
+        }
+        
         console.log('[ROGUE DODGE] startDodge called, isTouchMode:', input.isTouchMode ? input.isTouchMode() : false);
         console.log('[ROGUE DODGE] input.touchButtons:', input.touchButtons);
         
@@ -417,6 +449,7 @@ class Rogue extends PlayerBase {
         this.invulnerable = true;
         this.dodgeElapsed = 0;
         this.dodgeHitEnemies.clear(); // Reset hit tracking for new dodge
+        this.dodgeHasChainedLegendary = false; // Reset chain flag for this dodge
         
         // Find first available charge and put it on cooldown
         for (let i = 0; i < this.dodgeChargeCooldowns.length; i++) {
@@ -425,6 +458,8 @@ class Rogue extends PlayerBase {
                 break;
             }
         }
+        
+        // Note: Rogue dodge sound is played at the start of this function (overrides base class sound)
     }
     
     // Override updateClassAbilities for Rogue-specific updates
@@ -520,6 +555,25 @@ class Rogue extends PlayerBase {
                                     killStats.addStat('kills', 1);
                                 }
                             }
+                        }
+                        
+                        // Apply lifesteal
+                        if (typeof applyLifesteal !== 'undefined') {
+                            applyLifesteal(this, damageDealt);
+                        }
+                        
+                        // Apply legendary effects
+                        if (typeof applyLegendaryEffects !== 'undefined') {
+                            applyLegendaryEffects(this, enemy, damageDealt, attackerId);
+                        }
+                        // Chain lightning (only once per dodge)
+                        if (this.activeLegendaryEffects && !this.dodgeHasChainedLegendary) {
+                            this.activeLegendaryEffects.forEach(effect => {
+                                if (effect.type === 'chain_lightning' && typeof chainLightningAttack !== 'undefined') {
+                                    chainLightningAttack(this, enemy, effect, dodgeDamage);
+                                    this.dodgeHasChainedLegendary = true;
+                                }
+                            });
                         }
                         
                         // Show damage number for rogue dodge damage

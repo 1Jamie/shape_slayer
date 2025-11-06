@@ -45,7 +45,7 @@ class StarEnemy extends EnemyBase {
         this.baseMoveSpeed = STAR_CONFIG.moveSpeed; // Store for stun system
         
         // Properties
-        this.color = '#ffcc00'; // Yellow
+        this.color = '#ffaa00'; // Orange-yellow (distinct from purple elites)
         this.shape = 'star';
         this.xpValue = STAR_CONFIG.xpValue;
         this.lootChance = STAR_CONFIG.lootChance;
@@ -72,6 +72,12 @@ class StarEnemy extends EnemyBase {
         
         // Process stun first
         this.processStun(deltaTime);
+        
+        // Process slow timer (star enemy doesn't call this yet, but should)
+        this.processSlow(deltaTime);
+        
+        // Process burn DoT
+        this.processBurn(deltaTime);
         
         // Update target lock timer
         this.updateTargetLock(deltaTime);
@@ -307,6 +313,11 @@ class StarEnemy extends EnemyBase {
         dirX = newDirX;
         dirY = newDirY;
         
+        // Play projectile shoot sound
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+            AudioManager.sounds.enemyShoot();
+        }
+        
         // Spawn projectile
         Game.projectiles.push({
             x: this.x,
@@ -321,18 +332,48 @@ class StarEnemy extends EnemyBase {
     }
     
     render(ctx) {
-        // Draw star enemy (as circle for now, could be upgraded later)
+        // Draw star enemy as a 5-pointed star
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.rotation);
+        
         ctx.fillStyle = this.color;
         ctx.beginPath();
-        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        
+        // Draw 5-pointed star
+        const outerRadius = this.size;
+        const innerRadius = this.size * 0.4;
+        const points = 5;
+        
+        for (let i = 0; i < points * 2; i++) {
+            const angle = (Math.PI / points) * i - Math.PI / 2;
+            const radius = i % 2 === 0 ? outerRadius : innerRadius;
+            const x = Math.cos(angle) * radius;
+            const y = Math.sin(angle) * radius;
+            
+            if (i === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+        }
+        ctx.closePath();
         ctx.fill();
         
         // Draw outline
-        ctx.strokeStyle = '#ffaa00';
+        ctx.strokeStyle = '#ff8800'; // Darker orange outline
         ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
         ctx.stroke();
+        
+        ctx.restore();
+        
+        // Draw status effects (burn, freeze)
+        if (typeof renderBurnEffect !== 'undefined') {
+            renderBurnEffect(ctx, this);
+        }
+        if (typeof renderFreezeEffect !== 'undefined') {
+            renderFreezeEffect(ctx, this);
+        }
         
         // Draw health bar
         this.renderHealthBar(ctx);

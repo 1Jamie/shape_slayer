@@ -286,6 +286,11 @@ function checkRoomCleared() {
     
     if (aliveEnemies === 0 && !currentRoom.cleared) {
         currentRoom.cleared = true;
+        // Play door open sound
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+            AudioManager.sounds.doorOpen();
+        }
+        
         currentRoom.doorOpen = true;
     }
     
@@ -317,6 +322,11 @@ function generateBoss(roomNumber) {
     const mpScaling = getMultiplayerScaling();
     
     let boss = null;
+    
+    // Play boss spawn sound
+    if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+        AudioManager.sounds.bossSpawn();
+    }
     
     // Determine which boss to spawn based on room number
     if (roomNumber === 10) {

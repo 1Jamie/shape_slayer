@@ -2,7 +2,7 @@
 // Update this file when releasing new versions
 
 const GameVersion = {
-    VERSION: '0.5.0',
+    VERSION: '0.5.1',
     
     UPDATE_MESSAGES: {
         '0.2.1': 'Initial early access release! Please report any bugs you find at https://github.com/1jamie/shape_slayer/issues',
@@ -10,6 +10,55 @@ const GameVersion = {
         '0.3.0': 'Added multiplayer support. Now you can play with up to 3 friends online. Please report any bugs you find at https://github.com/1jamie/shape_slayer/issues',
         '0.3.1': '- Fixed a bug where after starting a run solo you could no longer access the multiplayer menu. \n - Added seperate tracking for currency per player and currency earned in multiplayer is properly tracked and shared back to the client so when you play solo it is still there! \n - Same was done for upgrades so each class will have its upgrades and you can use them in mutliplayer and solo.',
         '0.4.1': '- Fixed bug that prevented single player instances from purchasing upgrades in the Nexus. (my bad, i really should have caught this before release of the multiplayer system < thanks you know who for the catch >)',
+        '0.5.1': `**Class Balance Update: Tank Rebuild & Warrior Enhancement**
+
+**Tank Class Overhaul:**
+• **New Passive - Retaliatory Knockback:** Tank now pushes back nearby enemies when hit (3s cooldown, small knockback radius)
+• **Basic Attack Enhancement:** Hammer attacks now heal for 5% of damage dealt, giving the tank much-needed sustain
+• **Ground Smash → Shout (Heavy Attack Rework):**
+  - Renamed and redesigned from knockback to crowd control focus
+  - Now applies 1.5s stun followed by 50% slow for 2s
+  - Generates 3x aggro threat to help maintain enemy attention
+  - Reduced damage to 0.975x (down from 1.3x) to balance the powerful CC
+  - Increased radius from 120 to 140 pixels
+  - Improved hitbox coverage for more reliable hits
+  - New sound wave visual effects
+• **Aggro System:** Extended enemy aggro window from 5s to 8s for better threat retention
+• **Playstyle Shift:** Tank is now a true crowd control and aggro management class with self-sustain, rather than just a damage sponge
+
+**Warrior Enhancement:**
+• **Thrust Invincibility:** Forward thrust heavy attack now grants invincibility frames during the entire dash (0.12s), making it a viable defensive repositioning tool
+• **Whirlwind Duration:** Increased from 2s to 2.1s
+• **Thrust Damage:** Decreased from 2x to 1.6x
+• **Base Damage:** Reduced from 14 to 12
+
+
+**Enemy AI Enhancement:**
+• Added slow effect system to all enemy types (separate from stun)
+• Enemies can now be slowed independently of stun status
+• Ranged enemies now star shaped instead of just a circle
+• Elites now are purple
+• Elites now spawn minons when you first enguage and can now spawn them at range as well to try to discourage running from them to prevent them from spawning minions
+• Rectangle enemies (brutes) are now tankier: HP increased from 75 to 100
+• Rectangle enemies attack range increased by 25% (from 80 to 100 pixels for both charge and slam radius)
+
+**Affix & Legendary Effect Fixes:**
+• Fixed beam charges affix properly granting extra charges when equipped
+• Fixed lifesteal working on all damage sources (projectiles, abilities, DoT effects)
+• Fixed thrust distance bonus affecting travel range, damage range, and i-frame duration
+• Implemented legendary effects: Chain Lightning (visual arcs), Incendiary (burn DoT), Freezing (slow on hit)
+• Added visual effects: lightning arcs, burn glow with fire particles, freeze glow with ice crystals
+• Reduced affix max values for balance (movement speed, attack speed, projectile speed, cooldown reduction)
+• Reduced spawn rate of overpowered affixes
+
+**Experimental Sound System:**
+• Added procedural sound effects using Web Audio API (experimental - no audio files required)
+• Unique sounds for each class's attacks, abilities, and movement
+• Impact sounds for hits, crits, and special interactions
+• Enemy attack sounds and projectile hit feedback
+• Volume control in pause menu (cycles through 100%, 75%, 50%, 25%, muted)
+• Sound design is experimental and subject to change
+`,
         '0.5.0': `**MAJOR UPDATE: Architecture & Quality of Life Improvements (ADDITION OF GEAR AFFIXES AND CLASS MODIFIERS!)**
 
 **Gear Affixes and Class Modifiers:**
@@ -92,7 +141,8 @@ const GameVersion = {
         '0.3.0': ['major', 'feature'],
         '0.3.1': ['minor', 'bugfix'],
         '0.4.1': ['hotfix'],
-        '0.5.0': ['major', 'feature']
+        '0.5.0': ['major', 'feature'],
+        '0.5.1': ['minor', 'feature']
     }
 };
 

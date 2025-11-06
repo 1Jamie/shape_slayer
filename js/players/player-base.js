@@ -608,6 +608,11 @@ class PlayerBase {
         this.dodgeElapsed = 0;
         this.dodgeHitEnemies.clear(); // Reset hit tracking for new dodge
         
+        // Play dodge sound (generic whoosh - can be overridden by subclasses)
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+            AudioManager.sounds.dodge();
+        }
+        
         // Handle cooldown based on class
         if (this.playerClass === 'triangle') {
             // Find first available charge and put it on cooldown
@@ -863,6 +868,11 @@ class PlayerBase {
                 return; // Don't actually die
             }
             
+            // Play player death sound
+            if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+                AudioManager.sounds.playerDeath();
+            }
+            
             this.hp = 0;
             this.dead = true;
             this.alive = false;
@@ -956,6 +966,11 @@ class PlayerBase {
     
     // Level up function
     levelUp() {
+        // Play level up sound
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+            AudioManager.sounds.levelUp();
+        }
+        
         this.level++;
         
         // Increase base stats by 10%

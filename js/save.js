@@ -17,6 +17,8 @@ const SaveSystem = {
             selectedClass: null,
             controlMode: 'auto', // 'auto', 'mobile', 'desktop'
             fullscreenEnabled: false,
+            audioVolume: 0.5, // 0.0 to 1.0
+            audioMuted: false,
             lastRunVersion: null,
             hasSeenLaunchModal: false
         };
@@ -41,6 +43,8 @@ const SaveSystem = {
                     selectedClass: parsed.selectedClass || defaults.selectedClass,
                     controlMode: parsed.controlMode || defaults.controlMode,
                     fullscreenEnabled: parsed.fullscreenEnabled !== undefined ? parsed.fullscreenEnabled : defaults.fullscreenEnabled,
+                    audioVolume: parsed.audioVolume !== undefined ? parsed.audioVolume : defaults.audioVolume,
+                    audioMuted: parsed.audioMuted !== undefined ? parsed.audioMuted : defaults.audioMuted,
                     lastRunVersion: parsed.lastRunVersion !== undefined ? parsed.lastRunVersion : defaults.lastRunVersion,
                     hasSeenLaunchModal: parsed.hasSeenLaunchModal !== undefined ? parsed.hasSeenLaunchModal : defaults.hasSeenLaunchModal
                 };
@@ -223,6 +227,34 @@ const SaveSystem = {
     setHasSeenLaunchModal(seen) {
         const save = this.load();
         save.hasSeenLaunchModal = seen === true;
+        this.save(save);
+        return true;
+    },
+    
+    // Get audio volume
+    getAudioVolume() {
+        const save = this.load();
+        return save.audioVolume !== undefined ? save.audioVolume : 0.5;
+    },
+    
+    // Set audio volume
+    setAudioVolume(volume) {
+        const save = this.load();
+        save.audioVolume = Math.max(0, Math.min(1, volume));
+        this.save(save);
+        return true;
+    },
+    
+    // Get audio muted state
+    getAudioMuted() {
+        const save = this.load();
+        return save.audioMuted === true;
+    },
+    
+    // Set audio muted state
+    setAudioMuted(muted) {
+        const save = this.load();
+        save.audioMuted = muted === true;
         this.save(save);
         return true;
     }

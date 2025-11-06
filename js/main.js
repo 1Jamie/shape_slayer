@@ -1936,6 +1936,11 @@ const Game = {
             updateParticles(deltaTime);
         }
         
+        // Update lightning arcs
+        if (typeof updateLightningArcs !== 'undefined') {
+            updateLightningArcs(deltaTime);
+        }
+        
         // Update damage numbers
         if (typeof updateDamageNumbers !== 'undefined') {
             updateDamageNumbers(deltaTime);
@@ -2410,6 +2415,11 @@ const Game = {
     
     // Pick up gear
     pickupGear(gear) {
+        // Play gear pickup sound
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+            AudioManager.sounds.gearPickup();
+        }
+        
         const oldGear = this.player.equipGear(gear);
         
         // Drop old gear on the ground if it existed
@@ -2947,6 +2957,11 @@ const Game = {
             // Draw particles (behind UI)
             if (typeof renderParticles !== 'undefined') {
                 renderParticles(this.ctx);
+            }
+            
+            // Draw lightning arcs
+            if (typeof renderLightningArcs !== 'undefined') {
+                renderLightningArcs(this.ctx);
             }
             
             // Draw door if room is cleared
@@ -3651,6 +3666,35 @@ const Game = {
                             }
                         }
                         
+                        // Apply lifesteal if shooter has it
+                        if (shooterPlayer && typeof applyLifesteal !== 'undefined') {
+                            applyLifesteal(shooterPlayer, damageDealt);
+                        }
+                        
+                        // Apply legendary effects if shooter has them
+                        if (shooterPlayer && shooterPlayer.activeLegendaryEffects) {
+                            shooterPlayer.activeLegendaryEffects.forEach(effect => {
+                                if (effect.type === 'incendiary') {
+                                    // Apply burn DoT
+                                    if (enemy.applyBurn) {
+                                        const burnDPS = finalDamage * effect.burnDPS; // DPS as percentage of damage dealt
+                                        enemy.applyBurn(burnDPS, effect.burnDuration, projectileOwnerId);
+                                    }
+                                } else if (effect.type === 'freezing') {
+                                    // Apply slow with chance
+                                    if (enemy.applySlow && Math.random() < effect.slowChance) {
+                                        enemy.applySlow(effect.slowAmount, effect.slowDuration);
+                                    }
+                                } else if (effect.type === 'chain_lightning') {
+                                    // Apply chain lightning (only once per projectile)
+                                    if (!projectile.hasChainedLegendary && typeof chainLightningAttack !== 'undefined') {
+                                        chainLightningAttack(shooterPlayer, enemy, effect, finalDamage);
+                                        projectile.hasChainedLegendary = true;
+                                    }
+                                }
+                            });
+                        }
+                        
                         // Damage numbers for player projectiles (rogue knives, mage bolts)
                         if (typeof createDamageNumber !== 'undefined') {
                             createDamageNumber(enemy.x, enemy.y, Math.floor(damageDealt), isCrit, false);
@@ -3767,6 +3811,12 @@ const Game = {
                                 
                                 if (lateralDist < shieldWidth) {
                                     isBlocked = true;
+                                    
+                                    // Play shield block sound
+                                    if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+                                        AudioManager.sounds.tankShieldHit();
+                                    }
+                                    
                                     if (typeof createParticleBurst !== 'undefined') {
                                         createParticleBurst(projectile.x, projectile.y, '#0099ff', 5);
                                     }
@@ -3781,6 +3831,11 @@ const Game = {
                             projectile.x, projectile.y, projectile.size,
                             p.x, p.y, p.size || 20
                         )) {
+                            // Play projectile hit sound
+                            if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+                                AudioManager.sounds.projectileHit();
+                            }
+                            
                             // Hit player
                             if (isLocal) {
                                 // Local player - apply damage directly
