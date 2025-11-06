@@ -35,18 +35,28 @@ function randomInt(min, max) {
 }
 
 // Simple markdown parser for formatting text
-// Returns array of segments: {text: string, bold: boolean, italic: boolean, quote: boolean, color: string}
+// Returns array of segments: {text: string, bold: boolean, italic: boolean, quote: boolean, color: string, header: number}
 function parseMarkdownLine(text) {
     const segments = [];
     let currentText = '';
     let i = 0;
+    
+    // Check for headers first (## or ###)
+    let headerLevel = 0;
+    if (text.startsWith('## ')) {
+        headerLevel = 2;
+        text = text.substring(3).trim();
+    } else if (text.startsWith('### ')) {
+        headerLevel = 3;
+        text = text.substring(4).trim();
+    }
     
     while (i < text.length) {
         // Check for **bold**
         if (text[i] === '*' && text[i + 1] === '*') {
             // Save current text if any
             if (currentText) {
-                segments.push({ text: currentText, bold: false, italic: false, quote: false, color: null });
+                segments.push({ text: currentText, bold: false, italic: false, quote: false, color: null, header: headerLevel });
                 currentText = '';
             }
             
@@ -58,7 +68,7 @@ function parseMarkdownLine(text) {
                 i++;
             }
             if (i < text.length) {
-                segments.push({ text: boldText, bold: true, italic: false, quote: false, color: null });
+                segments.push({ text: boldText, bold: true, italic: false, quote: false, color: null, header: headerLevel });
                 i += 2; // Skip closing **
             }
         }
@@ -66,7 +76,7 @@ function parseMarkdownLine(text) {
         else if (text[i] === '*' && text[i + 1] === '"') {
             // Save current text if any
             if (currentText) {
-                segments.push({ text: currentText, bold: false, italic: false, quote: false, color: null });
+                segments.push({ text: currentText, bold: false, italic: false, quote: false, color: null, header: headerLevel });
                 currentText = '';
             }
             
@@ -79,7 +89,7 @@ function parseMarkdownLine(text) {
             }
             if (i < text.length) {
                 // Add opening and closing quotes to the text
-                segments.push({ text: `"${quoteText}"`, bold: false, italic: true, quote: true, color: '#88ddff' });
+                segments.push({ text: `"${quoteText}"`, bold: false, italic: true, quote: true, color: '#88ddff', header: headerLevel });
                 i += 2; // Skip "*
             }
         } else {
@@ -90,7 +100,7 @@ function parseMarkdownLine(text) {
     
     // Add remaining text
     if (currentText) {
-        segments.push({ text: currentText, bold: false, italic: false, quote: false, color: null });
+        segments.push({ text: currentText, bold: false, italic: false, quote: false, color: null, header: headerLevel });
     }
     
     return segments;

@@ -2,7 +2,7 @@
 // Update this file when releasing new versions
 
 const GameVersion = {
-    VERSION: '0.5.2',
+    VERSION: '0.5.1',
     
     UPDATE_MESSAGES: {
         '0.2.1': 'Initial early access release! Please report any bugs you find at https://github.com/1jamie/shape_slayer/issues',
@@ -82,186 +82,205 @@ const GameVersion = {
 • New files: mp-server-master.js, mp-server-worker.js, config.js
 • Fully backward compatible with existing deployments
 `,
-        '0.5.1': `**Class Balance Update: Tank Rebuild & Warrior Enhancement**
-
-**Tank Class Overhaul:**
-• **New Passive - Retaliatory Knockback:** Tank now pushes back nearby enemies when hit (3s cooldown, small knockback radius)
-• **Basic Attack Enhancement:** Hammer attacks now heal for 5% of damage dealt, giving the tank much-needed sustain
-• **Ground Smash → Shout (Heavy Attack Rework):**
-  - Renamed and redesigned from knockback to crowd control focus
-  - Now applies 1.5s stun followed by 50% slow for 2s
-  - Generates 3x aggro threat to help maintain enemy attention
-  - Reduced damage to 0.975x (down from 1.3x) to balance the powerful CC
-  - Increased radius from 120 to 140 pixels
-  - Improved hitbox coverage for more reliable hits
-  - New sound wave visual effects
-• **Aggro System:** Extended enemy aggro window from 5s to 8s for better threat retention
-• **Playstyle Shift:** Tank is now a true crowd control and aggro management class with self-sustain, rather than just a damage sponge
-
-**Warrior Enhancement:**
-• **Thrust Invincibility:** Forward thrust heavy attack now grants invincibility frames during the entire dash (0.12s), making it a viable defensive repositioning tool
-• **Whirlwind Duration:** Increased from 2s to 2.1s
-• **Thrust Damage:** Decreased from 2x to 1.6x
-• **Base Damage:** Reduced from 14 to 12
+        '0.5.1': `**🔨 THE GREAT REBALANCING 🔨**
+*"48 hours. 3 patches melted down into 1. 1 developer who clearly needs sleep. Your game? Completely different now."*
 
 
-**Enemy AI Enhancement:**
-• Added slow effect system to all enemy types (separate from stun)
-• Enemies can now be slowed independently of stun status
-• Ranged enemies now star shaped instead of just a circle
-• Elites now are purple
-• Elites now spawn minons when you first enguage and can now spawn them at range as well to try to discourage running from them to prevent them from spawning minions
-• Rectangle enemies (brutes) are now tankier: HP increased from 75 to 100
-• Rectangle enemies attack range increased by 25% (from 80 to 100 pixels for both charge and slam radius)
-
-**Affix & Legendary Effect Fixes:**
-• Fixed beam charges affix properly granting extra charges when equipped
-• Fixed lifesteal working on all damage sources (projectiles, abilities, DoT effects)
-• Fixed thrust distance bonus affecting travel range, damage range, and i-frame duration
-• Implemented legendary effects: Chain Lightning (visual arcs), Incendiary (burn DoT), Freezing (slow on hit)
-• Added visual effects: lightning arcs, burn glow with fire particles, freeze glow with ice crystals
-• Reduced affix max values for balance (movement speed, attack speed, projectile speed, cooldown reduction)
-• Reduced spawn rate of overpowered affixes
-
-**Experimental Sound System:**
-• Added procedural sound effects using Web Audio API (experimental - no audio files required)
-• Unique sounds for each class's attacks, abilities, and movement
-• Impact sounds for hits, crits, and special interactions
-• Enemy attack sounds and projectile hit feedback
-• Volume control in pause menu (cycles through 100%, 75%, 50%, 25%, muted)
-• Sound design is experimental and subject to change
-
-**UI Changes:**
-• Character sheet now has more transparency so the enemies are visible behind it. (a few less jump scares for the stat obsessed!)
-`,
-        '0.5.2': `**🔨 THE GREAT NERF-ENING 🔨**
+## **🎮 PART 1: THE GREAT NERF-ENING**
 *"Your damage? Gone. Your speed? Capped. Enemy HP? BEEFED. Welcome to Dark Souls: Geometry Edition"*
 
 **🏃 Speed Scaling Rework (Because Sonic the Shapegon Was Getting Out of Hand):**
 *"NASA called. They want their escape velocity back."*
 
-•  Added arrows to help guide players to the last few enemies
-    *"everyone seems to dislike having to search the whole room for the last few enemies... you should try to find this javascript file  in my nuthouse of a codebase!!!"*
+• **Added arrows to help guide players to the last few enemies**
+  *"Everyone seems to dislike searching the whole room for stragglers. Fine. Have your GPS."*
 
-•  Adjusted tool tips so they dont show when enemies are nearby 
-    *"apparently people cant work around some ui clutter, boy would you hate my developtment environment. o_O "*
+• **Adjusted tooltips so they don't show when enemies are nearby**
+  *"Apparently people can't work around some UI clutter. Boy would you hate my development environment. o_O"*
 
-• **Level-Up Speed Gains:** Reduced to a modest +5% per level for first 5 levels (all classes)
-    *"I heard you like going fast, but not THAT fast"*
-  - Old system: +10% per level (compounding, because I apparently love exponential nightmares)
-  - New system: Fixed +5% per level for levels 2-5
-    *"Also got tired of noise complaints from the FAA because you kept breaking the sound barrier in Room 3. Apparently that's 'illegal' and 'violates airspace regulations'? Whatever."*
-  
-• **Rogue Speed Boosts:** Still gets extra speed on levels 6, 8, 10 (because rogues deserve nice things)
+• **Level-Up Speed Gains:** Reduced to +5% per level for first 5 levels (all classes)
+  *"I heard you like going fast, but not THAT fast"*
+  - Old: +10% per level (exponential nightmares)
+  - New: Fixed +5% per level for levels 2-5
+  *"Also got tired of noise complaints from the FAA because you kept breaking the sound barrier in Room 3. Apparently that's 'illegal'?"*
+
+• **Rogue Speed Boosts:** Still gets extra speed on levels 6, 8, 10
   - Levels 6/8/10: Additional +8% each (only rogue, sorry warriors)
-    *"Yes, I'm playing favorites. The rogue asked nicely. The warrior just grunted. Be more like rogue."*
-  - Tank players: Stop emailing me, you're literally wearing a fortress
-  
-• **Speed Cap Implemented:** Maximum 450 px/s or 1.5× base speed (whichever is higher)
-    *"Yes, I KNOW you reached 2000 speed. No, that's not a feature, that's a bug with a god complex and delusions of grandeur"*
-  - Your previous max speed: Probably approaching light speed by room 15
-  - Your new max speed: Still fast, just... mortal
-    *"I apologize for ruining your speedrun strats. Actually, no I don't. That was stupid and you know it."*
-  
-• **Class Speed Hierarchy Maintained:** Rogue > Warrior > Mage > Tank
-  - Final speeds at level 10: Rogue (414), Warrior (252), Mage (248), Tank (207)
-    *"The tank is still slow. This is by design. Stop asking. You're carrying a door."*
-    *"If you want to go fast, play rogue. If you want to tank, play tank. Revolutionary concept: classes have tradeoffs now."*
+  *"Yes, I'm playing favorites. The rogue asked nicely. The warrior just grunted."*
+
+• **Speed Cap Implemented:** Maximum 450 px/s or 1.5× base speed
+  *"Yes, I KNOW you reached 2000 speed. No, that's not a feature, that's a bug with delusions of grandeur"*
+  - Class hierarchy: Rogue (414) > Warrior (252) > Mage (248) > Tank (207)
+  *"The tank is still slow. Stop asking. You're carrying a door."*
 
 **⚔️ Damage Scaling Adjustments (I Did Math, You Won't Like It):**
-• **Player Level Damage:** Reduced from +10% to **+7% per level**
-    *"Exponential growth is great... if you're a bacteria. You're not bacteria."*
-  - Level 10: Was 28.3, now 20.8 base damage
-  - Level 20: Was 73.6, now 32.7 base damage (yeah, I went there)
-• **Gear Room Scaling:** Reduced from +5% to **+4% per room**
-    *"Your orange gear is still good. Just... 20% less good."*
+• **Player Level Damage:** +10% → **+7% per level**
+  *"Exponential growth is great... if you're a bacteria. You're not bacteria."*
+• **Gear Room Scaling:** +5% → **+4% per room**
+  *"Your orange gear is still good. Just... 20% less good."*
 
-**🛡️ Enemy HP Rebalancing (They Lift Now, Deal With It):**
-• **Enemy HP Scaling:** Increased from +30% to **+35% per room**
-    *"Turns out enemies should get tankier as you progress. Revolutionary concept, I know."*
-  - Room 10 basic enemy: Was 160 HP, now 194 HP
-  - Room 20 basic enemy: Was 280 HP, now 360 HP
-• **Boss HP Scaling:** Increased from +28% to **+33% per room**
-    *"Bosses were dying too fast. Now they die... eventually."*
+**🛡️ Enemy HP Rebalancing (They Lift Now):**
+• **Enemy HP Scaling:** +30% → **+35% per room**
+  *"Turns out enemies should get tankier as you progress. Revolutionary concept."*
+• **Boss HP Scaling:** +28% → **+33% per room**
 
 **⚔️ Weapon Rebalancing (The Obtuse Nerf Hammer Strikes):**
-• **Weapon Damage Ranges:** Reduced ~30% across ALL tiers
-  - Gray: 3-6 → 2-4 (it's gray, what did you expect?)
-  - Green: 8-12 → 6-9 (still better than gray!)
-  - Blue: 15-22 → 11-16 (rare, but not THAT rare)
-  - Purple: 25-35 → 18-26 (epic reduction is epic)
+• **Damage Ranges:** Reduced ~30% across ALL tiers
   - Orange: 35-50 → 26-38 (legendary... nerf)
-• **Weapon Type Multipliers:**
-  - Fast (Acute): 1.0 → 0.95 (speed tax applied)
-  - Heavy (Obtuse): 1.4 → 1.25 (*"This one hurt me more than it hurt you. Just kidding, it definitely hurt you more."*)
-  - Reach (Vector): 1.0 (unchanged, perfectly balanced as all things should be)
-  - Dual (Parallel): 0.75 → 0.80 (pity buff, you're welcome)
+• **Type Multipliers:**
+  - Heavy (Obtuse): 1.4 → 1.25 (*"This hurt me more than you. Just kidding, definitely hurt you more."*)
 
 **🛡️ Armor Rebalancing (Your Defense Is Showing. It's Smaller Now.):**
-• **Armor Defense Ranges:** Reduced ~20% across ALL tiers
-  - Gray: 0.02-0.05 → 0.02-0.04 (paper is paper)
-  - Green: 0.06-0.10 → 0.05-0.08 (slightly sturdier paper)
-  - Blue: 0.12-0.18 → 0.10-0.15 (cardboard)
-  - Purple: 0.20-0.28 → 0.16-0.23 (metal... ish)
-  - Orange: 0.30-0.45 → 0.24-0.36 (still the best, just less best)
-• **Armor Type Multipliers:**
-  - Light (Fractal): 0.7 → 0.75 (consolation prize)
-  - Medium (Polygon): 1.0 (the baseline of mediocrity)
-  - Heavy (Tessellated): 1.4 → 1.30 (*"Even the chonky armor lost weight"*)
-  - Cloth (Membrane): 0.5 → 0.60 (it's called fashion, look it up)
+• **Defense Ranges:** Reduced ~20% across ALL tiers
+• **Type Multipliers:** Heavy armor nerfed, light armor buffed slightly
 
-**🎲 Affix Rebalancing (Your Build Just Got Build Different):**
-• **Crit Damage:** 20-60% → 15-45% (*"One-shot builds are so last patch"*)
-• **Area of Effect:** 15-35% → 12-28% (*"Stop clearing the entire screen in one hit"*)
-• **Execute:** 30-60% → 25-50% (*"Finish him! ...but not THAT hard"*)
-• **Explosive Attacks:** 15-30% → 12-25% (*"Michael Bay is disappointed"*)
-• **Rampage:** 5-15% → 4-12% (*"Snowballing is for winter, not for DPS"*)
+**🎲 Affix & Legendary Rebalancing:**
+• Crit Damage: 20-60% → 15-45%
+• AoE: 15-35% → 12-28% (*"Stop clearing the entire screen"*)
+• Execute: 30-60% → 25-50%
+• Berserker Rage: +30%/-15% → +25%/-20%
+• Glass Cannon: +60%/-50% → +45%/-40%
 
-**✨ Legendary Effect Rebalancing (Even Legends Must Fall):**
-• **Berserker Rage:** +30% dmg/-15% def → **+25% dmg/-20% def**
-    *"More risk, less reward. That's the berserker way now."*
-• **Glass Cannon:** +60% dmg/-50% HP → **+45% dmg/-40% HP**
-    *"Still made of glass, just thicker glass. You're welcome."*
-• **Chain Lightning:** 70% chain damage → **60% chain damage**
-    *"The chain lightning now... chains... less-ingly?"*
+**📊 Expected Difficulty Curve:**
+*"The game was getting easier as you progressed. That's backwards. Now it actually gets harder."*
+- Room 1: 3.3 hits to kill (baseline)
+- Room 10: 2.6 hits (you're doing great sweetie)
+- Room 20: 2.9 hits (remember when you were powerful?)
+- Room 30+: 3.4+ hits (welcome back to Room 1, but everything hurts)
 
-**🎭 Class Modifier Adjustments (Everyone Takes the L):**
-• All percentage damage modifiers reduced by ~20%:
-  - Warrior: Whirlwind/Thrust damage 50% → 40%
-  - Rogue: Dodge/Backstab damage 50% → 40%
-  - Mage: Blink damage 100% → 80% (*"Still a 2x multiplier, calm down"*)
-  - Tank: Shield wave damage 100% → 80%
-  - Universal: Basic damage 25% → 20%
-    *"I nerfed everyone equally. That's true equality."*
+---
 
-**👹 Boss HP Adjustments (They're Not Mad, Just Disappointed):**
-• **BossBase Multiplier:** 15× → **12×**
-    *"I reduced the multiplier but increased room scaling. Math is fun!"*
-• **Individual Boss Base HP Reductions:**
-  - Swarm King: 1510 → 1250 (fewer bees, same anger)
-  - Twin Prism: 1842 → 1500 (prism solidarity)
-  - Fortress: 1473 → 1200 (downsizing the fortress)
-  - Fractal Core: 917 → 750 (less fractal, same core)
-  - Vortex: 1842 → 1500 (the vortex is now... less vortex-y?)
+## **💪 PART 2: CLASS OVERHAULS & BALANCE**
+*"Because after nerfing everything, we figured we'd throw you a bone. Or a hammer. Or a shout. Whatever."*
 
-**📊 Expected Difficulty Curve (It Goes Up, I Promise):**
-• Room 1: 3.3 hits to kill (baseline, unchanged)
-• Room 5: 3.0 hits to kill (early power fantasy, enjoy it while it lasts)
-• Room 10: 2.6 hits to kill (you're doing great sweetie)
-• Room 15: 2.7 hits to kill (uh oh, numbers going up)
-• Room 20: 2.9 hits to kill (remember when you were powerful?)
-• Room 30+: 3.4+ hits to kill (welcome back to Room 1, but everything hurts more)
+**🛡️ Tank Class Overhaul (From Damage Sponge to Actual Tank):**
+*"Tanks kept dying. Weird. Almost like standing still and getting hit isn't a good strategy."*
 
-**🎯 Design Philosophy:**
-*"The game was getting easier as you progressed. That's backwards. Now it gets harder. You know, like a video game should. Wild concept, I know."*
+• **New Passive - Retaliatory Knockback:** Get hit, push back nearby enemies
+  *"They hit you, you hit them back. It's called manners."*
+• **Basic Attack Enhancement:** Hammer attacks heal for 5% of damage dealt
+  *"Turns out healing is good. Who knew?"*
+• **Ground Smash → Shout (Heavy Attack Rework):**
+  - Now applies 1.5s stun + 50% slow for 2s
+  - Generates 3× aggro threat
+  - Reduced damage to 0.975× (down from 1.3×)
+  - Increased radius: 120 → 140 pixels
+  *"You're not a DPS. Stop trying to be a DPS. You're crowd control now. Deal with it."*
+• **Aggro System:** Extended window from 5s to 8s
+• **Playstyle Shift:** True tank with CC, aggro management, and self-sustain
+  *"Revolutionary concept: tanks that actually tank."*
 
-**TL;DR:** Everything got nerfed. Yes, your favorite build too. No, I'm not sorry. The difficulty curve now actually curves. Math was involved. Lots of math. Send help.
+**⚔️ Warrior Enhancement (Because We Felt Bad):**
+*"After nerfing warrior damage, we gave them i-frames. Perfectly balanced."*
 
-*P.S. - If you're reading this in-game, you survived the nerf-ening. Congrats! Now go touch those pointy green shapes out in your yard known as grass!*
+• **Thrust Invincibility:** Full i-frames during entire dash (0.12s)
+  *"It's not much, but it's honest work."*
+• **Whirlwind Duration:** 2s → 2.1s
+• **Thrust Damage:** 2× → 1.6× (to compensate for the i-frames)
+• **Base Damage:** 14 → 12 (because we're cruel)
+
+---
+
+## **🎯 PART 3: ENEMY SCALING IMPROVEMENTS**
+*"Remember when Room 50 had 170 enemies in 4-player and your computer caught fire? Yeah, we fixed that."*
+
+**Enemy Count Capping System:**
+*"We stopped throwing more enemies at you and started making the existing ones CHONKY."*
+
+• **Enemy count now caps at Room 18** (30 base, 75 in 4-player)
+  - Rooms 1-18: Normal scaling (as before)
+  - Rooms 19+: Count stays at 30, stats scale aggressively
+  *"Quality over quantity. Your CPU thanks us."*
+
+• **Aggressive Stat Scaling (Post-Cap):**
+  - After Room 18: +50% HP/Damage per room (up from +35%)
+  - Room 20: 8.3× stats (was 8.0×)
+  - Room 30: 13.3× stats (was 11.5×)
+  - Room 50: 23.3× stats (was 18.5×)
+  *"Individual enemies become CHONKY boys instead of summoning the entire army."*
+
+**What This Means:**
+- Room 50 solo: 30 enemies instead of 68 (but they hit MUCH harder)
+- Room 50 4-player: 75 enemies instead of 170
+  *"Your computer says 'thank you'. Your tank says 'why are they so tanky?!'"*
+
+**Why This Change:**
+• Performance: No more lag/crashes in late game
+• Visual Clarity: You can actually see what's happening
+• Better Design: Skill > AoE spam
+  *"Also our server was crying. Literally crying."*
+
+---
+
+## **👾 PART 4: ENEMY AI & BEHAVIOR**
+*"Enemies got smarter. You probably won't like this."*
+
+**Enemy AI Enhancement:**
+• Added slow effect system (separate from stun)
+  *"Enemies can now be stunned AND slowed. Stack those debuffs, baby."*
+• Ranged enemies now triangle-shaped (no more circle imposters)
+• Elites are purple now
+  *"Because purple = fancy. It's science."*
+• Elites spawn minions when engaged (even at range)
+  *"Stop running from elites to cheese them. We're onto you."*
+• Rectangle enemies (brutes):
+  - HP: 75 → 100
+    *"They hit the gym"*
+  - Attack range: +25%
+    *"And learned to reach"*
+
+---
+
+## **🔧 PART 5: BUG FIXES & TECHNICAL**
+*"The boring stuff that makes the game actually work."*
+
+**Affix & Legendary Effect Fixes:**
+• Fixed beam charges actually working
+• Fixed lifesteal working on ALL damage sources
+• Fixed thrust distance affecting range, damage, and i-frames
+• Implemented legendary effects with visuals:
+  - Chain Lightning: Visual arcs
+  - Incendiary: Burn DoT with fire particles
+  - Freezing: Slow on hit with ice crystals
+  *"They actually look cool now. You're welcome."*
+
+**Experimental Sound System:**
+*"We added sounds! They're procedural! No audio files! It's either genius or insane!"*
+• Procedural sound effects using Web Audio API
+• Unique sounds for each class's abilities
+• Impact sounds for hits, crits, backstabs
+• Volume control in pause menu
+  *"Sound design is experimental. Translation: if it sounds weird, that's... intentional? Maybe?"*
+
+**UI Changes:**
+• Character sheet is more transparent
+  *"Fewer jump scares for the stat-obsessed nerds. You know who you are."*
+
+---
+
+## **🎯 FINAL WORDS**
+
+**Design Philosophy:**
+*"The game was getting easier as you progressed. That's backwards. It's fixed now."*
+
+**What We Did:**
+- Nerfed player power (damage, speed, gear)
+- Buffed enemy stats (HP, scaling)
+- Capped enemy count (performance, clarity)
+- Reworked tank (from doormat to actual tank)
+- Made enemies smarter (sorry)
+- Fixed a bunch of bugs (you didn't notice them but they were there)
+
+**TL;DR:** 
+Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks). Your computer no longer explodes. The game is harder now. Math was involved. SO MUCH MATH.
+
+*P.S. - If you're reading this in-game, you survived the nerf-ening. Congrats! Now go touch those pointy green shapes in your yard known as grass. I know I should.*
+
+*P.P.S. - This patch happened in way too few hours because I don't sleep. Send coffee. Or therapy. Preferably both.*
 `
     },
     
-    // Update type labels - can be: 'major', 'feature', 'minor', 'hotfix', 'bugfix'
+    // Update type labels - can be: 'major', 'feature', 'minor', 'hotfix', 'bugfix', 'refactor', 'rebalance'
     // Multiple tags can be assigned to show mixed updates
     UPDATE_TYPES: {
         '0.2.1': ['major', 'feature'],
@@ -270,8 +289,7 @@ const GameVersion = {
         '0.3.1': ['minor', 'bugfix'],
         '0.4.1': ['hotfix'],
         '0.5.0': ['major', 'feature'],
-        '0.5.1': ['minor', 'feature'],
-        '0.5.2': ['major', 'balance']
+        '0.5.1': ['major', 'rebalance']
     }
 };
 

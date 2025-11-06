@@ -106,18 +106,38 @@ function generateRoom(roomNumber) {
     // Get multiplayer scaling multipliers
     const mpScaling = getMultiplayerScaling();
     
-    // Calculate enemy count based on room number and multiplayer scaling
-    // Increased significantly for larger room
-    const baseEnemyCount = 8 + Math.floor(roomNumber * 1.2);
-    const enemyCount = Math.floor(baseEnemyCount * mpScaling.enemyCount);
+    // IMPROVED SCALING: Cap enemy count at room 18, then scale stats more aggressively
+    // This prevents performance issues and visual clutter while maintaining difficulty
+    const ENEMY_COUNT_CAP_ROOM = 18;
+    const CAPPED_ROOM_ENEMY_COUNT = 30; // 8 + (18 * 1.2) = ~30 base (75 in 4p)
     
-    // Debug logging for multiplayer scaling
-    if (mpScaling.enemyCount > 1.0) {
-        console.log(`[Multiplayer] Room ${roomNumber} scaling: ${baseEnemyCount} → ${enemyCount} enemies (${mpScaling.enemyCount}x), HP: ${mpScaling.enemyHP}x, Damage: ${mpScaling.enemyDamage}x`);
+    let baseEnemyCount;
+    let enemyScale;
+    
+    if (roomNumber <= ENEMY_COUNT_CAP_ROOM) {
+        // Phase 1: Normal scaling (Rooms 1-18)
+        baseEnemyCount = 8 + Math.floor(roomNumber * 1.2);
+        enemyScale = 1 + (roomNumber * 0.35);
+    } else {
+        // Phase 2: Capped count, aggressive stat scaling (Rooms 19+)
+        baseEnemyCount = CAPPED_ROOM_ENEMY_COUNT;
+        
+        // Extra rooms beyond cap
+        const extraRooms = roomNumber - ENEMY_COUNT_CAP_ROOM;
+        
+        // Base scaling from cap point + aggressive scaling for extra rooms
+        const baseScale = 1 + (ENEMY_COUNT_CAP_ROOM * 0.35); // 7.3 at room 18
+        const aggressiveScale = extraRooms * 0.50; // +50% per room instead of +35%
+        
+        enemyScale = baseScale + aggressiveScale;
     }
     
-    // Calculate enemy stat scaling - faster progression for larger rooms
-    const enemyScale = 1 + (roomNumber * 0.35);
+    const enemyCount = Math.floor(baseEnemyCount * mpScaling.enemyCount);
+    
+    // Debug logging
+    if (mpScaling.enemyCount > 1.0 || roomNumber > ENEMY_COUNT_CAP_ROOM) {
+        console.log(`[Room ${roomNumber}] Count: ${baseEnemyCount} → ${enemyCount} enemies (${mpScaling.enemyCount}x), Stat Scale: ${enemyScale.toFixed(2)}x, HP: ${mpScaling.enemyHP}x, Damage: ${mpScaling.enemyDamage}x`);
+    }
     
     // Spawn enemies with buffer from player spawn area
     const minDistance = 200; // Increased from 150 to 200 for better safety buffer

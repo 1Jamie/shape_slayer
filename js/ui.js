@@ -4649,7 +4649,8 @@ function renderUpdateModal(ctx) {
         'minor': { color: '#95e1d3', bg: 'rgba(149, 225, 211, 0.2)', name: 'Minor Update' },
         'hotfix': { color: '#ffa502', bg: 'rgba(255, 165, 2, 0.2)', name: 'Hotfix' },
         'bugfix': { color: '#a8dadc', bg: 'rgba(168, 218, 220, 0.2)', name: 'Bug Fix' },
-        'refactor': { color: '#b8b8ff', bg: 'rgba(184, 184, 255, 0.2)', name: 'Refactor' }
+        'refactor': { color: '#b8b8ff', bg: 'rgba(184, 184, 255, 0.2)', name: 'Refactor' },
+        'rebalance': { color: '#ffaa55', bg: 'rgba(255, 170, 85, 0.2)', name: 'Rebalance' }
     };
     
     // Sort versions in reverse chronological order (newest first)
@@ -4737,6 +4738,10 @@ function renderUpdateModal(ctx) {
         const lines = message.split(/\\n|\n/);
         
         lines.forEach((line, lineIndex) => {
+            // Calculate indentation level (count leading spaces before trimming)
+            const leadingSpaces = line.search(/\S/);
+            const indentLevel = leadingSpaces >= 0 ? Math.floor(leadingSpaces / 2) : 0;
+            
             // Trim whitespace
             line = line.trim();
             
@@ -4747,59 +4752,80 @@ function renderUpdateModal(ctx) {
                 return;
             }
             
-            // Check if it's a bullet point
-            const isBullet = line.startsWith('•') || line.startsWith('-');
-            const isIndentedBullet = line.startsWith('  -') || line.startsWith('  •');
+            // Check if it's a horizontal rule separator (---)
+            if (line === '---' || line === '___' || line === '***') {
+                // Render horizontal line
+                ctx.strokeStyle = 'rgba(150, 150, 200, 0.4)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(contentX, y);
+                ctx.lineTo(contentX + contentWidth, y);
+                ctx.stroke();
+                
+                // Add spacing
+                y += lineHeight;
+                totalContentHeight += lineHeight;
+                return;
+            }
             
-            let renderX = contentX;
+            // Check if it's a header (## or ###)
+            const isHeader = line.startsWith('##');
+            
+            // Check if it's a bullet point (but not ---)
+            const isBullet = (line.startsWith('•') || line.startsWith('-')) && line !== '---';
+            
+            // Calculate base indent from indentation level
+            const baseIndent = indentLevel * 25;
+            let renderX = contentX + baseIndent;
             let bulletIndent = 0;
             
-            if (isBullet) {
+            if (isBullet && !isHeader) {
                 bulletIndent = 20;
-                renderX = contentX + bulletIndent;
+                renderX = contentX + baseIndent + bulletIndent;
                 
                 // Render bullet
                 ctx.fillStyle = '#88aaff';
-                ctx.font = '18px Arial';
-                ctx.fillText('•', contentX + 5, y);
+                ctx.font = '16px Arial';
+                ctx.fillText('•', contentX + baseIndent + 5, y);
                 
                 // Remove bullet from line
                 line = line.substring(1).trim();
-            } else if (isIndentedBullet) {
-                bulletIndent = 40;
-                renderX = contentX + bulletIndent;
-                
-                // Render bullet
-                ctx.fillStyle = '#88aaff';
-                ctx.font = '14px Arial';
-                ctx.fillText('•', contentX + 25, y);
-                
-                // Remove indented bullet from line
-                line = line.substring(2).trim();
-                if (line.startsWith('-') || line.startsWith('•')) {
-                    line = line.substring(1).trim();
-                }
             }
             
             // Track starting Y for this line
             const startY = y;
             
-            // Parse and render markdown (handles bold, wrapping, etc.)
+            // Parse and render markdown (handles bold, headers, wrapping, etc.)
             const segments = parseMarkdownLine(line);
             let currentX = renderX;
             let maxLineY = y;
             
+            // Check if this is a header from segments
+            const hasHeader = segments.length > 0 && segments[0].header > 0;
+            const headerLevel = hasHeader ? segments[0].header : 0;
+            
             segments.forEach((segment, segmentIndex) => {
+                // Determine font size based on header level
+                let fontSize = '18px';
+                if (headerLevel === 2) {
+                    fontSize = '28px';
+                } else if (headerLevel === 3) {
+                    fontSize = '22px';
+                }
+                
                 // Set font style (italic for quotes, bold for headers)
-                const fontSize = '18px';
                 let fontStyle = '';
                 if (segment.italic) fontStyle = 'italic ';
-                if (segment.bold) fontStyle += 'bold ';
+                if (segment.bold || headerLevel > 0) fontStyle += 'bold ';
                 ctx.font = `${fontStyle}${fontSize} Arial`;
                 
-                // Set color (special styling for quotes)
+                // Set color (special styling for quotes and headers)
                 if (segment.quote) {
                     ctx.fillStyle = segment.color || '#88ddff';
+                } else if (headerLevel === 2) {
+                    ctx.fillStyle = '#ffaa55'; // Orange for ## headers
+                } else if (headerLevel === 3) {
+                    ctx.fillStyle = '#ffdd77'; // Yellow for ### headers
                 } else if (segment.bold) {
                     ctx.fillStyle = '#ffdd88';
                 } else {
@@ -4815,9 +4841,9 @@ function renderUpdateModal(ctx) {
                     // Check if word fits on current line
                     if (currentX + wordWidth > contentX + contentWidth && currentX > renderX) {
                         // Move to next line, maintaining indent
-                        maxLineY += lineHeight;
+                        maxLineY += (headerLevel > 0 ? 32 : 22);
                         currentX = renderX;
-                        totalContentHeight += lineHeight;
+                        totalContentHeight += (headerLevel > 0 ? 32 : 22);
                     }
                     
                     ctx.fillText(wordWithSpace, currentX, maxLineY);
@@ -4826,14 +4852,21 @@ function renderUpdateModal(ctx) {
             });
             
             // Update Y position to after the rendered content
-            y = maxLineY + lineHeight;
-            totalContentHeight += lineHeight;
+            // Headers get more line height
+            const thisLineHeight = headerLevel === 2 ? 32 : (headerLevel === 3 ? 26 : 22);
+            y = maxLineY + thisLineHeight;
+            totalContentHeight += thisLineHeight;
             
-            // Add extra spacing after certain lines
+            // Add extra spacing after headers and certain lines
             if (lineIndex < lines.length - 1) {
                 const nextLine = lines[lineIndex + 1].trim();
-                // Add extra space before section headers (bold lines) or after empty lines
-                if (nextLine.startsWith('**') || line.length === 0) {
+                // Add extra space after headers
+                if (headerLevel > 0) {
+                    y += lineHeight * 0.5;
+                    totalContentHeight += lineHeight * 0.5;
+                }
+                // Add extra space before section headers (bold lines with **) or after empty lines
+                else if (nextLine.startsWith('**') || line.length === 0) {
                     y += lineHeight * 0.3;
                     totalContentHeight += lineHeight * 0.3;
                 }
