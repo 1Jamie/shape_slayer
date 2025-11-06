@@ -35,7 +35,7 @@ function randomInt(min, max) {
 }
 
 // Simple markdown parser for formatting text
-// Returns array of segments: {text: string, bold: boolean, color: string}
+// Returns array of segments: {text: string, bold: boolean, italic: boolean, quote: boolean, color: string}
 function parseMarkdownLine(text) {
     const segments = [];
     let currentText = '';
@@ -46,7 +46,7 @@ function parseMarkdownLine(text) {
         if (text[i] === '*' && text[i + 1] === '*') {
             // Save current text if any
             if (currentText) {
-                segments.push({ text: currentText, bold: false, color: null });
+                segments.push({ text: currentText, bold: false, italic: false, quote: false, color: null });
                 currentText = '';
             }
             
@@ -58,8 +58,29 @@ function parseMarkdownLine(text) {
                 i++;
             }
             if (i < text.length) {
-                segments.push({ text: boldText, bold: true, color: null });
+                segments.push({ text: boldText, bold: true, italic: false, quote: false, color: null });
                 i += 2; // Skip closing **
+            }
+        }
+        // Check for *"quote"* (developer dialog/quotes)
+        else if (text[i] === '*' && text[i + 1] === '"') {
+            // Save current text if any
+            if (currentText) {
+                segments.push({ text: currentText, bold: false, italic: false, quote: false, color: null });
+                currentText = '';
+            }
+            
+            // Find closing "*
+            i += 2; // Skip *"
+            let quoteText = '';
+            while (i < text.length && !(text[i] === '"' && text[i + 1] === '*')) {
+                quoteText += text[i];
+                i++;
+            }
+            if (i < text.length) {
+                // Add opening and closing quotes to the text
+                segments.push({ text: `"${quoteText}"`, bold: false, italic: true, quote: true, color: '#88ddff' });
+                i += 2; // Skip "*
             }
         } else {
             currentText += text[i];
@@ -69,7 +90,7 @@ function parseMarkdownLine(text) {
     
     // Add remaining text
     if (currentText) {
-        segments.push({ text: currentText, bold: false, color: null });
+        segments.push({ text: currentText, bold: false, italic: false, quote: false, color: null });
     }
     
     return segments;
@@ -82,10 +103,15 @@ function renderMarkdownLine(ctx, line, x, y, maxWidth, baseColor = '#cccccc') {
     let currentX = x;
     
     segments.forEach(segment => {
-        // Set font style
+        // Set font style (italic for quotes, bold for headers)
         const fontSize = '18px';
-        ctx.font = segment.bold ? `bold ${fontSize} Arial` : `${fontSize} Arial`;
-        ctx.fillStyle = segment.color || baseColor;
+        let fontStyle = '';
+        if (segment.italic) fontStyle = 'italic ';
+        if (segment.bold) fontStyle += 'bold ';
+        ctx.font = `${fontStyle}${fontSize} Arial`;
+        
+        // Set color (special color for quotes)
+        ctx.fillStyle = segment.color || (segment.bold ? '#ffdd88' : baseColor);
         
         // Word wrap within segment if needed
         const words = segment.text.split(' ');

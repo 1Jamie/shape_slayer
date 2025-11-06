@@ -4583,10 +4583,21 @@ function renderUpdateModal(ctx) {
             let maxLineY = y;
             
             segments.forEach((segment, segmentIndex) => {
-                // Set font style
+                // Set font style (italic for quotes, bold for headers)
                 const fontSize = '18px';
-                ctx.font = segment.bold ? `bold ${fontSize} Arial` : `${fontSize} Arial`;
-                ctx.fillStyle = segment.bold ? '#ffdd88' : '#cccccc';
+                let fontStyle = '';
+                if (segment.italic) fontStyle = 'italic ';
+                if (segment.bold) fontStyle += 'bold ';
+                ctx.font = `${fontStyle}${fontSize} Arial`;
+                
+                // Set color (special styling for quotes)
+                if (segment.quote) {
+                    ctx.fillStyle = segment.color || '#88ddff';
+                } else if (segment.bold) {
+                    ctx.fillStyle = '#ffdd88';
+                } else {
+                    ctx.fillStyle = '#cccccc';
+                }
                 
                 // Word wrap within segment
                 const words = segment.text.split(' ');
