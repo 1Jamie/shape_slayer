@@ -332,7 +332,7 @@ class StarEnemy extends EnemyBase {
     }
     
     render(ctx) {
-        // Draw star enemy as a 5-pointed star
+        // Draw triangle enemy (convex polygon like all other non-boss enemies)
         ctx.save();
         ctx.translate(this.x, this.y);
         ctx.rotate(this.rotation);
@@ -340,23 +340,14 @@ class StarEnemy extends EnemyBase {
         ctx.fillStyle = this.color;
         ctx.beginPath();
         
-        // Draw 5-pointed star
-        const outerRadius = this.size;
-        const innerRadius = this.size * 0.4;
-        const points = 5;
+        // Draw equilateral triangle pointing in the direction of movement
+        const height = this.size * 1.5;
+        const base = this.size * 1.3;
         
-        for (let i = 0; i < points * 2; i++) {
-            const angle = (Math.PI / points) * i - Math.PI / 2;
-            const radius = i % 2 === 0 ? outerRadius : innerRadius;
-            const x = Math.cos(angle) * radius;
-            const y = Math.sin(angle) * radius;
-            
-            if (i === 0) {
-                ctx.moveTo(x, y);
-            } else {
-                ctx.lineTo(x, y);
-            }
-        }
+        // Triangle vertices (pointing right/forward)
+        ctx.moveTo(height * 0.6, 0);  // Front point
+        ctx.lineTo(-height * 0.4, base * 0.5);  // Bottom back
+        ctx.lineTo(-height * 0.4, -base * 0.5); // Top back
         ctx.closePath();
         ctx.fill();
         
