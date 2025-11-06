@@ -4395,8 +4395,8 @@ function renderUpdateModal(ctx) {
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
     
     // Main panel (responsive to screen size)
-    const panelWidth = Math.min(700, canvasWidth * 0.90);
-    const panelHeight = Math.min(500, canvasHeight * 0.80);
+    const panelWidth = Math.min(900, canvasWidth * 0.93);
+    const panelHeight = Math.min(600, canvasHeight * 0.85);
     const panelX = (canvasWidth - panelWidth) / 2;
     const panelY = (canvasHeight - panelHeight) / 2;
     

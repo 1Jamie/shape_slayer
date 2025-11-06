@@ -141,42 +141,42 @@ const GameVersion = {
 *"NASA called. They want their escape velocity back."*
 
 • **Level-Up Speed Gains:** Reduced to a modest +5% per level for first 5 levels (all classes)
-  - *"I heard you like going fast, but not THAT fast"*
+    *"I heard you like going fast, but not THAT fast"*
   - Old system: +10% per level (compounding, because I apparently love exponential nightmares)
   - New system: Fixed +5% per level for levels 2-5
-  - *"Also got tired of noise complaints from the FAA because you kept breaking the sound barrier in Room 3. Apparently that's 'illegal' and 'violates airspace regulations'? Whatever."*
+    *"Also got tired of noise complaints from the FAA because you kept breaking the sound barrier in Room 3. Apparently that's 'illegal' and 'violates airspace regulations'? Whatever."*
   
 • **Rogue Speed Boosts:** Still gets extra speed on levels 6, 8, 10 (because rogues deserve nice things)
   - Levels 6/8/10: Additional +8% each (only rogue, sorry warriors)
-  - *"Yes, I'm playing favorites. The rogue asked nicely. The warrior just grunted. Be more like rogue."*
+    *"Yes, I'm playing favorites. The rogue asked nicely. The warrior just grunted. Be more like rogue."*
   - Tank players: Stop emailing me, you're literally wearing a fortress
   
 • **Speed Cap Implemented:** Maximum 450 px/s or 1.5× base speed (whichever is higher)
-  - *"Yes, I KNOW you reached 2000 speed. No, that's not a feature, that's a bug with a god complex and delusions of grandeur"*
+    *"Yes, I KNOW you reached 2000 speed. No, that's not a feature, that's a bug with a god complex and delusions of grandeur"*
   - Your previous max speed: Probably approaching light speed by room 15
   - Your new max speed: Still fast, just... mortal
-  - *"I apologize for ruining your speedrun strats. Actually, no I don't. That was stupid and you know it."*
+    *"I apologize for ruining your speedrun strats. Actually, no I don't. That was stupid and you know it."*
   
 • **Class Speed Hierarchy Maintained:** Rogue > Warrior > Mage > Tank
   - Final speeds at level 10: Rogue (414), Warrior (252), Mage (248), Tank (207)
-  - *"The tank is still slow. This is by design. Stop asking. You're carrying a door."*
-  - *"If you want to go fast, play rogue. If you want to tank, play tank. Revolutionary concept: classes have tradeoffs now."*
+    *"The tank is still slow. This is by design. Stop asking. You're carrying a door."*
+    *"If you want to go fast, play rogue. If you want to tank, play tank. Revolutionary concept: classes have tradeoffs now."*
 
 **⚔️ Damage Scaling Adjustments (I Did Math, You Won't Like It):**
 • **Player Level Damage:** Reduced from +10% to **+7% per level**
-  - *"Exponential growth is great... if you're a bacteria. You're not bacteria."*
+    *"Exponential growth is great... if you're a bacteria. You're not bacteria."*
   - Level 10: Was 28.3, now 20.8 base damage
   - Level 20: Was 73.6, now 32.7 base damage (yeah, I went there)
 • **Gear Room Scaling:** Reduced from +5% to **+4% per room**
-  - *"Your orange gear is still good. Just... 20% less good."*
+    *"Your orange gear is still good. Just... 20% less good."*
 
 **🛡️ Enemy HP Rebalancing (They Lift Now, Deal With It):**
 • **Enemy HP Scaling:** Increased from +30% to **+35% per room**
-  - *"Turns out enemies should get tankier as you progress. Revolutionary concept, I know."*
+    *"Turns out enemies should get tankier as you progress. Revolutionary concept, I know."*
   - Room 10 basic enemy: Was 160 HP, now 194 HP
   - Room 20 basic enemy: Was 280 HP, now 360 HP
 • **Boss HP Scaling:** Increased from +28% to **+33% per room**
-  - *"Bosses were dying too fast. Now they die... eventually."*
+    *"Bosses were dying too fast. Now they die... eventually."*
 
 **⚔️ Weapon Rebalancing (The Obtuse Nerf Hammer Strikes):**
 • **Weapon Damage Ranges:** Reduced ~30% across ALL tiers
@@ -213,11 +213,11 @@ const GameVersion = {
 
 **✨ Legendary Effect Rebalancing (Even Legends Must Fall):**
 • **Berserker Rage:** +30% dmg/-15% def → **+25% dmg/-20% def**
-  - *"More risk, less reward. That's the berserker way now."*
+    *"More risk, less reward. That's the berserker way now."*
 • **Glass Cannon:** +60% dmg/-50% HP → **+45% dmg/-40% HP**
-  - *"Still made of glass, just thicker glass. You're welcome."*
+    *"Still made of glass, just thicker glass. You're welcome."*
 • **Chain Lightning:** 70% chain damage → **60% chain damage**
-  - *"The chain lightning now... chains... less-ingly?"*
+    *"The chain lightning now... chains... less-ingly?"*
 
 **🎭 Class Modifier Adjustments (Everyone Takes the L):**
 • All percentage damage modifiers reduced by ~20%:
@@ -226,11 +226,11 @@ const GameVersion = {
   - Mage: Blink damage 100% → 80% (*"Still a 2x multiplier, calm down"*)
   - Tank: Shield wave damage 100% → 80%
   - Universal: Basic damage 25% → 20%
-  - *"I nerfed everyone equally. That's true equality."*
+    *"I nerfed everyone equally. That's true equality."*
 
 **👹 Boss HP Adjustments (They're Not Mad, Just Disappointed):**
 • **BossBase Multiplier:** 15× → **12×**
-  - *"I reduced the multiplier but increased room scaling. Math is fun!"*
+    *"I reduced the multiplier but increased room scaling. Math is fun!"*
 • **Individual Boss Base HP Reductions:**
   - Swarm King: 1510 → 1250 (fewer bees, same anger)
   - Twin Prism: 1842 → 1500 (prism solidarity)
