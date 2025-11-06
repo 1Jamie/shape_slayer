@@ -58,6 +58,9 @@ const GameVersion = {
 • Enemy attack sounds and projectile hit feedback
 • Volume control in pause menu (cycles through 100%, 75%, 50%, 25%, muted)
 • Sound design is experimental and subject to change
+
+**UI Changes:**
+• Character sheet now has more transparency so the enemies are visible behind it. (a few less jump scares for the stat obsessed!)
 `,
         '0.5.0': `**MAJOR UPDATE: Architecture & Quality of Life Improvements (ADDITION OF GEAR AFFIXES AND CLASS MODIFIERS!)**
 

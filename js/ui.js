@@ -1026,11 +1026,11 @@ function renderCharacterSheet(ctx, player) {
     const modalY = (screenHeight - modalHeight) / 2;
     
     // Draw semi-transparent overlay
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
     ctx.fillRect(0, 0, screenWidth, screenHeight);
     
     // Draw modal background
-    ctx.fillStyle = 'rgba(20, 20, 40, 0.95)';
+    ctx.fillStyle = 'rgba(20, 20, 40, 0.75)';
     ctx.fillRect(modalX, modalY, modalWidth, modalHeight);
     
     // Draw border
