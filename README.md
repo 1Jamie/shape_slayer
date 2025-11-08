@@ -1,615 +1,367 @@
 # Shape Slayer
 
-A skill-based 2D top-down Action Roguelike (ARPG) built with HTML5 Canvas and vanilla JavaScript. Control geometric shapes, fight through rooms of enemies, collect gear, and level up in fast-paced combat.
+**Rogue-like geometry warfare you can launch in a browser. Dodge, dash, and demolish waves of hostile shapes solo or with friends.**
 
-## 🎮 Game Overview
+Shape Slayer is a fast, skill-first top-down action roguelike built for quick runs and high replayability. Choose your favorite class of sentient shape, dive into procedurally scaled combat arenas, and stack wild gear affixes that turn every run into a new buildcraft playground.
 
-**Genre:** Action Roguelike  
-**Platform:** Web Browser (HTML5 Canvas)  
-**Tech Stack:** Vanilla JavaScript (ES6+), Canvas 2D API  
-**Target Session Length:** 10-15 minutes
+## Why You’ll Love It
 
-## ✨ Features
+- **Arcade-speed combat:** Tight eight-directional movement, snappy attacks, invincible dodges, and a constant flow of enemies.
+- **Boss battles with personality:** Cinematic intros, multi-phase move sets, breakable weak points, and arenas that fight back.
+- **Endless build tinkering:** Loot tiers, legendary effects, class-specific modifiers, and a persistent upgrade hub keep you chasing the next broken combo.
+- **Drop-in multiplayer:** Up to four players can queue up instantly with six-character lobby codes. Host migration and reconnection mean a disconnect won’t kill the run.
+- **Runs anywhere:** No installs, no frameworks—just open the page and start slaying.
 
-- **Co-op Multiplayer** - Play with up to 4 players online:
-  - Lobby-based system with 6-character join codes
-  - Host-authoritative architecture for consistent gameplay
-  - Real-time synchronization of players, enemies, and projectiles
-  - Client-side interpolation for smooth 60 FPS rendering
-  - Automatic reconnection and host migration
-  - Optional feature - single-player works perfectly without multiplayer server
+## Jump In
 
-- **4 Player Classes** - Each with unique abilities and playstyles:
-  - **Warrior** (Square) - Balanced melee with cleaving attacks
-  - **Rogue** (Triangle) - High mobility with dash attacks and critical hits
-  - **Tank** (Pentagon) - High HP with shield defense and crowd control
-  - **Mage** (Hexagon) - Ranged attacks with AoE abilities
+| How you want to play | What to do |
+| --- | --- |
+| **Solo or hot-seat** | Open `index.html` in a modern desktop or mobile browser. That’s it. |
+| **Squad up online** | Open the game, create or join a lobby from the pause menu, share the six-character code, and you’re in. |
 
-- **Dynamic Combat System** - Fast-paced action with:
-  - Basic and heavy attacks
-  - Dodge roll with invincibility frames
-  - Class-specific special abilities
-  - Screen shake and hit pause effects
-  - Damage numbers and particle effects
+## Pick Your Shape
 
-- **Progression System** - Level up and collect gear:
-  - XP-based leveling with stat increases
-  - Gear drops with tier-based bonuses
-  - Room-based progression with scaling difficulty
+| Class | Fantasy | Signature Moves |
+| --- | --- | --- |
+| **Warrior** (Square) | Blade-dancing frontline bruiser | Straight-line blade strikes, forward thrust heavy with full i-frames, whirlwind special |
+| **Rogue** (Triangle) | Crit-hunting assassin | Knife barrages, double dodge charges, backstabs that explode damage numbers |
+| **Tank** (Pentagon) | Crowd-controlling bulwark | Life-stealing hammer swings, Shout stun/slow, shield wall that retaliates |
+| **Mage** (Hexagon) | Mobile artillery | Basic spell bolts, piercing beam heavy, blink + nova special with decoy |
 
-- **Enemy Variety** - Fight through multiple enemy types:
-  - Swarmers (Circles)
-  - Assassins (Diamonds)
-  - Brutes (Rectangles)
-  - Shooters (Stars)
-  - Elites (Octagons)
+Every class has bespoke config-tuned stats, animations, and gear synergies—rotate through them to learn how each handles the escalating chaos.
 
-- **Epic Boss Battles** - Challenging boss encounters every 5 rooms:
-  - **Swarm King** (Room 10) - Star-shaped boss with spike attacks and minion summons
-  - **Twin Prism** (Room 15) - Dual diamond boss with synchronized attacks
-  - **Fortress** (Room 20) - Massive rectangular boss with defensive spikes and shockwaves
-  - **Fractal Core** (Room 25) - Octagonal boss that fragments into multiple parts
-  - **Vortex** (Room 30) - Final boss with powerful pull effects and rotating teeth
-  - Each boss features 3 combat phases that change at 50% and 25% HP
-  - Weak points offer 3x damage multiplier for skilled players
-  - Boss intro sequences with epic presentations
-  - Guaranteed rare+ loot drops (2-3 items)
+## What’s Waiting in the Arenas
 
-- **Advanced Combat Mechanics**:
-  - **Weak Point System** - Hit specific glowing areas on bosses for 3x damage
-  - **Environmental Hazards** - Dynamic battlefield elements:
-    - Shockwaves (expanding damage rings)
-    - Damage zones (persistent area threats)
-    - Pull fields (suction effects affecting movement)
-    - Debris hazards (temporary collision zones)
-  - **Pull Force System** - Bosses can apply physics-based pull effects
-  - **Phase Transitions** - Bosses become more dangerous as HP drops
+### Combat That Rewards Movement
+- Dash through swarms, bait elite assassins, and kite projectile barrages across oversized 2400×1350 arenas built for momentum.
+- Screen shake, hit pause, crit/backstab markers, and pop-up damage/heal numbers reinforce every big play.
+- When enemies hide off-screen, smart enemy arrows point you straight to the last stragglers so pacing never dies.
 
-- **Testing Infrastructure** - Quality assurance tools:
-  - Automated test suite using Puppeteer
-  - Damage numbers multiplayer sync verification
-  - Debug flag system for troubleshooting (DebugFlags.DAMAGE_NUMBERS)
-  - Screenshot-based visual testing
-  - Test documentation in `tests/README.md`
-  - Easy to run: `cd tests && npm test`
+### Boss Fights Worth Showing Off
+- Room 10 onward kicks off a boss gauntlet: Swarm King, Twin Prism, Fortress, Fractal Core, and the vortexing final boss.
+- Each fight brings unique hazards (shockwaves, pull fields, collapsing debris) and phase shifts at 50%/25% HP that force you to adapt.
+- Crack glowing weak points for 3× bonus damage, stack the loot guarantees, and bask in the dramatic intros (or skip them with a tap if you’re on a speedrun).
 
-- **Class Configuration System** - Easy game balancing:
-  - Centralized configuration objects (ROGUE_CONFIG, WARRIOR_CONFIG, TANK_CONFIG, MAGE_CONFIG)
-  - All stats, cooldowns, and abilities configurable in one place
-  - No code changes needed for balance adjustments
-  - Clear separation of game design values from implementation
-  - Makes testing different balance scenarios simple
+### Buildcrafter’s Playground
+- Discover weapons that transform your kit: dual-hit “Parallel” blades, long-reaching “Vector” polearms, or “Obtuse” heavy hitters with built-in knockback and stuns.
+- Armor archetypes push you toward niche play: “Fractal” light armor fuels speed junkies, while “Tessellated” plating makes you an immovable crowd-control machine.
+- Legendary effects add run-defining perks like Phoenix Down revives, Chain Lightning procs, Berserker Rage risk/reward, and time-slow gimmicks.
+- Keep earning currency to feed the Nexus hub’s permanent upgrades, unlocking new stat ceilings across every class.
 
-- **Mobile-Friendly UI** - Responsive design:
-  - Responsive scaling for health bar, XP bar, and room display
-  - Scrollable character sheet optimized for mobile
-  - Touch-friendly controls with visual feedback
-  - Responsive death screens with proper font scaling
-  - World-to-screen coordinate conversion for accurate tooltips
+## Loot & Affixes
 
-## 🚀 Getting Started
+### Weapon Archetypes
 
-### Prerequisites
+| Archetype | Highlights |
+| --- | --- |
+| Acute (fast) | 30% quicker swings, slight damage tradeoff, free move speed boost |
+| Obtuse (heavy) | Chunkier hits, bonus knockback, 15% stun chance |
+| Vector (reach) | Extended melee range and projectile travel | 
+| Parallel (dual) | Double-hit basics, built-in crit, low per-hit damage |
 
-- Node.js (for multiplayer server and optional development server)
-- Modern web browser with JavaScript enabled
+### Armor Archetypes
 
-### Installation
+| Archetype | Highlights |
+| --- | --- |
+| Fractal (light) | +20% speed, extra dodge charge, dodge damage reduction |
+| Polygon (medium) | Baseline defense plus flat 10% HP |
+| Tessellated (heavy) | Huge defense, interrupt/knockback immunity, slight speed penalty |
+| Membrane (cloth) | 15% cooldown reduction and faster projectiles |
 
-1. Clone the repository:
-```bash
-git clone https://github.com/1jamie/shape_slayer.git
-cd shape_slayer
-```
+### Legendary Effects (Orange Tier)
 
-2. **Single-Player Mode** (No server required):
-   - Simply open `index.html` directly in your browser
-   - The game works completely offline for single-player gameplay
+| Effect | What it does |
+| --- | --- |
+| Vampiric | 8% lifesteal on everything |
+| Incendiary | Adds a 3 s burn DoT based on damage dealt |
+| Freezing | 20% chance to slow enemies by 50% for 2 s |
+| Thorns | Reflects 25% damage back at attackers |
+| Berserker Rage | +25% damage with -20% defense tradeoff |
+| Glass Cannon | +45% damage but -40% max HP |
+| Phoenix Down | Auto-revive each room at 30% HP (recharges through damage) |
+| Time Dilation | Slows time 20% on hit |
+| Chain Lightning | Forks to two extra enemies at 60% damage |
 
-3. **Multiplayer Mode** (Optional):
-   - Install multiplayer server dependencies:
-   ```bash
-   cd server
-   npm install
-   ```
-   - Start the multiplayer WebSocket server (choose deployment mode):
-   
-   **Single-Threaded (Default, Recommended for most users)**:
-   ```bash
-   npm start
-   # or explicitly: SERVER_MODE=single npm start
-   ```
-   - Supports 100-1,000 concurrent players
-   - No additional dependencies
-   - Perfect for development and small-medium deployments
-   
-   **Multi-Worker (High Performance)**:
-   ```bash
-   SERVER_MODE=multi WORKER_COUNT=4 npm start
-   ```
-   - Supports 1,000-5,000+ concurrent players
-   - Requires Docker (auto-manages Redis)
-   - Spawns multiple worker processes
-   - Advanced load balancing
-   
-   **Slave Mode (Multi-Server Cluster)**:
-   ```bash
-   SERVER_MODE=slave MASTER_SERVER_IP=10.0.0.100 WORKER_COUNT=4 npm start
-   ```
-   - Supports 10,000+ concurrent players
-   - Requires master server and network connectivity
-   - For massive scale deployments
-   
-   - The server will run on port 4000 (WebSocket) by default
-   - Configuration via `.env` file (see `server/.env.example`)
-   - See `server/README.md` for detailed server documentation
-   - See the [Multiplayer](#-multiplayer) section for gameplay instructions
+### Affix Pools
 
-4. **Development Server** (Optional, for testing):
-   - From the project root, start the HTTP server:
-   ```bash
-   node server.js
-   ```
-   - The game will be accessible at `http://localhost:3000`
-   - Useful for testing with proper HTTP headers and avoiding CORS issues
+**Basic Tier**
 
-## 🎯 Controls
+| Affix | Slots | Effect |
+| --- | --- | --- |
+| movementSpeed | armor, accessory | +10–15% movement speed |
+| attackSpeed | weapon, accessory | +10–20% attack speed |
+| projectileSpeed | weapon, accessory | +15–25% projectile speed |
+| maxHealth | armor | +15–40 flat HP |
+| knockbackPower | weapon | +20–50% knockback |
 
-- **WASD** - Move in 8 directions
-- **Mouse** - Player rotates to face cursor
-- **Left Click** - Basic attack (~0.3s cooldown)
-- **Right Click** - Heavy attack (~1.5-2.5s cooldown)
-- **Shift** - Dodge roll with i-frames (~2s cooldown)
-- **Spacebar** - Class special ability (~5s cooldown)
-- **ESC** - Pause menu (opens multiplayer menu in Nexus)
-- **R** - Restart game
-- **M** - Return to main menu
-- **Skip/Click** - Skip boss intro sequences during presentation
-- **Ctrl+D** - Toggle debug panel (for testing)
+**Advanced Tier**
 
-### Multiplayer Controls
+| Affix | Slots | Effect |
+| --- | --- | --- |
+| critChance | weapon, accessory | +5–15% crit chance |
+| critDamage | weapon | +15–45% crit damage multiplier |
+| lifesteal | weapon, armor | +3–10% lifesteal |
+| cooldownReduction | accessory, armor | -8–15% cooldowns (up to 75% cap) |
+| areaOfEffect | weapon | +12–28% AoE radius |
+| beamTickRate | weapon, accessory | 15–35% faster Mage beam ticks |
+| beamDuration | weapon, accessory | +20–50% Mage beam duration |
 
-- Controls are identical to single-player mode
-- **Host-only actions:**
-  - Only the host can start the game from the Nexus portal (press **G** near portal)
-  - Host runs authoritative game logic; clients send input and render state
-- **G** - Interact with portal in Nexus (host only to start game)
+**Rare Tier**
 
-## 🌐 Multiplayer
+| Affix | Slots | Effect |
+| --- | --- | --- |
+| dodgeCharges | armor, accessory | +1 dodge charge |
+| pierce | weapon | +1–3 projectile pierce |
+| chainLightning | weapon | +1–2 chain targets |
+| execute | weapon | +25–50% damage vs enemies under 30% HP |
+| rampage | weapon, accessory | +4–12% stacking damage per kill (up to 5 stacks) |
+| multishot | weapon | +1–2 additional projectiles |
+| phasing | armor, accessory | +10–25% chance to ignore collisions |
+| explosiveAttacks | weapon | +12–25% chance to spawn explosions on hit |
+| fortify | armor | Converts 5–15% damage dealt into a decaying shield |
+| overcharge | accessory | +15–30% chance to refund heavy/special/dodge cooldowns |
+| beamCharges | weapon, accessory | +1 Mage beam charge |
+| beamPenetration | weapon, accessory | +1–2 beam penetration |
 
-Shape Slayer supports co-op multiplayer for up to 4 players using a lobby-based system with join codes. Multiplayer is completely optional - the game works perfectly in single-player mode without any server.
+Legendary gear always rolls one of the effects above **in addition** to its affixes, and purple/orange items can carry class-specific modifiers that push builds into truly absurd territory.
 
-### Features
+## Party Up
 
-- **Lobby System** - Create or join lobbies with 6-character codes (e.g., "A3X9K2")
-- **Host Authority** - Host player runs game logic; clients receive and render state
-- **Full Synchronization** - All player animations, enemies, projectiles, and effects are synchronized
-- **Class Flexibility** - Multiple players can use the same class
-- **Graceful Fallback** - Game works 100% offline without a server for single-player
-- **Automatic Reconnection** - Up to 3 reconnection attempts with 2-second delay
-- **Host Migration** - If host disconnects, next player becomes host automatically
+- **Zero-fuss lobbies:** Hit the pause menu, generate a code, and have friends join from any device or browser tab.
+- **Smooth experience:** Enjoy buttery 60 FPS interpolation, automatic reconnection attempts, and instant host migration if someone disconnects.
+- **Shared glory:** End-of-run scoreboards highlight damage dealt, kills, room clears, and time alive so you can flex the carry (or blame the throw).
+- **Spectator mode:** If you drop in multiplayer, press `Space` to hop between living teammates and keep calling the shots.
 
-### Architecture
+## Controls
 
-#### Host-Authoritative Design
-- The **host** (first player to create lobby) runs all game logic:
-  - Enemy AI and behavior
-  - Combat calculations
-  - Loot generation
-  - Room transitions
-  - Game state management
-  
-- **Clients** (other players) send input and render state:
-  - Send input state (movement, attacks, abilities) to host
-  - Receive full game state from host at 30 FPS
-  - Render at 60 FPS using client-side interpolation
-  - Handle their own visual effects and UI
+### Keyboard & Mouse
+- Movement: `WASD`
+- Aim: Mouse
+- Basic Attack: `Left Click`
+- Heavy Attack: `Right Click`
+- Dodge: `Shift`
+- Special Ability: `Space`
+- Restart / Menu: `R` / `M`
+- Pause / Multiplayer Menu: `ESC`
+- Debug Panel: `Ctrl+D`
+- Host Action: `G` at the Nexus portal to launch a run
 
-#### State Synchronization
-- **Host sends** (30 updates/second):
-  - All player positions, HP, animations, states
-  - All enemy positions, HP, states
-  - All projectiles
-  - Room number, door state
-  - Ground loot
-  
-- **Clients send** (as needed):
-  - Local player position, HP, rotation
-  - Animation states
-  - Class-specific states
-  - Input state (for host simulation)
+### Touch
+- Twin virtual joysticks keep movement and aiming intuitive.
+- Dedicated ability buttons show cooldowns, charges, and activation states.
+- UI repositions itself automatically on rotate or resize so you’re never fighting the interface.
 
-### Setup
-
-#### 1. Install Server Dependencies
+## Want to Host Your Own Server?
 
 ```bash
 cd server
 npm install
+npm start               # SERVER_MODE=single by default
+# Advanced:
+SERVER_MODE=multi WORKER_COUNT=4 npm start   # clustered (needs Docker/Redis)
+SERVER_MODE=slave MASTER_SERVER_IP=10.0.0.100 WORKER_COUNT=4 npm start   # scale-out
 ```
 
-This installs the `ws` WebSocket library required for the multiplayer server.
+- Default WebSocket port: **4000**
+- Configure lobby size, interpolation, and reconnect behavior in `js/mp-config.js`
+- Sample production URL (`wss://shape-slayer.goodgirl.software`) ships ready to play if you don’t want to self-host
 
-#### 2. Start the Multiplayer Server
+## Credits & Community
 
-```bash
-cd server
-npm start
-```
+Shape Slayer is an evolving passion project focused on readability, responsiveness, and relentless fun. Dive in, break the build systems, and let us know what ridiculous combos you discover.
 
-The server will start on port 4000 (WebSocket). You should see:
-```
-========================================
-  Shape Slayer Multiplayer Server
-========================================
-  Local:    ws://localhost:4000
-  Network:  ws://YOUR_IP:4000
-  Status:   Running
-========================================
-```
+- **Bugs or ideas?** Open an issue on GitHub.
+- **Want to contribute?** The codebase is plain vanilla JavaScript—fork it and go wild.
+- **Need help?** Check the in-game debug panel (`Ctrl+D`), the console, or server logs for detailed output.
 
-#### 3. Start the Game Server (Optional)
+## Classes
 
-In a separate terminal, from the project root:
+| Class | Role | Signature Kit |
+| --- | --- | --- |
+| Warrior (Square) | Balanced bruiser | Wide sword swings, thrust dash with i-frames, whirlwind special |
+| Rogue (Triangle) | High mobility assassin | Crit-focused basics, fan-of-knives heavy, shadow-clone special, backstab bonus |
+| Tank (Pentagon) | Crowd control & sustain | Hammer lifesteal basics, Shout stun/slow heavy, directional shield special, retaliatory knockback passive |
+| Mage (Hexagon) | Ranged spellcaster | Charged bolts, beam heavy, blink + nova special, beam-specific gear synergies |
 
-```bash
-node server.js
-```
+Class tooltips in the Nexus pull straight from the config templates, so designer-written copy stays accurate as balance changes.
 
-The game will be accessible at `http://localhost:3000`. This is optional - you can also open `index.html` directly, but the HTTP server helps avoid CORS issues during development.
+## Enemies & Bosses
 
-#### 4. Configure Server URL (If Needed)
+- Normal rooms mix circles (swarmers), stars (ranged), diamonds (assassins), rectangles (brutes), and octagons (elites) with threat-table driven aggro.
+- Bosses spawn every five rooms from 10 onward (Swarm King, Twin Prism, Fortress, Fractal Core, Vortex). Each has three escalating phases, bespoke hazards, and guaranteed rare+ loot.
+- Multiplayer scaling adjusts count, HP, and damage per player without overwhelming low-end machines.
 
-Edit `js/mp-config.js` to change the multiplayer server URL:
+## Gear Reference
 
-```javascript
-const MultiplayerConfig = {
-    // For local testing
-    SERVER_URL: 'ws://localhost:4000',
-    
-    // For production with SSL
-    // SERVER_URL: 'wss://yourdomain.com',
-    
-    // For LAN testing
-    // SERVER_URL: 'ws://192.168.1.100:4000',
-    
-    // ... other settings
-};
-```
+### Weapon Archetypes
 
-**Default production server:** `wss://shape-slayer.goodgirl.software`
+| Archetype | Notes |
+| --- | --- |
+| Acute (fast) | 30% faster attacks, slight damage nerf, +15% move speed |
+| Obtuse (heavy) | 25% more damage, slight speed penalty, bonus knockback & 15% stun chance |
+| Vector (reach) | Longer melee reach and projectile travel range |
+| Parallel (dual) | Double-hit basics, crit bonus, lower per-hit damage |
 
-### How to Play Multiplayer
+### Armor Archetypes
 
-#### Creating a Lobby (Host)
+| Archetype | Notes |
+| --- | --- |
+| Fractal (light) | -25% defense, +20% speed, +1 dodge charge, dodge damage reduction |
+| Polygon (medium) | Flat 10% health bonus, baseline defense |
+| Tessellated (heavy) | +30% defense, -10% speed, interrupt & knockback immunity |
+| Membrane (cloth) | +15% cooldown reduction, +20% projectile speed |
 
-1. Open the game in your browser
-2. Navigate to the Nexus (main hub area)
-3. Press `ESC` to open pause menu
-4. Click "Multiplayer" button
-5. Click "Create Lobby"
-6. Note the 6-character lobby code (e.g., "A3X9K2")
-7. Select a class in the Nexus
-8. Share the lobby code with friends
-9. Other players can now join using the code
+### Legendary Effects (Orange Tier)
 
-#### Joining a Lobby (Clients)
+| Effect | Description |
+| --- | --- |
+| Vampiric | +8% lifesteal on all damage sources |
+| Incendiary | Applies 3 s burn DoT based on damage dealt |
+| Freezing | 20% slow chance with 50% reduction for 2 s |
+| Thorns | Reflects 25% incoming damage |
+| Berserker Rage | +25% damage, -20% defense |
+| Glass Cannon | +45% damage, -40% max HP |
+| Phoenix Down | Auto-revive once per room at 30% HP (recharges via damage dealt) |
+| Time Dilation | 20% time-slow effect |
+| Chain Lightning | Chains damage to two extra targets at 60% power |
 
-1. Open the game in a **new browser window/tab** (or different browser)
-2. Navigate to the Nexus
-3. Press `ESC` to open pause menu
-4. Click "Multiplayer" button
-5. Enter the 6-character lobby code
-6. Click "Join Lobby"
-7. Select a class in the Nexus
-8. Wait for host to start the game
+Purple/orange gear can also roll class modifiers (e.g., +1 Rogue dodge charge, +150 Mage blink range, +1 Tank shield second, universal cooldown reductions), enabling run-defining builds.
 
-#### Starting the Game
+### Affix Tables
 
-1. Only the **host** can start the game
-2. Host walks to the portal in the Nexus center
-3. Press `G` when near the portal
-4. All connected players will transition to the game together
-5. All players see synchronized gameplay
+**Basic Tier**
 
-### Technical Details
+| Affix | Slots | Effect |
+| --- | --- | --- |
+| movementSpeed | armor, accessory | +10–15% movement speed |
+| attackSpeed | weapon, accessory | +10–20% attack speed |
+| projectileSpeed | weapon, accessory | +15–25% projectile speed |
+| maxHealth | armor | +15–40 flat HP |
+| knockbackPower | weapon | +20–50% knockback |
 
-#### Interpolation System
+**Advanced Tier**
 
-The client uses a sophisticated interpolation system for smooth rendering:
+| Affix | Slots | Effect |
+| --- | --- | --- |
+| critChance | weapon, accessory | +5–15% crit chance |
+| critDamage | weapon | +15–45% crit damage multiplier |
+| lifesteal | weapon, armor | +3–10% lifesteal |
+| cooldownReduction | accessory, armor | -8–15% ability cooldowns (caps at 75%) |
+| areaOfEffect | weapon | +12–28% AoE radius |
+| beamTickRate | weapon, accessory | 15–35% faster Mage beam ticks |
+| beamDuration | weapon, accessory | +20–50% Mage beam duration |
 
-- **State Buffering** - Stores up to 15 state snapshots
-- **Adaptive Delay** - Adjusts interpolation delay based on network latency (100-200ms)
-- **Extrapolation** - Predicts movement when updates are delayed
-- **Smooth Rendering** - Clients render at 60 FPS despite 30 FPS network updates
+**Rare Tier**
 
-#### Network Performance
+| Affix | Slots | Effect |
+| --- | --- | --- |
+| dodgeCharges | armor, accessory | +1 dodge charge |
+| pierce | weapon | +1–3 projectile pierce |
+| chainLightning | weapon | +1–2 chain targets |
+| execute | weapon | +25–50% bonus damage vs enemies under 30% HP |
+| rampage | weapon, accessory | +4–12% stacking damage per Rampage stack (caps at 5 stacks) |
+| multishot | weapon | +1–2 additional projectiles |
+| phasing | armor, accessory | +10–25% chance to ignore collisions |
+| explosiveAttacks | weapon | +12–25% chance to spawn explosions on hit |
+| fortify | armor | Converts 5–15% dealt damage into decaying shields |
+| overcharge | accessory | +15–30% chance to refund heavy/special/dodge cooldowns |
+| beamCharges | weapon, accessory | +1 Mage beam charge |
+| beamPenetration | weapon, accessory | +1–2 beam penetration |
 
-- State updates throttled to 30/sec to reduce bandwidth
-- Only active game state is synced (no unnecessary data)
-- Heartbeat every 30 seconds to keep connection alive
-- Automatic reconnection (up to 3 attempts, 2 second delay)
+Legendary items always receive one of the effects above in addition to their rolled affixes.
 
-#### Message Types
+## Controls
 
-**Client → Server:**
-- `create_lobby` - Create new lobby
-- `join_lobby` - Join existing lobby
-- `leave_lobby` - Leave current lobby
-- `game_state` - Full game state (host only)
-- `player_state` - Local player state (clients only)
-- `game_start` - Start game (host only)
-- `heartbeat` - Keep connection alive
+### Keyboard & Mouse
+- `WASD` move, mouse aims.
+- `Left Click` basic attack, `Right Click` heavy attack.
+- `Shift` dodge, `Space` special ability, `R` restart, `M` main menu.
+- `ESC` opens pause/multiplayer menu, `Ctrl+D` toggles debug panel.
+- Host-exclusive: `G` at the Nexus portal starts a run.
 
-**Server → Client:**
-- `lobby_created` - Lobby created successfully
-- `lobby_joined` - Joined lobby successfully
-- `lobby_error` - Error (lobby full, not found, etc.)
-- `player_joined` - Another player joined
-- `player_left` - Player left lobby
-- `host_migrated` - New host assigned
-- `game_state` - Full game state from host
-- `player_state` - Player state from client
-- `game_start` - Game starting
+### Touch & Hybrid
+- Dual virtual joysticks for movement and aiming.
+- Dedicated buttons for heavy, special, and dodge with charge counters and cooldown shading.
+- Auto-layout recalculates on viewport resize/orientation change.
 
-### Configuration
+### Spectator Mode
+- In multiplayer, dead players can press `Space` to follow teammates. HUD shows the tracked player and enemy arrows still assist navigation.
 
-The multiplayer system is configured in `js/mp-config.js`:
+## Multiplayer Workflow
 
-```javascript
-const MultiplayerConfig = {
-    SERVER_URL: 'wss://shape-slayer.goodgirl.software',
-    
-    // Connection settings
-    RECONNECT_ATTEMPTS: 3,
-    RECONNECT_DELAY: 2000, // milliseconds
-    HEARTBEAT_INTERVAL: 30000, // milliseconds (30 seconds)
-    
-    // Lobby settings
-    MAX_PLAYERS: 4,
-    CODE_LENGTH: 6,
-    
-    // Interpolation settings
-    INTERPOLATION_DELAY: 100, // milliseconds
-    MAX_INTERPOLATION_DELAY: 200,
-    EXTRAPOLATION_LIMIT: 100,
-    STATE_BUFFER_SIZE: 15,
-    BASE_LERP_SPEED: 10,
-    MIN_LERP_SPEED: 5,
-    MAX_LERP_SPEED: 20,
-    SNAP_DISTANCE: 100 // pixels
-};
-```
+1. Host launches the WebSocket server and game client, creates a lobby, and shares the six-character code.
+2. Clients join from new browser windows or devices; upgrades and currency sync from their save data.
+3. Host selects `G` in the Nexus to start the run. Host remains authoritative for combat, loot, and room transitions.
+4. Disconnections trigger up to three automated reconnection attempts. If the host drops, the worker assigns a new host and sends `host_migrated`.
+5. End-of-run stats (damage dealt, kills, rooms cleared, time alive) broadcast from the host for a shared death screen.
 
-### Production Deployment
+Configure endpoints, interpolation, and reconnection caps in `js/mp-config.js`.
 
-#### Server Hosting
+## Progression & Meta Systems
 
-1. Deploy `server/mp-server.js` to your hosting provider
-2. Ensure WebSocket support (most providers support this)
-3. Configure SSL for `wss://` (recommended for production)
-4. Use process manager (PM2, Forever) for auto-restart
-5. Update `js/mp-config.js` with production server URL
+- `SaveSystem` persists currency, per-class upgrade levels, selected class, control mode, fullscreen preference, audio settings, and modal state in `localStorage`.
+- Update and launch modals surface patch notes from `js/version.js` whenever `GameVersion.VERSION` changes.
+- Player stats tracking (`PlayerStats`) records run metrics for final summaries and cross-player comparisons.
+- Nexus layout includes class pads (left wing) and upgrade stations (right wing) with interactable pads in both desktop and touch modes.
 
-#### Security Considerations
+## Debugging & Testing
 
-- Add rate limiting to prevent abuse
-- Implement authentication if needed
-- Validate all client inputs on server
-- Monitor server logs for suspicious activity
+- Toggle the debug panel with `Ctrl+D` or `DebugPanel.toggle()` to warp to rooms 1–30 or enter a custom room number.
+- Verbose logging flags live under `DebugFlags` (e.g., enable `DebugFlags.DAMAGE_NUMBERS = true` for sync investigations).
+- Automated Puppeteer test for multiplayer damage-number parity:
+  ```bash
+  cd tests
+  npm install
+  node damage-numbers.test.js
+  ```
+  The test spins up the server, launches host/client browsers, and validates send/receive/render stages with logged checkpoints.
 
-For more detailed multiplayer documentation, see [MULTIPLAYER.md](MULTIPLAYER.md).
-
-## 🏗️ Project Structure
+## Project Structure
 
 ```
 shape_slayer/
-├── index.html          # Main HTML file
-├── server.js           # Local HTTP development server (port 3000)
-├── css/
-│   └── style.css       # Game styling
+├── index.html                 # Game shell
+├── server.js                  # Optional static dev server (port 3000)
+├── css/style.css              # UI styling
 ├── js/
-│   ├── main.js         # Game loop and core logic
-│   ├── player.js       # Player class and mechanics
-│   ├── combat.js       # Combat system
-│   ├── level.js        # Room generation
-│   ├── gear.js         # Loot and equipment
-│   ├── ui.js           # HUD and menus
-│   ├── input.js        # Input handling
-│   ├── render.js       # Rendering and effects
-│   ├── utils.js        # Helper functions
-│   ├── debug.js        # Debug panel for testing
-│   ├── version.js      # Version tracking
-│   ├── nexus.js        # Nexus hub area
-│   ├── mp-config.js    # Multiplayer configuration (server URL, settings)
-│   ├── multiplayer.js  # Multiplayer client module (lobby, sync, state management)
-│   ├── interpolation.js # Client-side interpolation for smooth rendering
-│   ├── enemies/        # Enemy classes
-│   │   ├── enemy-base.js      # Base enemy class
-│   │   ├── enemy-basic.js     # Circle enemy (Swarmer)
-│   │   ├── enemy-star.js      # Star enemy (Ranged)
-│   │   ├── enemy-diamond.js   # Diamond enemy (Assassin)
-│   │   ├── enemy-rectangle.js # Rectangle enemy (Brute)
-│   │   └── enemy-octagon.js   # Octagon enemy (Elite)
-│   ├── players/        # Player classes
-│   │   ├── player-base.js     # Base player class
-│   │   ├── player-warrior.js  # Warrior class
-│   │   ├── player-rogue.js    # Rogue class
-│   │   ├── player-tank.js     # Tank class
-│   │   └── player-mage.js     # Mage class
-│   └── bosses/         # Boss classes and systems
-│       ├── boss-base.js        # Base boss class
-│       ├── hazards.js          # Environmental hazard system
-│       ├── boss-swarmking.js   # Swarm King (Room 10)
-│       ├── boss-twinprism.js   # Twin Prism (Room 15)
-│       ├── boss-fortress.js    # Fortress (Room 20)
-│       ├── boss-fractalcore.js # Fractal Core (Room 25)
-│       └── boss-vortex.js      # Vortex (Room 30)
-├── server/             # Multiplayer server
-│   ├── mp-server.js    # Main entry point (routing to master or worker)
-│   ├── mp-server-master.js # Master process (cluster coordinator)
-│   ├── mp-server-worker.js # Worker process (handles WebSocket connections)
-│   ├── config.js       # Server configuration (modes, Redis, clustering)
-│   ├── .env.example    # Environment variable template
-│   └── package.json    # Server dependencies (ws, dotenv)
-├── tests/              # Automated testing
-│   ├── damage-numbers.test.js # Damage sync verification test
-│   ├── README.md       # Testing documentation
-│   └── package.json    # Test dependencies (Puppeteer)
-├── MULTIPLAYER.md      # Detailed multiplayer documentation
-├── spec_sheet.md       # Game design specification
-├── implementation_plan.md # Development roadmap
-├── DAMAGE_NUMBERS_FIX.md # Technical documentation for damage sync fix
-└── DAMAGE_NUMBERS_FINAL_REPORT.md # Final report on damage sync fix
+│   ├── main.js                # Game loop, camera, state machine, run orchestration
+│   ├── ui.js                  # HUD, menus, scoreboards, enemy arrows, modals
+│   ├── combat.js              # Damage, crit, execute, rampage, lifesteal, legendary procs
+│   ├── level.js               # Room generation, scaling, boss spawning
+│   ├── gear.js                # Loot rolls, affix pools, class modifiers, legendary effects
+│   ├── players/               # Base player + Warrior/Rogue/Tank/Mage subclasses
+│   ├── enemies/               # Enemy archetypes with threat/aggro logic
+│   ├── bosses/                # Boss implementations and hazard system
+│   ├── multiplayer.js         # Client-side lobby/state management
+│   ├── mp-config.js           # Multiplayer tuning knobs
+│   ├── interpolation.js       # Client smoothing and extrapolation helpers
+│   ├── audio.js               # Procedural Web Audio soundscape
+│   ├── touch-controls.js      # Virtual joystick/button system
+│   ├── nexus.js               # Hub layout, upgrade pads, class info
+│   ├── save.js                # Persistence helpers
+│   ├── debug.js               # DebugPanel & DebugFlags
+│   └── version.js             # Patch notes & tagging
+├── server/                    # WebSocket host (single, clustered, slave modes)
+│   ├── mp-server.js / master / worker
+│   ├── config.js              # Host/port/Redis config
+│   └── package.json
+├── tests/                     # Puppeteer regression suite
+│   ├── damage-numbers.test.js
+│   ├── README.md
+│   └── package.json
+├── MULTIPLAYER.md             # In-depth multiplayer docs
+├── spec_sheet.md              # Design spec
+├── implementation_plan.md     # Roadmap
+└── DAMAGE_NUMBERS_*.md        # Debug notes & final report
 ```
 
-## 🛠️ Technologies Used
+## Troubleshooting
 
-- **HTML5 Canvas 2D** - Rendering
-- **Vanilla JavaScript (ES6+)** - Game logic
-- **Node.js** - Development server and multiplayer server
-- **WebSockets (ws library)** - Multiplayer networking
-- **No external client dependencies** - Game runs entirely in browser with vanilla JS
+- **Unable to connect** – make sure the WebSocket server is running, the URL in `mp-config.js` matches, and port `4000` is reachable (check firewalls/NAT).
+- **Lobby not found or full** – codes are case-sensitive, expire after an hour, and only support four players. Restart the server to reset stale lobbies.
+- **Performance issues** – check FPS in the debug panel, trim lobby size, or close other tabs; rooms past 18 rely on stat scaling instead of enemy floods.
+- **Sound muted unexpectedly** – toggle mute in the pause menu; state is persisted in `SaveSystem`.
+- **Game fails to load from disk** – prefer `node server.js` or another HTTP server to avoid browser restrictions when loading local files.
 
-## 🎮 Boss System Details
-
-### Boss Encounters
-Bosses spawn every 5 rooms starting at Room 10. Each boss features:
-
-- **Massive Health Pools** - 5x normal enemy HP (scaled by room)
-- **3-Phase Combat** - Bosses change behavior at 50% and 25% HP
-- **Weak Points** - Glowing areas that take 3x damage when hit
-- **Environmental Hazards** - Dynamic battlefield threats
-- **Guaranteed Rare+ Loot** - Bosses always drop 2-3 high-quality items
-- **Epic Intro Sequences** - Dramatic boss introductions (skippable)
-
-### Individual Bosses
-
-#### 🟡 Swarm King (Room 10)
-- **Shape:** Star with inward-bending spikes
-- **Weak Points:** 3 at spike bases
-- **Phase 1:** Spike barrages, chase lunge attacks
-- **Phase 2:** Spawns minions, spinning spike wheel
-- **Phase 3:** Multi-barrage attacks, explosive finale
-
-#### 🟠 Twin Prism (Room 15)
-- **Shape:** Two overlapping diamonds
-- **Weak Point:** 1 at center connection
-- **Phase 1:** Dual dash patterns, rotation attacks
-- **Phase 2:** Synchronized strikes, split attacks
-- **Phase 3:** Frenzy mode, merged form slams
-
-#### 🟤 Fortress (Room 20)
-- **Shape:** Large rectangle with crenellations
-- **Weak Points:** 2 at top corners
-- **Phase 1:** Charging slams, corner spikes, wall pushes
-- **Phase 2:** Multiple slams, full spike bursts
-- **Phase 3:** Rampage mode, fortress storm, collapse attacks
-
-#### 🔵 Fractal Core (Room 25)
-- **Shape:** Octagon with concave sides, fragments
-- **Weak Points:** 4 at indentations
-- **Phase 1:** Fragment spawning, phase dashes, rotation blasts
-- **Phase 2:** Multi-fragment attacks, phase chains, expanding pulses
-- **Phase 3:** Chaos mode, super fragment storms, core explosion
-
-#### 🔴 Vortex (Room 30) - Final Boss
-- **Shape:** Gear-like circle with rotating teeth
-- **Weak Point:** 1 at center core
-- **Phase 1:** Vortex pull, rotating teeth, spin projectiles
-- **Phase 2:** Stronger pull effects, tooth barrages, double spins
-- **Phase 3:** Maximum pull, teeth expansion, final vortex explosion
-
-### Environmental Hazards
-Bosses create dynamic battlefield hazards:
-
-- **Shockwaves** - Expanding rings that deal one-time damage
-- **Damage Zones** - Persistent areas dealing damage over time
-- **Pull Fields** - Areas that apply physics-based pull forces
-- **Debris** - Temporary collision zones from explosions
-
-### Weak Point System
-- Weak points appear as glowing, pulsing areas on bosses
-- Hitting weak points deals **3x damage** instead of normal damage
-- Weak points may be hidden or protected during certain boss attacks
-- Optional mechanic - skilled players are rewarded with faster boss kills
-
-## 🔧 Troubleshooting
-
-### Multiplayer Connection Issues
-
-#### "Failed to connect to server"
-- **Check server is running:** Ensure the multiplayer server is running (`cd server && npm start`)
-- **Verify server URL:** Check `js/mp-config.js` matches your setup:
-  - Local: `ws://localhost:4000`
-  - Production: `wss://shape-slayer.goodgirl.software`
-- **Check firewall/port forwarding:** Ensure port 4000 is open (for WebSocket connections)
-- **Network connectivity:** Test if you can reach the server URL in your browser's developer console
-
-#### "Lobby not found"
-- **Case sensitivity:** Lobby codes are case-sensitive - enter exactly as provided
-- **Lobby expiration:** Lobbies expire after 1 hour of inactivity
-- **Server restart:** If the server restarted, all lobbies are cleared (they don't persist)
-- **Double-check code:** Verify you entered the correct 6-character code
-
-#### "Lobby is full"
-- Maximum of 4 players per lobby
-- Wait for a player to leave or create a new lobby
-
-#### Players not syncing properly
-- **Check browser console:** Open developer tools (F12) and look for errors
-- **Verify connection:** Ensure all players successfully connected (check lobby list)
-- **Server logs:** Check server console output for disconnection messages
-- **Network lag:** High latency may cause delays (system uses adaptive interpolation)
-- **Firewall issues:** Ensure WebSocket connections aren't blocked
-
-#### "Only host can start"
-- This is intentional - only the first player (host) can start the game
-- If host left, the next player automatically becomes host
-- Check lobby list to see who is host (indicated with "(Host)")
-
-### Server Setup Problems
-
-#### Server won't start
-- **Check Node.js:** Ensure Node.js is installed (`node --version`)
-- **Install dependencies:** Run `cd server && npm install`
-- **Port in use:** Check if port 4000 is already in use by another application
-- **Permissions:** On Linux/Mac, ensure you have permission to bind to port 4000
-
-#### Server starts but clients can't connect
-- **Network binding:** Server binds to `0.0.0.0` by default (accepts connections from any interface)
-- **Localhost vs Network:** Use `ws://localhost:4000` for local testing, `ws://YOUR_IP:4000` for LAN
-- **Firewall:** Ensure firewall allows incoming connections on port 4000
-- **Router/NAT:** For internet connections, configure port forwarding for port 4000
-
-### General Game Issues
-
-#### Game doesn't load
-- **Browser compatibility:** Use a modern browser (Chrome, Firefox, Edge, Safari)
-- **JavaScript enabled:** Ensure JavaScript is enabled in your browser
-- **File protocol:** If opening `index.html` directly, some features may not work - use HTTP server instead
-- **CORS errors:** Use the HTTP development server (`node server.js`) instead of opening file directly
-
-#### Performance issues
-- **Frame rate:** Check FPS in debug panel (`Ctrl+D`)
-- **Too many players:** Reduce number of players in lobby (performance scales with player count)
-- **Network latency:** High latency may cause stuttering (check connection quality)
-- **Browser resources:** Close other tabs/applications to free up resources
-
-For additional help, check the browser console (F12 → Console) and server logs for error messages.
-
-## 🐛 Debug Tools
-
-### Debug Panel
-Accessible via `DebugPanel.toggle()` in the browser console or `Ctrl+D`:
-- Warp to specific rooms instantly (rooms 10, 15, 20, 25, 30 highlighted for bosses)
-- Custom room input (1-100)
-- Current room display
-- Perfect for testing boss encounters without playing through earlier rooms
-
-For questions or feedback, please open an issue on GitHub.
-
----
-
-**Note:** This game is currently in development. Features and mechanics may change.
+For additional help, inspect the browser console (`F12`) and the multiplayer server logs. Bug reports and feedback are welcome through GitHub issues.
 
