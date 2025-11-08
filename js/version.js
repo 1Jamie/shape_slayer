@@ -82,7 +82,7 @@ const GameVersion = {
 • New files: mp-server-master.js, mp-server-worker.js, config.js
 • Fully backward compatible with existing deployments
 `,
-        '0.5.1': `**🔨 THE GREAT REBALANCING 🔨**
+        '0.5.1': `**🔨 THE GREAT REBALANCING 🔨** (11/05/2025)
 *"48 hours. 3 patches melted down into 1. 1 developer who clearly needs sleep. Your game? Completely different now."*
 
 
