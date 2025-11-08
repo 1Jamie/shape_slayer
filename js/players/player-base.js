@@ -227,10 +227,27 @@ class PlayerBase {
             this.heavyAttackCooldown -= deltaTime;
         }
         
-        // Update dodge cooldown
-        // Note: Triangle charge-based cooldown moved to player-rogue.js updateClassAbilities()
-        if (this.dodgeCooldown > 0) {
-            this.dodgeCooldown -= deltaTime;
+        // Update dodge cooldowns (supports both single and multi-charge systems)
+        const usesChargeDodge = this.usesChargeBasedDodge();
+        if (usesChargeDodge) {
+            let readyCharges = 0;
+            for (let i = 0; i < this.dodgeChargeCooldowns.length; i++) {
+                if (this.dodgeChargeCooldowns[i] > 0) {
+                    this.dodgeChargeCooldowns[i] = Math.max(0, this.dodgeChargeCooldowns[i] - deltaTime);
+                }
+                if (this.dodgeChargeCooldowns[i] <= 0) {
+                    readyCharges++;
+                }
+            }
+            this.dodgeCharges = readyCharges;
+        } else {
+            if (this.dodgeCooldown > 0) {
+                this.dodgeCooldown = Math.max(0, this.dodgeCooldown - deltaTime);
+            }
+            if (this.dodgeChargeCooldowns && this.dodgeChargeCooldowns.length > 0) {
+                this.dodgeChargeCooldowns[0] = this.dodgeCooldown;
+            }
+            this.dodgeCharges = this.dodgeCooldown <= 0 ? 1 : 0;
         }
         
         // Update attack hitboxes
@@ -493,13 +510,11 @@ class PlayerBase {
         
         // Check if dodge is available
         let canDodge = false;
+        const usesChargeDodge = this.usesChargeBasedDodge();
         
-        if (this.playerClass === 'triangle') {
-            // Charge-based system for Triangle
-            const availableCharges = this.dodgeChargeCooldowns.filter(cooldown => cooldown <= 0).length;
-            canDodge = availableCharges > 0;
+        if (usesChargeDodge) {
+            canDodge = this.getReadyDodgeCharges() > 0;
         } else {
-            // Standard cooldown for other classes
             canDodge = this.dodgeCooldown <= 0;
         }
         
@@ -511,6 +526,40 @@ class PlayerBase {
             this.startDodge(input);
         } else if (dodgeJustPressed && !canDodge) {
             console.log(`[${this.playerClass}] Dodge on cooldown!`);
+        }
+    }
+    
+    usesChargeBasedDodge() {
+        return (this.maxDodgeCharges || 0) > 1 || (this.dodgeChargeCooldowns && this.dodgeChargeCooldowns.length > 1);
+    }
+    
+    getReadyDodgeCharges() {
+        if (!this.dodgeChargeCooldowns || this.dodgeChargeCooldowns.length === 0) return 0;
+        let ready = 0;
+        for (let i = 0; i < this.dodgeChargeCooldowns.length; i++) {
+            if (this.dodgeChargeCooldowns[i] <= 0) {
+                ready++;
+            }
+        }
+        return ready;
+    }
+    
+    consumeDodgeCharge() {
+        if (this.usesChargeBasedDodge()) {
+            this.dodgeCooldown = 0;
+            for (let i = 0; i < this.dodgeChargeCooldowns.length; i++) {
+                if (this.dodgeChargeCooldowns[i] <= 0) {
+                    this.dodgeChargeCooldowns[i] = this.dodgeCooldownTime;
+                    break;
+                }
+            }
+            this.dodgeCharges = this.getReadyDodgeCharges();
+        } else {
+            this.dodgeCooldown = this.dodgeCooldownTime;
+            if (this.dodgeChargeCooldowns && this.dodgeChargeCooldowns.length > 0) {
+                this.dodgeChargeCooldowns[0] = this.dodgeCooldown;
+            }
+            this.dodgeCharges = 0;
         }
     }
     
@@ -614,19 +663,7 @@ class PlayerBase {
             AudioManager.sounds.dodge();
         }
         
-        // Handle cooldown based on class
-        if (this.playerClass === 'triangle') {
-            // Find first available charge and put it on cooldown
-            for (let i = 0; i < this.dodgeChargeCooldowns.length; i++) {
-                if (this.dodgeChargeCooldowns[i] <= 0) {
-                    this.dodgeChargeCooldowns[i] = this.dodgeCooldownTime;
-                    break;
-                }
-            }
-        } else {
-            // Standard single cooldown
-            this.dodgeCooldown = this.dodgeCooldownTime;
-        }
+        this.consumeDodgeCharge();
     }
     
     handleHeavyAttack(input) {
@@ -1235,11 +1272,15 @@ class PlayerBase {
         
         // Apply bonus dodge charges (using baseDodgeCharges set by subclass constructor)
         const baseCharges = this.baseDodgeCharges || 1; // Default to 1 if not set
-        this.maxDodgeCharges = baseCharges + this.bonusDodgeCharges;
+        this.maxDodgeCharges = Math.max(1, baseCharges + this.bonusDodgeCharges);
         // Resize cooldown array if needed
         while (this.dodgeChargeCooldowns.length < this.maxDodgeCharges) {
             this.dodgeChargeCooldowns.push(0);
         }
+        while (this.dodgeChargeCooldowns.length > this.maxDodgeCharges) {
+            this.dodgeChargeCooldowns.pop();
+        }
+        this.dodgeCharges = this.usesChargeBasedDodge() ? this.getReadyDodgeCharges() : (this.dodgeCooldown <= 0 ? 1 : 0);
     }
     
     // Apply individual affix to player stats

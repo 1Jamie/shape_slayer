@@ -452,13 +452,7 @@ class Rogue extends PlayerBase {
         this.dodgeHitEnemies.clear(); // Reset hit tracking for new dodge
         this.dodgeHasChainedLegendary = false; // Reset chain flag for this dodge
         
-        // Find first available charge and put it on cooldown
-        for (let i = 0; i < this.dodgeChargeCooldowns.length; i++) {
-            if (this.dodgeChargeCooldowns[i] <= 0) {
-                this.dodgeChargeCooldowns[i] = this.dodgeCooldownTime;
-                break;
-            }
-        }
+        this.consumeDodgeCharge();
         
         // Note: Rogue dodge sound is played at the start of this function (overrides base class sound)
     }
@@ -507,14 +501,6 @@ class Rogue extends PlayerBase {
                 });
             });
         }
-        
-        // Update dodge charge cooldowns (Rogue has 3 charges)
-        this.dodgeChargeCooldowns = this.dodgeChargeCooldowns.map(cooldown => {
-            if (cooldown > 0) {
-                return cooldown - deltaTime;
-            }
-            return cooldown;
-        });
         
         // Rogue dodge collision damage (Triangle-specific: deals damage during dodge)
         if (this.isDodging && typeof Game !== 'undefined') {

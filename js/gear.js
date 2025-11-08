@@ -409,6 +409,11 @@ function calculateTierProbabilities(roomNumber, enemyDifficulty = 'basic') {
         weights[tier] = Math.max(0.1, baseWeights[tier] + (scalingFactor * growthRates[tier]));
     }
     
+    // Bosses never drop gray (white) gear - redistribute probability to higher tiers
+    if (difficultyData.name === 'boss') {
+        weights.gray = 0;
+    }
+    
     // Normalize to probabilities (sum to 1.0)
     const totalWeight = Object.values(weights).reduce((sum, w) => sum + w, 0);
     let probabilities = {};

@@ -2097,13 +2097,14 @@ function renderCooldownIndicators(ctx, player) {
         ctx.shadowBlur = 0;
     };
     
+    const hasMultipleDodgeCharges = (player.maxDodgeCharges || 0) > 1;
+    
     // Dodge cooldown indicator
-    if (player.playerClass === 'triangle') {
-        // Show all charges for Triangle
-        const charges = player.dodgeChargeCooldowns.length;
+    if (hasMultipleDodgeCharges) {
+        const charges = player.maxDodgeCharges;
         for (let i = 0; i < charges; i++) {
             const barX = startX + i * 45;
-            const cooldown = player.dodgeChargeCooldowns[i];
+            const cooldown = player.dodgeChargeCooldowns[i] || 0;
             const maxCooldown = player.dodgeCooldownTime;
             renderCooldownBar(barX, barY, 40, barHeight, cooldown, maxCooldown, 'D');
         }
@@ -2115,7 +2116,7 @@ function renderCooldownIndicators(ctx, player) {
     }
     
     // Special ability cooldown indicator
-    const specialBarX = player.playerClass === 'triangle' ? startX + 150 : startX + spacing;
+    const specialBarX = hasMultipleDodgeCharges ? startX + 150 : startX + spacing;
     const specialCooldown = player.specialCooldown;
     const specialMaxCooldown = player.specialCooldownTime;
     const abilityName = player.playerClass === 'triangle' ? 'Clones' :
@@ -2124,7 +2125,7 @@ function renderCooldownIndicators(ctx, player) {
     renderCooldownBar(specialBarX, barY, barWidth, barHeight, specialCooldown, specialMaxCooldown, abilityName);
     
     // Heavy attack cooldown indicator
-    const heavyBarX = player.playerClass === 'triangle' ? startX + spacing * 2.5 : startX + spacing * 2;
+    const heavyBarX = hasMultipleDodgeCharges ? startX + spacing * 2.5 : startX + spacing * 2;
     
     // Mage (hexagon) uses charge-based heavy attack
     if (player.playerClass === 'hexagon' && player.maxBeamCharges > 1) {
@@ -3862,10 +3863,18 @@ function renderTouchControls(ctx) {
         
         // Dodge button (hide for triangle, show for others)
         if (Input.touchButtons.dodge && playerClass !== 'triangle') {
-            let dodgeCooldown = 0;
-            let dodgeMaxCooldown = player.dodgeCooldownTime || 2.0;
-            dodgeCooldown = player.dodgeCooldown || 0;
-            Input.touchButtons.dodge.render(ctx, dodgeCooldown, dodgeMaxCooldown);
+            const dodgeMaxCooldown = player.dodgeCooldownTime || 2.0;
+            const hasMultipleDodgeCharges = (player.maxDodgeCharges || 0) > 1;
+            
+            if (hasMultipleDodgeCharges && player.dodgeChargeCooldowns) {
+                const chargeCooldowns = player.dodgeChargeCooldowns;
+                const longestCooldown = chargeCooldowns.length ? Math.max(...chargeCooldowns) : 0;
+                const readyCharges = chargeCooldowns.filter(c => c <= 0).length;
+                Input.touchButtons.dodge.render(ctx, longestCooldown, dodgeMaxCooldown, readyCharges);
+            } else {
+                const dodgeCooldown = player.dodgeCooldown || 0;
+                Input.touchButtons.dodge.render(ctx, dodgeCooldown, dodgeMaxCooldown);
+            }
         }
         
         // Character sheet button (always show in top-right)
