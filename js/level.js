@@ -56,7 +56,7 @@ function getMultiplayerScaling() {
             return {
                 enemyCount: 1.5,    // +50% enemies
                 enemyHP: 1.35,      // +35% HP
-                enemyDamage: 1.08,  // +8% damage
+                enemyDamage: 1.04,  // +4% damage
                 bossHP: 1.40,       // +40% boss HP
                 bossDamage: 1.10    // +10% boss damage
             };
@@ -64,8 +64,8 @@ function getMultiplayerScaling() {
         case 3:
             return {
                 enemyCount: 2.0,    // +100% enemies (2x)
-                enemyHP: 1.70,      // +70% HP
-                enemyDamage: 1.12,  // +12% damage
+                enemyHP: 1.40,      // +40% HP
+                enemyDamage: 1.04,  // +4% damage
                 bossHP: 1.80,       // +80% boss HP
                 bossDamage: 1.15    // +15% boss damage
             };
@@ -73,8 +73,8 @@ function getMultiplayerScaling() {
         case 4:
             return {
                 enemyCount: 2.5,    // +150% enemies (2.5x)
-                enemyHP: 2.0,       // +100% HP (2x)
-                enemyDamage: 1.15,  // +15% damage
+                enemyHP: 1.5,       // +50% HP
+                enemyDamage: 1.04,  // +4% damage
                 bossHP: 2.20,       // +120% boss HP
                 bossDamage: 1.18    // +18% boss damage
             };
@@ -90,6 +90,14 @@ function getMultiplayerScaling() {
             };
     }
 }
+
+// Enemy stat growth per room (compounded)
+const ENEMY_HP_GROWTH_PER_ROOM = 0.11;       // 11% per room
+const ENEMY_DAMAGE_GROWTH_PER_ROOM = 0.13;   // 13% per room (slightly outpaces player HP growth)
+
+// Boss stat growth per boss room (compounded)
+const BOSS_HP_GROWTH_PER_ROOM = 0.12;        // 12% per room
+const BOSS_DAMAGE_GROWTH_PER_ROOM = 0.14;    // 14% per room
 
 // Generate room with enemies
 function generateRoom(roomNumber) {
@@ -112,31 +120,24 @@ function generateRoom(roomNumber) {
     const CAPPED_ROOM_ENEMY_COUNT = 30; // 8 + (18 * 1.2) = ~30 base (75 in 4p)
     
     let baseEnemyCount;
-    let enemyScale;
     
     if (roomNumber <= ENEMY_COUNT_CAP_ROOM) {
         // Phase 1: Normal scaling (Rooms 1-18)
         baseEnemyCount = 8 + Math.floor(roomNumber * 1.2);
-        enemyScale = 1 + (roomNumber * 0.35);
     } else {
-        // Phase 2: Capped count, aggressive stat scaling (Rooms 19+)
+        // Phase 2: Capped count to avoid overcrowding
         baseEnemyCount = CAPPED_ROOM_ENEMY_COUNT;
-        
-        // Extra rooms beyond cap
-        const extraRooms = roomNumber - ENEMY_COUNT_CAP_ROOM;
-        
-        // Base scaling from cap point + aggressive scaling for extra rooms
-        const baseScale = 1 + (ENEMY_COUNT_CAP_ROOM * 0.35); // 7.3 at room 18
-        const aggressiveScale = extraRooms * 0.50; // +50% per room instead of +35%
-        
-        enemyScale = baseScale + aggressiveScale;
     }
+    
+    const roomIndex = Math.max(0, roomNumber - 1);
+    const enemyHpScale = Math.pow(1 + ENEMY_HP_GROWTH_PER_ROOM, roomIndex);
+    const enemyDamageScale = Math.pow(1 + ENEMY_DAMAGE_GROWTH_PER_ROOM, roomIndex);
     
     const enemyCount = Math.floor(baseEnemyCount * mpScaling.enemyCount);
     
     // Debug logging
     if (mpScaling.enemyCount > 1.0 || roomNumber > ENEMY_COUNT_CAP_ROOM) {
-        console.log(`[Room ${roomNumber}] Count: ${baseEnemyCount} → ${enemyCount} enemies (${mpScaling.enemyCount}x), Stat Scale: ${enemyScale.toFixed(2)}x, HP: ${mpScaling.enemyHP}x, Damage: ${mpScaling.enemyDamage}x`);
+        console.log(`[Room ${roomNumber}] Count: ${baseEnemyCount} → ${enemyCount} enemies (${mpScaling.enemyCount}x), HP Scale: ${enemyHpScale.toFixed(2)}x, Damage Scale: ${enemyDamageScale.toFixed(2)}x, MP HP: ${mpScaling.enemyHP}x, MP Damage: ${mpScaling.enemyDamage}x`);
     }
     
     // Spawn enemies with buffer from player spawn area
@@ -280,10 +281,10 @@ function generateRoom(roomNumber) {
         }
         
         // Scale enemy stats (room progression + multiplayer scaling)
-        enemy.maxHp = Math.floor(enemy.maxHp * enemyScale * mpScaling.enemyHP);
+        enemy.maxHp = Math.floor(enemy.maxHp * enemyHpScale * mpScaling.enemyHP);
         enemy.hp = enemy.maxHp;
-        enemy.damage = enemy.damage * enemyScale * mpScaling.enemyDamage;
-        enemy.xpValue = Math.floor(enemy.xpValue * enemyScale);
+        enemy.damage = enemy.damage * enemyDamageScale * mpScaling.enemyDamage;
+        enemy.xpValue = Math.floor(enemy.xpValue * enemyHpScale);
         
             // Set initial state to standby (will activate when player gets close)
             enemy.state = 'standby';
@@ -373,15 +374,17 @@ function generateBoss(roomNumber) {
     // Apply room scaling and multiplayer scaling to boss stats
     // Increased scaling to match faster progression
     if (boss) {
-        const enemyScale = 1 + (roomNumber * 0.33);
-        const baseHP = boss.maxHp * enemyScale;
+        const roomIndex = Math.max(0, roomNumber - 1);
+        const bossHpScale = Math.pow(1 + BOSS_HP_GROWTH_PER_ROOM, roomIndex);
+        const bossDamageScale = Math.pow(1 + BOSS_DAMAGE_GROWTH_PER_ROOM, roomIndex);
+        const baseHP = boss.maxHp * bossHpScale;
         boss.maxHp = Math.floor(baseHP * mpScaling.bossHP);
         boss.hp = boss.maxHp;
-        boss.damage = boss.damage * enemyScale * mpScaling.bossDamage;
+        boss.damage = boss.damage * bossDamageScale * mpScaling.bossDamage;
         
         // Debug logging for boss scaling
         if (mpScaling.bossHP > 1.0) {
-            console.log(`[Multiplayer] Boss ${boss.bossName || 'Unknown'} room ${roomNumber} scaling: HP: ${Math.floor(baseHP)} → ${boss.maxHp} (${mpScaling.bossHP}x), Damage: ${mpScaling.bossDamage}x`);
+            console.log(`[Multiplayer] Boss ${boss.bossName || 'Unknown'} room ${roomNumber} scaling: HP: ${Math.floor(baseHP)} → ${boss.maxHp} (${mpScaling.bossHP}x), Damage Scale: ${bossDamageScale.toFixed(2)}x, MP Damage: ${mpScaling.bossDamage}x`);
         }
     }
     

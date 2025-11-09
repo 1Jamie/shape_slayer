@@ -345,6 +345,14 @@ function checkEnemiesVsPlayer(player, enemies) {
         return;
     }
     
+    // Initialize damage cooldown tracking if not exists
+    if (!checkEnemiesVsPlayer.damageCooldowns) {
+        checkEnemiesVsPlayer.damageCooldowns = new Map();
+    }
+    
+    const currentTime = Date.now();
+    const damageCooldownMs = 350; // Brief debounce window between contact hits
+    
     const playersToCheck = [];
     
     // Add local player if alive and not invulnerable
@@ -379,6 +387,13 @@ function checkEnemiesVsPlayer(player, enemies) {
         playersToCheck.forEach(({ id, player: p, isPlayerInstance }) => {
             if (checkCircleCollision(enemy.x, enemy.y, enemy.size, 
                                      p.x, p.y, p.size || 20)) {
+                const cooldownKey = `${enemy.id}-${id}`;
+                const lastDamageTime = checkEnemiesVsPlayer.damageCooldowns.get(cooldownKey) || 0;
+                
+                if (currentTime - lastDamageTime < damageCooldownMs) {
+                    return;
+                }
+                
                 // Get local player ID for comparison
                 const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local';
                 
@@ -393,9 +408,19 @@ function checkEnemiesVsPlayer(player, enemies) {
                         Game.damageRemotePlayer(id, enemy.damage);
                     }
                 }
+                
+                checkEnemiesVsPlayer.damageCooldowns.set(cooldownKey, currentTime);
             }
         });
     });
+    
+    // Clean up old cooldown entries
+    const cleanupThreshold = currentTime - 2000;
+    for (const [key, time] of checkEnemiesVsPlayer.damageCooldowns.entries()) {
+        if (time < cleanupThreshold) {
+            checkEnemiesVsPlayer.damageCooldowns.delete(key);
+        }
+    }
 }
 
 // Check enemies vs clones/decoys (shadow clones and blink decoys)
