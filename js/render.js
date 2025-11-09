@@ -86,6 +86,59 @@ function createParticleBurst(x, y, color, count = 10) {
     }
 }
 
+function createDirectionalParticleBurst(x, y, dirX, dirY, color, options = {}) {
+    if (typeof Game === 'undefined') return;
+    if (!Game.particles) Game.particles = [];
+    
+    const count = options.count || 12;
+    const spread = options.spread !== undefined ? options.spread : Math.PI / 5;
+    const baseSpeed = options.speed || 220;
+    const baseSize = options.size || 3;
+    const life = options.life || 0.4;
+    
+    const magnitude = Math.sqrt((dirX || 0) * (dirX || 0) + (dirY || 0) * (dirY || 0));
+    const normX = magnitude > 0.0001 ? dirX / magnitude : 1;
+    const normY = magnitude > 0.0001 ? dirY / magnitude : 0;
+    const baseAngle = Math.atan2(normY, normX);
+    
+    const safeColor = color || '#ffffff';
+    
+    for (let i = 0; i < count; i++) {
+        const offset = (Math.random() - 0.5) * spread * 2;
+        const speedScale = 0.6 + Math.random() * 0.6;
+        const angle = baseAngle + offset;
+        const speed = baseSpeed * speedScale;
+        const vx = Math.cos(angle) * speed;
+        const vy = Math.sin(angle) * speed;
+        
+        let particle = getParticle();
+        const particleSize = baseSize + Math.random() * (options.sizeVariance || 2);
+        const particleLife = life * (0.8 + Math.random() * 0.4);
+        
+        if (!particle) {
+            particle = new Particle(x, y, vx, vy, safeColor, particleSize, particleLife);
+        } else {
+            particle.x = x;
+            particle.y = y;
+            particle.vx = vx;
+            particle.vy = vy;
+            particle.color = safeColor;
+            particle.size = particleSize;
+            particle.life = particleLife;
+            particle.maxLife = particleLife;
+            particle.alpha = 1.0;
+        }
+        
+        // Slight perpendicular drift for ribbon effect
+        const perpX = -normY;
+        const perpY = normX;
+        particle.vx += perpX * baseSpeed * 0.15 * (Math.random() - 0.5);
+        particle.vy += perpY * baseSpeed * 0.15 * (Math.random() - 0.5);
+        
+        Game.particles.push(particle);
+    }
+}
+
 // Create lightning arc visual effect between two points
 function createLightningArc(x1, y1, x2, y2) {
     if (typeof Game === 'undefined') return;

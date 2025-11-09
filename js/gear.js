@@ -503,26 +503,29 @@ function generateGear(x, y, roomNumberOrTier = 1, enemyDifficulty = 'basic') {
     // Generate affixes based on tier and slot
     const affixes = generateAffixes(tier, slot);
     
-    // Generate class modifier for purple/orange tiers
+    // Generate class modifiers and/or legendary effects
     let classModifier = null;
-    if (tier === 'purple' && Math.random() < 0.3) {
-        classModifier = selectClassModifier();
-    } else if (tier === 'orange' && Math.random() < 0.75) {
-        classModifier = selectClassModifier();
-    }
-    
-    // LEGENDARY SLOT: Orange tier ALWAYS gets exactly 1 legendary effect (4th tier in affix system)
-    // This is in addition to the basic/advanced/rare affixes rolled above
     let legendaryEffect = null;
-    if (tier === 'orange') {
-        const effects = Object.keys(LEGENDARY_EFFECTS);
-        const effectKey = effects[Math.floor(Math.random() * effects.length)];
-        const effectData = LEGENDARY_EFFECTS[effectKey];
-        legendaryEffect = {
-            type: effectKey,
-            ...effectData
-        };
-        console.log(`[LEGENDARY] Orange gear rolled legendary effect: ${effectKey}`);
+    
+    if (tier === 'purple') {
+        if (Math.random() < 0.3) {
+            classModifier = selectClassModifier();
+        }
+    } else if (tier === 'orange') {
+        // Orange gear can roll either a class modifier or a legendary effect, never both
+        const roll = Math.random();
+        if (roll < 0.75) {
+            classModifier = selectClassModifier();
+        } else {
+            const effects = Object.keys(LEGENDARY_EFFECTS);
+            const effectKey = effects[Math.floor(Math.random() * effects.length)];
+            const effectData = LEGENDARY_EFFECTS[effectKey];
+            legendaryEffect = {
+                type: effectKey,
+                ...effectData
+            };
+            console.log(`[LEGENDARY] Orange gear rolled legendary effect: ${effectKey}`);
+        }
     }
     
     // Generate name
@@ -636,6 +639,15 @@ function renderGroundLoot(ctx) {
             ctx.fillStyle = `rgba(255, 170, 0, ${0.3 * legendaryPulse})`;
             ctx.beginPath();
             ctx.arc(gear.x, gear.y, gear.size + pulseSize + 15, 0, Math.PI * 2);
+            ctx.fill();
+        } else if (gear.tier === 'orange' && gear.classModifier) {
+            ctx.shadowBlur = 22;
+            ctx.shadowColor = '#55ccff';
+            
+            const modifierPulse = Math.sin(gear.pulse * 0.45) * 0.5 + 0.5;
+            ctx.fillStyle = `rgba(85, 204, 255, ${0.22 * modifierPulse})`;
+            ctx.beginPath();
+            ctx.arc(gear.x, gear.y, gear.size + pulseSize + 12, 0, Math.PI * 2);
             ctx.fill();
         }
         

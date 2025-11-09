@@ -89,6 +89,7 @@ class Warrior extends PlayerBase {
         this.critChance = WARRIOR_CONFIG.critChance || 0;
         this.color = classDef.color;
         this.shape = classDef.shape;
+        this.syncBaseStatAnchors();
         
         // Standard single charge dodge for Warrior
         this.baseDodgeCharges = 1; // Store base value for updateEffectiveStats

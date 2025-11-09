@@ -88,6 +88,7 @@ class Mage extends PlayerBase {
         this.critChance = MAGE_CONFIG.critChance || 0;
         this.color = classDef.color;
         this.shape = classDef.shape;
+        this.syncBaseStatAnchors();
         
         // Standard single dodge for Mage
         this.baseDodgeCharges = 1; // Store base value for updateEffectiveStats

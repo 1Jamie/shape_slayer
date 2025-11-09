@@ -94,6 +94,7 @@ class Rogue extends PlayerBase {
         this.critChance = ROGUE_CONFIG.critChance;
         this.color = classDef.color;
         this.shape = classDef.shape;
+        this.syncBaseStatAnchors();
         
         // Dodge system from CONFIG (single source of truth)
         this.baseDodgeCharges = ROGUE_CONFIG.dodgeCharges; // Store base value for updateEffectiveStats
@@ -438,6 +439,8 @@ class Rogue extends PlayerBase {
         // Store dodge velocity
         this.dodgeVx = dodgeDirX;
         this.dodgeVy = dodgeDirY;
+        
+        this.beginDashAnimation(dodgeDirX, dodgeDirY, { seedTrail: true });
         
         // Update rotation to face dodge direction
         this.rotation = Math.atan2(dodgeDirY, dodgeDirX);

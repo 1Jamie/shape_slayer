@@ -1440,6 +1440,10 @@ const Game = {
                     playerInstance.baseDamage = config.baseDamage + upgradeBonuses.damage;
                     playerInstance.baseMoveSpeed = config.baseSpeed + upgradeBonuses.speed;
                     playerInstance.baseDefense = config.baseDefense + upgradeBonuses.defense;
+                    playerInstance.baseMaxHp = config.baseHp;
+                    if (typeof playerInstance.syncBaseStatAnchors === 'function') {
+                        playerInstance.syncBaseStatAnchors();
+                    }
                     
                     // Recalculate effective stats
                     playerInstance.updateEffectiveStats();
@@ -3029,6 +3033,11 @@ const Game = {
             // Draw enemy direction arrows (when 5 or fewer enemies remain and off-screen)
             if (typeof renderEnemyDirectionArrows !== 'undefined') {
                 renderEnemyDirectionArrows(this.ctx, this.player);
+            }
+            
+            // Draw door direction arrow when exit is open
+            if (typeof renderDoorDirectionArrow !== 'undefined') {
+                renderDoorDirectionArrow(this.ctx, this.player);
             }
             
             // Draw UI (on top of everything, screen-relative coordinates)

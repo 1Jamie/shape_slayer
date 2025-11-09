@@ -2,7 +2,7 @@
 // Update this file when releasing new versions
 
 const GameVersion = {
-    VERSION: '0.5.1',
+    VERSION: '0.5.2',
     
     UPDATE_MESSAGES: {
         '0.2.1': 'Initial early access release! Please report any bugs you find at https://github.com/1jamie/shape_slayer/issues',
@@ -277,6 +277,54 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 *P.S. - If you're reading this in-game, you survived the nerf-ening. Congrats! Now go touch those pointy green shapes in your yard known as grass. I know I should.*
 
 *P.P.S. - This patch happened in way too few hours because I don't sleep. Send coffee. Or therapy. Preferably both.*
+`,
+        '0.5.2': `**🩹 HOTFIX: DAMAGE CONTROL (LITERALLY) QOL** (11/09/2025)
+*"Remember how you hit for 5,500 damage in Room 23? Yeah, that wasn't 'build craft'. That was a math crime."*
+
+**🎯 Player Damage Rehab**
+• Legendary effects (hi Glass Cannon 👋) now boost damage WITHOUT secretly rewriting your DNA every time stats recalc.
+  *"One-time buff, not a pyramid scheme."*
+• Level-up scaling stops compounding like a crypto chart. Damage still grows, just not into the stratosphere.
+
+**🔁 Stat Anchor Therapy**
+• Every class now locks in its true base stats before math happens. No more gear swaps turning you into a demigod.
+• Multiplayer host syncs the same anchors, so remote players don't accidentally cos-play as raid bosses.
+
+**🤝 Glass Cannon Detente**
+• Still juicy: +45% damage.
+• Still spicy: -40% HP.
+• No longer quietly multiplying itself into oblivion every time you blink.
+
+**🛡️ Tank Personal Space Clause**
+• Remember last patch when we rebuilt the tank from the ground up? Apparently enemies took that as an invitation to get personal with you. 
+• Melee creeps now get punted back to a respectful distance instead of fusing with your hitbox like an overzealous group hug.
+  *"Consent matters. Even in geometry."*
+
+**🚪 Exit Strategy Intervention**
+• Door now screams for attention with the same neon arrow that snitches on the last enemy.
+• HUD swaps "Enemies" for "Door is open!" so solo players stop wandering like lost puppies.
+• Multiplayer still nags you when your buddy’s on the panel. We just made the door say hi first.
+
+**🎭 Legendary Identity Crisis Hotline**
+• Legendary gear now has to pick a personality: either roll a class modifier OR a legendary affix. No more "have your cake, eat theirs, and delete the baker" builds.
+  *"If you're orange and special, pick a lane."*
+
+**💅 Legendary Dress Code**
+• Orange items sporting class modifiers get a fresh teal glow so you can humblebrag about your build without squinting.
+  *"When your drip screams 'I'm unique' but, like, responsibly."*
+
+**🏃 Dash Physio Session**
+• Dashing now stretches your shape like an overcaffeinated rubber band instead of the boring gray shadow that was there before.
+  *"Snap, snap, hooray."*
+
+**📈 Expected Result**
+• Room 23 damage numbers now look like "strong wizard" instead of "orbital laser".
+• TTK curve from 0.5.1 stays intact—just without players melting the universe.
+• Can always easily find the door now.
+• Legendary gear now stays in its own lane and does have a double identity crisis.
+• Dashes feel elastic and dramatic without needing a goth teen sponsorship from hot topic.
+
+*TL;DR:* Damage numbers are back on a leash. You can still break the game—just not by accident. You're welcome.*
 `
     },
     
@@ -289,7 +337,8 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
         '0.3.1': ['minor', 'bugfix'],
         '0.4.1': ['hotfix'],
         '0.5.0': ['major', 'feature'],
-        '0.5.1': ['major', 'rebalance']
+        '0.5.1': ['major', 'rebalance'],
+        '0.5.2': ['minor', 'hotfix']
     }
 };
 

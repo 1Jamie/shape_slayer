@@ -242,6 +242,12 @@ class MultiplayerManager {
         if (typeof playerInstance.baseMoveSpeed !== 'undefined') {
             playerInstance.baseMoveSpeed = config.baseSpeed + speedBonus;
         }
+        if (typeof playerInstance.baseMaxHp !== 'undefined') {
+            playerInstance.baseMaxHp = config.baseHp;
+        }
+        if (typeof playerInstance.syncBaseStatAnchors === 'function') {
+            playerInstance.syncBaseStatAnchors();
+        }
         
         if (typeof playerInstance.updateEffectiveStats === 'function') {
             playerInstance.updateEffectiveStats();

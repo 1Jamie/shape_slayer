@@ -8,6 +8,59 @@ function checkCircleCollision(x1, y1, r1, x2, y2, r2) {
     return distance < r1 + r2;
 }
 
+// Resolve positional overlap between an enemy and a player by pushing the enemy out
+function resolveEnemyPlayerOverlap(enemy, player) {
+    if (!enemy || !player) return;
+
+    const playerRadius = player.collisionRadius || player.size || 20;
+    const enemyRadius = enemy.collisionRadius || enemy.size || 20;
+    const minimumSeparation = playerRadius + enemyRadius;
+
+    let dx = enemy.x - player.x;
+    let dy = enemy.y - player.y;
+    let distanceSq = dx * dx + dy * dy;
+
+    if (distanceSq === 0) {
+        const angle = Math.random() * Math.PI * 2;
+        dx = Math.cos(angle);
+        dy = Math.sin(angle);
+        distanceSq = 1;
+    }
+
+    const distance = Math.sqrt(distanceSq);
+    if (distance >= minimumSeparation) {
+        return;
+    }
+
+    const overlap = minimumSeparation - distance;
+    const normalX = dx / distance;
+    const normalY = dy / distance;
+    const pushDistance = overlap + 0.5; // Small buffer to avoid immediate re-overlap
+
+    enemy.x += normalX * pushDistance;
+    enemy.y += normalY * pushDistance;
+
+    if (typeof enemy.keepInBounds === 'function') {
+        enemy.keepInBounds();
+    }
+
+    if (enemy.vx !== undefined && enemy.vy !== undefined) {
+        const relativeSpeed = enemy.vx * normalX + enemy.vy * normalY;
+        if (relativeSpeed < 0) {
+            enemy.vx -= relativeSpeed * normalX;
+            enemy.vy -= relativeSpeed * normalY;
+        }
+    }
+
+    if (enemy.knockbackVx !== undefined && enemy.knockbackVy !== undefined) {
+        const relativeKnockback = enemy.knockbackVx * normalX + enemy.knockbackVy * normalY;
+        if (relativeKnockback < 0) {
+            enemy.knockbackVx -= relativeKnockback * normalX;
+            enemy.knockbackVy -= relativeKnockback * normalY;
+        }
+    }
+}
+
 // Calculate final damage with all modifiers
 function calculateDamage(baseDamage, gearMultiplier = 1, defense = 0, critMultiplier = 1) {
     const mitigatedDamage = baseDamage * gearMultiplier * (1 - defense);
@@ -387,6 +440,8 @@ function checkEnemiesVsPlayer(player, enemies) {
         playersToCheck.forEach(({ id, player: p, isPlayerInstance }) => {
             if (checkCircleCollision(enemy.x, enemy.y, enemy.size, 
                                      p.x, p.y, p.size || 20)) {
+                resolveEnemyPlayerOverlap(enemy, p);
+
                 const cooldownKey = `${enemy.id}-${id}`;
                 const lastDamageTime = checkEnemiesVsPlayer.damageCooldowns.get(cooldownKey) || 0;
                 

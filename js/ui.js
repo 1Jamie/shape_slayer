@@ -889,6 +889,76 @@ function renderEnemyDirectionArrows(ctx, player) {
     });
 }
 
+// Render directional arrow pointing to the exit door when it is open and off-screen
+function renderDoorDirectionArrow(ctx, player) {
+    if (!player) return;
+    
+    if (typeof Game === 'undefined' || Game.state !== 'PLAYING') return;
+    if (typeof currentRoom === 'undefined' || !currentRoom || !currentRoom.doorOpen) return;
+    
+    const inMultiplayer = Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+    
+    let referencePlayer = player;
+    if (inMultiplayer && player.dead && Game.spectateMode) {
+        if (Game.spectatedPlayerId) {
+            if (Game.remotePlayerInstances && Game.remotePlayerInstances.has(Game.spectatedPlayerId)) {
+                referencePlayer = Game.remotePlayerInstances.get(Game.spectatedPlayerId);
+            } else if (Game.remotePlayers && Game.remotePlayers.length > 0) {
+                const spectated = Game.remotePlayers.find(rp => rp.id === Game.spectatedPlayerId);
+                if (spectated) {
+                    referencePlayer = spectated;
+                }
+            }
+        }
+    }
+    
+    if (!referencePlayer || !referencePlayer.alive) return;
+    
+    const camera = Game.camera;
+    if (!camera || !Game.config) return;
+    
+    const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+    const zoom = isMobile ? 1.0 : (Game.baseZoom || 1.1);
+    const canvasWidth = Game.config.width;
+    const canvasHeight = Game.config.height;
+    
+    const doorRect = getDoorPosition();
+    if (!doorRect) return;
+    
+    const doorTarget = {
+        x: doorRect.x + doorRect.width / 2,
+        y: doorRect.y + doorRect.height / 2,
+        size: Math.max(doorRect.width, doorRect.height) / 2
+    };
+    
+    if (isEnemyInViewport(doorTarget, camera, zoom, canvasWidth, canvasHeight)) {
+        return;
+    }
+    
+    const arrowData = calculateEnemyArrowPosition(doorTarget, referencePlayer, camera, zoom, canvasWidth, canvasHeight);
+    if (!arrowData) return;
+    
+    ctx.save();
+    ctx.translate(arrowData.x, arrowData.y);
+    ctx.rotate(arrowData.angle);
+    
+    const arrowSize = 10;
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 2;
+    
+    ctx.beginPath();
+    ctx.moveTo(arrowSize, 0);
+    ctx.lineTo(-arrowSize / 2, -arrowSize);
+    ctx.lineTo(-arrowSize / 2, arrowSize);
+    ctx.closePath();
+    
+    ctx.stroke();
+    ctx.fill();
+    
+    ctx.restore();
+}
+
 // Render gear tooltip when near gear
 function renderGearTooltips(ctx, player) {
     if (!player || !player.alive || typeof groundLoot === 'undefined') return;
@@ -1838,6 +1908,8 @@ function renderRoomNumber(ctx) {
     const inMultiplayer = typeof Game !== 'undefined' && Game.multiplayerEnabled;
     let enemyCount = 0;
     let roomCleared = false;
+    const doorOpen = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.doorOpen : false;
+    const playersOnDoorCount = (typeof Game !== 'undefined' && Array.isArray(Game.playersOnDoor)) ? Game.playersOnDoor.length : 0;
     
     if (inMultiplayer && typeof Game !== 'undefined' && Game.enemies) {
         // Multiplayer: Use Game.enemies array (synced from host)
@@ -1849,12 +1921,21 @@ function renderRoomNumber(ctx) {
         roomCleared = currentRoom.cleared;
     }
     
+    const shouldShowDoorOpenMessage = doorOpen && (!inMultiplayer || playersOnDoorCount === 0);
+    
     if (!roomCleared && enemyCount > 0) {
         ctx.font = `bold ${enemyFontSize}px Arial`;
         ctx.fillStyle = '#ffaaaa';
         ctx.shadowBlur = 2;
         ctx.shadowColor = '#000000';
         ctx.fillText(`Enemies: ${enemyCount}`, centerX, panelY + Math.floor(65 * mobileScale));
+        ctx.shadowBlur = 0;
+    } else if (shouldShowDoorOpenMessage) {
+        ctx.font = `bold ${enemyFontSize}px Arial`;
+        ctx.fillStyle = '#aaffaa';
+        ctx.shadowBlur = 2;
+        ctx.shadowColor = '#000000';
+        ctx.fillText('Door is open!', centerX, panelY + Math.floor(65 * mobileScale));
         ctx.shadowBlur = 0;
     }
     

@@ -99,6 +99,7 @@ class Tank extends PlayerBase {
         this.critChance = TANK_CONFIG.critChance || 0;
         this.color = classDef.color;
         this.shape = classDef.shape;
+        this.syncBaseStatAnchors();
         
         // Standard single dodge for Tank
         this.baseDodgeCharges = 1; // Store base value for updateEffectiveStats

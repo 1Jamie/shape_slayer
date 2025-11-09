@@ -73,6 +73,30 @@ class PlayerBase {
         this.maxDodgeCharges = 1;
         this.dodgeChargeCooldowns = [0]; // Track cooldown per charge
         
+        // Dash visual animation state
+        this.dashAnimActive = false;
+        this.dashAnimTimer = 0;
+        this.dashAnimDuration = this.dodgeDuration + 0.18;
+        this.dashAnimDirX = 1;
+        this.dashAnimDirY = 0;
+        this.dashAnimHeadingX = 1;
+        this.dashAnimHeadingY = 0;
+        this.dashAnimRelaxTime = 0.18;
+        this.dashAnimPath = [];
+        this.dashAnimPathMaxPoints = 14;
+        this.dashAnimLastPos = { x: this.x, y: this.y };
+        this.dashTrail = [];
+        this.dashTrailLifetime = 0.25;
+        this.dashAnimCurveAmount = 0;
+        this.dashAnimStretch = 1;
+        this.dashAnimSqueeze = 1;
+        this.dashAnimBurstPending = false;
+        this.dashAnimPrevHeadingX = 1;
+        this.dashAnimPrevHeadingY = 0;
+        this._dashAnimAdvancedFrame = -1;
+        this.dashAnimTravelPhase = 0;
+        this.dashAnimRelaxPhase = 0;
+        
         // Rare affix state tracking
         this.rampageStacks = 0;
         this.rampageStackDecay = 0; // Time until stack decay
@@ -107,6 +131,9 @@ class PlayerBase {
         this.baseDefense = 0;
         this.baseMoveSpeed = 200;
         this.initialBaseMoveSpeed = 200; // Store original for level scaling calculations
+        this.baseDamageBase = this.baseDamage;
+        this.baseMaxHpBase = this.baseMaxHp;
+        this.baseDefenseBase = this.baseDefense;
         
         // Special abilities
         this.specialCooldown = 0;
@@ -145,6 +172,9 @@ class PlayerBase {
         this.bonusMaxHealth = 0;             // Flat HP increase from gear
         
         // Initialize effective stats
+        this.damageMultiplier = 1.0;
+        this.defenseMultiplier = 1.0;
+        this.healthMultiplier = 1.0;
         this.updateEffectiveStats();
     }
     
@@ -356,6 +386,11 @@ class PlayerBase {
                 this.fortifyShieldDecay = 0.1; // Decay check every 0.1s
             }
         }
+        
+        if (this.dashAnimActive) {
+            this.sampleDashAnimation(this.x, this.y);
+        }
+        this.advanceDashAnimation(deltaTime, 'update');
     }
     
     // Check if player is in special movement state (override by subclass)
@@ -646,6 +681,8 @@ class PlayerBase {
         this.dodgeVx = dodgeDirX;
         this.dodgeVy = dodgeDirY;
         
+        this.beginDashAnimation(dodgeDirX, dodgeDirY, { seedTrail: true });
+        
         // Update rotation to face dodge direction
         if (dodgeDirX !== 0 || dodgeDirY !== 0) {
             this.rotation = Math.atan2(dodgeDirY, dodgeDirX);
@@ -664,6 +701,223 @@ class PlayerBase {
         }
         
         this.consumeDodgeCharge();
+    }
+    
+    beginDashAnimation(dirX, dirY, options = {}) {
+        let normX = this.dashAnimHeadingX;
+        let normY = this.dashAnimHeadingY;
+        const magnitude = Math.sqrt(dirX * dirX + dirY * dirY);
+        if (magnitude > 0.0001) {
+            normX = dirX / magnitude;
+            normY = dirY / magnitude;
+        } else if (this.dashAnimDirX && this.dashAnimDirY) {
+            normX = this.dashAnimDirX;
+            normY = this.dashAnimDirY;
+        } else {
+            normX = Math.cos(this.rotation || 0);
+            normY = Math.sin(this.rotation || 0);
+        }
+        
+        this.dashAnimDirX = normX;
+        this.dashAnimDirY = normY;
+        this.dashAnimHeadingX = normX;
+        this.dashAnimHeadingY = normY;
+        this.dashAnimPrevHeadingX = normX;
+        this.dashAnimPrevHeadingY = normY;
+        this.dashAnimActive = true;
+        this.dashAnimTimer = options.timer !== undefined ? options.timer : 0;
+        this.dashAnimStretch = 1;
+        this.dashAnimSqueeze = 1;
+        this.dashAnimCurveAmount = 0;
+        this.dashAnimPath = [];
+        this.dashAnimLastPos = { x: this.x, y: this.y };
+        this.dashTrail = [];
+        this.dashAnimBurstPending = true;
+        this._dashAnimAdvancedFrame = -1;
+        this.dashAnimTravelPhase = 0;
+        this.dashAnimRelaxPhase = 0;
+        
+        if (options.seedTrail) {
+            this.sampleDashAnimation(this.x, this.y, true);
+        }
+    }
+    
+    endDashAnimation({ clearTrail = false } = {}) {
+        if (!this.dashAnimActive) return;
+        this.dashAnimActive = false;
+        this.dashAnimTimer = 0;
+        this.dashAnimStretch = 1;
+        this.dashAnimSqueeze = 1;
+        this.dashAnimCurveAmount = 0;
+        this.dashAnimBurstPending = false;
+        this.dashAnimLastPos = { x: this.x, y: this.y };
+        this.dashAnimPrevHeadingX = this.dashAnimHeadingX;
+        this.dashAnimPrevHeadingY = this.dashAnimHeadingY;
+        this.dashAnimTravelPhase = 0;
+        this.dashAnimRelaxPhase = 0;
+        if (clearTrail) {
+            this.dashTrail = [];
+        }
+    }
+    
+    advanceDashAnimation(deltaTime, source = 'update') {
+        if (!deltaTime || deltaTime <= 0) {
+            return;
+        }
+        
+        const hasFrameCounter = typeof Game !== 'undefined' && Game && typeof Game.frameCount === 'number';
+        let shouldProcess = true;
+        if (hasFrameCounter) {
+            if (this._dashAnimAdvancedFrame === Game.frameCount && source === 'interpolate') {
+                shouldProcess = false;
+            } else {
+                this._dashAnimAdvancedFrame = Game.frameCount;
+            }
+        }
+        
+        if (!shouldProcess) {
+            return;
+        }
+        
+        const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+        const easeOutBack = (t) => {
+            const c1 = 1.70158;
+            const c3 = c1 + 1;
+            const x = t - 1;
+            return 1 + c3 * x * x * x + c1 * x * x;
+        };
+        
+        if (this.dashAnimActive) {
+            const safeDuration = Math.max(this.dodgeDuration, 0.0001);
+            this.dashAnimTimer += deltaTime;
+            const travelPhase = Math.min(this.dashAnimTimer / safeDuration, 1);
+            this.dashAnimTravelPhase = travelPhase;
+            const travelStretch = 1 + 0.35 * easeOutCubic(travelPhase);
+            let stretch = travelStretch;
+            let squeeze = Math.max(0.55, 1 - (travelStretch - 1) * 0.6);
+            
+            if (!this.isDodging) {
+                const relaxDuration = Math.max(this.dashAnimRelaxTime, 0.0001);
+                const relaxRaw = Math.max(this.dashAnimTimer - this.dodgeDuration, 0) / relaxDuration;
+                const relaxPhase = Math.min(relaxRaw, 1);
+                this.dashAnimRelaxPhase = relaxPhase;
+                const snapEase = easeOutBack(relaxPhase);
+                const overshoot = 0.2;
+                stretch = 1 + (travelStretch - 1 + overshoot) * (1 - snapEase);
+                squeeze = Math.max(0.6, 1 - (stretch - 1) * 0.7);
+                
+                if (relaxPhase >= 1) {
+                    this.endDashAnimation();
+                }
+            } else {
+                this.dashAnimRelaxPhase = 0;
+            }
+            
+            this.dashAnimStretch = stretch;
+            this.dashAnimSqueeze = squeeze;
+        } else {
+            this.dashAnimStretch = 1;
+            this.dashAnimSqueeze = 1;
+            this.dashAnimTravelPhase = 0;
+            this.dashAnimRelaxPhase = 0;
+        }
+        
+        if (this.dashAnimBurstPending && !this.isDodging) {
+            this.spawnDashBurst();
+            this.dashAnimBurstPending = false;
+        }
+        
+        this.dashAnimCurveAmount *= Math.pow(0.5, deltaTime * 6);
+        
+        if (this.dashTrail.length > 0) {
+            this.dashTrail = this.dashTrail.filter(point => {
+                point.age += deltaTime;
+                return point.age < this.dashTrailLifetime;
+            });
+        }
+    }
+    
+    sampleDashAnimation(x, y, force = false) {
+        if (!this.dashAnimActive) {
+            return;
+        }
+        
+        if (!this.dashAnimLastPos) {
+            this.dashAnimLastPos = { x, y };
+        }
+        
+        let dx = x - this.dashAnimLastPos.x;
+        let dy = y - this.dashAnimLastPos.y;
+        let distSq = dx * dx + dy * dy;
+        
+        if (!force && distSq < 0.25) {
+            return;
+        }
+        
+        let dirX = this.dashAnimHeadingX;
+        let dirY = this.dashAnimHeadingY;
+        if (distSq >= 0.0001) {
+            const dist = Math.sqrt(distSq);
+            dirX = dx / dist;
+            dirY = dy / dist;
+        }
+        
+        const blend = 0.35;
+        const prevHX = this.dashAnimHeadingX;
+        const prevHY = this.dashAnimHeadingY;
+        let newHX = prevHX * (1 - blend) + dirX * blend;
+        let newHY = prevHY * (1 - blend) + dirY * blend;
+        const newMag = Math.sqrt(newHX * newHX + newHY * newHY);
+        if (newMag > 0.0001) {
+            newHX /= newMag;
+            newHY /= newMag;
+        } else {
+            newHX = dirX;
+            newHY = dirY;
+        }
+        
+        this.dashAnimPrevHeadingX = this.dashAnimHeadingX;
+        this.dashAnimPrevHeadingY = this.dashAnimHeadingY;
+        this.dashAnimHeadingX = newHX;
+        this.dashAnimHeadingY = newHY;
+        
+        const cross = this.dashAnimPrevHeadingX * newHY - this.dashAnimPrevHeadingY * newHX;
+        this.dashAnimCurveAmount = this.dashAnimCurveAmount * 0.7 + cross * 0.3;
+        
+        this.dashAnimLastPos = { x, y };
+        this.dashAnimPath.push({ x, y });
+        if (this.dashAnimPath.length > this.dashAnimPathMaxPoints) {
+            this.dashAnimPath.shift();
+        }
+        
+        const pointStrength = Math.min(Math.sqrt(distSq), this.dodgeSpeedBoost * 0.016);
+        this.dashTrail.push({
+            x,
+            y,
+            dirX: newHX,
+            dirY: newHY,
+            age: 0,
+            strength: pointStrength
+        });
+        if (this.dashTrail.length > this.dashAnimPathMaxPoints) {
+            this.dashTrail.shift();
+        }
+    }
+    
+    spawnDashBurst() {
+        const dirX = this.dashAnimHeadingX;
+        const dirY = this.dashAnimHeadingY;
+        
+        if (typeof createDirectionalParticleBurst === 'function') {
+            createDirectionalParticleBurst(this.x, this.y, dirX, dirY, this.color, {
+                count: 12,
+                spread: Math.PI / 6,
+                speed: 220,
+                size: 4
+            });
+        } else if (typeof createParticleBurst === 'function') {
+            createParticleBurst(this.x, this.y, this.color, 10);
+        }
     }
     
     handleHeavyAttack(input) {
@@ -1020,8 +1274,10 @@ class PlayerBase {
         this.level++;
         
         // Increase base stats (damage 7%, HP 10%)
-        this.baseDamage *= 1.07;
-        this.baseMaxHp *= 1.1;
+        this.baseDamageBase = (this.baseDamageBase || this.baseDamage) * 1.07;
+        this.baseDamage = this.baseDamageBase;
+        this.baseMaxHpBase = (this.baseMaxHpBase || this.baseMaxHp) * 1.1;
+        this.baseMaxHp = this.baseMaxHpBase;
         this.maxHp = this.baseMaxHp;
         
         // Apply class-specific speed scaling with cap
@@ -1117,6 +1373,17 @@ class PlayerBase {
     
     // Calculate effective stats with gear bonuses
     updateEffectiveStats() {
+        // Reset base stats to stored anchors before applying modifiers
+        if (this.baseDamageBase !== undefined) {
+            this.baseDamage = this.baseDamageBase;
+        }
+        if (this.baseMaxHpBase !== undefined) {
+            this.baseMaxHp = this.baseMaxHpBase;
+        }
+        if (this.baseDefenseBase !== undefined) {
+            this.baseDefense = this.baseDefenseBase;
+        }
+        
         // Reset affix-based stats to defaults
         this.critDamageMultiplier = 1.0;
         this.attackSpeedMultiplier = 1.0;
@@ -1141,6 +1408,9 @@ class PlayerBase {
         this.beamTickRateMultiplier = 1.0;
         this.beamDurationMultiplier = 1.0;
         this.bonusBeamPenetration = 0;
+        this.damageMultiplier = 1.0;
+        this.defenseMultiplier = 1.0;
+        this.healthMultiplier = 1.0;
         
         // Reset crit chance to base class value stored during construction
         this.critChance = this.baseCritChance || 0;
@@ -1270,13 +1540,17 @@ class PlayerBase {
         
         // Calculate final stats
         // Damage and defense are now ADDITIVE (flat values from gear)
-        this.damage = this.baseDamage + weaponFlatDamage;
-        this.defense = this.baseDefense + armorFlatDefense;
+        const baseDamageWithMultiplier = this.baseDamage * this.damageMultiplier;
+        const baseDefenseWithMultiplier = this.baseDefense * this.defenseMultiplier;
+        const baseMaxHpWithMultiplier = this.baseMaxHp * this.healthMultiplier;
+        
+        this.damage = baseDamageWithMultiplier + weaponFlatDamage;
+        this.defense = baseDefenseWithMultiplier + armorFlatDefense;
         this.moveSpeed = this.baseMoveSpeed * speedBonus;
         
         // Apply bonus health (clamping current HP if needed)
         const oldMaxHp = this.maxHp;
-        this.maxHp = (this.baseMaxHp || this.maxHp) + this.bonusMaxHealth;
+        this.maxHp = baseMaxHpWithMultiplier + this.bonusMaxHealth;
         if (this.hp > this.maxHp) this.hp = this.maxHp;
         
         // Apply bonus dodge charges (using baseDodgeCharges set by subclass constructor)
@@ -1290,6 +1564,13 @@ class PlayerBase {
             this.dodgeChargeCooldowns.pop();
         }
         this.dodgeCharges = this.usesChargeBasedDodge() ? this.getReadyDodgeCharges() : (this.dodgeCooldown <= 0 ? 1 : 0);
+    }
+
+    // Store current base stats as anchors for future recalculations (used after config changes)
+    syncBaseStatAnchors() {
+        this.baseDamageBase = this.baseDamage;
+        this.baseMaxHpBase = this.baseMaxHp;
+        this.baseDefenseBase = this.baseDefense;
     }
     
     // Apply individual affix to player stats
@@ -1388,7 +1669,7 @@ class PlayerBase {
                     this.dodgeCooldownTime = Math.max(0.1, this.dodgeCooldownTime + modifier.value);
                     break;
                 case 'basic_damage':
-                    this.baseDamage *= (1 + modifier.value);
+                    this.damageMultiplier *= (1 + modifier.value);
                     break;
             }
         }
@@ -1402,12 +1683,12 @@ class PlayerBase {
                 this.lifesteal += effect.lifesteal;
                 break;
             case 'berserker_rage':
-                this.baseDamage *= (1 + effect.damageBonus);
-                this.baseDefense *= Math.max(0, 1 + effect.defensePenalty);
+                this.damageMultiplier *= (1 + effect.damageBonus);
+                this.defenseMultiplier *= Math.max(0, 1 + effect.defensePenalty);
                 break;
             case 'glass_cannon':
-                this.baseDamage *= (1 + effect.damageBonus);
-                this.baseMaxHp *= Math.max(0.1, 1 + effect.healthPenalty);
+                this.damageMultiplier *= (1 + effect.damageBonus);
+                this.healthMultiplier *= Math.max(0.1, 1 + effect.healthPenalty);
                 break;
             case 'phoenix_down':
                 this.hasPhoenixDown = true;
@@ -1506,6 +1787,47 @@ class PlayerBase {
         const b = parseInt(hex.substring(4, 6), 16) || 150;
         
         return { r, g, b };
+    }
+    
+    static getBaseShapeVertices(shape, size) {
+        switch (shape) {
+            case 'triangle':
+                return [
+                    { x: size, y: 0 },
+                    { x: -size * 0.5, y: -size * 0.8660254038 },
+                    { x: -size * 0.5, y: size * 0.8660254038 }
+                ];
+            case 'hexagon': {
+                const vertices = [];
+                for (let i = 0; i < 6; i++) {
+                    const angle = (Math.PI / 3) * i;
+                    vertices.push({
+                        x: Math.cos(angle) * size,
+                        y: Math.sin(angle) * size
+                    });
+                }
+                return vertices;
+            }
+            case 'pentagon': {
+                const rotationOffset = 18 * Math.PI / 180;
+                const vertices = [];
+                for (let i = 0; i < 5; i++) {
+                    const angle = (Math.PI * 2 / 5) * i - Math.PI / 2 + rotationOffset;
+                    vertices.push({
+                        x: Math.cos(angle) * size,
+                        y: Math.sin(angle) * size
+                    });
+                }
+                return vertices;
+            }
+            default:
+                return [
+                    { x: -size * 0.8, y: -size * 0.8 },
+                    { x: size * 0.8, y: -size * 0.8 },
+                    { x: size * 0.8, y: size * 0.8 },
+                    { x: -size * 0.8, y: size * 0.8 }
+                ];
+        }
     }
     
     // Wave pattern generation functions - all designed to loop seamlessly at 2π
@@ -2192,22 +2514,20 @@ class PlayerBase {
             }
         });
         
+        const dashEffectActive = !!this.dashAnimActive;
+        
         ctx.save();
         
-        // Make player semi-transparent during dodge
         if (this.isDodging) {
             ctx.globalAlpha = 0.5;
         }
         
-        // Grow player during heavy charge
         let scale = 1.0;
         if (this.isChargingHeavy) {
             scale = 1.0 + (this.heavyChargeElapsed / this.heavyAttackWindup) * 0.3;
         }
         
-        // Draw gear visuals using interference patterns
-        // Limit animation speed to prevent rapid flashing (max 0.3 cycles per second)
-        const time = Date.now() * 0.0003; // Reduced speed for smooth, safe animations
+        const time = Date.now() * 0.0003;
         
         // Collect all synergy groups from all equipped gear
         const allSynergyGroups = {};
@@ -2422,71 +2742,92 @@ class PlayerBase {
             ctx.shadowBlur = 0;
         }
         
-        // Draw player shape based on class
+        const shape = this.shape || 'square';
+        const baseVertices = PlayerBase.getBaseShapeVertices(shape, this.size);
+        let minForward = Infinity;
+        let maxForward = -Infinity;
+        baseVertices.forEach(v => {
+            if (v.x < minForward) minForward = v.x;
+            if (v.x > maxForward) maxForward = v.x;
+        });
+        if (!isFinite(minForward)) minForward = -this.size;
+        if (!isFinite(maxForward)) maxForward = this.size;
+        const span = Math.max(maxForward - minForward, 0.0001);
+        
+        const travelPhase = dashEffectActive ? (this.dashAnimTravelPhase || 0) : 0;
+        const relaxPhase = dashEffectActive ? (this.dashAnimRelaxPhase || 0) : 0;
+        const tailLockPortion = dashEffectActive ? Math.max(0, Math.min(0.8, 0.45 - travelPhase * 0.35)) : 0;
+        const curveShear = this.dashAnimCurveAmount * 0.6;
+        
+        const transformedVertices = [];
+        let deformedMin = Infinity;
+        let deformedMax = -Infinity;
+        baseVertices.forEach(v => {
+            const normalized = (v.x - minForward) / span;
+            let influence = dashEffectActive ? 0 : 1;
+            if (dashEffectActive) {
+                if (normalized > tailLockPortion) {
+                    influence = (normalized - tailLockPortion) / (1 - tailLockPortion);
+                } else {
+                    influence = 0;
+                }
+                influence = Math.max(0, Math.min(1, influence));
+                if (relaxPhase > 0) {
+                    const frontEase = Math.pow(normalized, 1.4);
+                    influence *= Math.max(0, 1 - frontEase * relaxPhase);
+                }
+            }
+            
+            const stretchMultiplier = dashEffectActive
+                ? 1 + (this.dashAnimStretch - 1) * influence
+                : 1;
+            const squeezeMultiplier = dashEffectActive
+                ? 1 / (1 + 0.8 * (stretchMultiplier - 1))
+                : 1;
+            
+            const distanceFromRear = (v.x - minForward) * stretchMultiplier;
+            let newX = minForward + distanceFromRear;
+            let newY = v.y * squeezeMultiplier;
+            newX += curveShear * newY;
+            
+            if (newX < deformedMin) deformedMin = newX;
+            if (newX > deformedMax) deformedMax = newX;
+            
+            transformedVertices.push({ x: newX, y: newY });
+        });
+        
+        if (!isFinite(deformedMin)) deformedMin = minForward;
+        if (!isFinite(deformedMax)) deformedMax = maxForward;
+        const deformedSpan = Math.max(deformedMax - deformedMin, 0.0001);
+        
+        const renderRotation = dashEffectActive
+            ? Math.atan2(this.dashAnimHeadingY, this.dashAnimHeadingX)
+            : this.rotation;
+        
         ctx.save();
         ctx.translate(this.x, this.y);
-        ctx.rotate(this.rotation);
-        ctx.fillStyle = this.color;
-        
-        const shape = this.shape || 'square';
-        
-        if (shape === 'triangle') {
-            ctx.beginPath();
-            ctx.moveTo(this.size, 0);
-            ctx.lineTo(-this.size * 0.5, -this.size * 0.866);
-            ctx.lineTo(-this.size * 0.5, this.size * 0.866);
-            ctx.closePath();
-            ctx.fill();
-        } else if (shape === 'hexagon') {
-            ctx.beginPath();
-            for (let i = 0; i < 6; i++) {
-                const angle = (Math.PI / 3) * i;
-                const px = Math.cos(angle) * this.size;
-                const py = Math.sin(angle) * this.size;
-                if (i === 0) ctx.moveTo(px, py);
-                else ctx.lineTo(px, py);
-            }
-            ctx.closePath();
-            ctx.fill();
-        } else if (shape === 'pentagon') {
-            const rotationOffset = 18 * Math.PI / 180;
-            ctx.beginPath();
-            for (let i = 0; i < 5; i++) {
-                const angle = (Math.PI * 2 / 5) * i - Math.PI / 2 + rotationOffset;
-                const px = Math.cos(angle) * this.size;
-                const py = Math.sin(angle) * this.size;
-                if (i === 0) ctx.moveTo(px, py);
-                else ctx.lineTo(px, py);
-            }
-            ctx.closePath();
-            ctx.fill();
-        } else {
-            // Default to square/rectangle
-            ctx.beginPath();
-            ctx.rect(-this.size * 0.8, -this.size * 0.8, this.size * 1.6, this.size * 1.6);
-            ctx.fill();
+        if (scale !== 1) {
+            ctx.scale(scale, scale);
         }
+        ctx.rotate(renderRotation);
         
-        // Draw facing direction indicator
+        ctx.beginPath();
+        transformedVertices.forEach((v, index) => {
+            if (index === 0) ctx.moveTo(v.x, v.y);
+            else ctx.lineTo(v.x, v.y);
+        });
+        ctx.closePath();
+        ctx.fillStyle = this.color;
+        ctx.fill();
+        
+        const indicatorRadius = Math.min(5, Math.max(2, deformedSpan * 0.08));
+        const indicatorX = deformedMax - indicatorRadius * 1.5;
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();
-        
-        if (shape === 'pentagon') {
-            const rotationOffset = 18 * Math.PI / 180;
-            const vertexIndex = 1;
-            const vertexAngle = (Math.PI * 2 / 5) * vertexIndex - Math.PI / 2 + rotationOffset;
-            const indicatorDistance = this.size * 0.7;
-            const indicatorX = Math.cos(vertexAngle) * indicatorDistance;
-            const indicatorY = Math.sin(vertexAngle) * indicatorDistance;
-            ctx.arc(indicatorX, indicatorY, 5, 0, Math.PI * 2);
-        } else {
-            ctx.arc(this.size - 10, 0, 5, 0, Math.PI * 2);
-        }
-        
+        ctx.arc(indicatorX, 0, indicatorRadius, 0, Math.PI * 2);
         ctx.fill();
-        ctx.restore();
         
-        // Restore global alpha from dodge transparency
+        ctx.restore();
         ctx.restore();
         
         // Draw weapon orbiting visual (simple indicator, not the wave rings)
@@ -2587,6 +2928,13 @@ class PlayerBase {
             isAttacking: this.isAttacking,
             isChargingHeavy: this.isChargingHeavy,
             heavyChargeElapsed: this.heavyChargeElapsed,
+            dashAnimActive: !!this.dashAnimActive,
+            dashAnimTimer: this.dashAnimTimer,
+            dashAnimDirX: this.dashAnimDirX,
+            dashAnimDirY: this.dashAnimDirY,
+            dashAnimHeadingX: this.dashAnimHeadingX,
+            dashAnimHeadingY: this.dashAnimHeadingY,
+            dashAnimCurveAmount: this.dashAnimCurveAmount,
             
             // Cooldowns
             attackCooldown: this.attackCooldown,
@@ -2659,6 +3007,8 @@ class PlayerBase {
             prevClientAudioState = this.getClientAudioStateFromInstance();
         }
         
+        const prevDashAnimActive = this.dashAnimActive;
+        
         // Position and movement - use interpolation for clients, direct update for host/solo
         if (state.x !== undefined && state.y !== undefined) {
             if (isMultiplayerClient) {
@@ -2688,6 +3038,48 @@ class PlayerBase {
             } else {
                 this.rotation = state.rotation;
             }
+        }
+        
+        if (state.dashAnimDirX !== undefined && state.dashAnimDirY !== undefined) {
+            const dirMag = Math.sqrt(state.dashAnimDirX * state.dashAnimDirX + state.dashAnimDirY * state.dashAnimDirY);
+            if (dirMag > 0.0001) {
+                this.dashAnimDirX = state.dashAnimDirX / dirMag;
+                this.dashAnimDirY = state.dashAnimDirY / dirMag;
+            } else {
+                this.dashAnimDirX = state.dashAnimDirX;
+                this.dashAnimDirY = state.dashAnimDirY;
+            }
+        }
+        if (state.dashAnimHeadingX !== undefined && state.dashAnimHeadingY !== undefined) {
+            const headingMag = Math.sqrt(state.dashAnimHeadingX * state.dashAnimHeadingX + state.dashAnimHeadingY * state.dashAnimHeadingY);
+            if (headingMag > 0.0001) {
+                this.dashAnimHeadingX = state.dashAnimHeadingX / headingMag;
+                this.dashAnimHeadingY = state.dashAnimHeadingY / headingMag;
+            } else {
+                this.dashAnimHeadingX = state.dashAnimHeadingX;
+                this.dashAnimHeadingY = state.dashAnimHeadingY;
+            }
+        }
+        if (state.dashAnimTimer !== undefined) {
+            this.dashAnimTimer = state.dashAnimTimer;
+        }
+        if (state.dashAnimActive !== undefined) {
+            if (isMultiplayerClient) {
+                if (state.dashAnimActive && !prevDashAnimActive) {
+                    this.beginDashAnimation(
+                        state.dashAnimDirX ?? this.dashAnimDirX,
+                        state.dashAnimDirY ?? this.dashAnimDirY,
+                        { timer: state.dashAnimTimer || 0, seedTrail: true }
+                    );
+                } else if (!state.dashAnimActive && prevDashAnimActive) {
+                    this.endDashAnimation();
+                }
+            } else {
+                this.dashAnimActive = state.dashAnimActive;
+            }
+        }
+        if (state.dashAnimCurveAmount !== undefined) {
+            this.dashAnimCurveAmount = state.dashAnimCurveAmount;
         }
         
         // Health and progression (with level up detection)
@@ -3086,6 +3478,11 @@ class PlayerBase {
                 }
             }
         }
+        
+        if (this.dashAnimActive) {
+            this.sampleDashAnimation(this.x, this.y);
+        }
+        this.advanceDashAnimation(deltaTime, 'interpolate');
     }
 }
 
