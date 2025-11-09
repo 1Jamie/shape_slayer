@@ -1067,7 +1067,7 @@ function renderGearTooltips(ctx, player) {
             const lineHeight = 16;
             const columnWidth = 150;
             const tooltipWidth = columnWidth * 2 + 20; // Two columns + padding
-            const maxLines = Math.max(leftLines.length, rightLines.length);
+            const maxLines = Math.max(leftLines.length, rightLines.length) + 1; // +1 for column label row
             const tooltipHeight = Math.max(120, maxLines * lineHeight + 50);
             
             // Adjust position to stay on screen
@@ -1092,9 +1092,17 @@ function renderGearTooltips(ctx, player) {
             ctx.lineTo(tooltipX, tooltipY + tooltipHeight / 2 - 30);
             ctx.stroke();
             
+            // Draw column labels
+            const headerY = tooltipY - tooltipHeight / 2 + 16;
+            ctx.fillStyle = '#ffffaa';
+            ctx.font = 'bold 12px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('Equipped', tooltipX - columnWidth / 2, headerY);
+            ctx.fillText('On Ground', tooltipX + columnWidth / 2, headerY);
+
             // Draw left column (current gear)
             ctx.textAlign = 'center';
-            let currentY = tooltipY - tooltipHeight / 2 + 18;
+            let currentY = headerY + lineHeight;
             leftLines.forEach(line => {
                 ctx.fillStyle = line.color;
                 ctx.font = line.font;
@@ -1103,7 +1111,7 @@ function renderGearTooltips(ctx, player) {
             });
             
             // Draw right column (new gear)
-            currentY = tooltipY - tooltipHeight / 2 + 18;
+            currentY = headerY + lineHeight;
             rightLines.forEach(line => {
                 ctx.fillStyle = line.color;
                 ctx.font = line.font;

@@ -1003,9 +1003,21 @@ class MultiplayerManager {
         
         // FIRST: Reset all remote players to nexus spawn BEFORE any rendering
         if (this.remotePlayers && this.remotePlayers.length > 0) {
-            this.remotePlayers.forEach(rp => {
+            this.remotePlayers.forEach((rp, index) => {
                 rp.x = 300;
                 rp.y = 360;
+                
+                // Make sure remote players are marked alive for the new run
+                rp.dead = false;
+                rp.alive = true;
+                rp.invulnerable = false;
+                rp.invulnerabilityTime = 0;
+                
+                if (rp.maxHp !== undefined) {
+                    rp.hp = rp.maxHp;
+                } else {
+                    rp.hp = rp.hp !== undefined ? rp.hp : 100;
+                }
             });
             
             if (typeof Game !== 'undefined') {

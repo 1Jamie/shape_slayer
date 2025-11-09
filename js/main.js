@@ -3266,6 +3266,13 @@ const Game = {
                 });
             }
             
+            // Reset death tracking before the next run
+            if (this.deadPlayers) {
+                this.deadPlayers.clear();
+            }
+            this.allPlayersDead = false;
+            this.spectateMode = false;
+            
             // Send return to nexus message to all clients
             multiplayerManager.send({
                 type: 'return_to_nexus',
@@ -3320,6 +3327,11 @@ const Game = {
         this.deathScreenStartTime = 0; // Reset death screen timer
         this.waitingForHostReturn = false; // Clear waiting flag
         this.finalStats = null; // Clear final stats
+        if (this.deadPlayers) {
+            this.deadPlayers.clear();
+        }
+        this.allPlayersDead = false;
+        this.spectateMode = false;
         
         // Clear ground loot
         if (typeof groundLoot !== 'undefined') {
@@ -3335,6 +3347,70 @@ const Game = {
         // Initialize nexus if needed
         if (typeof initNexus !== 'undefined') {
             initNexus();
+        }
+        
+        // Host: revive and reset remote player simulations for the nexus
+        if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.isHost) {
+            const fallbackSpawnX = (typeof nexusRoom !== 'undefined' && nexusRoom && nexusRoom.spawnPos) ? nexusRoom.spawnPos.x : 300;
+            const fallbackSpawnY = (typeof nexusRoom !== 'undefined' && nexusRoom && nexusRoom.spawnPos) ? nexusRoom.spawnPos.y : 360;
+            
+            const spawnPositions = new Map();
+            if (multiplayerManager.remotePlayers && multiplayerManager.remotePlayers.length > 0) {
+                multiplayerManager.remotePlayers.forEach(remotePlayer => {
+                    const spawnX = remotePlayer.x !== undefined ? remotePlayer.x : fallbackSpawnX;
+                    const spawnY = remotePlayer.y !== undefined ? remotePlayer.y : fallbackSpawnY;
+                    spawnPositions.set(remotePlayer.id, { x: spawnX, y: spawnY });
+                });
+            }
+            
+            if (this.remotePlayerStates && this.remotePlayerStates.size > 0) {
+                this.remotePlayerStates.forEach((state, playerId) => {
+                    if (!state) return;
+                    
+                    const playerInstance = this.remotePlayerInstances ? this.remotePlayerInstances.get(playerId) : null;
+                    const maxHp = playerInstance && (playerInstance.maxHp || playerInstance.baseMaxHp)
+                        ? (playerInstance.maxHp || playerInstance.baseMaxHp)
+                        : (state.maxHp !== undefined ? state.maxHp : 100);
+                    
+                    state.maxHp = maxHp;
+                    state.hp = maxHp;
+                    state.dead = false;
+                    state.invulnerable = false;
+                    state.invulnerabilityTime = 0;
+                });
+            }
+            
+            if (this.remotePlayerInstances && this.remotePlayerInstances.size > 0) {
+                this.remotePlayerInstances.forEach((playerInstance, playerId) => {
+                    if (!playerInstance) return;
+                    
+                    const spawn = spawnPositions.get(playerId);
+                    const spawnX = spawn ? spawn.x : fallbackSpawnX;
+                    const spawnY = spawn ? spawn.y : fallbackSpawnY;
+                    
+                    playerInstance.dead = false;
+                    playerInstance.alive = true;
+                    playerInstance.invulnerable = false;
+                    playerInstance.invulnerabilityTime = 0;
+                    playerInstance.isDodging = false;
+                    playerInstance.dodgeElapsed = 0;
+                    playerInstance.attackHitboxes = Array.isArray(playerInstance.attackHitboxes) ? playerInstance.attackHitboxes : [];
+                    playerInstance.attackHitboxes.length = 0;
+                    
+                    const maxHp = playerInstance.maxHp || playerInstance.baseMaxHp || 100;
+                    playerInstance.hp = maxHp;
+                    
+                    playerInstance.x = spawnX;
+                    playerInstance.y = spawnY;
+                    playerInstance.vx = 0;
+                    playerInstance.vy = 0;
+                    
+                    playerInstance.attackCooldown = 0;
+                    playerInstance.heavyAttackCooldown = 0;
+                    playerInstance.dodgeCooldown = 0;
+                    playerInstance.specialCooldown = 0;
+                });
+            }
         }
         
         // Initialize nexus camera to follow player
