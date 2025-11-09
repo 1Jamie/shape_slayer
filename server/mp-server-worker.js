@@ -118,6 +118,9 @@ class WorkerProcess {
             case 'upgrade_purchase':
                 this.handleUpgradePurchase(ws, data);
                 break;
+            case 'upgrade_purchased':
+                this.handleUpgradePurchased(ws, data);
+                break;
             case 'currency_update':
                 this.handleCurrencyUpdate(ws, data);
                 break;
@@ -498,6 +501,50 @@ class WorkerProcess {
                 data: {
                     ...data,
                     playerId: lobby.players.find(p => p.ws === ws).id
+                }
+            }));
+        }
+    }
+    
+    handleUpgradePurchased(ws, data) {
+        const code = this.playerToLobby.get(ws);
+        if (!code) return;
+        
+        const lobby = this.lobbies.get(code);
+        if (!lobby || lobby.host !== ws) return;
+        
+        const targetPlayerId = data.playerId || data.targetPlayerId;
+        if (!targetPlayerId) return;
+        
+        const targetPlayer = lobby.players.find(p => p.id === targetPlayerId);
+        if (!targetPlayer) return;
+        
+        if (data.newCurrency !== undefined) {
+            targetPlayer.currency = data.newCurrency;
+        }
+        
+        if (data.upgrades) {
+            targetPlayer.upgrades = data.upgrades;
+        } else if (data.classType && data.statType !== undefined && data.newLevel !== undefined) {
+            if (!targetPlayer.upgrades) {
+                targetPlayer.upgrades = {};
+            }
+            if (!targetPlayer.upgrades[data.classType]) {
+                targetPlayer.upgrades[data.classType] = { damage: 0, defense: 0, speed: 0 };
+            }
+            targetPlayer.upgrades[data.classType][data.statType] = data.newLevel;
+        }
+        
+        if (targetPlayer.ws && targetPlayer.ws !== ws && targetPlayer.ws.readyState === WebSocket.OPEN) {
+            targetPlayer.ws.send(JSON.stringify({
+                type: 'upgrade_purchased',
+                data: {
+                    playerId: targetPlayer.id,
+                    classType: data.classType,
+                    statType: data.statType,
+                    newLevel: data.newLevel,
+                    newCurrency: data.newCurrency,
+                    upgrades: data.upgrades || targetPlayer.upgrades
                 }
             }));
         }

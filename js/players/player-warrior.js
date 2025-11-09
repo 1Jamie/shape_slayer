@@ -804,5 +804,48 @@ class Warrior extends PlayerBase {
         if (state.thrustActive !== undefined) this.thrustActive = state.thrustActive;
         if (state.thrustElapsed !== undefined) this.thrustElapsed = state.thrustElapsed;
     }
+
+    getAdditionalAudioTrackedFields(state) {
+        return {
+            thrustActive: state && state.thrustActive !== undefined ? state.thrustActive : !!this.thrustActive,
+            whirlwindActive: state && state.whirlwindActive !== undefined ? state.whirlwindActive : !!this.whirlwindActive
+        };
+    }
+
+    getAdditionalAudioTrackedFieldsFromInstance() {
+        return {
+            thrustActive: !!this.thrustActive,
+            whirlwindActive: !!this.whirlwindActive
+        };
+    }
+
+    onClientAttackStarted() {
+        if (this.canPlayClientAudio() && AudioManager.sounds && AudioManager.sounds.warriorBasicAttack) {
+            AudioManager.sounds.warriorBasicAttack();
+        }
+    }
+
+    onClientHeavyAttackTriggered() {
+        if (!this.canPlayClientAudio() || !AudioManager.sounds || !AudioManager.sounds.warriorHeavyAttack) {
+            return false;
+        }
+        AudioManager.sounds.warriorHeavyAttack();
+        return true;
+    }
+
+    handleSubclassClientAudio(prevState, currentState) {
+        if (!this.canPlayClientAudio() || !AudioManager.sounds) {
+            return;
+        }
+        
+        const heavyTriggered = this.didHeavyAttackTrigger(prevState, currentState);
+        if (!prevState.thrustActive && currentState.thrustActive && !heavyTriggered && AudioManager.sounds.warriorHeavyAttack) {
+            AudioManager.sounds.warriorHeavyAttack();
+        }
+        
+        if (!prevState.whirlwindActive && currentState.whirlwindActive && AudioManager.sounds.warriorWhirlwindStart) {
+            AudioManager.sounds.warriorWhirlwindStart();
+        }
+    }
 }
 

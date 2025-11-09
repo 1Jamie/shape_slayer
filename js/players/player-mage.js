@@ -1265,5 +1265,51 @@ class Mage extends PlayerBase {
         if (state.beamCharges !== undefined) this.beamCharges = state.beamCharges;
         if (state.beamChargeCooldowns !== undefined) this.beamChargeCooldowns = state.beamChargeCooldowns;
     }
+
+    getAdditionalAudioTrackedFields(state) {
+        return {
+            beamCharges: state && state.beamCharges !== undefined ? state.beamCharges : (this.beamCharges !== undefined ? this.beamCharges : 0)
+        };
+    }
+
+    getAdditionalAudioTrackedFieldsFromInstance() {
+        return {
+            beamCharges: this.beamCharges !== undefined ? this.beamCharges : 0
+        };
+    }
+
+    onClientAttackStarted() {
+        if (this.canPlayClientAudio() && AudioManager.sounds && AudioManager.sounds.mageBasicAttack) {
+            AudioManager.sounds.mageBasicAttack();
+        }
+    }
+
+    onClientHeavyAttackTriggered() {
+        if (!this.canPlayClientAudio() || !AudioManager.sounds || !AudioManager.sounds.mageHeavyAttackBeam) {
+            return false;
+        }
+        AudioManager.sounds.mageHeavyAttackBeam();
+        return true;
+    }
+
+    onClientSpecialAbilityTriggered() {
+        if (this.canPlayClientAudio() && AudioManager.sounds && AudioManager.sounds.mageBlink) {
+            AudioManager.sounds.mageBlink();
+        }
+    }
+
+    handleSubclassClientAudio(prevState, currentState) {
+        if (!this.canPlayClientAudio() || !AudioManager.sounds) {
+            return;
+        }
+        
+        const heavyTriggered = this.didHeavyAttackTrigger(prevState, currentState);
+        if (prevState.beamCharges !== undefined && currentState.beamCharges !== undefined &&
+            currentState.beamCharges < prevState.beamCharges &&
+            !heavyTriggered &&
+            AudioManager.sounds.mageHeavyAttackBeam) {
+            AudioManager.sounds.mageHeavyAttackBeam();
+        }
+    }
 }
 

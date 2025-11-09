@@ -857,5 +857,53 @@ class Rogue extends PlayerBase {
         if (state.shadowClonesActive !== undefined) this.shadowClonesActive = state.shadowClonesActive;
         if (state.shadowClones !== undefined) this.shadowClones = state.shadowClones;
     }
+
+    getAdditionalAudioTrackedFields(state) {
+        return {
+            shadowClonesActive: state && state.shadowClonesActive !== undefined ? state.shadowClonesActive : !!this.shadowClonesActive
+        };
+    }
+
+    getAdditionalAudioTrackedFieldsFromInstance() {
+        return {
+            shadowClonesActive: !!this.shadowClonesActive
+        };
+    }
+
+    playDodgeSound() {
+        if (this.canPlayClientAudio() && AudioManager.sounds && AudioManager.sounds.rogueDodge) {
+            AudioManager.sounds.rogueDodge();
+        }
+    }
+
+    onClientAttackStarted() {
+        if (this.canPlayClientAudio() && AudioManager.sounds && AudioManager.sounds.rogueBasicAttack) {
+            AudioManager.sounds.rogueBasicAttack();
+        }
+    }
+
+    onClientHeavyAttackTriggered() {
+        if (!this.canPlayClientAudio() || !AudioManager.sounds || !AudioManager.sounds.rogueHeavyAttack) {
+            return false;
+        }
+        AudioManager.sounds.rogueHeavyAttack();
+        return true;
+    }
+
+    onClientSpecialAbilityTriggered() {
+        if (this.canPlayClientAudio() && AudioManager.sounds && AudioManager.sounds.rogueShadowClones) {
+            AudioManager.sounds.rogueShadowClones();
+        }
+    }
+
+    handleSubclassClientAudio(prevState, currentState) {
+        if (!this.canPlayClientAudio() || !AudioManager.sounds) {
+            return;
+        }
+        
+        if (!prevState.shadowClonesActive && currentState.shadowClonesActive && AudioManager.sounds.rogueShadowClones) {
+            AudioManager.sounds.rogueShadowClones();
+        }
+    }
 }
 

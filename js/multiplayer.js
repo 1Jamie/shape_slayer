@@ -183,6 +183,71 @@ class MultiplayerManager {
         }
     }
     
+    // Create empty upgrade structure for all classes
+    createEmptyUpgradeSet() {
+        return {
+            square: { damage: 0, defense: 0, speed: 0 },
+            triangle: { damage: 0, defense: 0, speed: 0 },
+            pentagon: { damage: 0, defense: 0, speed: 0 },
+            hexagon: { damage: 0, defense: 0, speed: 0 }
+        };
+    }
+    
+    // Deep clone upgrade data ensuring all fields exist
+    cloneUpgradeSet(upgrades) {
+        const base = this.createEmptyUpgradeSet();
+        if (!upgrades) {
+            return base;
+        }
+        
+        const clone = {};
+        for (const classType of Object.keys(base)) {
+            const source = upgrades[classType] || {};
+            clone[classType] = {
+                damage: source.damage || 0,
+                defense: source.defense || 0,
+                speed: source.speed || 0
+            };
+        }
+        return clone;
+    }
+    
+    // Apply upgrade values to a player instance (host-side simulation)
+    applyUpgradesToInstance(playerInstance, classType, classUpgrades) {
+        if (!playerInstance || !classType || !classUpgrades) return;
+        
+        let config = null;
+        if (classType === 'square' && typeof WARRIOR_CONFIG !== 'undefined') {
+            config = WARRIOR_CONFIG;
+        } else if (classType === 'triangle' && typeof ROGUE_CONFIG !== 'undefined') {
+            config = ROGUE_CONFIG;
+        } else if (classType === 'pentagon' && typeof TANK_CONFIG !== 'undefined') {
+            config = TANK_CONFIG;
+        } else if (classType === 'hexagon' && typeof MAGE_CONFIG !== 'undefined') {
+            config = MAGE_CONFIG;
+        }
+        
+        if (!config) return;
+        
+        const damageBonus = (classUpgrades.damage || 0) * (config.damagePerLevel || 0);
+        const defenseBonus = (classUpgrades.defense || 0) * (config.defensePerLevel || 0);
+        const speedBonus = (classUpgrades.speed || 0) * (config.speedPerLevel || 0);
+        
+        if (typeof playerInstance.baseDamage !== 'undefined') {
+            playerInstance.baseDamage = config.baseDamage + damageBonus;
+        }
+        if (typeof playerInstance.baseDefense !== 'undefined') {
+            playerInstance.baseDefense = config.baseDefense + defenseBonus;
+        }
+        if (typeof playerInstance.baseMoveSpeed !== 'undefined') {
+            playerInstance.baseMoveSpeed = config.baseSpeed + speedBonus;
+        }
+        
+        if (typeof playerInstance.updateEffectiveStats === 'function') {
+            playerInstance.updateEffectiveStats();
+        }
+    }
+    
     // Get player's upgrade levels for all classes
     getAllUpgrades() {
         if (typeof SaveSystem === 'undefined') {
@@ -1213,6 +1278,14 @@ class MultiplayerManager {
             if (typeof createParticleBurst !== 'undefined') {
                 createParticleBurst(enemy.x, enemy.y, enemy.color, 12);
             }
+            
+            if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.initialized && AudioManager.sounds.enemyDeath) {
+                setTimeout(() => {
+                    if (AudioManager.sounds && AudioManager.sounds.enemyDeath) {
+                        AudioManager.sounds.enemyDeath();
+                    }
+                }, 50);
+            }
         }
     }
     
@@ -1282,15 +1355,11 @@ class MultiplayerManager {
         
         // Get player's current currency and upgrades
         const currentCurrency = Game.playerCurrencies.get(playerId) || 0;
-        const upgrades = Game.playerUpgrades.get(playerId) || {
-            square: { damage: 0, defense: 0, speed: 0 },
-            triangle: { damage: 0, defense: 0, speed: 0 },
-            pentagon: { damage: 0, defense: 0, speed: 0 },
-            hexagon: { damage: 0, defense: 0, speed: 0 }
-        };
+        const storedUpgrades = Game.playerUpgrades.get(playerId);
+        const upgradesBase = storedUpgrades ? storedUpgrades : this.createEmptyUpgradeSet();
         
         // Get current upgrade level
-        const currentLevel = upgrades[classType]?.[statType] || 0;
+        const currentLevel = (upgradesBase[classType] && upgradesBase[classType][statType]) || 0;
         
         // Calculate cost
         const cost = SaveSystem.getUpgradeCost(statType, currentLevel);
@@ -1305,12 +1374,13 @@ class MultiplayerManager {
         const newLevel = currentLevel + 1;
         const newCurrency = Math.floor(currentCurrency - cost);
         
-        // Update upgrades
-        if (!upgrades[classType]) {
-            upgrades[classType] = { damage: 0, defense: 0, speed: 0 };
+        // Update upgrades (clone to avoid mutating shared references)
+        const updatedUpgrades = this.cloneUpgradeSet(upgradesBase);
+        if (!updatedUpgrades[classType]) {
+            updatedUpgrades[classType] = { damage: 0, defense: 0, speed: 0 };
         }
-        upgrades[classType][statType] = newLevel;
-        Game.playerUpgrades.set(playerId, upgrades);
+        updatedUpgrades[classType][statType] = newLevel;
+        Game.playerUpgrades.set(playerId, updatedUpgrades);
         
         // Update currency
         Game.playerCurrencies.set(playerId, newCurrency);
@@ -1319,23 +1389,11 @@ class MultiplayerManager {
         
         // Send confirmation to the purchasing player
         const player = this.players.find(p => p.id === playerId);
-        if (player && player.ws && player.ws.readyState === WebSocket.OPEN) {
-            player.ws.send(JSON.stringify({
-                type: 'upgrade_purchased',
-                data: {
-                    playerId: playerId,
-                    classType: classType,
-                    statType: statType,
-                    newLevel: newLevel,
-                    newCurrency: newCurrency
-                }
-            }));
-        }
-        
-        // Also update player data in lobby (for when new players join)
+        const upgradesSnapshot = this.cloneUpgradeSet(updatedUpgrades);
         if (player) {
+            // Keep lobby roster data up to date for subsequent syncs/new joins
             player.currency = newCurrency;
-            player.upgrades = upgrades;
+            player.upgrades = upgradesSnapshot;
         }
         
         // If this is the local player (host), also update local SaveSystem and recreate player
@@ -1354,13 +1412,42 @@ class MultiplayerManager {
                 console.log(`[Host] Recreated local player to apply upgrade stats`);
             }
         }
+        
+        // Apply upgrades to remote player instance (host simulating remote players)
+        if (playerId !== localPlayerId && Game.remotePlayerInstances && Game.remotePlayerInstances.has(playerId)) {
+            const instance = Game.remotePlayerInstances.get(playerId);
+            this.applyUpgradesToInstance(instance, classType, upgradesSnapshot[classType]);
+        }
+        
+        // Update remote player cache for rendering in lobby/overlays
+        const remotePlayer = this.remotePlayers.find(rp => rp.id === playerId);
+        if (remotePlayer) {
+            remotePlayer.currency = newCurrency;
+            remotePlayer.upgrades = upgradesSnapshot;
+        }
+        if (typeof Game !== 'undefined') {
+            Game.remotePlayers = this.remotePlayers;
+        }
+        
+        // Notify server so it can forward confirmation to the purchasing client
+        this.send({
+            type: 'upgrade_purchased',
+            data: {
+                playerId: playerId,
+                classType: classType,
+                statType: statType,
+                newLevel: newLevel,
+                newCurrency: newCurrency,
+                upgrades: upgradesSnapshot
+            }
+        });
     }
     
     // Handle upgrade purchase confirmation (from host)
     handleUpgradePurchased(data) {
         if (typeof Game === 'undefined' || typeof SaveSystem === 'undefined') return;
         
-        const { classType, statType, newLevel, newCurrency } = data;
+        const { classType, statType, newLevel, newCurrency, upgrades } = data;
         const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
         
         // Only process if this is for the local player
@@ -1368,7 +1455,16 @@ class MultiplayerManager {
         
         // Update local SaveSystem
         const flooredCurrency = Math.floor(newCurrency);
-        SaveSystem.setUpgrade(classType, statType, newLevel);
+        if (upgrades) {
+            Object.keys(upgrades).forEach(classKey => {
+                const classUpgrades = upgrades[classKey] || {};
+                SaveSystem.setUpgrade(classKey, 'damage', classUpgrades.damage || 0);
+                SaveSystem.setUpgrade(classKey, 'defense', classUpgrades.defense || 0);
+                SaveSystem.setUpgrade(classKey, 'speed', classUpgrades.speed || 0);
+            });
+        } else {
+            SaveSystem.setUpgrade(classType, statType, newLevel);
+        }
         SaveSystem.setCurrency(flooredCurrency);
         Game.currentCurrency = flooredCurrency;
         
@@ -1474,6 +1570,17 @@ class MultiplayerManager {
             createDamageNumber(displayX, displayY, damage, isCrit, isWeakPoint);
         } else {
             console.warn('[Client] createDamageNumber function not available!');
+        }
+        
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.initialized) {
+            const intensity = Math.min(Math.max(damage / 50, 0.2), 2.0);
+            if (isWeakPoint && AudioManager.sounds.hitWeakPoint) {
+                AudioManager.sounds.hitWeakPoint(intensity);
+            } else if (isCrit && AudioManager.sounds.hitCritical) {
+                AudioManager.sounds.hitCritical(intensity);
+            } else if (AudioManager.sounds.hitNormal) {
+                AudioManager.sounds.hitNormal(intensity);
+            }
         }
     }
     

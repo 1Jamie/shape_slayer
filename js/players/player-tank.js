@@ -847,5 +847,41 @@ class Tank extends PlayerBase {
         if (state.shieldWaveDuration !== undefined) this.shieldWaveDuration = state.shieldWaveDuration;
         if (state.groundSmashActive !== undefined) this.groundSmashActive = state.groundSmashActive;
     }
+
+    getAdditionalAudioTrackedFields(state) {
+        return {
+            shieldActive: state && state.shieldActive !== undefined ? state.shieldActive : !!this.shieldActive
+        };
+    }
+
+    getAdditionalAudioTrackedFieldsFromInstance() {
+        return {
+            shieldActive: !!this.shieldActive
+        };
+    }
+
+    onClientAttackStarted() {
+        if (this.canPlayClientAudio() && AudioManager.sounds && AudioManager.sounds.tankBasicAttack) {
+            AudioManager.sounds.tankBasicAttack();
+        }
+    }
+
+    onClientHeavyAttackTriggered() {
+        if (!this.canPlayClientAudio() || !AudioManager.sounds || !AudioManager.sounds.tankHeavyAttack) {
+            return false;
+        }
+        AudioManager.sounds.tankHeavyAttack();
+        return true;
+    }
+
+    handleSubclassClientAudio(prevState, currentState) {
+        if (!this.canPlayClientAudio() || !AudioManager.sounds) {
+            return;
+        }
+        
+        if (!prevState.shieldActive && currentState.shieldActive && AudioManager.sounds.tankShieldStart) {
+            AudioManager.sounds.tankShieldStart();
+        }
+    }
 }
 

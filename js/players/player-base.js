@@ -830,8 +830,8 @@ class PlayerBase {
             }
         }
         
-        // Apply damage reduction (subclass can override getDamageReduction())
-        const reduction = this.getDamageReduction();
+        // Apply damage reduction from defense and class-based sources
+        const reduction = this.computeDamageReduction();
         damage = damage * (1 - reduction);
         
         // Track damage taken in player stats
@@ -984,9 +984,17 @@ class PlayerBase {
         }
     }
     
-    // Get damage reduction factor (0-1) - override in subclass
+    // Combine defense stat with class-specific reductions
+    computeDamageReduction() {
+        const defenseReduction = clamp(this.defense || 0, 0, 0.95);
+        const classReduction = clamp(this.getDamageReduction() || 0, 0, 0.95);
+        const combinedReduction = 1 - (1 - defenseReduction) * (1 - classReduction);
+        return clamp(combinedReduction, 0, 0.95);
+    }
+    
+    // Get additional damage reduction factor (0-1) from class mechanics - override in subclass
     getDamageReduction() {
-        // Default: no reduction (subclasses can override for block stance, shield, etc.)
+        // Default: no class-based reduction (subclasses can override for block stance, shield, etc.)
         return 0;
     }
     
@@ -1013,7 +1021,8 @@ class PlayerBase {
         
         // Increase base stats (damage 7%, HP 10%)
         this.baseDamage *= 1.07;
-        this.maxHp *= 1.1;
+        this.baseMaxHp *= 1.1;
+        this.maxHp = this.baseMaxHp;
         
         // Apply class-specific speed scaling with cap
         let speedBoost = 0;
@@ -2645,6 +2654,11 @@ class PlayerBase {
                                      multiplayerManager && 
                                      !multiplayerManager.isHost;
         
+        let prevClientAudioState = null;
+        if (isMultiplayerClient) {
+            prevClientAudioState = this.getClientAudioStateFromInstance();
+        }
+        
         // Position and movement - use interpolation for clients, direct update for host/solo
         if (state.x !== undefined && state.y !== undefined) {
             if (isMultiplayerClient) {
@@ -2866,6 +2880,135 @@ class PlayerBase {
         } else if (gearChanged && this.accessory) {
             this.accessoryVisual = this.calculateGearPieceVisual(this.accessory);
         }
+        
+        if (isMultiplayerClient) {
+            const currentClientAudioState = this.getClientAudioTrackedFields(state);
+            this.playClientAudioFromState(prevClientAudioState, currentClientAudioState, state);
+        }
+    }
+    
+    getClientAudioTrackedFields(state) {
+        const baseState = {
+            isAttacking: state && state.isAttacking !== undefined ? state.isAttacking : !!this.isAttacking,
+            isDodging: state && state.isDodging !== undefined ? state.isDodging : !!this.isDodging,
+            isChargingHeavy: state && state.isChargingHeavy !== undefined ? state.isChargingHeavy : !!this.isChargingHeavy,
+            attackCooldown: state && state.attackCooldown !== undefined ? state.attackCooldown : (this.attackCooldown || 0),
+            heavyAttackCooldown: state && state.heavyAttackCooldown !== undefined ? state.heavyAttackCooldown : (this.heavyAttackCooldown || 0),
+            specialCooldown: state && state.specialCooldown !== undefined ? state.specialCooldown : (this.specialCooldown || 0),
+            dodgeCharges: state && state.dodgeCharges !== undefined ? state.dodgeCharges : (this.dodgeCharges !== undefined ? this.dodgeCharges : 0),
+            dead: state && state.dead !== undefined ? state.dead : !!this.dead,
+            alive: state && state.alive !== undefined ? state.alive : !!this.alive
+        };
+        return {
+            ...baseState,
+            ...this.getAdditionalAudioTrackedFields(state)
+        };
+    }
+    
+    getClientAudioStateFromInstance() {
+        const baseState = {
+            isAttacking: !!this.isAttacking,
+            isDodging: !!this.isDodging,
+            isChargingHeavy: !!this.isChargingHeavy,
+            attackCooldown: this.attackCooldown || 0,
+            heavyAttackCooldown: this.heavyAttackCooldown || 0,
+            specialCooldown: this.specialCooldown || 0,
+            dodgeCharges: this.dodgeCharges !== undefined ? this.dodgeCharges : 0,
+            dead: !!this.dead,
+            alive: !!this.alive
+        };
+        return {
+            ...baseState,
+            ...this.getAdditionalAudioTrackedFieldsFromInstance()
+        };
+    }
+    
+    // Subclasses can override to track additional properties for audio detection
+    getAdditionalAudioTrackedFields(state) {
+        return {};
+    }
+    
+    getAdditionalAudioTrackedFieldsFromInstance() {
+        return {};
+    }
+    
+    canPlayClientAudio() {
+        return typeof AudioManager !== 'undefined' && 
+               AudioManager.sounds && 
+               AudioManager.initialized && 
+               !AudioManager.muted;
+    }
+    
+    playClientAudioFromState(prevState, currentState, rawState) {
+        if (!prevState || !currentState || !this.canPlayClientAudio()) {
+            return;
+        }
+        
+        if (!prevState.isDodging && currentState.isDodging) {
+            this.playDodgeSound();
+        }
+        
+        let heavyTriggered = false;
+        if (this.didHeavyAttackTrigger(prevState, currentState)) {
+            heavyTriggered = this.onClientHeavyAttackTriggered(prevState, currentState, rawState) === true;
+        }
+        
+        if (!prevState.isAttacking && currentState.isAttacking && !heavyTriggered) {
+            this.onClientAttackStarted(prevState, currentState, rawState);
+        }
+        
+        if (this.didSpecialAbilityTrigger(prevState, currentState)) {
+            this.onClientSpecialAbilityTriggered(prevState, currentState, rawState);
+        }
+        
+        if (!prevState.dead && currentState.dead) {
+            this.onClientDeath(rawState);
+        }
+        
+        this.handleSubclassClientAudio(prevState, currentState, rawState);
+    }
+    
+    didHeavyAttackTrigger(prevState, currentState) {
+        if (prevState.heavyAttackCooldown === undefined || currentState.heavyAttackCooldown === undefined) {
+            return false;
+        }
+        return currentState.heavyAttackCooldown > prevState.heavyAttackCooldown + 0.05;
+    }
+    
+    didSpecialAbilityTrigger(prevState, currentState) {
+        if (prevState.specialCooldown === undefined || currentState.specialCooldown === undefined) {
+            return false;
+        }
+        return currentState.specialCooldown > prevState.specialCooldown + 0.05;
+    }
+    
+    playDodgeSound() {
+        if (this.canPlayClientAudio() && AudioManager.sounds.dodge) {
+            AudioManager.sounds.dodge();
+        }
+    }
+    
+    // Hooks for subclasses to customise audio behaviour
+    onClientAttackStarted(_prevState, _currentState, _rawState) {
+        // Default: subclasses implement if needed
+    }
+    
+    onClientHeavyAttackTriggered(_prevState, _currentState, _rawState) {
+        return false;
+    }
+    
+    onClientSpecialAbilityTriggered(_prevState, _currentState, _rawState) {
+        // Default: subclasses implement if needed
+    }
+    
+    onClientDeath(_rawState) {
+        if (this.canPlayClientAudio() && AudioManager.sounds.playerDeath) {
+            AudioManager.sounds.playerDeath();
+        }
+    }
+    
+    handleSubclassClientAudio(_prevState, _currentState, _rawState) {
+        // Default: subclasses can override for additional events
     }
     
     // Get gameplay position (authoritative position for multiplayer clients, visual position otherwise)
