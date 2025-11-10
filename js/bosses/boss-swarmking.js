@@ -27,11 +27,28 @@ class BossSwarmKing extends BossBase {
         
         // Minions spawned
         this.minions = [];
-        this.maxMinions = 3; // Phase 1: 2-3, Phase 2: 4-5, Phase 3: more aggressive
+        this.maxMinions = 8; // Hard cap across phases
         
         // Multi-barrage tracking
         this.multiBarrageTimer = 0;
         this.multiBarrageWaves = 0;
+        this.phase2VolleyCooldown = 0;
+        this.phase3BeamCooldown = 0;
+        this.phase3BeamInterval = 6.0;
+        this.phase3BeamWarmup = 2.1;
+        this.phase3BeamDuration = 2.4;
+        this.activeBeamHazard = null;
+        this.beamStateTimer = 0;
+        this.pendingBeamAngle = 0;
+        this.beamTelegraphAngle = 0;
+        this.beamTelegraphLength = 720;
+        this.beamTelegraphTurnRate = Math.PI * 0.1575;
+        this.beamFireTurnRate = Math.PI * 0.1209375;
+        this.beamLengthGrowthSpeed = 377;
+        this.beamInitialLength = 120;
+        this.beamMaxLength = 720;
+        this.finalExplosionTriggered = false;
+        this.summonGlobalCooldown = 0;
         
         // Override base stats for star boss (before BossBase multiplies them)
         this.size = 60; // Large star (BossBase will multiply by 2, so final size is 120)
@@ -56,6 +73,18 @@ class BossSwarmKing extends BossBase {
         }
     }
     
+    getPhaseMinionCap() {
+        if (this.phase === 1) return 3;
+        if (this.phase === 2) return 5;
+        return this.maxMinions || 8;
+    }
+
+    getSummonGlobalCooldown() {
+        if (this.phase === 1) return 5.0;
+        if (this.phase === 2) return 4.0;
+        return 3.0;
+    }
+    
     update(deltaTime, player) {
         if (!this.introComplete) return; // Don't update during intro
         // Get player from getAllAlivePlayers if not provided
@@ -73,7 +102,7 @@ class BossSwarmKing extends BossBase {
         this.checkPhaseTransition();
         
         // Update hazards
-        this.updateHazards(deltaTime);
+        this.updateHazards(deltaTime, player);
         
         // Check hazard collisions with player
         this.checkHazardCollisions(player, deltaTime);
@@ -87,6 +116,10 @@ class BossSwarmKing extends BossBase {
         this.slamCooldown -= deltaTime;
         this.spawnCooldown -= deltaTime;
         this.stateTimer += deltaTime;
+        if (this.summonGlobalCooldown > 0) {
+            this.summonGlobalCooldown -= deltaTime;
+            if (this.summonGlobalCooldown < 0) this.summonGlobalCooldown = 0;
+        }
         
         // Update rotation
         this.rotationAngle += this.rotationSpeed * deltaTime;
@@ -130,7 +163,7 @@ class BossSwarmKing extends BossBase {
             } else if (this.slamCooldown <= 0 && distance < 100) {
                 this.state = 'slam';
                 this.stateTimer = 0;
-            } else if (this.spawnCooldown <= 0 && this.minions.length < 3) {
+            } else if (this.spawnCooldown <= 0 && this.summonGlobalCooldown <= 0 && this.minions.length < this.getPhaseMinionCap()) {
                 this.spawnMinions();
                 this.spawnCooldown = 8.0;
             }
@@ -189,6 +222,9 @@ class BossSwarmKing extends BossBase {
     updatePhase2(deltaTime, player) {
         // Faster versions of Phase 1, plus new attacks
         const distance = Math.sqrt((player.x - this.x) ** 2 + (player.y - this.y) ** 2);
+        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+        this.phase2VolleyCooldown -= deltaTime;
+        if (this.phase2VolleyCooldown < 0) this.phase2VolleyCooldown = 0;
         
         if (this.state === 'chase') {
             const dx = player.x - this.x;
@@ -198,19 +234,16 @@ class BossSwarmKing extends BossBase {
                 this.y += (dy / distance) * this.moveSpeed * deltaTime * 0.6;
             }
             
-            if (this.barrageCooldown <= 0 && distance > 150) {
+            if (this.barrageCooldown <= 0 && this.phase2VolleyCooldown <= 0 && distance > 160) {
                 this.state = 'barrage';
                 this.stateTimer = 0;
-            } else if (this.barrageCooldown <= 0 && this.stateTimer > 1.0) {
-                // Multi-barrage
-                this.state = 'barrage';
-                this.stateTimer = 0;
+                this.phase2VolleyCooldown = 4.5;
             } else if (this.slamCooldown <= 0 && distance < 120) {
                 this.state = 'spinning'; // Spinning spike wheel
                 this.stateTimer = 0;
-            } else if (this.spawnCooldown <= 0 && this.minions.length < 5) {
+            } else if (this.spawnCooldown <= 0 && this.summonGlobalCooldown <= 0 && this.minions.length < this.getPhaseMinionCap()) {
                 this.spawnMinions();
-                this.spawnCooldown = 6.0;
+                this.spawnCooldown = 6.5;
             }
         } else if (this.state === 'barrage') {
             if (this.stateTimer < 0.3) {
@@ -218,8 +251,8 @@ class BossSwarmKing extends BossBase {
             } else if (this.stateTimer < 1.5) {
                 if (this.stateTimer < 0.35 && this.multiBarrageWaves === 0) {
                     // Start multi-barrage
-                    this.multiBarrageWaves = 2; // 2 more waves after first
-                    this.multiBarrageTimer = 0.3;
+                    this.multiBarrageWaves = 1; // 1 more wave after first
+                    this.multiBarrageTimer = 0.35;
                     this.multiBarrage();
                 }
                 // Update multi-barrage waves
@@ -228,14 +261,15 @@ class BossSwarmKing extends BossBase {
                     if (this.multiBarrageTimer <= 0 && this.multiBarrageWaves > 0) {
                         this.multiBarrage();
                         this.multiBarrageWaves--;
-                        this.multiBarrageTimer = 0.3;
+                        this.multiBarrageTimer = 0.35;
                     }
                 }
                 this.rotationSpeed = Math.PI * 3;
             } else {
                 this.state = 'chase';
                 this.rotationSpeed = 0;
-                this.barrageCooldown = 3.0;
+                this.barrageCooldown = 3.5;
+                this.phase2VolleyCooldown = Math.max(this.phase2VolleyCooldown, 3.5);
             }
         } else if (this.state === 'spinning') {
             if (this.stateTimer < 2.0) {
@@ -244,7 +278,7 @@ class BossSwarmKing extends BossBase {
                 this.spikeExtension = 0.7;
                 
                 // Check contact damage with player
-                if (distance < this.size + player.size) {
+                if (!isClient && distance < this.size + player.size) {
                     player.takeDamage(this.damage * 0.5); // Half damage per frame during spin
                 }
             } else {
@@ -259,37 +293,139 @@ class BossSwarmKing extends BossBase {
     updatePhase3(deltaTime, player) {
         // Maximum intensity
         this.rotationSpeed = Math.PI * 2; // Constant rotation
-        
+        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
         const distance = Math.sqrt((player.x - this.x) ** 2 + (player.y - this.y) ** 2);
-        
-        // Extended spikes
-        if (this.hp / this.maxHp < 0.1) {
-            // Explosive finale
-            this.spikeExtension = 1.0;
-            this.explosiveFinale();
-            this.spikeExtension = 0.8;
+
+        if (!this.activeBeamHazard) {
+            const existingBeam = this.environmentalHazards.find(h => h && h.type === 'beam' && !h.expired);
+            if (existingBeam) {
+                this.activeBeamHazard = existingBeam;
+            }
+        } else if (this.activeBeamHazard.expired) {
+            this.activeBeamHazard = null;
+        }
+
+        this.phase3BeamCooldown -= deltaTime;
+        if (this.phase3BeamCooldown < 0) this.phase3BeamCooldown = 0;
+
+        if (this.state === 'beamWarmup') {
+            this.beamStateTimer += deltaTime;
+            if (player) {
+                const targetAngle = Math.atan2(player.y - this.y, player.x - this.x);
+                this.pendingBeamAngle = this.rotateTowards(this.pendingBeamAngle, targetAngle, this.beamTelegraphTurnRate * deltaTime);
+            }
+            this.beamTelegraphAngle = this.pendingBeamAngle;
+            this.spikeExtension = 0.6 + Math.min(0.3, (this.beamStateTimer / this.phase3BeamWarmup) * 0.3);
+            if (this.beamStateTimer >= this.phase3BeamWarmup && !isClient) {
+                this.startPhase3Beam(player);
+            }
+        } else if (this.state === 'beamFire') {
+            this.beamStateTimer += deltaTime;
+            this.spikeExtension = Math.max(this.spikeExtension, 0.85);
+            if (this.activeBeamHazard) {
+                this.beamTelegraphAngle = this.activeBeamHazard.angle;
+            }
+            if ((!this.activeBeamHazard || this.beamStateTimer >= this.phase3BeamDuration) && !isClient) {
+                this.endPhase3Beam();
+            }
         } else {
-            this.spikeExtension = 0.6;
+            if (this.hp / this.maxHp < 0.1) {
+                this.spikeExtension = 0.8;
+                if (!this.finalExplosionTriggered && !isClient) {
+                    this.explosiveFinale();
+                    this.finalExplosionTriggered = true;
+                }
+            } else {
+                this.spikeExtension = 0.6;
+            }
+
+            if (this.phase3BeamCooldown <= 0 && !this.activeBeamHazard && !isClient) {
+                this.startPhase3BeamWarmup(player);
+            } else if (this.barrageCooldown <= 0 && !isClient) {
+                this.spikeBarrage();
+                this.barrageCooldown = 4.5;
+            }
         }
-        
-        // Aggressive attacks
-        if (this.barrageCooldown <= 0) {
-            this.spikeBarrage();
-            this.barrageCooldown = 2.0;
-        }
-        
-        if (this.spawnCooldown <= 0 && this.minions.length < 6) {
+
+        if (this.spawnCooldown <= 0 && this.summonGlobalCooldown <= 0 && this.minions.length < this.getPhaseMinionCap() && this.state !== 'beamFire') {
             this.spawnMinions();
-            this.spawnCooldown = 4.0;
+            this.spawnCooldown = 4.5;
         }
-        
-        // Chase player
+
         const dx = player.x - this.x;
         const dy = player.y - this.y;
         if (distance > 0) {
-            this.x += (dx / distance) * this.moveSpeed * deltaTime * 0.8;
-            this.y += (dy / distance) * this.moveSpeed * deltaTime * 0.8;
+            const moveMultiplier = this.state === 'beamFire' ? 0.2 : 0.75;
+            this.x += (dx / distance) * this.moveSpeed * deltaTime * moveMultiplier;
+            this.y += (dy / distance) * this.moveSpeed * deltaTime * moveMultiplier;
         }
+    }
+    
+    startPhase3BeamWarmup(player) {
+        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+        if (isClient) return;
+        this.state = 'beamWarmup';
+        this.beamStateTimer = 0;
+        this.pendingBeamAngle = player ? Math.atan2(player.y - this.y, player.x - this.x) : this.rotationAngle;
+        this.beamTelegraphAngle = this.pendingBeamAngle;
+        this.phase3BeamCooldown = this.phase3BeamInterval;
+        this.activeBeamHazard = null;
+        this.stateTimer = 0;
+        if (typeof Game !== 'undefined') {
+            Game.triggerScreenShake(4, 0.25);
+        }
+    }
+    
+    startPhase3Beam(player) {
+        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+        if (isClient) return;
+        this.state = 'beamFire';
+        this.beamStateTimer = 0;
+        this.stateTimer = 0;
+        const baseAngle = this.pendingBeamAngle;
+        const hazard = this.createBeam({
+            width: 72,
+            length: this.beamInitialLength,
+            maxLength: this.beamMaxLength,
+            lengthGrowthSpeed: this.beamLengthGrowthSpeed,
+            angle: baseAngle,
+            tickInterval: 0.15,
+            damagePerTick: this.damage,
+            turnRate: this.beamFireTurnRate,
+            lifetime: this.phase3BeamDuration,
+            followSource: true,
+            trackPlayer: true
+        });
+        this.pendingBeamAngle = baseAngle;
+        this.beamTelegraphAngle = baseAngle;
+        this.activeBeamHazard = hazard || null;
+        if (typeof Game !== 'undefined') {
+            Game.triggerScreenShake(8, 0.4);
+        }
+    }
+    
+    endPhase3Beam() {
+        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+        if (isClient) {
+            this.beamStateTimer = 0;
+            return;
+        }
+        this.state = 'chase';
+        this.beamStateTimer = 0;
+        this.stateTimer = 0;
+        if (this.activeBeamHazard) {
+            this.activeBeamHazard.expired = true;
+        }
+        this.activeBeamHazard = null;
+        this.phase3BeamCooldown = Math.max(this.phase3BeamCooldown, this.phase3BeamInterval * 0.5);
+    }
+
+    rotateTowards(current, target, maxDelta) {
+        let diff = target - current;
+        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        if (diff > maxDelta) diff = maxDelta;
+        if (diff < -maxDelta) diff = -maxDelta;
+        return current + diff;
     }
     
     // Fire 8 projectiles in star pattern
@@ -341,12 +477,20 @@ class BossSwarmKing extends BossBase {
     spawnMinions() {
         if (typeof Game === 'undefined' || typeof currentRoom === 'undefined') return;
         
-        const count = this.phase === 1 ? 2 + Math.floor(Math.random() * 2) : 
-                     this.phase === 2 ? 4 + Math.floor(Math.random() * 2) : 
-                     5 + Math.floor(Math.random() * 2);
+        const maxTotal = this.maxMinions || 8;
+        const phaseCap = Math.min(maxTotal, this.getPhaseMinionCap());
+        const availableSlots = Math.max(0, phaseCap - this.minions.length);
+        if (availableSlots <= 0 || this.summonGlobalCooldown > 0) return;
         
-        for (let i = 0; i < count; i++) {
-            const angle = (Math.PI * 2 / count) * i;
+        const desiredCount = this.phase === 1 ? 2 + Math.floor(Math.random() * 2) : 
+                             this.phase === 2 ? 3 + Math.floor(Math.random() * 2) : 
+                             5 + Math.floor(Math.random() * 2);
+        
+        const spawnCount = Math.min(availableSlots, 3, desiredCount);
+        if (spawnCount <= 0) return;
+        
+        for (let i = 0; i < spawnCount; i++) {
+            const angle = (Math.PI * 2 / spawnCount) * i;
             const distance = 150 + Math.random() * 50;
             const minionX = this.x + Math.cos(angle) * distance;
             const minionY = this.y + Math.sin(angle) * distance;
@@ -367,6 +511,8 @@ class BossSwarmKing extends BossBase {
             }
             this.minions.push(minion);
         }
+        
+        this.summonGlobalCooldown = this.getSummonGlobalCooldown();
     }
     
     // Spike slam creating shockwave
@@ -417,6 +563,15 @@ class BossSwarmKing extends BossBase {
         this.stateTimer = 0;
         this.rotationSpeed = 0;
         this.spikeExtension = 0;
+        this.activeBeamHazard = null;
+        this.beamStateTimer = 0;
+        this.finalExplosionTriggered = false;
+        this.phase2VolleyCooldown = 0;
+        if (newPhase === 3) {
+            this.phase3BeamCooldown = 1.5;
+        } else {
+            this.phase3BeamCooldown = 0;
+        }
     }
     
     render(ctx) {
@@ -459,6 +614,33 @@ class BossSwarmKing extends BossBase {
         
         ctx.restore();
         
+        if (this.state === 'beamWarmup') {
+            const progress = Math.min(1, this.beamStateTimer / Math.max(0.001, this.phase3BeamWarmup));
+            const telegraphLength = this.beamTelegraphLength * progress;
+            const telegraphWidth = 18;
+            
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.rotate(this.beamTelegraphAngle);
+            
+            ctx.globalAlpha = 0.6 * progress;
+            ctx.strokeStyle = '#ff2a2a';
+            ctx.lineWidth = telegraphWidth;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(telegraphLength, 0);
+            ctx.stroke();
+            
+            ctx.globalAlpha = 0.35 * progress;
+            ctx.lineWidth = telegraphWidth * 0.5;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(telegraphLength, 0);
+            ctx.stroke();
+            
+            ctx.restore();
+        }
+        
         // Render weak points
         this.renderWeakPoints(ctx);
         
@@ -467,6 +649,27 @@ class BossSwarmKing extends BossBase {
         
         // Render health bar
         this.renderHealthBar(ctx);
+    }
+
+    serialize() {
+        const baseState = super.serialize();
+        return {
+            ...baseState,
+            beamStateTimer: this.beamStateTimer,
+            pendingBeamAngle: this.pendingBeamAngle,
+            beamTelegraphAngle: this.beamTelegraphAngle,
+            phase3BeamCooldown: this.phase3BeamCooldown,
+            phase2VolleyCooldown: this.phase2VolleyCooldown
+        };
+    }
+    
+    applyState(state) {
+        super.applyState(state);
+        if (state.beamStateTimer !== undefined) this.beamStateTimer = state.beamStateTimer;
+        if (state.pendingBeamAngle !== undefined) this.pendingBeamAngle = state.pendingBeamAngle;
+        if (state.beamTelegraphAngle !== undefined) this.beamTelegraphAngle = state.beamTelegraphAngle;
+        if (state.phase3BeamCooldown !== undefined) this.phase3BeamCooldown = state.phase3BeamCooldown;
+        if (state.phase2VolleyCooldown !== undefined) this.phase2VolleyCooldown = state.phase2VolleyCooldown;
     }
 }
 

@@ -52,6 +52,11 @@ class EnemyBase {
         // Track last attacker for kill attribution
         this.lastAttacker = null;
         
+        // Contact knockback force applied to players on hit
+        this.contactKnockback = 72;
+        this.damageProjectionMultiplier = 0.9;
+        this.damageProjectionRadius = null;
+        
         // Multiplayer interpolation targets (for clients)
         this.targetX = x;
         this.targetY = y;
@@ -694,6 +699,32 @@ class EnemyBase {
                 this.y += pushY;
             }
         });
+    }
+    
+    // Resolve overlap with players, clones, and decoys to maintain personal space
+    resolvePlayerOverlap(extraBuffer = 1) {
+        const allPlayers = this.getAllAlivePlayers();
+        if (!allPlayers || allPlayers.length === 0) {
+            return;
+        }
+        
+        allPlayers.forEach(({ player }) => {
+            if (!player) return;
+            
+            // Skip dead targets (but allow decoys/clones with health > 0)
+            if (player.alive === false && player.hp !== undefined && player.hp <= 0) {
+                return;
+            }
+            if (player.health !== undefined && player.health <= 0) {
+                return;
+            }
+            
+            resolveEnemyPlayerOverlap(this, player, extraBuffer);
+        });
+        
+        if (typeof this.keepInBounds === 'function') {
+            this.keepInBounds();
+        }
     }
     
     // Add threat to a player (for aggro system)

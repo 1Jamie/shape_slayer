@@ -60,6 +60,15 @@ class Enemy extends EnemyBase {
         
         // Initialize attack range variance for this instance
         this.currentAttackRange = this.attackRange + (Math.random() - 0.5) * this.attackRangeVariance * 2;
+        this.currentAttackRange += 30; // Slightly longer reach to account for projected damage
+        
+        // Minimum distance before entering telegraph (ensures lunge fires before collision-based damage takes over)
+        this.minTelegraphRange = Math.max(60, this.currentAttackRange * 0.9);
+        
+        // Contact knockback tuning
+        this.contactKnockback = 100;
+        this.damageProjectionMultiplier = 1.05;
+        this.damageProjectionRadius = this.size * 0.9;
     }
     
     update(deltaTime) {
@@ -118,9 +127,24 @@ class Enemy extends EnemyBase {
         if (this.state === 'chase') {
             // Normal chase behavior with separation and swarming
             if (distance < this.currentAttackRange && this.attackCooldown <= 0) {
-                // Start telegraph
-                this.state = 'telegraph';
-                this.telegraphElapsed = 0;
+                // Check minimum telegraph range so enemies telegraph before relying on collision damage
+                if (distance > this.minTelegraphRange) {
+                    // Start telegraph
+                    this.state = 'telegraph';
+                    this.telegraphElapsed = 0;
+                } else {
+                    // Too close to properly telegraph: slide back slightly to reset and avoid phasing
+                    const pushDistance = (this.minTelegraphRange - distance) + 1;
+                    const pushX = (this.x - targetX) / distance * pushDistance;
+                    const pushY = (this.y - targetY) / distance * pushDistance;
+                    
+                    this.x += pushX;
+                    this.y += pushY;
+                    
+                    if (this.keepInBounds) {
+                        this.keepInBounds();
+                    }
+                }
             } else {
                 // Apply separation force to avoid crowding
                 const separation = this.getSeparationForce(enemies, BASIC_ENEMY_CONFIG.separationRadius, BASIC_ENEMY_CONFIG.separationStrength);
@@ -195,14 +219,18 @@ class Enemy extends EnemyBase {
         } else if (this.state === 'lunge') {
             // Lunge toward player
             this.lungeElapsed += deltaTime;
-            const lungeDirX = (dx / distance) * this.lungeSpeed;
-            const lungeDirY = (dy / distance) * this.lungeSpeed;
+            const normX = dx / distance;
+            const normY = dy / distance;
+            const moveDistance = this.lungeSpeed * deltaTime;
+            const desiredSpacing = this.size + 24;
+            const maxAllowedMove = Math.max(0, distance - desiredSpacing);
+            const actualMove = Math.min(moveDistance, maxAllowedMove);
             
-            this.x += lungeDirX * deltaTime;
-            this.y += lungeDirY * deltaTime;
+            this.x += normX * actualMove;
+            this.y += normY * actualMove;
             
             // Update rotation to face lunge direction
-            this.rotation = Math.atan2(lungeDirY, lungeDirX);
+            this.rotation = Math.atan2(normY, normX);
             
             if (this.lungeElapsed >= this.lungeDuration) {
                 // End lunge

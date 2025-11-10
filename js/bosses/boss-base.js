@@ -166,13 +166,64 @@ class BossBase extends EnemyBase {
             });
         }
     }
+
+    // Create beam hazard (continuous beam)
+    createBeam(options = {}) {
+        const beamX = options.x !== undefined ? options.x : this.x;
+        const beamY = options.y !== undefined ? options.y : this.y;
+        if (typeof BeamHazard !== 'undefined') {
+            const hazard = new BeamHazard(beamX, beamY, {
+                width: options.width,
+                length: options.length,
+                angle: options.angle,
+                tickInterval: options.tickInterval,
+                damagePerTick: options.damagePerTick !== undefined ? options.damagePerTick : options.damage,
+                turnRate: options.turnRate,
+                followSource: options.followSource !== undefined ? options.followSource : true,
+                trackPlayer: options.trackPlayer !== undefined ? options.trackPlayer : true,
+                lifetime: options.lifetime !== undefined ? options.lifetime : options.duration,
+                originOffsetX: options.originOffsetX || 0,
+                originOffsetY: options.originOffsetY || 0,
+                lengthGrowthSpeed: options.lengthGrowthSpeed || 0,
+                maxLength: options.maxLength,
+                sourceId: this.id
+            });
+            this.addEnvironmentalHazard(hazard);
+            return hazard;
+        }
+        const fallback = {
+            type: 'beam',
+            x: beamX,
+            y: beamY,
+            angle: options.angle || 0,
+            length: options.length || 600,
+            width: options.width || 60,
+            tickInterval: options.tickInterval || 0.1,
+            damagePerTick: options.damagePerTick !== undefined ? options.damagePerTick : (options.damage || this.damage),
+            turnRate: options.turnRate !== undefined ? options.turnRate : Math.PI,
+            followSource: options.followSource !== undefined ? options.followSource : true,
+            trackPlayer: options.trackPlayer !== undefined ? options.trackPlayer : true,
+            lifetime: options.lifetime !== undefined ? options.lifetime : (options.duration || 2.0),
+            elapsed: 0,
+            expired: false,
+            pendingTicks: 0,
+            tickAccumulator: 0,
+            originOffsetX: options.originOffsetX || 0,
+            originOffsetY: options.originOffsetY || 0
+        };
+        this.addEnvironmentalHazard(fallback);
+        return fallback;
+    }
     
     // Update all environmental hazards
-    updateHazards(deltaTime) {
+    updateHazards(deltaTime, player = null) {
         // Update each hazard
         this.environmentalHazards.forEach(hazard => {
             if (hazard.update) {
-                hazard.update(deltaTime);
+                hazard.update(deltaTime, {
+                    boss: this,
+                    targetPlayer: player
+                });
             } else {
                 // Fallback for inline objects
                 hazard.elapsed += deltaTime;
@@ -195,6 +246,8 @@ class BossBase extends EnemyBase {
     // Check player collision with hazards (called from boss update)
     checkHazardCollisions(player, deltaTime) {
         if (!player || !player.alive || player.invulnerable) return;
+        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+        if (isClient) return;
         
         this.environmentalHazards.forEach(hazard => {
             if (hazard.expired) return;
@@ -409,6 +462,19 @@ class BossBase extends EnemyBase {
                                 spiralAngle + i * Math.PI, spiralAngle + i * Math.PI + Math.PI * 1.5);
                         ctx.stroke();
                     }
+                } else if (hazard.type === 'beam') {
+                    const width = hazard.width || 60;
+                    const length = hazard.length || 600;
+                    const angle = hazard.angle || 0;
+                    ctx.translate(hazard.x || 0, hazard.y || 0);
+                    ctx.rotate(angle);
+                    ctx.globalAlpha = 0.5;
+                    ctx.fillStyle = '#ff8c00';
+                    ctx.fillRect(0, -width / 2, length, width);
+                    ctx.globalAlpha = 0.85;
+                    ctx.fillStyle = '#ffe9a6';
+                    ctx.fillRect(0, -width * 0.3, length, width * 0.6);
+                    ctx.globalAlpha = 1.0;
                 }
                 
                 ctx.restore();
@@ -428,12 +494,23 @@ class BossBase extends EnemyBase {
     // Override serialize to include Boss-specific state
     serialize() {
         const baseState = super.serialize();
+        const hazardStates = this.environmentalHazards.map(hazard => {
+            if (!hazard) return null;
+            if (typeof hazard.serialize === 'function') {
+                return hazard.serialize();
+            }
+            // Fallback for plain objects
+            return {
+                ...hazard
+            };
+        }).filter(Boolean);
         return {
             ...baseState,
             // Boss-specific properties
             bossName: this.bossName,
             phase: this.phase,
-            introComplete: this.introComplete
+            introComplete: this.introComplete,
+            environmentalHazards: hazardStates
         };
     }
     
@@ -443,6 +520,23 @@ class BossBase extends EnemyBase {
         // Boss-specific properties
         if (state.phase !== undefined) this.phase = state.phase;
         if (state.introComplete !== undefined) this.introComplete = state.introComplete;
+        if (state.environmentalHazards !== undefined) {
+            if (Array.isArray(state.environmentalHazards) && typeof createHazardFromState === 'function') {
+                this.environmentalHazards = state.environmentalHazards.map(hazardState => {
+                    const hazard = createHazardFromState(hazardState);
+                    if (hazard) return hazard;
+                    return {
+                        ...hazardState
+                    };
+                }).filter(Boolean);
+            } else if (Array.isArray(state.environmentalHazards)) {
+                this.environmentalHazards = state.environmentalHazards.map(hazardState => ({
+                    ...hazardState
+                }));
+            } else {
+                this.environmentalHazards = [];
+            }
+        }
     }
 }
 

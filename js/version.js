@@ -281,6 +281,13 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
         '0.5.2': `**🩹 HOTFIX: DAMAGE CONTROL (LITERALLY) QOL** (11/09/2025)
 *"Remember how you hit for 5,500 damage in Room 23? Yeah, that wasn't 'build craft'. That was a math crime."*
 
+**👑 Swarm King: Beam Therapy & Minion Management**
+• Apparently letting the Swarm King instantly summon a toddler daycare worth of minions while firing a laser that ignores physics wasn't great for mortal networking stacks. So we gave the monarch *structure*:
+  - Beam now stares you down for a dramatic 2.1 seconds, paints a neon "you're doomed" line, and only turns at sensible speeds (~28°/s during telegraph).
+  - The actual laser rotates even slower (~22°/s), grows out at a humane pace, and shares the same angle as the telegraph, so no blink-to-face melt cheese.
+  - Minions are capped per phase (3 → 5 → 8) and spawn in bite-sized packs of three with a global cooldown (5s → 4s → 3s as the fight escalates).
+  - Phase 3 beam is now a proper set-piece instead of a networking denial-of-service attack. Host CPU exhales; client FPS stands a chance. The world is safe once again.
+
 **🎯 Player Damage Rehab**
 • Legendary effects (hi Glass Cannon 👋) now boost damage WITHOUT secretly rewriting your DNA every time stats recalc.
   *"One-time buff, not a pyramid scheme."*
@@ -323,6 +330,7 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 • Can always easily find the door now.
 • Legendary gear now stays in its own lane and does have a double identity crisis.
 • Dashes feel elastic and dramatic without needing a goth teen sponsorship from hot topic.
+• Swarm King's final phase is now a dramatic duel instead of a networking stress test disguised as a boss fight; your router can keep its dignity. 
 
 *TL;DR:* Damage numbers are back on a leash. You can still break the game—just not by accident. You're welcome.*
 `

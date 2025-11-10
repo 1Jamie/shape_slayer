@@ -2152,6 +2152,11 @@ const Game = {
                         return;
                     }
                     enemy.update(deltaTime);
+                    
+                    // Prevent default overlap with players unless ability explicitly allows it
+                    if (enemy.resolvePlayerOverlap) {
+                        enemy.resolvePlayerOverlap();
+                    }
                 }
             });
         } else {

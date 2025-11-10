@@ -68,7 +68,7 @@ class BossFractalCore extends BossBase {
         
         this.processKnockback(deltaTime);
         this.checkPhaseTransition();
-        this.updateHazards(deltaTime);
+        this.updateHazards(deltaTime, player);
         this.checkHazardCollisions(player, deltaTime);
         this.updateWeakPoints(deltaTime);
         

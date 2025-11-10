@@ -73,6 +73,15 @@ const DebugPanel = {
                     <button id="debugWarpBtn" style="padding: 6px 12px; background: #1a1a2e; border: 1px solid #00ff00; color: #00ff00; cursor: pointer; border-radius: 4px; transition: all 0.2s;" onmouseover="this.style.background='#2a2a3e'; this.style.borderColor='#88ff88';" onmouseout="this.style.background='#1a1a2e'; this.style.borderColor='#00ff00';">Warp</button>
                 </div>
             </div>
+            <div id="debugBossSection" style="margin-top: 12px; padding-top: 10px; border-top: 1px solid #ffaa00; display: none;">
+                <div style="margin-bottom: 6px; font-weight: bold; color: #ffaa00;">Boss Phase Controls</div>
+                <div style="margin-bottom: 10px; font-size: 12px; color: #ffdd88;">Current Phase: <span id="debugBossPhase">-</span></div>
+                <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                    <button class="debug-boss-phase-btn" data-phase="1" style="flex: 1; min-width: 65px; padding: 6px; background: #1a1a2e; border: 1px solid #77ff77; color: #77ff77; cursor: pointer; border-radius: 4px; transition: all 0.2s;" onmouseover="this.style.background='#2b2b3f'; this.style.borderColor='#aaffaa';" onmouseout="this.style.background='#1a1a2e'; this.style.borderColor='#77ff77';">Phase 1</button>
+                    <button class="debug-boss-phase-btn" data-phase="2" style="flex: 1; min-width: 65px; padding: 6px; background: #332200; border: 1px solid #ffaa00; color: #ffaa00; cursor: pointer; border-radius: 4px; transition: all 0.2s;" onmouseover="this.style.background='#443100'; this.style.borderColor='#ffcc33';" onmouseout="this.style.background='#332200'; this.style.borderColor='#ffaa00';">Phase 2</button>
+                    <button class="debug-boss-phase-btn" data-phase="3" style="flex: 1; min-width: 65px; padding: 6px; background: #3a0000; border: 1px solid #ff4444; color: #ff4444; cursor: pointer; border-radius: 4px; transition: all 0.2s;" onmouseover="this.style.background='#550000'; this.style.borderColor='#ff7777';" onmouseout="this.style.background='#3a0000'; this.style.borderColor='#ff4444';">Phase 3</button>
+                </div>
+            </div>
             <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #00ff00; font-size: 11px; color: #88ff88;">
                 <div>Ctrl+D to toggle</div>
                 <div>DebugPanel.toggle() in console</div>
@@ -121,6 +130,15 @@ const DebugPanel = {
                     this.warpToRoom(roomNum);
                 }
             }
+        });
+
+        // Boss phase buttons
+        const bossPhaseButtons = this.panelElement.querySelectorAll('.debug-boss-phase-btn');
+        bossPhaseButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const targetPhase = parseInt(btn.getAttribute('data-phase'));
+                this.setBossPhase(targetPhase);
+            });
         });
     },
     
@@ -231,6 +249,107 @@ const DebugPanel = {
         if (roomDisplay && typeof Game !== 'undefined') {
             roomDisplay.textContent = Game.roomNumber || 1;
         }
+
+        this.updateBossSection();
+    },
+
+    getCurrentBoss() {
+        if (typeof Game === 'undefined' || !Game.enemies || !Array.isArray(Game.enemies)) {
+            return null;
+        }
+        
+        for (let i = 0; i < Game.enemies.length; i++) {
+            const enemy = Game.enemies[i];
+            if (enemy && enemy.isBoss) {
+                return enemy;
+            }
+        }
+        
+        return null;
+    },
+    
+    updateBossSection() {
+        if (!this.panelElement) return;
+        
+        const section = this.panelElement.querySelector('#debugBossSection');
+        if (!section) return;
+        
+        const boss = this.getCurrentBoss();
+        const phaseDisplay = this.panelElement.querySelector('#debugBossPhase');
+        const inBossRoom = (
+            (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'boss') ||
+            (boss && boss.isBoss)
+        );
+        
+        section.style.display = inBossRoom ? 'block' : 'none';
+        
+        const phaseButtons = section.querySelectorAll('.debug-boss-phase-btn');
+        phaseButtons.forEach(btn => {
+            if (boss) {
+                btn.disabled = false;
+                btn.style.opacity = '1';
+                btn.style.cursor = 'pointer';
+            } else {
+                btn.disabled = true;
+                btn.style.opacity = '0.5';
+                btn.style.cursor = 'not-allowed';
+            }
+        });
+        
+        if (phaseDisplay) {
+            phaseDisplay.textContent = boss && boss.phase ? boss.phase : '-';
+        }
+    },
+    
+    setBossPhase(targetPhase) {
+        const boss = this.getCurrentBoss();
+        if (!boss) {
+            console.warn('[Debug] No boss available for phase control');
+            this.updateBossSection();
+            return;
+        }
+        
+        if (![1, 2, 3].includes(targetPhase)) {
+            console.warn(`[Debug] Unsupported phase target: ${targetPhase}`);
+            return;
+        }
+        
+        const previousPhase = boss.phase;
+        const maxHp = boss.maxHp || 1;
+        let newHp = maxHp;
+        
+        if (targetPhase === 1) {
+            newHp = maxHp;
+        } else if (targetPhase === 2) {
+            newHp = Math.max(1, Math.floor(maxHp * 0.49));
+        } else if (targetPhase === 3) {
+            newHp = Math.max(1, Math.floor(maxHp * 0.24));
+        }
+        
+        boss.hp = Math.min(maxHp, newHp);
+        boss.phase = targetPhase;
+        boss.lastPhase = targetPhase;
+        
+        if (typeof boss.stateTimer !== 'undefined') {
+            boss.stateTimer = 0;
+        }
+        
+        if (typeof boss.onPhaseTransition === 'function' && previousPhase !== targetPhase) {
+            boss.onPhaseTransition(previousPhase, targetPhase);
+        }
+        
+        if (typeof boss.checkPhaseTransition === 'function') {
+            boss.checkPhaseTransition();
+        }
+        
+        if (typeof boss.updateBossUI === 'function') {
+            boss.updateBossUI();
+        }
+        
+        this.updateBossSection();
+        
+        const bossName = boss.bossName || 'Boss';
+        console.log(`[DEBUG] Forced ${bossName} to Phase ${boss.phase}`);
     },
     
     // Update display periodically (called from game loop)

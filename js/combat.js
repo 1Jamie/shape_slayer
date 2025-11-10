@@ -9,12 +9,26 @@ function checkCircleCollision(x1, y1, r1, x2, y2, r2) {
 }
 
 // Resolve positional overlap between an enemy and a player by pushing the enemy out
-function resolveEnemyPlayerOverlap(enemy, player) {
+function resolveEnemyPlayerOverlap(enemy, player, extraBuffer = 0) {
     if (!enemy || !player) return;
+
+    // Skip separation when either side is in a state that intentionally permits overlap (e.g., dodge roll, lunge)
+    const playerAllowsOverlap =
+        (player.isDodging === true) ||
+        (typeof player.isInSpecialMovement === 'function' && player.isInSpecialMovement());
+    
+    const enemyState = enemy.state || null;
+    const enemyAllowsOverlap =
+        enemy.allowOverlapDuringAbility === true ||
+        (enemyState && ['dash', 'charge', 'slam'].includes(enemyState));
+    
+    if (playerAllowsOverlap || enemyAllowsOverlap) {
+        return;
+    }
 
     const playerRadius = player.collisionRadius || player.size || 20;
     const enemyRadius = enemy.collisionRadius || enemy.size || 20;
-    const minimumSeparation = playerRadius + enemyRadius;
+    const minimumSeparation = playerRadius + enemyRadius + extraBuffer;
 
     let dx = enemy.x - player.x;
     let dy = enemy.y - player.y;
@@ -35,7 +49,7 @@ function resolveEnemyPlayerOverlap(enemy, player) {
     const overlap = minimumSeparation - distance;
     const normalX = dx / distance;
     const normalY = dy / distance;
-    const pushDistance = overlap + 0.5; // Small buffer to avoid immediate re-overlap
+    const pushDistance = overlap;
 
     enemy.x += normalX * pushDistance;
     enemy.y += normalY * pushDistance;
@@ -59,6 +73,62 @@ function resolveEnemyPlayerOverlap(enemy, player) {
             enemy.knockbackVy -= relativeKnockback * normalY;
         }
     }
+}
+
+// Get a projected damage point in front of an enemy so contact damage applies without overlapping the player
+function getEnemyDamagePoint(enemy, targetPlayer = null) {
+    if (!enemy) {
+        return { x: 0, y: 0, radius: 10 };
+    }
+    
+    const enemyRadius = enemy.collisionRadius || enemy.size || 20;
+    const projectionMultiplier = enemy.damageProjectionMultiplier || 0.9; // Distance out from enemy center
+    const projectedRadius = enemy.damageProjectionRadius || Math.max(8, enemyRadius * 0.7);
+    
+    let dirX = 0;
+    let dirY = 0;
+    
+    // Primary: use facing rotation if available
+    if (typeof enemy.rotation === 'number') {
+        dirX = Math.cos(enemy.rotation);
+        dirY = Math.sin(enemy.rotation);
+    }
+    
+    // Fallback: use velocity vector
+    if (dirX === 0 && dirY === 0 && enemy.vx !== undefined && enemy.vy !== undefined) {
+        const speedSq = enemy.vx * enemy.vx + enemy.vy * enemy.vy;
+        if (speedSq > 0.001) {
+            const speed = Math.sqrt(speedSq);
+            dirX = enemy.vx / speed;
+            dirY = enemy.vy / speed;
+        }
+    }
+    
+    // Fallback: aim directly at target player
+    if ((dirX === 0 && dirY === 0) && targetPlayer) {
+        const dx = targetPlayer.x - enemy.x;
+        const dy = targetPlayer.y - enemy.y;
+        const distSq = dx * dx + dy * dy;
+        if (distSq > 0.001) {
+            const dist = Math.sqrt(distSq);
+            dirX = dx / dist;
+            dirY = dy / dist;
+        }
+    }
+    
+    // Final fallback: point to the right
+    if (dirX === 0 && dirY === 0) {
+        dirX = 1;
+        dirY = 0;
+    }
+    
+    const projectionDistance = enemyRadius * projectionMultiplier;
+    
+    return {
+        x: enemy.x + dirX * projectionDistance,
+        y: enemy.y + dirY * projectionDistance,
+        radius: projectedRadius
+    };
 }
 
 // Calculate final damage with all modifiers
@@ -438,33 +508,66 @@ function checkEnemiesVsPlayer(player, enemies) {
         if (!enemy.alive) return;
         
         playersToCheck.forEach(({ id, player: p, isPlayerInstance }) => {
-            if (checkCircleCollision(enemy.x, enemy.y, enemy.size, 
-                                     p.x, p.y, p.size || 20)) {
-                resolveEnemyPlayerOverlap(enemy, p);
-
+            const playerRadius = p.collisionRadius || p.size || 20;
+            const enemyRadius = enemy.collisionRadius || enemy.size || 20;
+            
+            // Project damage point in front of enemy
+            const damagePoint = getEnemyDamagePoint(enemy, p);
+            const hasProjectedHit = checkCircleCollision(damagePoint.x, damagePoint.y, damagePoint.radius,
+                                                         p.x, p.y, playerRadius);
+            
+            if (hasProjectedHit) {
                 const cooldownKey = `${enemy.id}-${id}`;
                 const lastDamageTime = checkEnemiesVsPlayer.damageCooldowns.get(cooldownKey) || 0;
                 
-                if (currentTime - lastDamageTime < damageCooldownMs) {
-                    return;
-                }
-                
-                // Get local player ID for comparison
-                const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local';
-                
-                // Distinguish between local and remote players
-                if (id === localPlayerId) {
-                    // Local player: call takeDamage directly (pass enemy for thorns)
-                    p.takeDamage(enemy.damage, enemy);
-                } else {
-                    // Remote player: use damageRemotePlayer to track on host
-                    // HP syncs to clients via game_state, not individual damage events
-                    if (typeof Game !== 'undefined' && Game.damageRemotePlayer) {
-                        Game.damageRemotePlayer(id, enemy.damage);
+                if (currentTime - lastDamageTime >= damageCooldownMs) {
+                    // Get local player ID for comparison
+                    const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local';
+                    
+                    // Distinguish between local and remote players
+                    if (id === localPlayerId) {
+                        // Local player: call takeDamage directly (pass enemy for thorns)
+                        p.takeDamage(enemy.damage, enemy);
+                    } else {
+                        // Remote player: use damageRemotePlayer to track on host
+                        // HP syncs to clients via game_state, not individual damage events
+                        if (typeof Game !== 'undefined' && Game.damageRemotePlayer) {
+                            Game.damageRemotePlayer(id, enemy.damage);
+                        }
+                    }
+                    
+                    checkEnemiesVsPlayer.damageCooldowns.set(cooldownKey, currentTime);
+                    
+                    // Apply directional knockback to the player based on enemy momentum
+                    if (typeof p.applyDamageKnockback === 'function') {
+                        let impactDirX;
+                        let impactDirY;
+                        
+                        if (typeof enemy.rotation === 'number') {
+                            impactDirX = Math.cos(enemy.rotation);
+                            impactDirY = Math.sin(enemy.rotation);
+                        }
+                        
+                        if ((impactDirX === undefined || impactDirY === undefined) ||
+                            (impactDirX === 0 && impactDirY === 0)) {
+                            const dirX = p.x - enemy.x;
+                            const dirY = p.y - enemy.y;
+                            const dirDist = Math.sqrt(dirX * dirX + dirY * dirY);
+                            if (dirDist > 0) {
+                                impactDirX = dirX / dirDist;
+                                impactDirY = dirY / dirDist;
+                            } else {
+                                impactDirX = 1;
+                                impactDirY = 0;
+                            }
+                        }
+                        
+                        const knockbackStrength = enemy.contactKnockback || 120;
+                        p.applyDamageKnockback(impactDirX * knockbackStrength, impactDirY * knockbackStrength);
                     }
                 }
                 
-                checkEnemiesVsPlayer.damageCooldowns.set(cooldownKey, currentTime);
+                resolveEnemyPlayerOverlap(enemy, p);
             }
         });
     });

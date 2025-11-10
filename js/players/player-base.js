@@ -150,6 +150,12 @@ class PlayerBase {
         this.pullForceVy = 0;
         this.pullDecay = 0.85; // Per second decay rate
         
+        // Damage knockback system (receiving knockback from enemies)
+        this.damageKnockbackVx = 0;
+        this.damageKnockbackVy = 0;
+        this.damageKnockbackDecay = 0.35;
+        this.knockbackResistance = 1.0; // Higher = less displacement from hits
+        
         // Interpolation targets (for multiplayer client smoothing)
         this.targetX = null;
         this.targetY = null;
@@ -198,6 +204,9 @@ class PlayerBase {
             this.vx = this.dodgeVx;
             this.vy = this.dodgeVy;
         }
+        
+        // Apply knockback from enemy hits before normal movement handling
+        this.processDamageKnockback(deltaTime);
         
         // Process pull forces (apply before normal movement)
         this.processPullForces(deltaTime);
@@ -1757,6 +1766,29 @@ class PlayerBase {
         }
     }
     
+    // Apply immediate knockback impulse from enemy damage
+    applyDamageKnockback(forceX, forceY) {
+        // Higher resistance = less knockback received
+        const resistance = Math.max(0.1, this.knockbackResistance || 1.0);
+        this.damageKnockbackVx += (forceX || 0) / resistance;
+        this.damageKnockbackVy += (forceY || 0) / resistance;
+    }
+    
+    processDamageKnockback(deltaTime) {
+        if (this.damageKnockbackVx !== 0 || this.damageKnockbackVy !== 0) {
+            this.x += this.damageKnockbackVx * deltaTime;
+            this.y += this.damageKnockbackVy * deltaTime;
+            
+            // Decay knockback over time (faster decay = quicker recovery)
+            const decayFactor = Math.pow(this.damageKnockbackDecay, deltaTime);
+            this.damageKnockbackVx *= decayFactor;
+            this.damageKnockbackVy *= decayFactor;
+            
+            if (Math.abs(this.damageKnockbackVx) < 0.1) this.damageKnockbackVx = 0;
+            if (Math.abs(this.damageKnockbackVy) < 0.1) this.damageKnockbackVy = 0;
+        }
+    }
+    
     // Get current stats as object
     getCurrentStats() {
         return {
@@ -2829,10 +2861,11 @@ class PlayerBase {
         
         ctx.restore();
         ctx.restore();
+        const orbitSpeedFactor = 0.2;
         
         // Draw weapon orbiting visual (simple indicator, not the wave rings)
         if (this.weapon) {
-            const weaponTime = Date.now() * 0.001;
+            const weaponTime = Date.now() * 0.001 * orbitSpeedFactor;
             const weaponRadius = this.size + 10;
             const weaponX = this.x + Math.cos(weaponTime * 2) * weaponRadius;
             const weaponY = this.y + Math.sin(weaponTime * 2) * weaponRadius;
@@ -2845,7 +2878,7 @@ class PlayerBase {
         
         // Draw accessory trailing dots
         if (this.accessory) {
-            const accTime = Date.now() * 0.002;
+            const accTime = Date.now() * 0.002 * orbitSpeedFactor;
             const accRadius = this.size - 5;
             const accX = this.x + Math.cos(accTime * 2 + Math.PI) * accRadius;
             const accY = this.y + Math.sin(accTime * 2 + Math.PI) * accRadius;
