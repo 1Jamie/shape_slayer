@@ -40,6 +40,23 @@ class MultiplayerManager {
         this.playerStateBatchInterval = 80; // Flush every ~80ms
         this.lastPlayerBatchFlush = 0;
         this.playerLastUpdateTimes = new Map();
+        
+        // Sequence number tracking for game_state (host only)
+        this.gameStateSequence = 0; // Increments on each game_state send, wraps at 32-bit max
+        
+        // Client-side sequence tracking and packet loss detection
+        this.expectedSequence = null; // Next expected sequence number
+        this.sequenceBuffer = new Map(); // Buffer for out-of-order packets: Map<sequence, {data, timestamp}>
+        this.lastResyncRequest = 0; // Timestamp of last resync request
+        this.packetLossCount = 0; // Count of detected packet losses
+        this.packetArrivalTimes = []; // Array of packet arrival timestamps for jitter calculation
+        this.maxPacketArrivalSamples = 20; // Keep last 20 arrival times for jitter calculation
+        
+        // Client-side prediction with rollback
+        this.inputHistory = []; // Array of {timestamp, input, position} for rollback
+        this.maxInputHistorySize = 60; // Keep ~1 second of history at 60fps
+        this.lastConfirmedState = null; // Last state confirmed by host
+        this.predictionEnabled = true; // Enable/disable prediction
     }
     
     // Connect to multiplayer server
@@ -384,6 +401,10 @@ class MultiplayerManager {
         if (!payload) {
             return;
         }
+        
+        // Increment sequence number for this game_state (wraps at 32-bit max)
+        this.gameStateSequence = (this.gameStateSequence + 1) & 0xFFFFFFFF;
+        payload.sequence = this.gameStateSequence;
         
         this.send({
             type: 'game_state',
@@ -911,6 +932,20 @@ class MultiplayerManager {
         // Otherwise serialize fresh input (for initial states)
         const inputState = this.cachedInputSnapshot || this.serializeInput();
         
+        // Store input history for rollback (client-side prediction)
+        if (this.predictionEnabled && !this.isHost && Game.player) {
+            this.inputHistory.push({
+                timestamp: clientTimestamp,
+                input: this.deepClone(inputState),
+                position: { x: Game.player.x, y: Game.player.y, rotation: Game.player.rotation }
+            });
+            
+            // Limit history size
+            if (this.inputHistory.length > this.maxInputHistorySize) {
+                this.inputHistory.shift();
+            }
+        }
+        
         // Debug: Log when sending button releases for abilities
         if (inputState.isTouchMode && inputState.touchButtons) {
             for (const [name, button] of Object.entries(inputState.touchButtons)) {
@@ -1303,8 +1338,56 @@ class MultiplayerManager {
             interpolationManager = initInterpolation();
         }
         
-        // Calculate RTT using server timestamps for accurate measurement
         const now = Date.now();
+        const sequence = data.sequence;
+        
+        // Track packet arrival time for jitter calculation
+        if (sequence !== undefined) {
+            this.packetArrivalTimes.push(now);
+            if (this.packetArrivalTimes.length > this.maxPacketArrivalSamples) {
+                this.packetArrivalTimes.shift();
+            }
+        }
+        
+        // Handle sequence tracking
+        if (sequence !== undefined) {
+            if (this.expectedSequence === null) {
+                // First packet - initialize expected sequence
+                this.expectedSequence = sequence + 1;
+            } else {
+                // Check for sequence gaps or out-of-order packets
+                const sequenceDiff = this.sequenceDifference(sequence, this.expectedSequence - 1);
+                
+                if (sequenceDiff < 0) {
+                    // Out-of-order packet (arrived late) - buffer it
+                    if (this.sequenceBuffer.size < (MultiplayerConfig.SEQUENCE_BUFFER_SIZE || 10)) {
+                        this.sequenceBuffer.set(sequence, { data, timestamp: now });
+                    }
+                    // Don't process out-of-order packets immediately
+                    return;
+                } else if (sequenceDiff > 0) {
+                    // Gap detected - missing packets
+                    const gapSize = sequenceDiff;
+                    this.packetLossCount += gapSize;
+                    
+                    // Check if gap exceeds threshold
+                    const maxGap = MultiplayerConfig.MAX_SEQUENCE_GAP || 3;
+                    if (gapSize > maxGap && (now - this.lastResyncRequest) > (MultiplayerConfig.RESYNC_REQUEST_COOLDOWN || 1000)) {
+                        console.warn(`[Multiplayer] Sequence gap detected: expected ${this.expectedSequence}, got ${sequence} (gap: ${gapSize}). Requesting resync.`);
+                        this.requestResync();
+                        this.lastResyncRequest = now;
+                    }
+                }
+                
+                // Update expected sequence
+                this.expectedSequence = sequence + 1;
+                
+                // Process any buffered packets that are now in order
+                this.processBufferedPackets();
+            }
+        }
+        
+        // Calculate RTT using server timestamps for accurate measurement
         let rtt = null;
         
         // Use server timestamps if available (more accurate)
@@ -1335,9 +1418,15 @@ class MultiplayerManager {
             const avgRtt = this.rttSamples.reduce((a, b) => a + b, 0) / this.rttSamples.length;
             this.currentRTT = avgRtt;
             
-            // Update interpolation manager with latency
+            // Update interpolation manager with latency and jitter
             if (typeof interpolationManager !== 'undefined' && interpolationManager) {
                 interpolationManager.updateLatency(this.currentRTT);
+                
+                // Calculate and update jitter
+                const metrics = this.getPacketMetrics();
+                if (metrics.jitter !== undefined) {
+                    interpolationManager.updateJitter(metrics.jitter);
+                }
             }
         }
         
@@ -1347,6 +1436,13 @@ class MultiplayerManager {
         if (data.full === true || data.state) {
             const fullState = data.state || data;
             this.latestGameState = this.deepClone(fullState);
+            // Reset sequence tracking on full state
+            if (sequence !== undefined) {
+                this.expectedSequence = sequence + 1;
+                this.sequenceBuffer.clear();
+            }
+            // Reset prediction state on full sync
+            this.lastConfirmedState = null;
             this.applyGameState(fullState);
             return;
         }
@@ -1359,6 +1455,151 @@ class MultiplayerManager {
         const merged = this.mergeGameStateDelta(data);
         if (merged) {
             this.applyGameState(merged);
+        }
+    }
+    
+    // Calculate sequence difference handling wraparound (32-bit)
+    sequenceDifference(seq1, seq2) {
+        const diff = (seq1 - seq2) & 0xFFFFFFFF;
+        // Convert to signed 32-bit integer
+        if (diff > 0x7FFFFFFF) {
+            return diff - 0x100000000;
+        }
+        return diff;
+    }
+    
+    // Process buffered packets that are now in order
+    processBufferedPackets() {
+        const processed = [];
+        const now = Date.now();
+        
+        // Find packets that are now in order
+        for (const [seq, packet] of this.sequenceBuffer.entries()) {
+            const diff = this.sequenceDifference(seq, this.expectedSequence - 1);
+            if (diff === 0) {
+                // This packet is now in order
+                processed.push(seq);
+                // Process it (recursive call, but with sequence already validated)
+                const data = packet.data;
+                
+                // Update expected sequence
+                this.expectedSequence = seq + 1;
+                
+                // Apply the buffered state
+                if (data.full === true || data.state) {
+                    const fullState = data.state || data;
+                    this.latestGameState = this.deepClone(fullState);
+                    this.applyGameState(fullState);
+                } else if (this.latestGameState) {
+                    const merged = this.mergeGameStateDelta(data);
+                    if (merged) {
+                        this.applyGameState(merged);
+                    }
+                }
+            } else if (diff < 0) {
+                // This packet is still out of order, but might be too old
+                const age = now - packet.timestamp;
+                if (age > 1000) {
+                    // Packet is too old, discard it
+                    processed.push(seq);
+                }
+            }
+        }
+        
+        // Remove processed packets from buffer
+        processed.forEach(seq => this.sequenceBuffer.delete(seq));
+    }
+    
+    // Request resync from host (request full state)
+    requestResync() {
+        console.log('[Multiplayer] Requesting resync from host');
+        // Send resync request - host will send full state on next update
+        // We can also force a full state by clearing latestGameState
+        this.latestGameState = null;
+        this.expectedSequence = null;
+        this.sequenceBuffer.clear();
+    }
+    
+    // Get packet loss and jitter metrics
+    getPacketMetrics() {
+        // Calculate packet loss rate (packets lost / total expected)
+        const totalExpected = this.packetLossCount + (this.expectedSequence !== null ? this.expectedSequence : 0);
+        const packetLossRate = totalExpected > 0 ? (this.packetLossCount / totalExpected) : 0;
+        
+        // Calculate jitter (variance in packet arrival times)
+        let jitter = 0;
+        if (this.packetArrivalTimes.length >= 2) {
+            const intervals = [];
+            for (let i = 1; i < this.packetArrivalTimes.length; i++) {
+                intervals.push(this.packetArrivalTimes[i] - this.packetArrivalTimes[i - 1]);
+            }
+            
+            if (intervals.length > 0) {
+                const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+                const variance = intervals.reduce((sum, interval) => {
+                    const diff = interval - avgInterval;
+                    return sum + (diff * diff);
+                }, 0) / intervals.length;
+                jitter = Math.sqrt(variance); // Standard deviation
+            }
+        }
+        
+        return {
+            packetLossCount: this.packetLossCount,
+            packetLossRate: packetLossRate,
+            jitter: jitter,
+            currentRTT: this.currentRTT,
+            expectedSequence: this.expectedSequence,
+            bufferedPackets: this.sequenceBuffer.size
+        };
+    }
+    
+    // Handle prediction rollback when host correction arrives
+    handlePredictionRollback(hostState) {
+        if (!Game.player || !this.lastConfirmedState) return;
+        
+        // Calculate difference between predicted and authoritative state
+        const predictedX = Game.player.x;
+        const predictedY = Game.player.y;
+        const authoritativeX = hostState.x;
+        const authoritativeY = hostState.y;
+        
+        const dx = authoritativeX - predictedX;
+        const dy = authoritativeY - predictedY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        // Only rollback if difference is significant (more than 5 pixels)
+        // For smaller differences, let interpolation handle it smoothly
+        if (distance > 5) {
+            // Smooth rollback: Update interpolation targets instead of snapping
+            // This allows the interpolation system to smoothly correct the position
+            if (Game.player.targetX !== undefined) {
+                Game.player.targetX = authoritativeX;
+                Game.player.targetY = authoritativeY;
+                if (hostState.rotation !== undefined) {
+                    Game.player.targetRotation = hostState.rotation;
+                }
+            } else {
+                // Fallback: direct update if targets not available
+                Game.player.x = authoritativeX;
+                Game.player.y = authoritativeY;
+                if (hostState.rotation !== undefined) {
+                    Game.player.rotation = hostState.rotation;
+                }
+            }
+            
+            // Clean up input history older than confirmed state timestamp
+            const confirmedTime = this.lastConfirmedState.timestamp;
+            this.inputHistory = this.inputHistory.filter(entry => entry.timestamp >= confirmedTime);
+        } else {
+            // Small difference - just update targets for smooth correction
+            if (Game.player.targetX !== undefined) {
+                Game.player.targetX = authoritativeX;
+                Game.player.targetY = authoritativeY;
+                if (hostState.rotation !== undefined) {
+                    Game.player.targetRotation = hostState.rotation;
+                }
+            }
         }
     }
     
@@ -2341,6 +2582,19 @@ class MultiplayerManager {
             state.players.forEach(playerData => {
                 if (playerData.id === this.playerId) {
                     // This is our player - apply authoritative state from host
+                    // Handle client-side prediction rollback if enabled
+                    if (this.predictionEnabled && !this.isHost && this.lastConfirmedState) {
+                        this.handlePredictionRollback(playerData);
+                    }
+                    
+                    // Store confirmed state for rollback
+                    this.lastConfirmedState = {
+                        x: playerData.x,
+                        y: playerData.y,
+                        rotation: playerData.rotation,
+                        timestamp: Date.now()
+                    };
+                    
                     // Let the player apply its own state! (clean architecture)
                     if (typeof Game !== 'undefined' && Game.player && Game.player.applyState) {
                         Game.player.applyState(playerData);

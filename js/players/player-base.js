@@ -1639,7 +1639,7 @@ class PlayerBase {
                 this.knockbackMultiplier += affix.value; 
                 break;
             case 'dodgeCharges': 
-                this.bonusDodgeCharges += affix.value; 
+                this.bonusDodgeCharges += Math.floor(affix.value); 
                 break;
             case 'maxHealth': 
                 this.bonusMaxHealth += affix.value; 

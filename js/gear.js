@@ -270,7 +270,12 @@ function generateAffixes(gearTier, slot) {
             const selected = compatible[selectedIndex];
             compatible.splice(selectedIndex, 1); // Remove to prevent duplicates
             
-            const value = selected.data.min + Math.random() * (selected.data.max - selected.data.min);
+            let value = selected.data.min + Math.random() * (selected.data.max - selected.data.min);
+            // Round integer affixes to whole numbers
+            const integerAffixes = ['dodgeCharges', 'maxHealth', 'pierce', 'chainLightning', 'multishot', 'beamCharges', 'beamPenetration'];
+            if (integerAffixes.includes(selected.type)) {
+                value = Math.round(value);
+            }
             
             selectedAffixes.push({
                 type: selected.type,

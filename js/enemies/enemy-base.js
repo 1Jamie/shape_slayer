@@ -231,6 +231,9 @@ class EnemyBase {
         // If already activated, stay activated
         if (this.activated) return true;
         
+        // Check if we're in a boss room - minions should activate immediately
+        const isBossRoom = (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'boss');
+        
         // If enemy has an inherited aggro target (from spawner), activate immediately
         if (this.currentTarget) {
             this.activated = true;
@@ -244,6 +247,30 @@ class EnemyBase {
                 }
             }
             return true;
+        }
+        
+        // In boss rooms, activate immediately and assign a target (range doesn't matter)
+        if (isBossRoom) {
+            const allPlayers = this.getAllAlivePlayers();
+            if (allPlayers.length > 0) {
+                // Assign a target (use assignInitialTarget logic or pick first alive player)
+                const alivePlayers = allPlayers.filter(p => p.player && p.player.alive !== false);
+                if (alivePlayers.length > 0) {
+                    // Pick a random alive player as target
+                    const randomIndex = Math.floor(Math.random() * alivePlayers.length);
+                    this.currentTarget = alivePlayers[randomIndex].id;
+                    this.activated = true;
+                    // Switch from standby to normal state
+                    if (this.state === 'standby') {
+                        if (this.shape === 'diamond') {
+                            this.state = 'circle';
+                        } else {
+                            this.state = 'chase';
+                        }
+                    }
+                    return true;
+                }
+            }
         }
         
         // Check distance to all alive players

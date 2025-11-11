@@ -15,6 +15,11 @@ const MultiplayerConfig = {
     // State synchronization settings
     STATE_UPDATE_RATE: 30, // Hz - host sends game state at this rate (30 = 30 updates per second)
     
+    // Sequence tracking and packet loss detection
+    MAX_SEQUENCE_GAP: 3, // Maximum allowed sequence gap before requesting resync
+    SEQUENCE_BUFFER_SIZE: 10, // Buffer size for out-of-order packet handling
+    RESYNC_REQUEST_COOLDOWN: 1000, // Milliseconds between resync requests (prevent spam)
+    
     // Lobby settings
     MAX_PLAYERS: 4,
     CODE_LENGTH: 6,

@@ -5,6 +5,31 @@ class StateBuffer {
     constructor(maxSize = 15) {
         this.states = []; // Array of {timestamp, data} objects
         this.maxSize = maxSize;
+        this.adaptiveMaxSize = maxSize; // Adaptive size based on network conditions
+    }
+    
+    // Adjust buffer size based on network conditions (jitter, packet loss)
+    adjustSize(jitter, packetLossRate) {
+        // Increase buffer size during high jitter or packet loss
+        let sizeMultiplier = 1.0;
+        
+        if (jitter > 50) {
+            // High jitter - increase buffer
+            sizeMultiplier = 1.5;
+        } else if (jitter > 20) {
+            // Moderate jitter
+            sizeMultiplier = 1.2;
+        }
+        
+        if (packetLossRate > 0.1) {
+            // High packet loss - increase buffer more
+            sizeMultiplier = Math.max(sizeMultiplier, 1.8);
+        } else if (packetLossRate > 0.05) {
+            // Moderate packet loss
+            sizeMultiplier = Math.max(sizeMultiplier, 1.3);
+        }
+        
+        this.adaptiveMaxSize = Math.ceil(this.maxSize * sizeMultiplier);
     }
     
     // Add a new state snapshot
@@ -18,8 +43,9 @@ class StateBuffer {
         // Sort by timestamp (oldest first)
         this.states.sort((a, b) => a.timestamp - b.timestamp);
         
-        // Limit buffer size
-        if (this.states.length > this.maxSize) {
+        // Limit buffer size (use adaptive size)
+        const maxSize = this.adaptiveMaxSize || this.maxSize;
+        if (this.states.length > maxSize) {
             this.states.shift(); // Remove oldest
         }
     }
@@ -149,14 +175,33 @@ class InterpolationManager {
         this.buffers = new Map(); // Map<entityId, StateBuffer>
         this.networkLatency = 0; // Estimated RTT / 2
         this.interpolationDelay = MultiplayerConfig.INTERPOLATION_DELAY;
+        this.jitter = 0; // Measured jitter from packet arrival times
+        this.baseInterpolationDelay = MultiplayerConfig.INTERPOLATION_DELAY;
     }
     
     // Update network latency estimate
     updateLatency(rtt) {
         this.networkLatency = rtt / 2; // One-way latency
         // Adjust interpolation delay based on latency, but cap it
+        this.updateInterpolationDelay();
+    }
+    
+    // Update jitter measurement and adjust interpolation delay
+    updateJitter(jitter) {
+        this.jitter = jitter || 0;
+        this.updateInterpolationDelay();
+    }
+    
+    // Calculate adaptive interpolation delay based on latency and jitter
+    updateInterpolationDelay() {
+        // Base delay + latency + jitter compensation
+        // Jitter compensation: add extra buffer for high jitter to smooth out irregularities
+        const jitterCompensation = Math.min(this.jitter * 1.5, 50); // Cap jitter compensation at 50ms
+        const adaptiveDelay = this.baseInterpolationDelay + this.networkLatency + jitterCompensation;
+        
+        // Cap at maximum delay
         this.interpolationDelay = Math.min(
-            MultiplayerConfig.INTERPOLATION_DELAY + this.networkLatency,
+            adaptiveDelay,
             MultiplayerConfig.MAX_INTERPOLATION_DELAY
         );
     }
@@ -169,6 +214,12 @@ class InterpolationManager {
         }
         
         const buffer = this.buffers.get(entityId);
+        
+        // Adjust buffer size based on network conditions
+        if (typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.getPacketMetrics) {
+            const metrics = multiplayerManager.getPacketMetrics();
+            buffer.adjustSize(metrics.jitter || 0, metrics.packetLossRate || 0);
+        }
         
         // Use authoritative timestamp from stateData if available (more accurate than local timestamp)
         const authoritativeTimestamp = stateData.timestamp || stateData.serverSendTime || timestamp;

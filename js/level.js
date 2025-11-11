@@ -428,15 +428,44 @@ function scaleMinionStats(minion, healthMultiplier, damageMultiplier, xpMultipli
     
     // Handle activation based on whether minion has an inherited target
     // If minion has a currentTarget (inherited from parent), activate immediately
-    // If no target, leave in standby so it uses standard player detection
+    // If no target, check if we're in a boss room and assign one
+    const isBossRoom = (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'boss');
+    
     if (minion.currentTarget) {
         // Has inherited target - activate immediately
         if (minion.state === 'standby' || minion.state === undefined) {
             minion.state = 'chase';
         }
         minion.activated = true; // Mark as activated so AI runs immediately
+    } else if (isBossRoom) {
+        // In boss rooms, assign a target immediately (range doesn't matter)
+        const allPlayers = minion.getAllAlivePlayers();
+        if (allPlayers.length > 0) {
+            const alivePlayers = allPlayers.filter(p => p.player && p.player.alive !== false);
+            if (alivePlayers.length > 0) {
+                // Pick a random alive player as target
+                const randomIndex = Math.floor(Math.random() * alivePlayers.length);
+                minion.currentTarget = alivePlayers[randomIndex].id;
+                if (minion.state === 'standby' || minion.state === undefined) {
+                    minion.state = 'chase';
+                }
+                minion.activated = true;
+            } else {
+                // No alive players, keep in standby
+                if (minion.state === undefined) {
+                    minion.state = 'standby';
+                }
+                minion.activated = false;
+            }
+        } else {
+            // No players, keep in standby
+            if (minion.state === undefined) {
+                minion.state = 'standby';
+            }
+            minion.activated = false;
+        }
     } else {
-        // No inherited target - keep in standby, will activate via checkDetection() when player gets close
+        // No inherited target and not in boss room - keep in standby, will activate via checkDetection() when player gets close
         // This handles the edge case where elite spawns minions before acquiring a target
         if (minion.state === undefined) {
             minion.state = 'standby';

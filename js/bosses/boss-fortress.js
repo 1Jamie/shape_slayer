@@ -823,13 +823,32 @@ class BossFortress extends BossBase {
             const angle = Math.PI / 2 + ((i - (composition.guards - 1) / 2) * Math.PI) / Math.max(1, composition.guards * 2);
             const spawnX = this.x + Math.cos(angle) * spawnRadius;
             const spawnY = gateBaseY + Math.sin(angle) * (spawnRadius * 0.6);
-            const guard = new RectangleEnemy(spawnX, spawnY);
+            // Pass parent's currentTarget to guard constructor for aggro inheritance
+            const guard = new RectangleEnemy(spawnX, spawnY, this.currentTarget);
+            // Guards use custom phase-based scaling (different from standard minions)
             guard.maxHp = Math.floor(guard.maxHp * (this.phase === 3 ? 0.6 : 0.5));
             guard.hp = guard.maxHp;
             guard.damage *= 0.7;
             guard.lootChance = 0;
             guard.parentBoss = this;
             guard.waveId = waveId;
+            // Ensure proper activation in boss rooms (scaleMinionStats handles this, but guards use custom scaling)
+            // So we manually ensure activation if in boss room
+            const isBossRoom = (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'boss');
+            if (isBossRoom && !guard.currentTarget) {
+                const allPlayers = guard.getAllAlivePlayers();
+                if (allPlayers.length > 0) {
+                    const alivePlayers = allPlayers.filter(p => p.player && p.player.alive !== false);
+                    if (alivePlayers.length > 0) {
+                        const randomIndex = Math.floor(Math.random() * alivePlayers.length);
+                        guard.currentTarget = alivePlayers[randomIndex].id;
+                        guard.activated = true;
+                        if (guard.state === 'standby' || guard.state === undefined) {
+                            guard.state = 'chase';
+                        }
+                    }
+                }
+            }
             currentRoom.enemies.push(guard);
             if (worldEnemies) worldEnemies.push(guard);
             this.minions.push(guard);
