@@ -2739,13 +2739,10 @@ class MultiplayerManager {
             
             // Update projectiles with interpolation support - ID-based matching
             if (state.projectiles) {
-                // Store previous state for interpolation
-                Game.previousProjectiles = Game.projectiles.map(p => ({
-                    x: p.x,
-                    y: p.y,
-                    vx: p.vx,
-                    vy: p.vy
-                }));
+                // Initialize interpolation manager if needed
+                if (typeof initInterpolation !== 'undefined' && !interpolationManager) {
+                    interpolationManager = initInterpolation();
+                }
                 
                 // Build map of existing projectiles by ID
                 const projectileMap = new Map();
@@ -2758,6 +2755,9 @@ class MultiplayerManager {
                 // Build set of host projectile IDs
                 const hostProjectileIds = new Set(state.projectiles.map(p => p.id).filter(id => id));
                 
+                // Get timestamp from game state for interpolation
+                const stateTimestamp = state.timestamp || state.serverSendTime || Date.now();
+                
                 // Update projectiles from host state - match by ID
                 const newProjectiles = [];
                 state.projectiles.forEach(hostProj => {
@@ -2769,11 +2769,59 @@ class MultiplayerManager {
                     let matchingProj = projectileMap.get(hostProj.id);
                     
                     if (matchingProj) {
-                        // Update existing projectile by ID
+                        // Update existing projectile - use interpolation for smooth updates
+                        // Add to interpolation buffer for smooth movement
+                        if (typeof interpolationManager !== 'undefined' && interpolationManager) {
+                            interpolationManager.addEntityState(hostProj.id, stateTimestamp, {
+                                x: hostProj.x,
+                                y: hostProj.y,
+                                vx: hostProj.vx,
+                                vy: hostProj.vy,
+                                timestamp: stateTimestamp
+                            });
+                        }
+                        
+                        // Update targets for interpolation (don't snap immediately)
                         matchingProj.targetX = hostProj.x;
                         matchingProj.targetY = hostProj.y;
-                        matchingProj.vx = hostProj.vx;
-                        matchingProj.vy = hostProj.vy;
+                        
+                        // Only update velocity if it's significantly different (prevent rewinds)
+                        const currentSpeed = Math.sqrt(matchingProj.vx * matchingProj.vx + matchingProj.vy * matchingProj.vy);
+                        const hostSpeed = Math.sqrt(hostProj.vx * hostProj.vx + hostProj.vy * hostProj.vy);
+                        const speedDiff = Math.abs(currentSpeed - hostSpeed);
+                        
+                        // Calculate direction difference to detect backwards movement
+                        const currentDir = currentSpeed > 0 ? {
+                            x: matchingProj.vx / currentSpeed,
+                            y: matchingProj.vy / currentSpeed
+                        } : { x: 0, y: 0 };
+                        const hostDir = hostSpeed > 0 ? {
+                            x: hostProj.vx / hostSpeed,
+                            y: hostProj.vy / hostSpeed
+                        } : { x: 0, y: 0 };
+                        const dotProduct = currentDir.x * hostDir.x + currentDir.y * hostDir.y;
+                        const directionSimilarity = dotProduct; // 1 = same direction, -1 = opposite
+                        
+                        // Only update velocity if:
+                        // 1. Speed difference is significant (>10% or >50px/s), AND
+                        // 2. Direction is similar (not backwards) - dot product > 0.5 means similar direction
+                        if ((speedDiff > currentSpeed * 0.1 || speedDiff > 50) && directionSimilarity > 0.5) {
+                            // Smooth velocity transition to prevent sudden direction changes
+                            const velocityLerp = 0.2; // Gradual velocity update (slower for projectiles)
+                            matchingProj.vx = matchingProj.vx * (1 - velocityLerp) + hostProj.vx * velocityLerp;
+                            matchingProj.vy = matchingProj.vy * (1 - velocityLerp) + hostProj.vy * velocityLerp;
+                        } else if (directionSimilarity <= 0.5 && speedDiff > 20) {
+                            // Direction changed significantly - might be a collision or special case
+                            // Only update if speed difference is large (likely a real change, not desync)
+                            if (speedDiff > 100) {
+                                // Major change - update velocity but very gradually
+                                const velocityLerp = 0.1; // Very gradual for direction changes
+                                matchingProj.vx = matchingProj.vx * (1 - velocityLerp) + hostProj.vx * velocityLerp;
+                                matchingProj.vy = matchingProj.vy * (1 - velocityLerp) + hostProj.vy * velocityLerp;
+                            }
+                            // Otherwise, don't update velocity - likely desync, let position correction handle it
+                        }
+                        
                         matchingProj.lastUpdateTime = Date.now();
                         // Preserve other properties that might have been modified locally
                         newProjectiles.push(matchingProj);
@@ -2785,11 +2833,32 @@ class MultiplayerManager {
                             targetY: hostProj.y,
                             lastUpdateTime: Date.now()
                         };
+                        
+                        // Add to interpolation buffer
+                        if (typeof interpolationManager !== 'undefined' && interpolationManager) {
+                            interpolationManager.addEntityState(hostProj.id, stateTimestamp, {
+                                x: hostProj.x,
+                                y: hostProj.y,
+                                vx: hostProj.vx,
+                                vy: hostProj.vy,
+                                timestamp: stateTimestamp
+                            });
+                        }
+                        
                         newProjectiles.push(newProj);
                     }
                 });
                 
                 // Remove projectiles that no longer exist on host (by ID)
+                // Clean up interpolation buffers for removed projectiles
+                Game.projectiles.forEach(proj => {
+                    if (proj.id && !hostProjectileIds.has(proj.id)) {
+                        if (typeof interpolationManager !== 'undefined' && interpolationManager) {
+                            interpolationManager.removeEntity(proj.id);
+                        }
+                    }
+                });
+                
                 Game.projectiles = newProjectiles;
             }
             

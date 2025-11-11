@@ -3865,8 +3865,37 @@ const Game = {
                                      !multiplayerManager.isHost;
         
         this.projectiles = this.projectiles.filter(projectile => {
-            // For multiplayer clients, use velocity with position correction
-            if (isMultiplayerClient && projectile.targetX !== undefined && projectile.targetY !== undefined) {
+            // For multiplayer clients, use dead-reckoning with smooth corrections
+            if (isMultiplayerClient && projectile.id) {
+                // Primary: velocity-based movement (dead-reckoning)
+                projectile.x += projectile.vx * deltaTime;
+                projectile.y += projectile.vy * deltaTime;
+                
+                // Secondary: smooth correction toward authoritative position (if target exists)
+                if (projectile.targetX !== undefined && projectile.targetY !== undefined) {
+                    const dx = projectile.targetX - projectile.x;
+                    const dy = projectile.targetY - projectile.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    // Use larger snap distance for fast projectiles to prevent rewinds
+                    const projectileSnapDistance = MultiplayerConfig.SNAP_DISTANCE * 3; // 300px for fast projectiles
+                    
+                    // Only snap if extremely far (likely a new projectile or major desync)
+                    if (distance > projectileSnapDistance) {
+                        projectile.x = projectile.targetX;
+                        projectile.y = projectile.targetY;
+                    } else if (distance > 15) {
+                        // Smooth correction for moderate differences (prevents rewinds)
+                        // Use slower correction speed for projectiles to avoid visual jumps
+                        const correctionSpeed = MultiplayerConfig.BASE_LERP_SPEED * 0.15; // Very slow correction
+                        const t = Math.min(1, deltaTime * correctionSpeed);
+                        projectile.x += dx * t;
+                        projectile.y += dy * t;
+                    }
+                    // If distance < 15px, don't correct - let velocity handle it
+                }
+            } else if (isMultiplayerClient && projectile.targetX !== undefined && projectile.targetY !== undefined) {
+                // Fallback: use velocity with gentle position correction (if InterpolationManager not available)
                 // Primary movement: velocity-based (smooth)
                 projectile.x += projectile.vx * deltaTime;
                 projectile.y += projectile.vy * deltaTime;
@@ -3876,13 +3905,16 @@ const Game = {
                 const dy = projectile.targetY - projectile.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
                 
+                // Use larger snap distance for projectiles (they move fast)
+                const projectileSnapDistance = MultiplayerConfig.SNAP_DISTANCE * 2; // 200px for fast projectiles
+                
                 // If very far, snap (correction or new projectile)
-                if (distance > MultiplayerConfig.SNAP_DISTANCE) {
+                if (distance > projectileSnapDistance) {
                     projectile.x = projectile.targetX;
                     projectile.y = projectile.targetY;
-                } else if (distance > 5) {
-                    // Gentle correction when moderately off
-                    const correctionSpeed = MultiplayerConfig.BASE_LERP_SPEED * 0.3; // Slow correction
+                } else if (distance > 10) {
+                    // Gentle correction when moderately off (increased threshold for projectiles)
+                    const correctionSpeed = MultiplayerConfig.BASE_LERP_SPEED * 0.2; // Slower correction for projectiles
                     const t = Math.min(1, deltaTime * correctionSpeed);
                     projectile.x += dx * t;
                     projectile.y += dy * t;
