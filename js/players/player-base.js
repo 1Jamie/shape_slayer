@@ -153,8 +153,11 @@ class PlayerBase {
         // Damage knockback system (receiving knockback from enemies)
         this.damageKnockbackVx = 0;
         this.damageKnockbackVy = 0;
-        this.damageKnockbackDecay = 0.35;
+        this.damageKnockbackDecay = 0.25; // Faster decay (was 0.35, now decays ~75% per second instead of ~65%)
         this.knockbackResistance = 1.0; // Higher = less displacement from hits
+        this.damageKnockbackMaxVelocity = 800; // Maximum knockback velocity (pixels per second)
+        this.damageKnockbackMaxDuration = 2.0; // Maximum duration in seconds before forced stop
+        this.damageKnockbackTimer = 0; // Track how long knockback has been active
         
         // Interpolation targets (for multiplayer client smoothing)
         this.targetX = null;
@@ -1792,12 +1795,39 @@ class PlayerBase {
     applyDamageKnockback(forceX, forceY) {
         // Higher resistance = less knockback received
         const resistance = Math.max(0.1, this.knockbackResistance || 1.0);
-        this.damageKnockbackVx += (forceX || 0) / resistance;
-        this.damageKnockbackVy += (forceY || 0) / resistance;
+        const newVx = this.damageKnockbackVx + (forceX || 0) / resistance;
+        const newVy = this.damageKnockbackVy + (forceY || 0) / resistance;
+        
+        // Clamp to maximum velocity to prevent extreme launches
+        const maxVel = this.damageKnockbackMaxVelocity || 800;
+        const currentSpeed = Math.sqrt(newVx * newVx + newVy * newVy);
+        if (currentSpeed > maxVel) {
+            const scale = maxVel / currentSpeed;
+            this.damageKnockbackVx = newVx * scale;
+            this.damageKnockbackVy = newVy * scale;
+        } else {
+            this.damageKnockbackVx = newVx;
+            this.damageKnockbackVy = newVy;
+        }
+        
+        // Reset timer when new knockback is applied
+        this.damageKnockbackTimer = 0;
     }
     
     processDamageKnockback(deltaTime) {
         if (this.damageKnockbackVx !== 0 || this.damageKnockbackVy !== 0) {
+            // Update timer
+            this.damageKnockbackTimer += deltaTime;
+            
+            // Force stop if knockback has been active too long
+            const maxDuration = this.damageKnockbackMaxDuration || 2.0;
+            if (this.damageKnockbackTimer >= maxDuration) {
+                this.damageKnockbackVx = 0;
+                this.damageKnockbackVy = 0;
+                this.damageKnockbackTimer = 0;
+                return;
+            }
+            
             this.x += this.damageKnockbackVx * deltaTime;
             this.y += this.damageKnockbackVy * deltaTime;
             
@@ -1806,8 +1836,18 @@ class PlayerBase {
             this.damageKnockbackVx *= decayFactor;
             this.damageKnockbackVy *= decayFactor;
             
-            if (Math.abs(this.damageKnockbackVx) < 0.1) this.damageKnockbackVx = 0;
-            if (Math.abs(this.damageKnockbackVy) < 0.1) this.damageKnockbackVy = 0;
+            // Stop if knockback is below threshold (higher threshold prevents drift)
+            const cutoffThreshold = 8.0; // Increased from 0.1 to prevent weird drift
+            if (Math.abs(this.damageKnockbackVx) < cutoffThreshold) this.damageKnockbackVx = 0;
+            if (Math.abs(this.damageKnockbackVy) < cutoffThreshold) this.damageKnockbackVy = 0;
+            
+            // Reset timer if knockback has stopped
+            if (this.damageKnockbackVx === 0 && this.damageKnockbackVy === 0) {
+                this.damageKnockbackTimer = 0;
+            }
+        } else {
+            // Reset timer when no knockback is active
+            this.damageKnockbackTimer = 0;
         }
     }
     

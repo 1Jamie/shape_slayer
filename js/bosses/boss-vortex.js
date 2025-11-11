@@ -447,10 +447,16 @@ class BossVortex extends BossBase {
                 this.y + Math.sin(angle) * distance,
                 this.currentTarget
             );
-            minion.maxHp = Math.floor(minion.maxHp * 0.25);
-            minion.hp = minion.maxHp;
-            minion.damage *= 0.6;
-            minion.xpValue = Math.floor(minion.xpValue * 0.3);
+            // Use helper function to scale minion stats based on current room progression
+            if (typeof scaleMinionStats !== 'undefined') {
+                scaleMinionStats(minion, 0.25, 0.6, 0.3);
+            } else {
+                // Fallback if helper not available (shouldn't happen)
+                minion.maxHp = Math.floor(minion.maxHp * 0.25);
+                minion.hp = minion.maxHp;
+                minion.damage *= 0.6;
+                minion.xpValue = Math.floor(minion.xpValue * 0.3);
+            }
             minion.lootChance = 0.0;
             
             if (currentRoom) currentRoom.enemies.push(minion);

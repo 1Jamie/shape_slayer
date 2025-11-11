@@ -419,10 +419,18 @@ class OctagonEnemy extends EnemyBase {
             
             // Pass parent's currentTarget to minion constructor for aggro inheritance
             const minion = new Enemy(minionX, minionY, this.currentTarget);
-            minion.maxHp = Math.floor(minion.maxHp * OCTAGON_CONFIG.minionHealthMultiplier);
-            minion.hp = minion.maxHp;
-            minion.damage = Math.floor(minion.damage * OCTAGON_CONFIG.minionDamageMultiplier);
-            minion.xpValue = Math.floor(minion.xpValue * OCTAGON_CONFIG.minionXpMultiplier);
+            // Use helper function to scale minion stats based on current room progression
+            if (typeof scaleMinionStats !== 'undefined') {
+                scaleMinionStats(minion, OCTAGON_CONFIG.minionHealthMultiplier, 
+                                OCTAGON_CONFIG.minionDamageMultiplier, 
+                                OCTAGON_CONFIG.minionXpMultiplier);
+            } else {
+                // Fallback if helper not available (shouldn't happen)
+                minion.maxHp = Math.floor(minion.maxHp * OCTAGON_CONFIG.minionHealthMultiplier);
+                minion.hp = minion.maxHp;
+                minion.damage = Math.floor(minion.damage * OCTAGON_CONFIG.minionDamageMultiplier);
+                minion.xpValue = Math.floor(minion.xpValue * OCTAGON_CONFIG.minionXpMultiplier);
+            }
             minion.lootChance = 0.0; // No loot from minions
             
             if (typeof currentRoom !== 'undefined' && currentRoom) {
@@ -468,10 +476,18 @@ class OctagonEnemy extends EnemyBase {
             
             // Pass parent's currentTarget to minion constructor for aggro inheritance
             const minion = new Enemy(minionX, minionY, this.currentTarget);
-            minion.maxHp = Math.floor(minion.maxHp * OCTAGON_CONFIG.minionHealthMultiplier);
-            minion.hp = minion.maxHp;
-            minion.damage = Math.floor(minion.damage * OCTAGON_CONFIG.minionDamageMultiplier);
-            minion.xpValue = Math.floor(minion.xpValue * OCTAGON_CONFIG.minionXpMultiplier);
+            // Use helper function to scale minion stats based on current room progression
+            if (typeof scaleMinionStats !== 'undefined') {
+                scaleMinionStats(minion, OCTAGON_CONFIG.minionHealthMultiplier, 
+                                OCTAGON_CONFIG.minionDamageMultiplier, 
+                                OCTAGON_CONFIG.minionXpMultiplier);
+            } else {
+                // Fallback if helper not available (shouldn't happen)
+                minion.maxHp = Math.floor(minion.maxHp * OCTAGON_CONFIG.minionHealthMultiplier);
+                minion.hp = minion.maxHp;
+                minion.damage = Math.floor(minion.damage * OCTAGON_CONFIG.minionDamageMultiplier);
+                minion.xpValue = Math.floor(minion.xpValue * OCTAGON_CONFIG.minionXpMultiplier);
+            }
             minion.lootChance = 0.0; // No loot from minions
             
             if (typeof currentRoom !== 'undefined' && currentRoom) {

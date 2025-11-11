@@ -840,9 +840,16 @@ class BossFortress extends BossBase {
             const spawnX = this.x + spread * 45;
             const spawnY = gateBaseY + 40 + i * 12;
             const skirmisher = new Enemy(spawnX, spawnY, this.currentTarget);
-            skirmisher.maxHp = Math.floor(skirmisher.maxHp * (this.phase === 3 ? 0.4 : 0.35));
-            skirmisher.hp = skirmisher.maxHp;
-            skirmisher.damage *= 0.65;
+            // Use helper function to scale minion stats based on current room progression
+            const healthMultiplier = this.phase === 3 ? 0.4 : 0.35;
+            if (typeof scaleMinionStats !== 'undefined') {
+                scaleMinionStats(skirmisher, healthMultiplier, 0.65, null);
+            } else {
+                // Fallback if helper not available (shouldn't happen)
+                skirmisher.maxHp = Math.floor(skirmisher.maxHp * healthMultiplier);
+                skirmisher.hp = skirmisher.maxHp;
+                skirmisher.damage *= 0.65;
+            }
             skirmisher.lootChance = 0;
             skirmisher.parentBoss = this;
             skirmisher.waveId = waveId;

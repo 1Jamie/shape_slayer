@@ -401,6 +401,52 @@ function generateBoss(roomNumber) {
     return boss;
 }
 
+// Helper function to scale minion stats based on current room progression
+// This ensures minions spawned during combat (by octagons, bosses, etc.) get proper scaling
+function scaleMinionStats(minion, healthMultiplier, damageMultiplier, xpMultiplier = null) {
+    // Get current room number
+    const roomNumber = typeof Game !== 'undefined' ? (Game.roomNumber || 1) : 
+                       (typeof currentRoom !== 'undefined' && currentRoom ? currentRoom.number : 1);
+    
+    // Get multiplayer scaling multipliers
+    const mpScaling = getMultiplayerScaling();
+    
+    // Calculate room-based scaling (same as normal enemies)
+    const roomIndex = Math.max(0, roomNumber - 1);
+    const enemyHpScale = Math.pow(1 + ENEMY_HP_GROWTH_PER_ROOM, roomIndex);
+    const enemyDamageScale = Math.pow(1 + ENEMY_DAMAGE_GROWTH_PER_ROOM, roomIndex);
+    
+    // Apply scaling: base stats * room scaling * multiplayer scaling * minion multiplier
+    minion.maxHp = Math.floor(minion.maxHp * enemyHpScale * mpScaling.enemyHP * healthMultiplier);
+    minion.hp = minion.maxHp;
+    minion.damage = minion.damage * enemyDamageScale * mpScaling.enemyDamage * damageMultiplier;
+    
+    // Apply XP multiplier if provided
+    if (xpMultiplier !== null) {
+        minion.xpValue = Math.floor(minion.xpValue * enemyHpScale * xpMultiplier);
+    }
+    
+    // Handle activation based on whether minion has an inherited target
+    // If minion has a currentTarget (inherited from parent), activate immediately
+    // If no target, leave in standby so it uses standard player detection
+    if (minion.currentTarget) {
+        // Has inherited target - activate immediately
+        if (minion.state === 'standby' || minion.state === undefined) {
+            minion.state = 'chase';
+        }
+        minion.activated = true; // Mark as activated so AI runs immediately
+    } else {
+        // No inherited target - keep in standby, will activate via checkDetection() when player gets close
+        // This handles the edge case where elite spawns minions before acquiring a target
+        if (minion.state === undefined) {
+            minion.state = 'standby';
+        }
+        minion.activated = false; // Will be set to true by checkDetection() when player is nearby
+    }
+    
+    return minion;
+}
+
 // Placeholder boss class for testing (will be replaced by actual boss implementations)
 function createPlaceholderBoss(x, y, name) {
     const boss = new BossBase(x, y);

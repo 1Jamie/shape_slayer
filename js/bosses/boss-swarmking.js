@@ -512,10 +512,16 @@ class BossSwarmKing extends BossBase {
             
             // Pass parent's currentTarget to minion constructor for aggro inheritance
             const minion = new Enemy(minionX, minionY, this.currentTarget);
-            minion.maxHp = Math.floor(minion.maxHp * 0.3);
-            minion.hp = minion.maxHp;
-            minion.damage = minion.damage * 0.7;
-            minion.xpValue = Math.floor(minion.xpValue * 0.3);
+            // Use helper function to scale minion stats based on current room progression
+            if (typeof scaleMinionStats !== 'undefined') {
+                scaleMinionStats(minion, 0.3, 0.7, 0.3);
+            } else {
+                // Fallback if helper not available (shouldn't happen)
+                minion.maxHp = Math.floor(minion.maxHp * 0.3);
+                minion.hp = minion.maxHp;
+                minion.damage = minion.damage * 0.7;
+                minion.xpValue = Math.floor(minion.xpValue * 0.3);
+            }
             minion.lootChance = 0.0;
             
             if (currentRoom) {
