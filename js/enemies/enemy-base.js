@@ -850,6 +850,32 @@ class EnemyBase {
     interpolateToTarget(deltaTime) {
         if (this.targetX === undefined || this.targetY === undefined) return;
         
+        // Use InterpolationManager for smooth interpolation with velocity-based extrapolation
+        if (typeof interpolationManager !== 'undefined' && interpolationManager && this.id) {
+            const smoothed = interpolationManager.getSmoothedPosition(
+                this.id,
+                this.x,
+                this.y,
+                this.rotation,
+                this.targetX,
+                this.targetY,
+                this.targetRotation !== undefined ? this.targetRotation : this.rotation,
+                deltaTime
+            );
+            
+            this.x = smoothed.x;
+            this.y = smoothed.y;
+            this.rotation = smoothed.rotation;
+            
+            // Update rotationAngle if it exists
+            if (this.rotationAngle !== undefined) {
+                this.rotationAngle = smoothed.rotation;
+            }
+            
+            return;
+        }
+        
+        // Fallback: Simple lerp if InterpolationManager not available
         // Calculate distance to target
         const dx = this.targetX - this.x;
         const dy = this.targetY - this.y;
@@ -913,16 +939,20 @@ class EnemyBase {
     
     // Update state from host (for multiplayer clients)
     updateFromHost(hostData) {
-        // Calculate velocity for extrapolation
-        if (this.targetX !== null && this.targetY !== null && this.x !== undefined && this.y !== undefined) {
-            const dt = (Date.now() - this.lastUpdateTime) / 1000;
-            if (dt > 0 && dt < 1) { // Sanity check
-                this.lastVelocityX = (hostData.x - this.x) / dt;
-                this.lastVelocityY = (hostData.y - this.y) / dt;
-            }
+        // Use authoritative timestamp from host state if available, otherwise use current time
+        const stateTimestamp = hostData.timestamp || hostData.serverSendTime || Date.now();
+        
+        // Add state to interpolation buffer for smooth rendering
+        if (typeof interpolationManager !== 'undefined' && interpolationManager && this.id) {
+            interpolationManager.addEntityState(this.id, stateTimestamp, {
+                x: hostData.x,
+                y: hostData.y,
+                rotation: hostData.rotation !== undefined ? hostData.rotation : (hostData.rotationAngle !== undefined ? hostData.rotationAngle : this.rotation),
+                timestamp: stateTimestamp
+            });
         }
         
-        // Set interpolation targets for smooth movement
+        // Set interpolation targets for smooth movement (fallback if InterpolationManager not available)
         this.targetX = hostData.x;
         this.targetY = hostData.y;
         this.targetRotation = hostData.rotation;
@@ -943,8 +973,8 @@ class EnemyBase {
         }
         this.rotationBaselineTime = Date.now();
         
-        // Update timestamp for velocity calculation
-        this.lastUpdateTime = Date.now();
+        // Update timestamp for velocity calculation (use authoritative timestamp)
+        this.lastUpdateTime = stateTimestamp;
         
         // Direct state updates
         this.hp = hostData.hp;

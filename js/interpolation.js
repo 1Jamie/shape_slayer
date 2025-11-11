@@ -162,13 +162,17 @@ class InterpolationManager {
     }
     
     // Add state update for an entity
+    // Uses authoritative timestamp from host/server for accurate interpolation timing
     addEntityState(entityId, timestamp, stateData) {
         if (!this.buffers.has(entityId)) {
             this.buffers.set(entityId, new StateBuffer(MultiplayerConfig.STATE_BUFFER_SIZE));
         }
         
         const buffer = this.buffers.get(entityId);
-        buffer.addState(timestamp, stateData);
+        
+        // Use authoritative timestamp from stateData if available (more accurate than local timestamp)
+        const authoritativeTimestamp = stateData.timestamp || stateData.serverSendTime || timestamp;
+        buffer.addState(authoritativeTimestamp, stateData);
     }
     
     // Get interpolated state for an entity

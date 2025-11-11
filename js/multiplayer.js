@@ -14,7 +14,11 @@ class MultiplayerManager {
         this.reconnectAttempts = 0;
         this.heartbeatInterval = null;
         this.lastStateUpdate = 0;
-        this.stateUpdateRate = 1000 / 24; // 24 updates per second
+        // Use configurable update rate, default to 30 Hz
+        const targetHz = typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.STATE_UPDATE_RATE 
+            ? MultiplayerConfig.STATE_UPDATE_RATE 
+            : 30;
+        this.stateUpdateRate = 1000 / targetHz;
         this.gameStateFullInterval = 1000; // send full state every 1s
         this.lastFullGameStateSentAt = 0;
         this.lastSentGameState = null;
@@ -546,6 +550,7 @@ class MultiplayerManager {
             
             // Serialize projectiles (only if in PLAYING state)
             projectiles: (Game.state === 'PLAYING') ? Game.projectiles.map(proj => ({
+                id: proj.id || `proj-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // Generate ID if missing
                 x: proj.x,
                 y: proj.y,
                 vx: proj.vx,
@@ -615,8 +620,11 @@ class MultiplayerManager {
             hasChanges = true;
         }
         
-        // Enemies
-        const enemyDiff = this.diffById(state.enemies, baseline.enemies || [], 'id', { numericTolerance: 0.5 });
+        // Enemies - use tighter tolerance for position accuracy (0.1px)
+        const enemyDiff = this.diffById(state.enemies, baseline.enemies || [], 'id', { 
+            numericTolerance: 0.1,
+            ignoreKeys: [] // Don't ignore any keys - ensure all state changes are detected
+        });
         if (enemyDiff.changed.length) {
             payload.enemies = enemyDiff.changed;
             hasChanges = true;
@@ -751,12 +759,20 @@ class MultiplayerManager {
         const ignore = options.ignoreKeys || [];
         const tolerance = options.numericTolerance || 0;
         
+        // Critical fields that must always be sent if changed (regardless of tolerance)
+        const criticalFields = ['hp', 'maxHp', 'alive', 'state', 'phase', 'attacking'];
+        
         Object.keys(current).forEach(prop => {
             if (prop === keyName) return;
             if (ignore.includes(prop)) return;
             const currVal = current[prop];
             const prevVal = previous[prop];
-            if (!this.valuesEqual(currVal, prevVal, tolerance)) {
+            
+            // Critical fields: always check for exact equality (tolerance = 0)
+            const isCritical = criticalFields.includes(prop);
+            const fieldTolerance = isCritical ? 0 : tolerance;
+            
+            if (!this.valuesEqual(currVal, prevVal, fieldTolerance)) {
                 diff[prop] = this.deepClone(currVal);
                 hasChanges = true;
             }
@@ -1287,11 +1303,28 @@ class MultiplayerManager {
             interpolationManager = initInterpolation();
         }
         
-        // Calculate RTT if we have timestamp data
-        if (data.timestamp) {
-            const now = Date.now();
-            const rtt = now - data.timestamp;
-            
+        // Calculate RTT using server timestamps for accurate measurement
+        const now = Date.now();
+        let rtt = null;
+        
+        // Use server timestamps if available (more accurate)
+        if (data.serverReceiveTime && data.serverSendTime) {
+            // One-way latency: (client receive - server send) + (server send - server receive) / 2
+            // Simplified: client receive - server receive gives us round-trip time
+            // But we want one-way latency, so we use: (client receive - server send)
+            const clientReceiveTime = now;
+            const serverLatency = data.serverSendTime - data.serverReceiveTime;
+            // RTT = time from server receive to client receive, minus server processing time
+            rtt = (clientReceiveTime - data.serverReceiveTime) - serverLatency;
+        } else if (data.serverSendTime) {
+            // Fallback: use server send time if receive time not available
+            rtt = now - data.serverSendTime;
+        } else if (data.timestamp) {
+            // Legacy: use host timestamp (less accurate)
+            rtt = now - data.timestamp;
+        }
+        
+        if (rtt !== null && rtt > 0 && rtt < 10000) { // Sanity check: 0-10 seconds
             // Update RTT samples
             this.rttSamples.push(rtt);
             if (this.rttSamples.length > this.maxRttSamples) {
@@ -2423,6 +2456,14 @@ class MultiplayerManager {
                 state.enemies.forEach(enemyData => {
                     let enemy = Game.enemies.find(e => e.id === enemyData.id);
                     
+                    // Add timestamp from game state to enemy data for proper interpolation
+                    if (!enemyData.timestamp && state.timestamp) {
+                        enemyData.timestamp = state.timestamp;
+                    }
+                    if (!enemyData.serverSendTime && state.serverSendTime) {
+                        enemyData.serverSendTime = state.serverSendTime;
+                    }
+                    
                     if (!enemy) {
                         // New enemy from host - create it from data
                         if (typeof createEnemyFromData !== 'undefined') {
@@ -2442,7 +2483,7 @@ class MultiplayerManager {
                 });
             }
             
-            // Update projectiles with interpolation support
+            // Update projectiles with interpolation support - ID-based matching
             if (state.projectiles) {
                 // Store previous state for interpolation
                 Game.previousProjectiles = Game.projectiles.map(p => ({
@@ -2452,22 +2493,35 @@ class MultiplayerManager {
                     vy: p.vy
                 }));
                 
-                // Update projectiles from host state
-                // Match by index (host sends in same order) or create new
+                // Build map of existing projectiles by ID
+                const projectileMap = new Map();
+                Game.projectiles.forEach(proj => {
+                    if (proj.id) {
+                        projectileMap.set(proj.id, proj);
+                    }
+                });
+                
+                // Build set of host projectile IDs
+                const hostProjectileIds = new Set(state.projectiles.map(p => p.id).filter(id => id));
+                
+                // Update projectiles from host state - match by ID
                 const newProjectiles = [];
-                state.projectiles.forEach((hostProj, index) => {
-                    // Try to find matching projectile by position/velocity (fuzzy match)
-                    let matchingProj = Game.projectiles[index];
+                state.projectiles.forEach(hostProj => {
+                    if (!hostProj.id) {
+                        // Host projectile missing ID - generate one (shouldn't happen, but safety)
+                        hostProj.id = `proj-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                    }
                     
-                    if (matchingProj && 
-                        Math.abs(matchingProj.x - hostProj.x) < 100 &&
-                        Math.abs(matchingProj.y - hostProj.y) < 100) {
-                        // Update existing projectile
+                    let matchingProj = projectileMap.get(hostProj.id);
+                    
+                    if (matchingProj) {
+                        // Update existing projectile by ID
                         matchingProj.targetX = hostProj.x;
                         matchingProj.targetY = hostProj.y;
                         matchingProj.vx = hostProj.vx;
                         matchingProj.vy = hostProj.vy;
                         matchingProj.lastUpdateTime = Date.now();
+                        // Preserve other properties that might have been modified locally
                         newProjectiles.push(matchingProj);
                     } else {
                         // New projectile - create with interpolation target
@@ -2481,6 +2535,7 @@ class MultiplayerManager {
                     }
                 });
                 
+                // Remove projectiles that no longer exist on host (by ID)
                 Game.projectiles = newProjectiles;
             }
             

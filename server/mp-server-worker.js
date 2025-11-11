@@ -378,6 +378,14 @@ class WorkerProcess {
         const lobby = this.lobbies.get(code);
         if (!lobby || lobby.host !== ws) return;
         
+        // Add server receive timestamp
+        const serverReceiveTime = Date.now();
+        
+        // Add server timestamp to data if it doesn't already have one
+        if (!data.serverReceiveTime) {
+            data.serverReceiveTime = serverReceiveTime;
+        }
+        
         this.broadcastToLobby(lobby, {
             type: 'game_state',
             data
@@ -394,6 +402,12 @@ class WorkerProcess {
         const player = lobby.players.find(p => p.ws === ws);
         if (player && data.class) {
             player.class = data.class;
+        }
+        
+        // Add server receive timestamp
+        const serverReceiveTime = Date.now();
+        if (!data.serverReceiveTime) {
+            data.serverReceiveTime = serverReceiveTime;
         }
         
         if (lobby.host && lobby.host !== ws && lobby.host.readyState === WebSocket.OPEN) {
@@ -416,13 +430,17 @@ class WorkerProcess {
         
         if (!Array.isArray(data && data.frames) || data.frames.length === 0) return;
         
+        // Add server receive timestamp
+        const serverReceiveTime = Date.now();
+        
         if (lobby.host && lobby.host !== ws && lobby.host.readyState === WebSocket.OPEN) {
             lobby.host.send(JSON.stringify({
                 type: 'player_state_batch',
                 data: {
                     playerId: player.id,
                     frames: data.frames,
-                    ack: data.ack
+                    ack: data.ack,
+                    serverReceiveTime: serverReceiveTime
                 }
             }));
         }
@@ -756,6 +774,11 @@ class WorkerProcess {
     }
     
     broadcastToLobby(lobby, message, excludeWs = null) {
+        // Add server send timestamp for game_state messages
+        if (message.type === 'game_state' && message.data) {
+            message.data.serverSendTime = Date.now();
+        }
+        
         const msgStr = JSON.stringify(message);
         lobby.players.forEach(player => {
             if (player.ws !== excludeWs && player.ws.readyState === WebSocket.OPEN) {

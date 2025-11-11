@@ -12,6 +12,9 @@ const MultiplayerConfig = {
     RECONNECT_DELAY: 2000, // milliseconds
     HEARTBEAT_INTERVAL: 30000, // milliseconds (30 seconds)
     
+    // State synchronization settings
+    STATE_UPDATE_RATE: 30, // Hz - host sends game state at this rate (30 = 30 updates per second)
+    
     // Lobby settings
     MAX_PLAYERS: 4,
     CODE_LENGTH: 6,
