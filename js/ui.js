@@ -2748,6 +2748,9 @@ function renderMultiplayerMenu(ctx) {
     const centerX = canvasWidth / 2;
     const centerY = canvasHeight / 2;
     
+    // Detect mobile
+    const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+    
     // Overlay with grid pattern
     ctx.fillStyle = 'rgba(15, 15, 26, 0.95)';
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
@@ -2769,9 +2772,13 @@ function renderMultiplayerMenu(ctx) {
         ctx.stroke();
     }
     
-    // Panel (responsive to screen size)
-    const panelWidth = Math.min(500, canvasWidth * 0.85);
-    const panelHeight = Math.min(520, canvasHeight * 0.85);
+    // Panel (responsive to screen size - mobile optimized)
+    const panelWidth = isMobile 
+        ? Math.min(canvasWidth * 0.96, canvasWidth - 10)  // Mobile: 96% width
+        : Math.min(500, canvasWidth * 0.85);  // Desktop: 85% width, max 500px
+    const panelHeight = isMobile
+        ? Math.min(canvasHeight * 0.94, canvasHeight - 10)  // Mobile: 94% height
+        : Math.min(520, canvasHeight * 0.85);  // Desktop: 85% height, max 520px
     const panelX = (canvasWidth - panelWidth) / 2;
     const panelY = (canvasHeight - panelHeight) / 2;
     
@@ -2780,7 +2787,7 @@ function renderMultiplayerMenu(ctx) {
     ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
     
     // Geometric corner decorations
-    const cornerSize = 10;
+    const cornerSize = isMobile ? 8 : 10;
     ctx.fillStyle = '#673ab7'; // Mage purple
     drawTriangle(ctx, panelX + cornerSize, panelY + cornerSize, cornerSize, Math.PI * 0.25);
     ctx.fill();
@@ -2803,15 +2810,25 @@ function renderMultiplayerMenu(ctx) {
     
     // Title
     ctx.fillStyle = '#ffff00'; // Selection yellow
-    const titleSize = Math.min(48, panelWidth * 0.096);
+    const titleSize = isMobile ? Math.min(36, panelWidth * 0.08) : Math.min(48, panelWidth * 0.096);
     ctx.font = `bold ${titleSize}px Arial`;
     ctx.textAlign = 'center';
-    ctx.fillText('MULTIPLAYER', centerX, panelY + 60);
+    const titleY = isMobile ? panelY + 35 : panelY + 60;
+    ctx.fillText('MULTIPLAYER', centerX, titleY);
     
-    const buttonWidth = Math.min(250, panelWidth * 0.7);
-    const buttonHeight = Math.min(60, panelHeight * 0.115);
-    const buttonSpacing = Math.min(20, panelHeight * 0.038);
-    let startY = panelY + Math.min(120, panelHeight * 0.23);
+    // Mobile: larger buttons, tighter spacing. Desktop: original sizing
+    const buttonWidth = isMobile 
+        ? Math.min(panelWidth * 0.92, panelWidth - 20)  // Mobile: 92% width, full-width buttons
+        : Math.min(250, panelWidth * 0.7);  // Desktop: 70% width, max 250px
+    const buttonHeight = isMobile 
+        ? Math.min(55, panelHeight * 0.10)  // Mobile: taller buttons
+        : Math.min(60, panelHeight * 0.115);  // Desktop: original
+    const buttonSpacing = isMobile 
+        ? Math.min(10, panelHeight * 0.018)  // Mobile: tighter spacing
+        : Math.min(20, panelHeight * 0.038);  // Desktop: original
+    let startY = isMobile 
+        ? panelY + Math.min(70, panelHeight * 0.12)  // Mobile: start lower
+        : panelY + Math.min(120, panelHeight * 0.23);  // Desktop: original
     
     const inLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
     
@@ -2827,22 +2844,26 @@ function renderMultiplayerMenu(ctx) {
         
         // Join lobby section
         ctx.fillStyle = '#aaaaaa';
-        ctx.font = 'bold 20px Arial';
+        const separatorFontSize = isMobile ? 16 : 20;
+        ctx.font = `bold ${separatorFontSize}px Arial`;
         ctx.textAlign = 'center';
-        ctx.fillText('- OR -', centerX, startY + 20);
+        ctx.fillText('- OR -', centerX, startY + (isMobile ? 15 : 20));
         
-        startY += 50;
+        startY += isMobile ? 35 : 50;
         
         // Join code input
         ctx.fillStyle = '#ffffff';
-        ctx.font = '18px Arial';
+        const labelFontSize = isMobile ? 16 : 18;
+        ctx.font = `${labelFontSize}px Arial`;
         ctx.fillText('Enter Join Code:', centerX, startY);
         
-        startY += 30;
+        startY += isMobile ? 25 : 30;
         
-        // Input box
-        const inputWidth = 200;
-        const inputHeight = 40;
+        // Input box - mobile optimized
+        const inputWidth = isMobile 
+            ? Math.min(panelWidth * 0.90, panelWidth - 20)  // Mobile: 90% width
+            : 200;  // Desktop: fixed 200px
+        const inputHeight = isMobile ? 45 : 40;  // Mobile: taller for easier touch
         const inputX = centerX - inputWidth / 2;
         const inputY = startY;
         
@@ -2854,15 +2875,18 @@ function renderMultiplayerMenu(ctx) {
         
         // Input text (always display in uppercase)
         ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 24px monospace';
+        const inputFontSize = isMobile ? 28 : 24;  // Mobile: larger text
+        ctx.font = `bold ${inputFontSize}px monospace`;
         ctx.textAlign = 'center';
-        ctx.fillText((joinCodeInput || '_').toUpperCase(), centerX, inputY + inputHeight / 2 + 8);
+        ctx.fillText((joinCodeInput || '_').toUpperCase(), centerX, inputY + inputHeight / 2 + (isMobile ? 10 : 8));
         
-        startY += inputHeight + 10;
+        startY += inputHeight + (isMobile ? 12 : 10);
         
-        // Paste Code button (wider to fit text with emoji)
-        const pasteButtonWidth = Math.min(220, panelWidth * 0.65); // Wider than before to fit "📋 Paste Code"
-        const pasteButtonHeight = 40; // Slightly taller for better proportions
+        // Paste Code button - mobile optimized
+        const pasteButtonWidth = isMobile 
+            ? buttonWidth  // Mobile: full width like other buttons
+            : Math.min(220, panelWidth * 0.65);  // Desktop: original sizing
+        const pasteButtonHeight = isMobile ? buttonHeight : 40;  // Mobile: same height as other buttons
         multiplayerMenuButtons.pasteCode.x = centerX - pasteButtonWidth / 2;
         multiplayerMenuButtons.pasteCode.y = startY;
         multiplayerMenuButtons.pasteCode.width = pasteButtonWidth;
@@ -2880,15 +2904,16 @@ function renderMultiplayerMenu(ctx) {
     } else {
         // In lobby - show lobby info and leave button
         ctx.fillStyle = '#00ff00';
-        ctx.font = 'bold 32px Arial';
+        const lobbyCodeFontSize = isMobile ? 24 : 32;
+        ctx.font = `bold ${lobbyCodeFontSize}px Arial`;
         ctx.textAlign = 'center';
         ctx.fillText(`Lobby: ${multiplayerManager.lobbyCode}`, centerX, startY);
         
-        startY += 50;
+        startY += isMobile ? 40 : 50;
         
-        // Copy Code button (small button next to lobby code)
-        const copyButtonWidth = 150;
-        const copyButtonHeight = 35;
+        // Copy Code button - mobile optimized
+        const copyButtonWidth = isMobile ? buttonWidth : 150;  // Mobile: full width
+        const copyButtonHeight = isMobile ? buttonHeight : 35;  // Mobile: same height as other buttons
         multiplayerMenuButtons.copyCode.x = centerX - copyButtonWidth / 2;
         multiplayerMenuButtons.copyCode.y = startY;
         multiplayerMenuButtons.copyCode.width = copyButtonWidth;
@@ -2898,57 +2923,69 @@ function renderMultiplayerMenu(ctx) {
         // Show feedback message if code was just copied
         if (copyCodeFeedback) {
             ctx.fillStyle = '#00ff00';
-            ctx.font = '14px Arial';
-            ctx.fillText(copyCodeFeedback, centerX, startY + copyButtonHeight + 20);
+            const feedbackFontSize = isMobile ? 12 : 14;
+            ctx.font = `${feedbackFontSize}px Arial`;
+            ctx.fillText(copyCodeFeedback, centerX, startY + copyButtonHeight + (isMobile ? 15 : 20));
         }
         
-        startY += copyButtonHeight + 50;
+        startY += copyButtonHeight + (isMobile ? 35 : 50);
         
         // Player list
         ctx.fillStyle = '#ffffff';
-        ctx.font = '18px Arial';
+        const playersLabelFontSize = isMobile ? 16 : 18;
+        ctx.font = `${playersLabelFontSize}px Arial`;
         ctx.fillText(`Players: ${multiplayerManager.players.length}/${MultiplayerConfig.MAX_PLAYERS}`, centerX, startY);
         
-        startY += 40;
+        startY += isMobile ? 30 : 40;
         
-        // List players
+        // List players - mobile optimized
         if (multiplayerManager.players) {
+            const playerListX = isMobile ? panelX + 15 : panelX + 50;  // Mobile: less padding
+            const playerFontSize = isMobile ? 14 : 16;
+            const playerLineHeight = isMobile ? 22 : 25;
             multiplayerManager.players.forEach((player, index) => {
                 const playerText = `${index + 1}. ${player.name} (${player.class})`;
                 const isHost = index === 0;
                 ctx.fillStyle = isHost ? '#ffaa00' : '#aaaaaa';
-                ctx.font = '16px Arial';
+                ctx.font = `${playerFontSize}px Arial`;
                 ctx.textAlign = 'left';
-                ctx.fillText(playerText, panelX + 50, startY + (index * 25));
+                ctx.fillText(playerText, playerListX, startY + (index * playerLineHeight));
                 if (isHost) {
-                    ctx.fillText('(Host)', panelX + 350, startY + (index * 25));
+                    const hostX = isMobile ? panelX + panelWidth - 80 : panelX + 350;  // Mobile: right-aligned
+                    ctx.fillText('(Host)', hostX, startY + (index * playerLineHeight));
                 }
             });
         }
         
-        startY = panelY + panelHeight - 140;
-        
-        // Leave lobby button
+        // Leave lobby button - positioned above back button
+        const leaveButtonY = isMobile 
+            ? panelY + panelHeight - (buttonHeight + buttonSpacing + 60)  // Mobile: account for back button
+            : panelY + panelHeight - 140;  // Desktop: original
         multiplayerMenuButtons.leaveLobby.x = centerX - buttonWidth / 2;
-        multiplayerMenuButtons.leaveLobby.y = startY;
+        multiplayerMenuButtons.leaveLobby.y = leaveButtonY;
         multiplayerMenuButtons.leaveLobby.width = buttonWidth;
         multiplayerMenuButtons.leaveLobby.height = buttonHeight;
         renderPauseMenuButton(ctx, multiplayerMenuButtons.leaveLobby, 'Leave Lobby', false);
     }
     
-    // Error message
+    // Error message - mobile optimized
     if (multiplayerError) {
         ctx.fillStyle = '#ff0000';
-        ctx.font = '16px Arial';
+        const errorFontSize = isMobile ? 14 : 16;
+        ctx.font = `${errorFontSize}px Arial`;
         ctx.textAlign = 'center';
-        ctx.fillText(multiplayerError, centerX, panelY + panelHeight - 80);
+        const errorY = isMobile 
+            ? panelY + panelHeight - (buttonHeight + buttonSpacing + 30)
+            : panelY + panelHeight - 80;
+        ctx.fillText(multiplayerError, centerX, errorY);
     }
     
-    // Back button
+    // Back button - mobile optimized
+    const backButtonHeight = isMobile ? buttonHeight : 40;
     multiplayerMenuButtons.back.x = centerX - buttonWidth / 2;
-    multiplayerMenuButtons.back.y = panelY + panelHeight - 50;
+    multiplayerMenuButtons.back.y = panelY + panelHeight - (isMobile ? (backButtonHeight + 10) : 50);
     multiplayerMenuButtons.back.width = buttonWidth;
-    multiplayerMenuButtons.back.height = 40;
+    multiplayerMenuButtons.back.height = backButtonHeight;
     renderPauseMenuButton(ctx, multiplayerMenuButtons.back, 'Back', false);
 }
 // Handle pause menu input (mouse and touch)
