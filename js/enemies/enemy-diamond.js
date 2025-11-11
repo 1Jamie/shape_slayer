@@ -33,14 +33,32 @@ class DiamondEnemy extends EnemyBase {
     constructor(x, y, inheritedTarget = null) {
         super(x, y, inheritedTarget);
         
+        // Get current room number for scaling
+        const roomNumber = typeof Game !== 'undefined' ? (Game.roomNumber || 1) : 1;
+        
+        // Calculate speed multiplier based on room progression
+        // Base: +5% (1.05)
+        // After room 15: +10% more (total 1.15)
+        // After room 20: +5% more (total 1.20)
+        let speedMultiplier = 1.05; // Base 5% increase
+        if (roomNumber > 15) {
+            speedMultiplier = 1.15; // 15% total after room 15
+        }
+        if (roomNumber > 20) {
+            speedMultiplier = 1.20; // 20% total after room 20
+        }
+        
+        // Calculate attack range multiplier (only after room 20)
+        const attackRangeMultiplier = roomNumber > 20 ? 1.10 : 1.0;
+        
         // Stats (from config)
         this.size = DIAMOND_CONFIG.size;
         this.maxHp = DIAMOND_CONFIG.maxHp;
         this.hp = DIAMOND_CONFIG.maxHp;
         this.damage = DIAMOND_CONFIG.damage;
         this.damageScalingMultiplier = DIAMOND_CONFIG.damageScalingMultiplier;
-        this.moveSpeed = DIAMOND_CONFIG.moveSpeed;
-        this.baseMoveSpeed = DIAMOND_CONFIG.moveSpeed; // Store for stun system
+        this.moveSpeed = DIAMOND_CONFIG.moveSpeed * speedMultiplier;
+        this.baseMoveSpeed = DIAMOND_CONFIG.moveSpeed * speedMultiplier; // Store for stun system
         
         // Properties
         this.color = '#00ffff'; // Cyan
@@ -53,10 +71,11 @@ class DiamondEnemy extends EnemyBase {
         this.attackCooldown = 0;
         this.attackCooldownTime = DIAMOND_CONFIG.attackCooldown;
         this.telegraphDuration = DIAMOND_CONFIG.telegraphDuration;
-        this.dashDuration = DIAMOND_CONFIG.dashDuration;
+        // Increase dash duration proportionally with attack range to ensure dash can reach from increased range
+        this.dashDuration = DIAMOND_CONFIG.dashDuration * attackRangeMultiplier;
         this.telegraphElapsed = 0;
         this.dashElapsed = 0;
-        this.attackRange = DIAMOND_CONFIG.attackRange;
+        this.attackRange = DIAMOND_CONFIG.attackRange * attackRangeMultiplier;
         this.dashSpeed = DIAMOND_CONFIG.dashSpeed;
         this.circleAngle = 0; // Angle for circling movement
         this.weaveTimer = Math.random() * Math.PI * 2; // Random starting phase for weaving

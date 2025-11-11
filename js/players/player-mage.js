@@ -19,9 +19,9 @@ const MAGE_CONFIG = {
     
     // Basic Attack (Magic Bolt)
     boltSpeed: 400,                // Projectile speed (pixels/second)
-    boltLifetime: 2.0,             // How long bolt travels (seconds)
+    boltLifetime: 1.28,            // How long bolt travels (seconds) - reduced by 20% from 1.6
     boltSize: 10,                  // Bolt projectile size (pixels)
-    boltSpreadAngle: Math.PI / 12, // Spread angle for multiple projectiles (15 degrees)
+    boltSpreadAngle: Math.PI / 24, // Spread angle for multiple projectiles (7.5 degrees) - reduced for better accuracy
     
     // Heavy Attack (Energy Beam)
     heavyAttackCooldown: 2.415,    // Cooldown for heavy attack (seconds) - increased by 5%
@@ -889,7 +889,7 @@ class Mage extends PlayerBase {
         const beamRange = MAGE_CONFIG.beamRange;
         const beamWidth = MAGE_CONFIG.beamWidth;
         const maxPenetration = this.effectiveBeamMaxPenetration || MAGE_CONFIG.beamMaxPenetration;
-        const tickDamage = this.damage * MAGE_CONFIG.beamDamagePerTick;
+        const baseTickDamage = this.damage * MAGE_CONFIG.beamDamagePerTick;
         
         // Find enemies in beam path, sorted by distance
         const hitCandidates = [];
@@ -929,6 +929,13 @@ class Mage extends PlayerBase {
             // Track how many times this enemy has been hit by this beam
             const currentHits = beam.hitEnemies.get(enemy) || 0;
             beam.hitEnemies.set(enemy, currentHits + 1);
+            
+            // Calculate distance-based damage falloff
+            // Full damage at origin (0), reduced damage at max range
+            // Linear falloff: 1.0 at 0px, ~0.1 at max range (90% reduction at far end)
+            const distanceRatio = candidate.distance / beamRange;
+            const damageFalloff = 1.0 - (distanceRatio * 0.9); // 100% at origin, 10% at max range
+            const tickDamage = baseTickDamage * Math.max(0.1, damageFalloff); // Minimum 10% damage at max range
             
             // Check for crit
             const isCrit = Math.random() < this.critChance;
