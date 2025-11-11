@@ -363,9 +363,9 @@ const Game = {
             if (!hasAcknowledgedPrivacy) {
                 this.openPrivacyModal('onboarding');
             } else {
-                // Check if launch modal should show (first time ever)
-                if (!SaveSystem.getHasSeenLaunchModal()) {
-                    this.launchModalVisible = true;
+            // Check if launch modal should show (first time ever)
+            if (!SaveSystem.getHasSeenLaunchModal()) {
+                this.launchModalVisible = true;
                 }
             }
             
@@ -508,6 +508,21 @@ const Game = {
                 // Always get fresh bounding rect for accurate coordinate conversion
                 const rect = this.canvas.getBoundingClientRect();
                 const gameCoords = this.screenToGame(touch.clientX, touch.clientY);
+                
+                // Check privacy modal first (highest priority when visible)
+                if (this.privacyModalVisible) {
+                    if (typeof handlePrivacyModalClick === 'function') {
+                        if (handlePrivacyModalClick(touch.clientX, touch.clientY)) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            return;
+                        }
+                    }
+                    // If privacy modal is visible but touch didn't hit a button, block the touch
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                }
                 
                 // Check modal close button first (highest priority when modals are visible)
                 if (this.launchModalVisible || this.updateModalVisible) {

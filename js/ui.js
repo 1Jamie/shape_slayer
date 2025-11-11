@@ -2356,38 +2356,64 @@ function handlePauseButtonClick(x, y) {
     return false;
 }
 
-// Render a pause menu button (square, touch-friendly)
+// Helper function to draw a hexagon outline
+function drawHexagonOutline(ctx, x, y, radius) {
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+        const angle = (Math.PI / 3) * i;
+        const px = x + Math.cos(angle) * radius;
+        const py = y + Math.sin(angle) * radius;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+}
+
+// Helper function to draw a triangle
+function drawTriangle(ctx, x, y, size, rotation = 0) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rotation);
+    ctx.beginPath();
+    ctx.moveTo(size, 0);
+    ctx.lineTo(-size * 0.5, -size * 0.866);
+    ctx.lineTo(-size * 0.5, size * 0.866);
+    ctx.closePath();
+    ctx.restore();
+}
+
+// Render a pause menu button (geometric, retro style)
 function renderPauseMenuButton(ctx, button, text, isHighlighted = false, hasNotification = false) {
     const isPulsing = hasNotification;
     const pulse = isPulsing ? (Math.sin(Date.now() / 300) * 0.2 + 0.8) : 1.0;
     
-    // Button background with gradient
-    const btnGradient = ctx.createLinearGradient(button.x, button.y, button.x, button.y + button.height);
+    // Button background - clean, solid colors
     if (isHighlighted) {
-        // Highlighted button (Resume) - brighter
-        btnGradient.addColorStop(0, button.pressed ? 'rgba(120, 150, 255, 0.95)' : 'rgba(100, 130, 255, 0.85)');
-        btnGradient.addColorStop(1, button.pressed ? 'rgba(80, 110, 220, 0.95)' : 'rgba(60, 90, 200, 0.85)');
+        // Primary button (Resume) - warrior blue
+        ctx.fillStyle = button.pressed ? 'rgba(74, 144, 226, 0.9)' : 'rgba(74, 144, 226, 0.8)'; // Warrior blue
     } else if (isPulsing) {
         // Pulsing for notification
-        btnGradient.addColorStop(0, button.pressed ? `rgba(80, 130, 220, ${0.9 * pulse})` : `rgba(60, 100, 200, ${0.8 * pulse})`);
-        btnGradient.addColorStop(1, button.pressed ? `rgba(50, 90, 180, ${0.9 * pulse})` : `rgba(30, 70, 160, ${0.8 * pulse})`);
+        const alpha = 0.9 * pulse;
+        ctx.fillStyle = button.pressed ? `rgba(255, 200, 0, ${alpha})` : `rgba(255, 150, 0, ${0.8 * pulse})`;
     } else {
-        // Normal button
-        btnGradient.addColorStop(0, button.pressed ? 'rgba(80, 100, 150, 0.9)' : 'rgba(60, 80, 120, 0.8)');
-        btnGradient.addColorStop(1, button.pressed ? 'rgba(50, 70, 120, 0.9)' : 'rgba(30, 50, 90, 0.8)');
+        // Normal button - neutral dark gray
+        ctx.fillStyle = button.pressed ? 'rgba(50, 50, 70, 0.9)' : 'rgba(30, 30, 50, 0.8)';
     }
-    ctx.fillStyle = btnGradient;
     ctx.fillRect(button.x, button.y, button.width, button.height);
     
-    // Button border
-    ctx.strokeStyle = isHighlighted ? '#ffffff' : (isPulsing ? `rgba(150, 220, 255, ${pulse})` : 'rgba(150, 180, 255, 0.6)');
-    ctx.lineWidth = isHighlighted ? 3 : 2;
-    if (isPulsing) {
-        ctx.shadowBlur = 10 * pulse;
-        ctx.shadowColor = '#66ccff';
+    // Clean border - consistent white/light blue for all buttons
+    if (isHighlighted) {
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 3;
+    } else if (isPulsing) {
+        ctx.strokeStyle = `rgba(255, 200, 0, ${pulse})`;
+        ctx.lineWidth = 2;
+    } else {
+        // Neutral border color - light blue-gray, no green
+        ctx.strokeStyle = 'rgba(150, 150, 200, 0.7)';
+        ctx.lineWidth = 2;
     }
     ctx.strokeRect(button.x, button.y, button.width, button.height);
-    ctx.shadowBlur = 0;
     
     // Button text (support multiline with \n)
     ctx.fillStyle = '#ffffff';
@@ -2414,85 +2440,184 @@ function renderPauseMenu(ctx) {
     const centerX = canvasWidth / 2;
     const centerY = canvasHeight / 2;
     
-    // Dark overlay with gradient effect
-    const gradient = ctx.createLinearGradient(0, 0, 0, canvasHeight);
-    gradient.addColorStop(0, 'rgba(0, 0, 0, 0.95)');
-    gradient.addColorStop(1, 'rgba(20, 10, 40, 0.95)');
-    ctx.fillStyle = gradient;
+    // Detect mobile
+    const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+    
+    // Dark overlay with grid pattern matching game background
+    ctx.fillStyle = 'rgba(15, 15, 26, 0.95)'; // Dark background matching game
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
     
-    // Main menu panel with modern styling (responsive to screen size)
+    // Draw grid pattern (retro 90s aesthetic)
+    ctx.strokeStyle = 'rgba(100, 100, 150, 0.15)';
+    ctx.lineWidth = 1;
+    const gridSize = 50;
+    for (let x = 0; x < canvasWidth; x += gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvasHeight);
+        ctx.stroke();
+    }
+    for (let y = 0; y < canvasHeight; y += gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvasWidth, y);
+        ctx.stroke();
+    }
+    
+    // Subtle scanline effect (retro 90s)
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
+    ctx.lineWidth = 1;
+    for (let y = 0; y < canvasHeight; y += 4) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvasWidth, y);
+        ctx.stroke();
+    }
+    
+    // Main menu panel with geometric styling (responsive to screen size)
     // On ultra-wide screens (21:9), use MORE width to reduce wasted space
     const aspectRatio = canvasWidth / canvasHeight;
     const isUltraWide = aspectRatio < 0.5; // 21:9 portrait or wider
-    const widthPercent = isUltraWide ? 0.96 : 0.90; // Use 96% on ultra-wide
     
-    const panelWidth = Math.min(800, canvasWidth * widthPercent);
-    const panelHeight = Math.min(550, canvasHeight * 0.80);
-    const panelX = (canvasWidth - panelWidth) / 2;
-    const panelY = (canvasHeight - panelHeight) / 2;
+    // Mobile: increase panel size by 5-10% and better utilize space
+    // Desktop: keep original sizing
+    if (isMobile) {
+        // Mobile: larger panel, better centering
+        const panelWidth = Math.min(canvasWidth * 0.98, canvasWidth - 10); // 98% width, minimal margin
+        const panelHeight = Math.min(canvasHeight * 0.96, canvasHeight - 10); // 96% height
+        var panelX = (canvasWidth - panelWidth) / 2;
+        var panelY = (canvasHeight - panelHeight) / 2;
+        var panelWidth_final = panelWidth;
+        var panelHeight_final = panelHeight;
+    } else {
+        // Desktop: keep original sizing
+        const widthPercent = isUltraWide ? 0.96 : 0.90;
+        const heightPercent = isUltraWide ? 0.88 : 0.80;
+        const panelWidth = Math.min(800, canvasWidth * widthPercent);
+        const panelHeight = Math.min(550, canvasHeight * heightPercent);
+        var panelX = (canvasWidth - panelWidth) / 2;
+        var panelY = (canvasHeight - panelHeight) / 2;
+        var panelWidth_final = panelWidth;
+        var panelHeight_final = panelHeight;
+    }
     
-    // Panel background with gradient and glow
-    const panelGradient = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelHeight);
-    panelGradient.addColorStop(0, 'rgba(30, 30, 50, 0.95)');
-    panelGradient.addColorStop(0.5, 'rgba(20, 20, 40, 0.95)');
-    panelGradient.addColorStop(1, 'rgba(15, 15, 35, 0.95)');
-    ctx.fillStyle = panelGradient;
-    ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
+    // Panel background - solid color matching game UI
+    ctx.fillStyle = 'rgba(20, 20, 40, 0.95)';
+    ctx.fillRect(panelX, panelY, panelWidth_final, panelHeight_final);
     
-    // Panel border with glow
-    ctx.strokeStyle = '#6666ff';
-    ctx.lineWidth = 4;
-    ctx.shadowBlur = 20;
-    ctx.shadowColor = '#6666ff';
-    ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
-    ctx.shadowBlur = 0;
+    // Geometric corner decorations (triangles)
+    const cornerSize = 12;
+    ctx.fillStyle = '#ffff00'; // Selection yellow
+    // Top-left corner
+    drawTriangle(ctx, panelX + cornerSize, panelY + cornerSize, cornerSize, Math.PI * 0.25);
+    ctx.fill();
+    // Top-right corner
+    drawTriangle(ctx, panelX + panelWidth_final - cornerSize, panelY + cornerSize, cornerSize, Math.PI * 0.75);
+    ctx.fill();
+    // Bottom-left corner
+    drawTriangle(ctx, panelX + cornerSize, panelY + panelHeight_final - cornerSize, cornerSize, -Math.PI * 0.25);
+    ctx.fill();
+    // Bottom-right corner
+    drawTriangle(ctx, panelX + panelWidth_final - cornerSize, panelY + panelHeight_final - cornerSize, cornerSize, Math.PI * 1.25);
+    ctx.fill();
     
-    // Inner border
-    ctx.strokeStyle = 'rgba(150, 150, 255, 0.5)';
+    // Outer border - sharp angular border (no glow)
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(panelX, panelY, panelWidth_final, panelHeight_final);
+    
+    // Inner border with geometric pattern
+    ctx.strokeStyle = '#4a90e2'; // Warrior blue
     ctx.lineWidth = 2;
-    ctx.strokeRect(panelX + 2, panelY + 2, panelWidth - 4, panelHeight - 4);
+    ctx.strokeRect(panelX + 3, panelY + 3, panelWidth_final - 6, panelHeight_final - 6);
+    
+    // Add small hexagon accents at border corners
+    const hexRadius = 8;
+    ctx.strokeStyle = '#673ab7'; // Mage purple
+    ctx.lineWidth = 2;
+    // Top corners
+    drawHexagonOutline(ctx, panelX + hexRadius + 5, panelY + hexRadius + 5, hexRadius);
+    ctx.stroke();
+    drawHexagonOutline(ctx, panelX + panelWidth_final - hexRadius - 5, panelY + hexRadius + 5, hexRadius);
+    ctx.stroke();
+    // Bottom corners
+    drawHexagonOutline(ctx, panelX + hexRadius + 5, panelY + panelHeight_final - hexRadius - 5, hexRadius);
+    ctx.stroke();
+    drawHexagonOutline(ctx, panelX + panelWidth_final - hexRadius - 5, panelY + panelHeight_final - hexRadius - 5, hexRadius);
+    ctx.stroke();
     
     // NEW LAYOUT: "PAUSED" text placement based on aspect ratio
     let leftSectionWidth, buttonAreaWidth, buttonAreaX;
     
-    if (isUltraWide) {
+    if (isMobile) {
+        // On mobile: smaller PAUSED section, maximize button space
+        leftSectionWidth = panelWidth_final * 0.12; // 12% for "PAUSED" text (smaller than desktop)
+        buttonAreaWidth = panelWidth_final * 0.86; // 86% for buttons (more space)
+        buttonAreaX = panelX + leftSectionWidth + panelWidth_final * 0.01;
+    } else if (isUltraWide) {
         // On ultra-wide: smaller PAUSED section, more room for buttons
-        leftSectionWidth = panelWidth * 0.20; // 20% for "PAUSED" text (was 30%)
-        buttonAreaWidth = panelWidth * 0.78; // 78% for buttons
-        buttonAreaX = panelX + leftSectionWidth + panelWidth * 0.02;
+        leftSectionWidth = panelWidth_final * 0.20; // 20% for "PAUSED" text (was 30%)
+        buttonAreaWidth = panelWidth_final * 0.78; // 78% for buttons
+        buttonAreaX = panelX + leftSectionWidth + panelWidth_final * 0.02;
     } else {
-        // Normal aspect ratio
-        leftSectionWidth = panelWidth * 0.30;
-        buttonAreaWidth = panelWidth * 0.68;
-        buttonAreaX = panelX + leftSectionWidth + panelWidth * 0.02;
+        // Normal aspect ratio - desktop keeps original sizing
+        leftSectionWidth = panelWidth_final * 0.30;
+        buttonAreaWidth = panelWidth_final * 0.68;
+        buttonAreaX = panelX + leftSectionWidth + panelWidth_final * 0.02;
     }
     
     const leftSectionX = panelX + 20;
     
-    // "PAUSED" text - vertical on left side
+    // "PAUSED" text - vertical on left side with geometric accents
     ctx.save();
-    ctx.translate(leftSectionX + (isUltraWide ? 25 : 40), panelY + panelHeight / 2);
+    const pausedXOffset = isMobile ? 10 : (isUltraWide ? 25 : 40);
+    ctx.translate(leftSectionX + pausedXOffset, panelY + panelHeight_final / 2);
     ctx.rotate(-Math.PI / 2); // Rotate 90 degrees counter-clockwise
-    ctx.fillStyle = '#ffffff';
-    const pausedFontSize = Math.min(60, leftSectionWidth * 0.90);
+    
+    // Add geometric shape accents around text
+    const accentSize = isMobile ? 6 : 12;
+    const accentOffset = isMobile ? 20 : 35;
+    
+    // Small triangles above and below text
+    ctx.fillStyle = '#ffff00'; // Selection yellow
+    drawTriangle(ctx, -accentOffset, -accentSize * 2, accentSize, 0);
+    ctx.fill();
+    drawTriangle(ctx, accentOffset, -accentSize * 2, accentSize, 0);
+    ctx.fill();
+    drawTriangle(ctx, -accentOffset, accentSize * 2, accentSize, Math.PI);
+    ctx.fill();
+    drawTriangle(ctx, accentOffset, accentSize * 2, accentSize, Math.PI);
+    ctx.fill();
+    
+    // Small hexagons on sides
+    ctx.strokeStyle = '#4a90e2'; // Warrior blue
+    ctx.lineWidth = 2;
+    drawHexagonOutline(ctx, -accentOffset * 1.5, 0, accentSize);
+    ctx.stroke();
+    drawHexagonOutline(ctx, accentOffset * 1.5, 0, accentSize);
+    ctx.stroke();
+    
+    // Text - solid color, no glow
+    ctx.fillStyle = '#ffff00'; // Selection yellow for emphasis
+    const pausedFontSize = isMobile ? Math.min(32, leftSectionWidth * 0.85) : Math.min(60, leftSectionWidth * 0.90);
     ctx.font = `bold ${pausedFontSize}px Arial`;
     ctx.textAlign = 'center';
-    ctx.shadowBlur = 15;
-    ctx.shadowColor = '#6666ff';
     ctx.fillText('PAUSED', 0, 0);
-    ctx.shadowBlur = 0;
     ctx.restore();
     
     // TWO-COLUMN LAYOUT for buttons: Primary left (larger), Settings right (smaller)
-    // On ultra-wide, make buttons wider to fill space better
-    const primaryButtonWidth = isUltraWide ? Math.min(180, buttonAreaWidth * 0.47) : Math.min(140, buttonAreaWidth * 0.45);
-    const primaryButtonHeight = Math.min(70, panelHeight * 0.14);
-    const settingsButtonWidth = isUltraWide ? Math.min(200, buttonAreaWidth * 0.48) : Math.min(160, buttonAreaWidth * 0.42);
-    const settingsButtonHeight = Math.min(55, panelHeight * 0.12);
-    const buttonSpacing = Math.min(15, panelHeight * 0.03);
-    const columnGap = isUltraWide ? Math.min(12, buttonAreaWidth * 0.03) : Math.min(20, buttonAreaWidth * 0.05);
-    const startY = panelY + Math.min(80, panelHeight * 0.15);
+    // Mobile: optimized spacing and larger buttons. Desktop: keep original sizing
+    const primaryButtonWidth = isMobile 
+        ? Math.min(buttonAreaWidth * 0.48, 170)  // Increased from 160 for mobile
+        : (isUltraWide ? Math.min(180, buttonAreaWidth * 0.47) : Math.min(140, buttonAreaWidth * 0.45)); // Desktop original
+    const primaryButtonHeight = isMobile ? Math.min(60, panelHeight_final * 0.12) : Math.min(70, panelHeight_final * 0.14); // Desktop original
+    const settingsButtonWidth = isMobile 
+        ? Math.min(buttonAreaWidth * 0.48, 170)  // Increased from 160 for mobile
+        : (isUltraWide ? Math.min(200, buttonAreaWidth * 0.48) : Math.min(160, buttonAreaWidth * 0.42)); // Desktop original
+    const settingsButtonHeight = isMobile ? Math.min(55, panelHeight_final * 0.11) : Math.min(55, panelHeight_final * 0.12); // Desktop original
+    const buttonSpacing = isMobile ? Math.min(12, panelHeight_final * 0.02) : Math.min(15, panelHeight_final * 0.03); // Desktop original
+    const columnGap = isMobile ? Math.min(10, buttonAreaWidth * 0.025) : (isUltraWide ? Math.min(12, buttonAreaWidth * 0.03) : Math.min(20, buttonAreaWidth * 0.05)); // Desktop original
+    const startY = isMobile ? panelY + Math.min(55, panelHeight_final * 0.10) : panelY + Math.min(80, panelHeight_final * 0.15); // Desktop original
     
     // Column positions
     const leftColumnX = buttonAreaX;
@@ -2623,9 +2748,26 @@ function renderMultiplayerMenu(ctx) {
     const centerX = canvasWidth / 2;
     const centerY = canvasHeight / 2;
     
-    // Overlay
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+    // Overlay with grid pattern
+    ctx.fillStyle = 'rgba(15, 15, 26, 0.95)';
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    
+    // Draw grid pattern
+    ctx.strokeStyle = 'rgba(100, 100, 150, 0.15)';
+    ctx.lineWidth = 1;
+    const gridSize = 50;
+    for (let x = 0; x < canvasWidth; x += gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvasHeight);
+        ctx.stroke();
+    }
+    for (let y = 0; y < canvasHeight; y += gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvasWidth, y);
+        ctx.stroke();
+    }
     
     // Panel (responsive to screen size)
     const panelWidth = Math.min(500, canvasWidth * 0.85);
@@ -2633,18 +2775,34 @@ function renderMultiplayerMenu(ctx) {
     const panelX = (canvasWidth - panelWidth) / 2;
     const panelY = (canvasHeight - panelHeight) / 2;
     
-    const panelGradient = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelHeight);
-    panelGradient.addColorStop(0, 'rgba(30, 30, 50, 0.95)');
-    panelGradient.addColorStop(1, 'rgba(15, 15, 35, 0.95)');
-    ctx.fillStyle = panelGradient;
+    // Panel background - solid color matching game UI
+    ctx.fillStyle = 'rgba(20, 20, 40, 0.95)';
     ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
     
-    ctx.strokeStyle = '#6666ff';
-    ctx.lineWidth = 4;
+    // Geometric corner decorations
+    const cornerSize = 10;
+    ctx.fillStyle = '#673ab7'; // Mage purple
+    drawTriangle(ctx, panelX + cornerSize, panelY + cornerSize, cornerSize, Math.PI * 0.25);
+    ctx.fill();
+    drawTriangle(ctx, panelX + panelWidth - cornerSize, panelY + cornerSize, cornerSize, Math.PI * 0.75);
+    ctx.fill();
+    drawTriangle(ctx, panelX + cornerSize, panelY + panelHeight - cornerSize, cornerSize, -Math.PI * 0.25);
+    ctx.fill();
+    drawTriangle(ctx, panelX + panelWidth - cornerSize, panelY + panelHeight - cornerSize, cornerSize, Math.PI * 1.25);
+    ctx.fill();
+    
+    // Outer border
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3;
     ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
     
+    // Inner border
+    ctx.strokeStyle = '#4a90e2'; // Warrior blue
+    ctx.lineWidth = 2;
+    ctx.strokeRect(panelX + 3, panelY + 3, panelWidth - 6, panelHeight - 6);
+    
     // Title
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = '#ffff00'; // Selection yellow
     const titleSize = Math.min(48, panelWidth * 0.096);
     ctx.font = `bold ${titleSize}px Arial`;
     ctx.textAlign = 'center';
@@ -2688,9 +2846,9 @@ function renderMultiplayerMenu(ctx) {
         const inputX = centerX - inputWidth / 2;
         const inputY = startY;
         
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.fillStyle = 'rgba(30, 30, 50, 0.8)';
         ctx.fillRect(inputX, inputY, inputWidth, inputHeight);
-        ctx.strokeStyle = '#6666ff';
+        ctx.strokeStyle = 'rgba(150, 150, 200, 0.7)'; // Neutral light blue-gray
         ctx.lineWidth = 2;
         ctx.strokeRect(inputX, inputY, inputWidth, inputHeight);
         
@@ -2702,9 +2860,9 @@ function renderMultiplayerMenu(ctx) {
         
         startY += inputHeight + 10;
         
-        // Paste Code button (small button below input)
-        const pasteButtonWidth = 150;
-        const pasteButtonHeight = 30;
+        // Paste Code button (wider to fit text with emoji)
+        const pasteButtonWidth = Math.min(220, panelWidth * 0.65); // Wider than before to fit "📋 Paste Code"
+        const pasteButtonHeight = 40; // Slightly taller for better proportions
         multiplayerMenuButtons.pasteCode.x = centerX - pasteButtonWidth / 2;
         multiplayerMenuButtons.pasteCode.y = startY;
         multiplayerMenuButtons.pasteCode.width = pasteButtonWidth;
@@ -2793,36 +2951,6 @@ function renderMultiplayerMenu(ctx) {
     multiplayerMenuButtons.back.height = 40;
     renderPauseMenuButton(ctx, multiplayerMenuButtons.back, 'Back', false);
 }
-
-// Render a pause menu button
-function renderPauseMenuButton(ctx, button, text, isPrimary) {
-    const isPressed = button.pressed;
-    
-    // Button background
-    const bgGradient = ctx.createLinearGradient(button.x, button.y, button.x, button.y + button.height);
-    if (isPrimary) {
-        bgGradient.addColorStop(0, isPressed ? 'rgba(100, 150, 255, 0.9)' : 'rgba(80, 120, 220, 0.8)');
-        bgGradient.addColorStop(1, isPressed ? 'rgba(70, 110, 200, 0.9)' : 'rgba(60, 100, 180, 0.8)');
-    } else {
-        bgGradient.addColorStop(0, isPressed ? 'rgba(80, 80, 120, 0.9)' : 'rgba(60, 60, 100, 0.8)');
-        bgGradient.addColorStop(1, isPressed ? 'rgba(50, 50, 90, 0.9)' : 'rgba(40, 40, 80, 0.8)');
-    }
-    ctx.fillStyle = bgGradient;
-    ctx.fillRect(button.x, button.y, button.width, button.height);
-    
-    // Button border
-    ctx.strokeStyle = isPressed ? 'rgba(255, 255, 255, 1.0)' : (isPrimary ? 'rgba(150, 200, 255, 0.9)' : 'rgba(150, 150, 200, 0.7)');
-    ctx.lineWidth = isPressed ? 4 : 3;
-    ctx.strokeRect(button.x, button.y, button.width, button.height);
-    
-    // Button text
-    ctx.fillStyle = '#ffffff';
-    ctx.font = isPrimary ? 'bold 32px Arial' : 'bold 24px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(text, button.x + button.width / 2, button.y + button.height / 2);
-}
-
 // Handle pause menu input (mouse and touch)
 function handlePauseMenuInput() {
     if (!Input || !Game) return;
@@ -4220,9 +4348,26 @@ function renderLaunchModal(ctx) {
     const centerX = canvasWidth / 2;
     const centerY = canvasHeight / 2;
     
-    // Dark overlay
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    // Dark overlay with grid pattern matching game background
+    ctx.fillStyle = 'rgba(15, 15, 26, 0.95)';
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    
+    // Draw grid pattern (retro 90s aesthetic)
+    ctx.strokeStyle = 'rgba(100, 100, 150, 0.15)';
+    ctx.lineWidth = 1;
+    const gridSize = 50;
+    for (let x = 0; x < canvasWidth; x += gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvasHeight);
+        ctx.stroke();
+    }
+    for (let y = 0; y < canvasHeight; y += gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvasWidth, y);
+        ctx.stroke();
+    }
     
     // Main panel (responsive to screen size)
     const panelWidth = Math.min(900, canvasWidth * 0.90);
@@ -4230,36 +4375,38 @@ function renderLaunchModal(ctx) {
     const panelX = (canvasWidth - panelWidth) / 2;
     const panelY = (canvasHeight - panelHeight) / 2;
     
-    // Panel background with gradient
-    const panelGradient = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelHeight);
-    panelGradient.addColorStop(0, 'rgba(30, 30, 50, 0.95)');
-    panelGradient.addColorStop(0.5, 'rgba(20, 20, 40, 0.95)');
-    panelGradient.addColorStop(1, 'rgba(15, 15, 35, 0.95)');
-    ctx.fillStyle = panelGradient;
+    // Panel background - solid color matching game UI
+    ctx.fillStyle = 'rgba(20, 20, 40, 0.95)';
     ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
     
-    // Panel border with glow
-    ctx.strokeStyle = '#6666ff';
-    ctx.lineWidth = 4;
-    ctx.shadowBlur = 20;
-    ctx.shadowColor = '#6666ff';
+    // Geometric corner decorations (triangles)
+    const cornerSize = 12;
+    ctx.fillStyle = '#ffff00'; // Selection yellow
+    drawTriangle(ctx, panelX + cornerSize, panelY + cornerSize, cornerSize, Math.PI * 0.25);
+    ctx.fill();
+    drawTriangle(ctx, panelX + panelWidth - cornerSize, panelY + cornerSize, cornerSize, Math.PI * 0.75);
+    ctx.fill();
+    drawTriangle(ctx, panelX + cornerSize, panelY + panelHeight - cornerSize, cornerSize, -Math.PI * 0.25);
+    ctx.fill();
+    drawTriangle(ctx, panelX + panelWidth - cornerSize, panelY + panelHeight - cornerSize, cornerSize, Math.PI * 1.25);
+    ctx.fill();
+    
+    // Outer border - sharp angular border (no glow)
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3;
     ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
-    ctx.shadowBlur = 0;
     
     // Inner border
-    ctx.strokeStyle = 'rgba(150, 150, 255, 0.5)';
+    ctx.strokeStyle = '#4a90e2'; // Warrior blue
     ctx.lineWidth = 2;
-    ctx.strokeRect(panelX + 2, panelY + 2, panelWidth - 4, panelHeight - 4);
+    ctx.strokeRect(panelX + 3, panelY + 3, panelWidth - 6, panelHeight - 6);
     
-    // Title
-    ctx.fillStyle = '#ffffff';
+    // Title - geometric retro style
+    ctx.fillStyle = '#ffff00'; // Selection yellow
     const titleSize = Math.min(56, panelWidth * 0.062);
     ctx.font = `bold ${titleSize}px Arial`;
     ctx.textAlign = 'center';
-    ctx.shadowBlur = 15;
-    ctx.shadowColor = '#6666ff';
     ctx.fillText('How to Play', centerX, panelY + Math.min(60, panelHeight * 0.092));
-    ctx.shadowBlur = 0;
     
     // Check if mobile or desktop
     const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
@@ -4687,7 +4834,7 @@ function renderLaunchModal(ctx) {
     ctx.textAlign = 'center';
     ctx.fillText('Thanks for trying my game!', centerX, panelY + panelHeight - 80);
     
-    // Close button
+    // Close button - geometric retro style
     const closeButtonWidth = 200;
     const closeButtonHeight = 50;
     const closeButtonX = centerX - closeButtonWidth / 2;
@@ -4699,16 +4846,17 @@ function renderLaunchModal(ctx) {
     modalCloseButton.height = closeButtonHeight;
     
     const isClosePressed = modalCloseButton.pressed;
-    const closeBgGradient = ctx.createLinearGradient(closeButtonX, closeButtonY, closeButtonX, closeButtonY + closeButtonHeight);
-    closeBgGradient.addColorStop(0, isClosePressed ? 'rgba(100, 150, 255, 0.9)' : 'rgba(80, 120, 220, 0.8)');
-    closeBgGradient.addColorStop(1, isClosePressed ? 'rgba(70, 110, 200, 0.9)' : 'rgba(60, 100, 180, 0.8)');
-    ctx.fillStyle = closeBgGradient;
+    
+    // Button background - solid color
+    ctx.fillStyle = isClosePressed ? 'rgba(74, 144, 226, 0.9)' : 'rgba(74, 144, 226, 0.8)'; // Warrior blue
     ctx.fillRect(closeButtonX, closeButtonY, closeButtonWidth, closeButtonHeight);
     
-    ctx.strokeStyle = isClosePressed ? 'rgba(255, 255, 255, 1.0)' : 'rgba(150, 200, 255, 0.9)';
+    // Clean border - sharp, angular
+    ctx.strokeStyle = isClosePressed ? '#ffffff' : 'rgba(255, 255, 255, 0.9)';
     ctx.lineWidth = isClosePressed ? 4 : 3;
     ctx.strokeRect(closeButtonX, closeButtonY, closeButtonWidth, closeButtonHeight);
     
+    // Button text
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 24px Arial';
     ctx.textAlign = 'center';
@@ -4721,99 +4869,155 @@ function renderPrivacyModal(ctx) {
     const centerX = canvasWidth / 2;
     const centerY = canvasHeight / 2;
 
+    // Detect mobile
+    const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+
     ctx.save();
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    
+    // Dark overlay with grid pattern matching game background
+    ctx.fillStyle = 'rgba(15, 15, 26, 0.95)';
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    
+    // Draw grid pattern (retro 90s aesthetic)
+    ctx.strokeStyle = 'rgba(100, 100, 150, 0.15)';
+    ctx.lineWidth = 1;
+    const gridSize = 50;
+    for (let x = 0; x < canvasWidth; x += gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvasHeight);
+        ctx.stroke();
+    }
+    for (let y = 0; y < canvasHeight; y += gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvasWidth, y);
+        ctx.stroke();
+    }
 
-    const panelWidth = Math.min(880, canvasWidth * 0.88);
-    const panelHeight = Math.min(620, canvasHeight * 0.85);
-    const panelX = Math.max(40, centerX - panelWidth / 2);
-    const panelY = Math.max(30, centerY - panelHeight / 2);
+    // Mobile: maximize space, Desktop: standard sizing
+    const panelWidth = isMobile 
+        ? Math.min(canvasWidth * 0.96, canvasWidth - 20)  // 96% width, min 20px margin
+        : Math.min(880, canvasWidth * 0.88);
+    const panelHeight = isMobile
+        ? Math.min(canvasHeight * 0.95, canvasHeight - 20) // 95% height, min 20px margin
+        : Math.min(620, canvasHeight * 0.85);
+    const panelX = Math.max(10, centerX - panelWidth / 2);
+    const panelY = Math.max(10, centerY - panelHeight / 2);
 
-    const panelGradient = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelHeight);
-    panelGradient.addColorStop(0, 'rgba(38, 44, 68, 0.97)');
-    panelGradient.addColorStop(0.5, 'rgba(24, 28, 48, 0.97)');
-    panelGradient.addColorStop(1, 'rgba(18, 20, 38, 0.97)');
-    ctx.fillStyle = panelGradient;
+    // Panel background - solid color matching game UI
+    ctx.fillStyle = 'rgba(20, 20, 40, 0.95)';
     ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
-
-    ctx.strokeStyle = 'rgba(150, 190, 255, 0.8)';
+    
+    // Geometric corner decorations (triangles)
+    const cornerSize = isMobile ? 10 : 12;
+    ctx.fillStyle = '#673ab7'; // Mage purple
+    drawTriangle(ctx, panelX + cornerSize, panelY + cornerSize, cornerSize, Math.PI * 0.25);
+    ctx.fill();
+    drawTriangle(ctx, panelX + panelWidth - cornerSize, panelY + cornerSize, cornerSize, Math.PI * 0.75);
+    ctx.fill();
+    drawTriangle(ctx, panelX + cornerSize, panelY + panelHeight - cornerSize, cornerSize, -Math.PI * 0.25);
+    ctx.fill();
+    drawTriangle(ctx, panelX + panelWidth - cornerSize, panelY + panelHeight - cornerSize, cornerSize, Math.PI * 1.25);
+    ctx.fill();
+    
+    // Outer border - sharp angular border (no glow)
+    ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 3;
     ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
+    
+    // Inner border
+    ctx.strokeStyle = '#4a90e2'; // Warrior blue
+    ctx.lineWidth = 2;
+    ctx.strokeRect(panelX + 3, panelY + 3, panelWidth - 6, panelHeight - 6);
 
-    const buttonRadius = 12;
+    // Button rendering function - using geometric retro style
     const drawButton = (button, text, primary = false) => {
         if (!button) return;
-        const gradient = ctx.createLinearGradient(button.x, button.y, button.x, button.y + button.height);
+        
+        // Button background - solid colors
         if (primary) {
-            gradient.addColorStop(0, button.pressed ? 'rgba(120, 190, 255, 1.0)' : 'rgba(90, 150, 255, 0.95)');
-            gradient.addColorStop(1, button.pressed ? 'rgba(70, 140, 240, 1.0)' : 'rgba(60, 110, 210, 0.95)');
+            ctx.fillStyle = button.pressed ? 'rgba(74, 144, 226, 0.9)' : 'rgba(74, 144, 226, 0.8)'; // Warrior blue
         } else {
-            gradient.addColorStop(0, button.pressed ? 'rgba(120, 120, 150, 0.9)' : 'rgba(90, 90, 120, 0.85)');
-            gradient.addColorStop(1, button.pressed ? 'rgba(80, 80, 110, 0.9)' : 'rgba(70, 70, 100, 0.85)');
+            ctx.fillStyle = button.pressed ? 'rgba(50, 50, 70, 0.9)' : 'rgba(30, 30, 50, 0.8)'; // Neutral dark gray
         }
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.moveTo(button.x + buttonRadius, button.y);
-        ctx.lineTo(button.x + button.width - buttonRadius, button.y);
-        ctx.quadraticCurveTo(button.x + button.width, button.y, button.x + button.width, button.y + buttonRadius);
-        ctx.lineTo(button.x + button.width, button.y + button.height - buttonRadius);
-        ctx.quadraticCurveTo(button.x + button.width, button.y + button.height, button.x + button.width - buttonRadius, button.y + button.height);
-        ctx.lineTo(button.x + buttonRadius, button.y + button.height);
-        ctx.quadraticCurveTo(button.x, button.y + button.height, button.x, button.y + button.height - buttonRadius);
-        ctx.lineTo(button.x, button.y + buttonRadius);
-        ctx.quadraticCurveTo(button.x, button.y, button.x + buttonRadius, button.y);
-        ctx.closePath();
-        ctx.fill();
+        ctx.fillRect(button.x, button.y, button.width, button.height);
+        
+        // Clean border - sharp, angular (no rounded corners)
+        if (primary) {
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 3;
+        } else {
+            ctx.strokeStyle = 'rgba(150, 150, 200, 0.7)';
+            ctx.lineWidth = 2;
+        }
+        ctx.strokeRect(button.x, button.y, button.width, button.height);
 
-        ctx.strokeStyle = primary ? 'rgba(210, 230, 255, 0.9)' : 'rgba(180, 190, 220, 0.7)';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
+        // Button text
         ctx.fillStyle = '#ffffff';
-        ctx.font = primary ? 'bold 20px Arial' : 'bold 18px Arial';
+        const buttonFontSize = isMobile ? (primary ? 14 : 12) : (primary ? 20 : 18);
+        ctx.font = `bold ${buttonFontSize}px Arial`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(text, button.x + button.width / 2, button.y + button.height / 2);
     };
 
-    // Title
-    ctx.fillStyle = '#f5f9ff';
-    ctx.font = 'bold 36px Arial';
+    // Title - geometric retro style
+    ctx.fillStyle = '#ffff00'; // Selection yellow
+    ctx.font = isMobile ? 'bold 24px Arial' : 'bold 36px Arial';
     ctx.textAlign = 'left';
-    const titleX = panelX + 40;
-    const titleY = panelY + 70;
+    const titleX = panelX + (isMobile ? 15 : 40);
+    const titleY = panelY + (isMobile ? 35 : 70);
     ctx.fillText('Privacy & Telemetry', titleX, titleY);
 
-    // Policy button
-    const policyButtonWidth = 240;
-    const policyButtonHeight = 46;
-    const policyButtonX = panelX + panelWidth - policyButtonWidth - 40;
-    const policyButtonY = panelY + 40;
+    // Policy button - mobile: smaller, positioned below title
+    const policyButtonWidth = isMobile ? Math.min(200, panelWidth - 30) : 240;
+    const policyButtonHeight = isMobile ? 40 : 46;
+    const policyButtonX = isMobile 
+        ? panelX + (panelWidth - policyButtonWidth) / 2  // Centered on mobile
+        : panelX + panelWidth - policyButtonWidth - 40;
+    const policyButtonY = isMobile 
+        ? titleY + 35  // Below title on mobile
+        : panelY + 40;
     privacyModalButtons.policy.x = policyButtonX;
     privacyModalButtons.policy.y = policyButtonY;
     privacyModalButtons.policy.width = policyButtonWidth;
     privacyModalButtons.policy.height = policyButtonHeight;
     drawButton(privacyModalButtons.policy, 'Open Privacy Policy', false);
 
-    // Description text
+    // Description text - mobile: shorter, simplified message
     ctx.fillStyle = '#d0d7eb';
-    ctx.font = '18px Arial';
+    ctx.font = isMobile ? '14px Arial' : '18px Arial';
     ctx.textAlign = 'left';
-    const textX = panelX + 40;
-    let textY = titleY + 40;
-    const lineHeight = 26;
-    const paragraphs = [
-        'Your feedback is fantastic, but “the boss feels spicy” isn’t exactly spreadsheet-compatible. Telemetry lets me pin numbers to this "spicy" so I can do something about it.',
-        'Here’s what gets logged: raw gameplay telemetry--damage, room timing, affix usage, boss smackdowns. No therapy sessions, just math.',
-        'Absolutely zero personal info is attached. Each run is a fresh anonymous blob; no player dossiers, no secret tracking, no input tracking, no drama. I don\'t want your personal data, you can keep it. I have a hard enough time keeping track of my own.',
-        'Changed your mind? Flip telemetry on or off anytime from the pause menu and the game will respect your newfound mood instantly.'
-];
+    const textX = panelX + (isMobile ? 15 : 40);
+    let textY = isMobile ? policyButtonY + policyButtonHeight + 25 : titleY + 40;
+    const lineHeight = isMobile ? 20 : 26;
+    const maxTextWidth = panelWidth - (isMobile ? 30 : 80);
+    
+    let paragraphs;
+    if (isMobile) {
+        // Mobile: shorter, simplified message
+        paragraphs = [
+            'Help improve the game by sharing gameplay data (damage, timing, affixes).',
+            'No personal info collected. Each run is anonymous.',
+            'You can change this anytime in the pause menu.'
+        ];
+    } else {
+        // Desktop: full message
+        paragraphs = [
+            'Your feedback is fantastic, but "the boss feels spicy" isn\'t exactly spreadsheet-compatible. Telemetry lets me pin numbers to this "spicy" so I can do something about it.',
+            'Here\'s what gets logged: raw gameplay telemetry--damage, room timing, affix usage, boss smackdowns. No therapy sessions, just math.',
+            'Absolutely zero personal info is attached. Each run is a fresh anonymous blob; no player dossiers, no secret tracking, no input tracking, no drama. I don\'t want your personal data, you can keep it. I have a hard enough time keeping track of my own.',
+            'Changed your mind? Flip telemetry on or off anytime from the pause menu and the game will respect your newfound mood instantly.'
+        ];
+    }
+    
     paragraphs.forEach(paragraph => {
-        textY = wrapText(ctx, paragraph, textX, textY, panelWidth - 80, lineHeight);
-        textY += 6;
+        textY = wrapText(ctx, paragraph, textX, textY, maxTextWidth, lineHeight);
+        textY += (isMobile ? 4 : 6);
     });
 
+    // Status text
     const telemetryStatus = Game ? Game.telemetryOptIn === true : null;
     let statusText = 'Telemetry is currently disabled.';
     if (telemetryStatus === true) {
@@ -4822,41 +5026,78 @@ function renderPrivacyModal(ctx) {
         statusText = 'Telemetry has not been configured yet.';
     }
     ctx.fillStyle = '#ffe082';
-    ctx.font = 'bold 20px Arial';
+    ctx.font = isMobile ? 'bold 16px Arial' : 'bold 20px Arial';
+    textY += isMobile ? 8 : 10;
     ctx.fillText(statusText, textX, textY);
 
-    // Buttons area
-    const buttonAreaY = panelY + panelHeight - 180;
-    const buttonGap = 30;
-    const buttonWidth = Math.min(320, (panelWidth - 2 * 40 - buttonGap) / 2);
-    const buttonHeight = 60;
+    // Buttons area - mobile: smaller side-by-side; desktop: side by side
+    const buttonGap = isMobile ? 12 : 30;
+    const buttonHeight = isMobile ? 45 : 60;
+    
+    if (isMobile) {
+        // Mobile: buttons side-by-side, smaller size
+        const buttonWidth = (panelWidth - 30 - buttonGap) / 2; // Two buttons with gap
+        const buttonStartY = panelY + panelHeight - (Game && Game.privacyModalContext === 'pause' ? 120 : 100);
+        
+        privacyModalButtons.optIn.x = panelX + 15;
+        privacyModalButtons.optIn.y = buttonStartY;
+        privacyModalButtons.optIn.width = buttonWidth;
+        privacyModalButtons.optIn.height = buttonHeight;
 
-    privacyModalButtons.optIn.x = panelX + 40;
-    privacyModalButtons.optIn.y = buttonAreaY;
-    privacyModalButtons.optIn.width = buttonWidth;
-    privacyModalButtons.optIn.height = buttonHeight;
+        privacyModalButtons.optOut.x = panelX + 15 + buttonWidth + buttonGap;
+        privacyModalButtons.optOut.y = buttonStartY;
+        privacyModalButtons.optOut.width = buttonWidth;
+        privacyModalButtons.optOut.height = buttonHeight;
 
-    privacyModalButtons.optOut.x = panelX + panelWidth - 40 - buttonWidth;
-    privacyModalButtons.optOut.y = buttonAreaY;
-    privacyModalButtons.optOut.width = buttonWidth;
-    privacyModalButtons.optOut.height = buttonHeight;
+        drawButton(privacyModalButtons.optIn, 'Enable', true);
+        drawButton(privacyModalButtons.optOut, 'Disable', true);
 
-    drawButton(privacyModalButtons.optIn, 'Enable Telemetry & Continue', true);
-    drawButton(privacyModalButtons.optOut, 'Disable Telemetry & Continue', true);
-
-    if (Game && Game.privacyModalContext === 'pause') {
-        const closeWidth = 180;
-        const closeHeight = 48;
-        privacyModalButtons.close.x = panelX + panelWidth / 2 - closeWidth / 2;
-        privacyModalButtons.close.y = buttonAreaY + buttonHeight + 25;
-        privacyModalButtons.close.width = closeWidth;
-        privacyModalButtons.close.height = closeHeight;
-        drawButton(privacyModalButtons.close, 'Back', false);
+        if (Game && Game.privacyModalContext === 'pause') {
+            const closeWidth = panelWidth - 30;
+            const closeHeight = 42;
+            privacyModalButtons.close.x = panelX + 15;
+            privacyModalButtons.close.y = buttonStartY + buttonHeight + 12;
+            privacyModalButtons.close.width = closeWidth;
+            privacyModalButtons.close.height = closeHeight;
+            drawButton(privacyModalButtons.close, 'Back', false);
+        } else {
+            privacyModalButtons.close.x = 0;
+            privacyModalButtons.close.y = 0;
+            privacyModalButtons.close.width = 0;
+            privacyModalButtons.close.height = 0;
+        }
     } else {
-        privacyModalButtons.close.x = 0;
-        privacyModalButtons.close.y = 0;
-        privacyModalButtons.close.width = 0;
-        privacyModalButtons.close.height = 0;
+        // Desktop: buttons side by side
+        const buttonAreaY = panelY + panelHeight - 180;
+        const buttonWidth = Math.min(320, (panelWidth - 2 * 40 - buttonGap) / 2);
+
+        privacyModalButtons.optIn.x = panelX + 40;
+        privacyModalButtons.optIn.y = buttonAreaY;
+        privacyModalButtons.optIn.width = buttonWidth;
+        privacyModalButtons.optIn.height = buttonHeight;
+
+        privacyModalButtons.optOut.x = panelX + panelWidth - 40 - buttonWidth;
+        privacyModalButtons.optOut.y = buttonAreaY;
+        privacyModalButtons.optOut.width = buttonWidth;
+        privacyModalButtons.optOut.height = buttonHeight;
+
+        drawButton(privacyModalButtons.optIn, 'Enable Telemetry & Continue', true);
+        drawButton(privacyModalButtons.optOut, 'Disable Telemetry & Continue', true);
+
+        if (Game && Game.privacyModalContext === 'pause') {
+            const closeWidth = 180;
+            const closeHeight = 48;
+            privacyModalButtons.close.x = panelX + panelWidth / 2 - closeWidth / 2;
+            privacyModalButtons.close.y = buttonAreaY + buttonHeight + 25;
+            privacyModalButtons.close.width = closeWidth;
+            privacyModalButtons.close.height = closeHeight;
+            drawButton(privacyModalButtons.close, 'Back', false);
+        } else {
+            privacyModalButtons.close.x = 0;
+            privacyModalButtons.close.y = 0;
+            privacyModalButtons.close.width = 0;
+            privacyModalButtons.close.height = 0;
+        }
     }
 
     ctx.restore();

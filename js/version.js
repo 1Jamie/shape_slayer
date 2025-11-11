@@ -2,7 +2,7 @@
 // Update this file when releasing new versions
 
 const GameVersion = {
-    VERSION: '0.5.2',
+    VERSION: '0.5.3',
     
     UPDATE_MESSAGES: {
         '0.2.1': 'Initial early access release! Please report any bugs you find at https://github.com/1jamie/shape_slayer/issues',
@@ -333,6 +333,17 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 • Swarm King's final phase is now a dramatic duel instead of a networking stress test disguised as a boss fight; your router can keep its dignity. 
 
 *TL;DR:* Damage numbers are back on a leash. You can still break the game—just not by accident. You're welcome.*
+`,
+        '0.5.3': `**TELEM UPDATE** (11/11/2025)
+*"Well you see... I found 'The boss feels spicy' doesnt really help me with balancing"*
+
+**I CAN SEE YOU:**
+• not really, i just put a telemetry system in the game to help me with balancing, it only logs numbers and sends them back, no personal data is collected, i only use the data to help me balance the game, nothing else.
+
+**Updated Pause Menu:**
+• this thing needed some updates to stlying and i added a new button to the pause menu to opt in or out of telemetry and a modal to explain what it is and why i added it.
+
+*TL;DR:* Telemetry now exist in opt in and the pause menu looks much nicer*
 `
     },
     
@@ -346,7 +357,8 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
         '0.4.1': ['hotfix'],
         '0.5.0': ['major', 'feature'],
         '0.5.1': ['major', 'rebalance'],
-        '0.5.2': ['minor', 'hotfix']
+        '0.5.2': ['minor', 'hotfix'],
+        '0.5.3': ['minor'] 
     }
 };
 
