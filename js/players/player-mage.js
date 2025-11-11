@@ -22,6 +22,8 @@ const MAGE_CONFIG = {
     boltLifetime: 1.28,            // How long bolt travels (seconds) - reduced by 20% from 1.6
     boltSize: 10,                  // Bolt projectile size (pixels)
     boltSpreadAngle: Math.PI / 24, // Spread angle for multiple projectiles (7.5 degrees) - reduced for better accuracy
+    multishotDamageMultiplier: 0.5, // Damage multiplier for multishot projectiles (50% damage per projectile)
+    multishotRangeMultiplier: 0.75, // Range multiplier for multishot projectiles (75% range - shotgun-like)
     
     // Heavy Attack (Energy Beam)
     heavyAttackCooldown: 2.415,    // Cooldown for heavy attack (seconds) - increased by 5%
@@ -284,6 +286,11 @@ class Mage extends PlayerBase {
         // Fire multiple projectiles if projectile count bonus is active
         const numProjectiles = 1 + this.projectileCountBonus + (this.multishotCount || 0);
         const spreadAngle = MAGE_CONFIG.boltSpreadAngle;
+        const isMultishot = numProjectiles > 1;
+        
+        // Apply multishot multipliers (damage and range reduction for shotgun-like behavior)
+        const damageMultiplier = isMultishot ? MAGE_CONFIG.multishotDamageMultiplier : 1.0;
+        const rangeMultiplier = isMultishot ? MAGE_CONFIG.multishotRangeMultiplier : 1.0;
         
         for (let i = 0; i < numProjectiles; i++) {
             // Calculate angle for this projectile
@@ -297,9 +304,9 @@ class Mage extends PlayerBase {
                 y: pos.y,
                 vx: projDirX * MAGE_CONFIG.boltSpeed * (this.projectileSpeedMultiplier || 1.0),
                 vy: projDirY * MAGE_CONFIG.boltSpeed * (this.projectileSpeedMultiplier || 1.0),
-                damage: this.damage,
+                damage: this.damage * damageMultiplier,
                 size: MAGE_CONFIG.boltSize,
-                lifetime: MAGE_CONFIG.boltLifetime,
+                lifetime: MAGE_CONFIG.boltLifetime * rangeMultiplier,
                 elapsed: 0,
                 type: 'magic',
                 color: this.color,
