@@ -20,7 +20,9 @@ const SaveSystem = {
             audioVolume: 0.5, // 0.0 to 1.0
             audioMuted: false,
             lastRunVersion: null,
-            hasSeenLaunchModal: false
+            hasSeenLaunchModal: false,
+            privacyAcknowledged: false,
+            telemetryOptIn: null
         };
     },
     
@@ -46,7 +48,9 @@ const SaveSystem = {
                     audioVolume: parsed.audioVolume !== undefined ? parsed.audioVolume : defaults.audioVolume,
                     audioMuted: parsed.audioMuted !== undefined ? parsed.audioMuted : defaults.audioMuted,
                     lastRunVersion: parsed.lastRunVersion !== undefined ? parsed.lastRunVersion : defaults.lastRunVersion,
-                    hasSeenLaunchModal: parsed.hasSeenLaunchModal !== undefined ? parsed.hasSeenLaunchModal : defaults.hasSeenLaunchModal
+                    hasSeenLaunchModal: parsed.hasSeenLaunchModal !== undefined ? parsed.hasSeenLaunchModal : defaults.hasSeenLaunchModal,
+                    privacyAcknowledged: parsed.privacyAcknowledged !== undefined ? parsed.privacyAcknowledged : defaults.privacyAcknowledged,
+                    telemetryOptIn: parsed.telemetryOptIn !== undefined ? parsed.telemetryOptIn : defaults.telemetryOptIn
                 };
             }
         } catch (e) {
@@ -255,6 +259,30 @@ const SaveSystem = {
     setAudioMuted(muted) {
         const save = this.load();
         save.audioMuted = muted === true;
+        this.save(save);
+        return true;
+    },
+    
+    hasAcknowledgedPrivacy() {
+        const save = this.load();
+        return save.privacyAcknowledged === true;
+    },
+    
+    setPrivacyAcknowledged(acknowledged) {
+        const save = this.load();
+        save.privacyAcknowledged = acknowledged === true;
+        this.save(save);
+        return true;
+    },
+    
+    getTelemetryOptIn() {
+        const save = this.load();
+        return save.telemetryOptIn;
+    },
+    
+    setTelemetryOptIn(optIn) {
+        const save = this.load();
+        save.telemetryOptIn = optIn === true ? true : false;
         this.save(save);
         return true;
     }

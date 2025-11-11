@@ -1,0 +1,23 @@
+{
+  "name": "shape-slayer-metrics-gui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Dashboard for Shape Slayer telemetry insights",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "NODE_ENV=development nodemon server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.0.0",
+    "compression": "^1.7.4",
+    "express": "^4.19.2",
+    "helmet": "^6.2.0",
+    "morgan": "^1.10.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.3"
+  }
+}
+
+

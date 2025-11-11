@@ -1,5 +1,11 @@
 // Base enemy class with common functionality
 
+function normalizeAngle(angle) {
+    while (angle > Math.PI) angle -= Math.PI * 2;
+    while (angle < -Math.PI) angle += Math.PI * 2;
+    return angle;
+}
+
 class EnemyBase {
     constructor(x, y, inheritedTarget = null) {
         // Position
@@ -8,6 +14,9 @@ class EnemyBase {
         this.vx = 0;
         this.vy = 0;
         this.rotation = 0; // Facing direction (in radians, 0 = right)
+        this.rotationSpeed = 0;
+        this.rotationBaseline = this.rotation;
+        this.rotationBaselineTime = Date.now();
         
         // Knockback system
         this.knockbackVx = 0;
@@ -872,20 +881,32 @@ class EnemyBase {
         this.y += dy * t;
         
         // Interpolate rotation (handle wrapping)
-        if (this.targetRotation !== undefined) {
-            let rotDiff = this.targetRotation - this.rotation;
-            // Normalize to [-PI, PI]
-            while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
-            while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
+        let desiredRotation = this.targetRotation;
+        if (desiredRotation === undefined && this.rotationBaseline !== undefined) {
+            desiredRotation = this.rotationBaseline;
+        }
+        if (this.rotationBaseline !== undefined && this.rotationBaselineTime) {
+            const elapsed = (Date.now() - this.rotationBaselineTime) / 1000;
+            desiredRotation = this.rotationBaseline + (this.rotationSpeed || 0) * elapsed;
+        }
+        if (desiredRotation !== undefined) {
+            let rotDiff = normalizeAngle(desiredRotation - this.rotation);
             this.rotation += rotDiff * t;
+            if (this.rotationAngle !== undefined) {
+                this.rotationAngle = desiredRotation;
+            }
         }
         
         // Snap the last bit if very close to prevent micro-jitter
         if (distance < 0.1) {
             this.x = this.targetX;
             this.y = this.targetY;
-            if (this.targetRotation !== undefined) {
-                this.rotation = this.targetRotation;
+            if (desiredRotation !== undefined) {
+                this.rotation = desiredRotation;
+                this.targetRotation = desiredRotation;
+                if (this.rotationAngle !== undefined) {
+                    this.rotationAngle = desiredRotation;
+                }
             }
         }
     }
@@ -905,6 +926,22 @@ class EnemyBase {
         this.targetX = hostData.x;
         this.targetY = hostData.y;
         this.targetRotation = hostData.rotation;
+        if (hostData.rotationAngle !== undefined) {
+            this.rotationAngle = hostData.rotationAngle;
+            this.rotation = hostData.rotationAngle;
+            this.targetRotation = hostData.rotationAngle;
+        }
+        if (hostData.rotationSpeed !== undefined) {
+            this.rotationSpeed = hostData.rotationSpeed;
+        }
+        if (hostData.rotationAngle !== undefined) {
+            this.rotationBaseline = hostData.rotationAngle;
+        } else if (hostData.rotation !== undefined) {
+            this.rotationBaseline = hostData.rotation;
+        } else {
+            this.rotationBaseline = this.rotation;
+        }
+        this.rotationBaselineTime = Date.now();
         
         // Update timestamp for velocity calculation
         this.lastUpdateTime = Date.now();

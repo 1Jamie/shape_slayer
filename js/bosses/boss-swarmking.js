@@ -1,6 +1,12 @@
 // Swarm King Boss - Room 10
 // Large star with inward-bending spikes, rotation attacks, minion spawning
 
+function normalizeAngle(angle) {
+    while (angle > Math.PI) angle -= Math.PI * 2;
+    while (angle < -Math.PI) angle += Math.PI * 2;
+    return angle;
+}
+
 class BossSwarmKing extends BossBase {
     constructor(x, y) {
         super(x, y);
@@ -12,6 +18,7 @@ class BossSwarmKing extends BossBase {
         this.spikeCount = 8; // 8 spikes for star
         this.rotationAngle = 0; // Current rotation
         this.rotationSpeed = 0; // Rotation speed (radians per second)
+        this.rotation = 0;
         this.spikeExtension = 0; // Current spike extension (0-1)
         this.maxSpikeExtension = 30; // Max spike extension in pixels
         
@@ -49,6 +56,10 @@ class BossSwarmKing extends BossBase {
         this.beamMaxLength = 720;
         this.finalExplosionTriggered = false;
         this.summonGlobalCooldown = 0;
+        this.serverRotationAngle = 0;
+        this.visualRotationAngle = this.rotationAngle;
+        this.clientSpin = null;
+        this.defaultSpinSpeed = Math.PI * 2;
         
         // Override base stats for star boss (before BossBase multiplies them)
         this.size = 60; // Large star (BossBase will multiply by 2, so final size is 120)
@@ -123,6 +134,8 @@ class BossSwarmKing extends BossBase {
         
         // Update rotation
         this.rotationAngle += this.rotationSpeed * deltaTime;
+        this.rotation = this.rotationAngle;
+        this.targetRotation = this.rotationAngle;
         
         // Phase-based behavior
         if (this.phase === 1) {
@@ -138,6 +151,8 @@ class BossSwarmKing extends BossBase {
         
         // Update minions list (remove dead ones)
         this.minions = this.minions.filter(m => m && m.alive);
+
+        this.visualRotationAngle = this.rotationAngle;
     }
     
     updatePhase1(deltaTime, player) {
@@ -579,7 +594,11 @@ class BossSwarmKing extends BossBase {
         
         ctx.save();
         ctx.translate(this.x, this.y);
-        ctx.rotate(this.rotationAngle);
+        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+        const renderAngle = isClient && this.visualRotationAngle !== undefined
+            ? this.visualRotationAngle
+            : this.rotationAngle;
+        ctx.rotate(renderAngle);
         
         // Draw star with inward-bending spikes
         ctx.fillStyle = this.color;
@@ -655,6 +674,9 @@ class BossSwarmKing extends BossBase {
         const baseState = super.serialize();
         return {
             ...baseState,
+            rotationAngle: this.rotationAngle,
+            rotationSpeed: this.rotationSpeed,
+            spikeExtension: this.spikeExtension,
             beamStateTimer: this.beamStateTimer,
             pendingBeamAngle: this.pendingBeamAngle,
             beamTelegraphAngle: this.beamTelegraphAngle,
@@ -665,11 +687,115 @@ class BossSwarmKing extends BossBase {
     
     applyState(state) {
         super.applyState(state);
+        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+
+        if (state.rotationAngle !== undefined) {
+            this.serverRotationAngle = state.rotationAngle;
+            if (!isClient || !this.clientSpin) {
+                this.rotationAngle = state.rotationAngle;
+                this.rotation = state.rotationAngle;
+                this.targetRotation = state.rotationAngle;
+                this.visualRotationAngle = state.rotationAngle;
+            }
+        }
+        if (state.rotationSpeed !== undefined) this.rotationSpeed = state.rotationSpeed;
+        if (state.spikeExtension !== undefined) this.spikeExtension = state.spikeExtension;
         if (state.beamStateTimer !== undefined) this.beamStateTimer = state.beamStateTimer;
         if (state.pendingBeamAngle !== undefined) this.pendingBeamAngle = state.pendingBeamAngle;
         if (state.beamTelegraphAngle !== undefined) this.beamTelegraphAngle = state.beamTelegraphAngle;
         if (state.phase3BeamCooldown !== undefined) this.phase3BeamCooldown = state.phase3BeamCooldown;
         if (state.phase2VolleyCooldown !== undefined) this.phase2VolleyCooldown = state.phase2VolleyCooldown;
+
+        if (isClient) {
+            const desiredSpin = this.shouldClientSpin(this.phase, this.state);
+            if (desiredSpin) {
+                if (!this.clientSpin || this.clientSpin.state !== this.state || this.clientSpin.phase !== this.phase) {
+                    const baseAngle = this.serverRotationAngle !== undefined ? this.serverRotationAngle : this.rotation;
+                    this.clientSpin = {
+                        state: this.state,
+                        phase: this.phase,
+                        startTime: Date.now(),
+                        lastUpdate: Date.now(),
+                        angle: baseAngle
+                    };
+                    this.visualRotationAngle = baseAngle;
+                }
+            } else {
+                this.clientSpin = null;
+                if (this.serverRotationAngle !== undefined) {
+                    this.visualRotationAngle = this.serverRotationAngle;
+                } else {
+                    this.visualRotationAngle = this.rotation;
+                }
+            }
+        } else {
+            this.clientSpin = null;
+            this.visualRotationAngle = this.rotationAngle;
+        }
+    }
+
+    interpolateToTarget(deltaTime) {
+        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+        super.interpolateToTarget(deltaTime);
+        if (isClient) {
+            if (this.clientSpin) {
+                const now = Date.now();
+                const dt = Math.max(0, (now - this.clientSpin.lastUpdate) / 1000);
+                this.clientSpin.lastUpdate = now;
+                const elapsed = Math.max(0, (now - this.clientSpin.startTime) / 1000);
+                const speed = this.getClientSpinSpeed(this.clientSpin.phase, this.clientSpin.state, elapsed);
+                if (speed !== null) {
+                    const direction = this.rotationSpeed !== undefined && this.rotationSpeed < 0 ? -1 : 1;
+                    this.clientSpin.angle = normalizeAngle(this.clientSpin.angle + direction * speed * dt);
+                    this.visualRotationAngle = this.clientSpin.angle;
+                } else {
+                    this.clientSpin = null;
+                    this.visualRotationAngle = this.serverRotationAngle !== undefined ? this.serverRotationAngle : this.rotation;
+                }
+            } else {
+                this.visualRotationAngle = this.serverRotationAngle !== undefined ? this.serverRotationAngle : this.rotation;
+            }
+        } else {
+            this.visualRotationAngle = this.rotation;
+        }
+    }
+
+    shouldClientSpin(phase, state) {
+        if (phase >= 3) {
+            return state !== 'beamWarmup' && state !== 'beamFire';
+        }
+        if (phase === 2) {
+            return state === 'barrage' || state === 'spinning';
+        }
+        if (phase === 1) {
+            return state === 'barrage';
+        }
+        return false;
+    }
+
+    getClientSpinSpeed(phase, state, elapsed) {
+        if (phase >= 3) {
+            if (state === 'beamWarmup' || state === 'beamFire') return null;
+            return Math.PI * 2;
+        }
+        if (phase === 2) {
+            if (state === 'spinning') {
+                return Math.PI * 6;
+            }
+            if (state === 'barrage') {
+                if (elapsed < 0.3) return Math.PI;
+                return Math.PI * 3;
+            }
+            return null;
+        }
+        if (phase === 1) {
+            if (state === 'barrage') {
+                if (elapsed < 0.5) return Math.PI * 0.5;
+                return Math.PI * 2;
+            }
+            return null;
+        }
+        return null;
     }
 }
 

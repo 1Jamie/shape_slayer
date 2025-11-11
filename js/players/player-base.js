@@ -1102,6 +1102,23 @@ class PlayerBase {
             const playerId = Game.getLocalPlayerId();
             const stats = Game.getPlayerStats(playerId);
             stats.addStat('damageTaken', damage);
+            
+            if (typeof Telemetry !== 'undefined') {
+                const sourceType = sourceEnemy && sourceEnemy.isBoss
+                    ? 'boss'
+                    : (sourceEnemy && sourceEnemy.type) ? sourceEnemy.type : 'enemy';
+                const sourceId = sourceEnemy && (sourceEnemy.id || sourceEnemy.enemyId || sourceEnemy.bossName)
+                    ? (sourceEnemy.id || sourceEnemy.enemyId || sourceEnemy.bossName)
+                    : null;
+                
+                Telemetry.recordPlayerHit({
+                    playerId,
+                    amount: damage,
+                    roomNumber: Game.roomNumber,
+                    sourceId,
+                    sourceType
+                });
+            }
         }
         
         // Apply thorns damage reflection (if we have thorns and know the source)
@@ -1177,6 +1194,11 @@ class PlayerBase {
             this.hp = 0;
             this.dead = true;
             this.alive = false;
+            
+            if (typeof Telemetry !== 'undefined') {
+                const playerId = this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local');
+                Telemetry.recordPlayerDeath(playerId);
+            }
             
             // In multiplayer as a client, execute minimal death logic
             // Host will track stats and currency, but client needs to show death screen

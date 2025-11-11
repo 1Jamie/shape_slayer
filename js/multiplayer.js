@@ -14,13 +14,28 @@ class MultiplayerManager {
         this.reconnectAttempts = 0;
         this.heartbeatInterval = null;
         this.lastStateUpdate = 0;
-        this.stateUpdateRate = 1000 / 30; // 30 updates per second
+        this.stateUpdateRate = 1000 / 24; // 24 updates per second
+        this.gameStateFullInterval = 1000; // send full state every 1s
+        this.lastFullGameStateSentAt = 0;
+        this.lastSentGameState = null;
+        this.lastProjectileSnapshot = null;
+        this.projectileBroadcastInterval = 100; // limit projectile updates to 10 Hz
+        this.lastProjectileBroadcast = 0;
+        this.latestGameState = null;
         
         // Latency tracking
         this.rttSamples = []; // Array of RTT measurements
         this.currentRTT = 0; // Current estimated RTT
         this.pendingStateRequests = new Map(); // Map<timestamp, clientSendTime> for RTT calculation
         this.maxRttSamples = 10; // Keep last 10 RTT samples for averaging
+
+        // Player state batching
+        this.playerStateSeq = 0;
+        this.lastPlayerStateSnapshot = null;
+        this.playerStateBuffer = [];
+        this.playerStateBatchInterval = 80; // Flush every ~80ms
+        this.lastPlayerBatchFlush = 0;
+        this.playerLastUpdateTimes = new Map();
     }
     
     // Connect to multiplayer server
@@ -117,6 +132,9 @@ class MultiplayerManager {
                 case 'player_state':
                     this.handlePlayerState(msg.data);
                     break;
+            case 'player_state_batch':
+                this.handlePlayerStateBatch(msg.data);
+                break;
                 case 'game_start':
                     this.handleGameStart(msg.data);
                     break;
@@ -358,9 +376,14 @@ class MultiplayerManager {
         this.lastStateUpdate = now;
         
         const state = this.serializeGameState();
+        const payload = this.buildGameStatePayload(state, now);
+        if (!payload) {
+            return;
+        }
+        
         this.send({
             type: 'game_state',
-            data: state
+            data: payload
         });
     }
     
@@ -369,9 +392,127 @@ class MultiplayerManager {
         if (this.isHost || !Game.player) return;
         
         const state = this.serializePlayerState();
+        if (!state) {
+            return;
+        }
+        
+        const now = Date.now();
+        if (this.playerStateBuffer.length > 0 && now - this.lastPlayerBatchFlush >= this.playerStateBatchInterval) {
+            this.flushPlayerStateBuffer();
+        }
+        
+        const delta = this.buildPlayerStateDelta(state);
+        if (!delta) {
+            return;
+        }
+        
+        this.playerStateBuffer.push(delta);
+        const immediateFlush = delta.inputChanged || delta.immediateFlush;
+        
+        const shouldFlush = immediateFlush ||
+            now - this.lastPlayerBatchFlush >= this.playerStateBatchInterval ||
+            this.playerStateBuffer.length >= 4;
+        
+        if (shouldFlush) {
+            this.flushPlayerStateBuffer();
+        }
+    }
+    
+    buildPlayerStateDelta(state) {
+        const prev = this.lastPlayerStateSnapshot;
+        const now = Date.now();
+        const delta = {
+            sequence: ++this.playerStateSeq,
+            id: state.id,
+            clientTimestamp: state.clientTimestamp
+        };
+        
+        const transformChanged = !prev ||
+            Math.abs(prev.x - state.x) > 0.1 ||
+            Math.abs(prev.y - state.y) > 0.1 ||
+            Math.abs((prev.rotation || 0) - (state.rotation || 0)) > 0.01;
+        
+        const lastTransformSent = this.playerLastUpdateTimes.get('transform') || 0;
+        const transformTimedOut = now - lastTransformSent > 200;
+        
+        if (transformChanged || transformTimedOut) {
+            delta.transform = {
+                x: state.x,
+                y: state.y,
+                rotation: state.rotation
+            };
+            this.playerLastUpdateTimes.set('transform', now);
+        }
+        
+        const inputChanged = !prev || !this.inputsEqual(prev.input, state.input);
+        if (!prev || inputChanged) {
+            delta.input = state.input;
+        }
+        
+        const classChanged = !prev || prev.class !== state.class;
+        if (classChanged) {
+            delta.class = state.class;
+        }
+        
+        const currencyChanged = !prev || prev.currency !== state.currency;
+        if (currencyChanged) {
+            delta.currency = state.currency;
+        }
+        
+        const upgradesChanged = !prev || !this.valuesEqual(prev.upgrades, state.upgrades);
+        if (upgradesChanged) {
+            delta.upgrades = state.upgrades;
+        }
+        
+        // Attach flags used internally for batching decisions
+        delta.inputChanged = inputChanged;
+        delta.immediateFlush = inputChanged || transformChanged;
+        
+        const hasPayload =
+            delta.transform ||
+            delta.input ||
+            delta.class !== undefined ||
+            delta.currency !== undefined ||
+            delta.upgrades !== undefined;
+        
+        if (!hasPayload) {
+            return null;
+        }
+        
+        this.lastPlayerStateSnapshot = this.deepClone(state);
+        return delta;
+    }
+    
+    flushPlayerStateBuffer() {
+        if (this.playerStateBuffer.length === 0) return;
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            this.playerStateBuffer.length = 0;
+            return;
+        }
+        
+        const frames = this.playerStateBuffer.map(frame => {
+            const { inputChanged, immediateFlush, ...rest } = frame;
+            if (rest.input) {
+                rest.input = this.deepClone(rest.input);
+            }
+            if (rest.upgrades) {
+                rest.upgrades = this.deepClone(rest.upgrades);
+            }
+            if (rest.transform) {
+                rest.transform = { ...rest.transform };
+            }
+            return rest;
+        });
+        
+        this.playerStateBuffer.length = 0;
+        this.lastPlayerBatchFlush = Date.now();
+        
         this.send({
-            type: 'player_state',
-            data: state
+            type: 'player_state_batch',
+            data: {
+                playerId: this.playerId,
+                frames
+            }
         });
     }
     
@@ -434,7 +575,240 @@ class MultiplayerManager {
             })) : []
         };
         
-        return state;
+        return this.roundDeep(state, 2);
+    }
+    
+    buildGameStatePayload(state, now) {
+        const baseline = this.lastSentGameState;
+        this.latestGameState = this.deepClone(state);
+        
+        const needsFull = !baseline || (now - this.lastFullGameStateSentAt >= this.gameStateFullInterval);
+        
+        if (needsFull) {
+            const fullState = this.deepClone(state);
+            this.lastFullGameStateSentAt = now;
+            this.lastProjectileBroadcast = now;
+            this.lastProjectileSnapshot = this.deepClone(fullState.projectiles || []);
+            this.lastSentGameState = this.deepClone(fullState);
+            return {
+                full: true,
+                state: fullState
+            };
+        }
+        
+        const payload = {
+            full: false,
+            timestamp: state.timestamp
+        };
+        
+        let hasChanges = false;
+        const meta = {};
+        
+        // Players
+        const playerDiff = this.diffById(state.players, baseline.players || [], 'id', { numericTolerance: 0.05 });
+        if (playerDiff.changed.length) {
+            payload.players = playerDiff.changed;
+            hasChanges = true;
+        }
+        if (playerDiff.removed.length) {
+            payload.removedPlayers = playerDiff.removed;
+            hasChanges = true;
+        }
+        
+        // Enemies
+        const enemyDiff = this.diffById(state.enemies, baseline.enemies || [], 'id', { numericTolerance: 0.5 });
+        if (enemyDiff.changed.length) {
+            payload.enemies = enemyDiff.changed;
+            hasChanges = true;
+        }
+        if (enemyDiff.removed.length) {
+            payload.removedEnemies = enemyDiff.removed;
+            hasChanges = true;
+        }
+        
+        // Ground loot
+        const lootDiff = this.diffById(state.groundLoot, baseline.groundLoot || [], 'id', { numericTolerance: 0.1 });
+        if (lootDiff.changed.length) {
+            payload.groundLoot = lootDiff.changed;
+            hasChanges = true;
+        }
+        if (lootDiff.removed.length) {
+            payload.removedGroundLoot = lootDiff.removed;
+            hasChanges = true;
+        }
+        
+        // Projectiles (throttled full updates)
+        const shouldSendProjectiles = !this.lastProjectileSnapshot ||
+            now - this.lastProjectileBroadcast >= this.projectileBroadcastInterval;
+        if (shouldSendProjectiles && !this.valuesEqual(state.projectiles, this.lastProjectileSnapshot, 0.1)) {
+            payload.projectiles = state.projectiles;
+            payload.projectilesFull = true;
+            hasChanges = true;
+            this.lastProjectileBroadcast = now;
+            this.lastProjectileSnapshot = this.deepClone(state.projectiles || []);
+        }
+        
+        // Player stats (send only when changed)
+        if (!this.valuesEqual(state.playerStats, baseline.playerStats)) {
+            payload.playerStats = state.playerStats;
+            hasChanges = true;
+        }
+        
+        if (state.roomNumber !== baseline.roomNumber) meta.roomNumber = state.roomNumber;
+        if (state.gameState !== baseline.gameState) meta.gameState = state.gameState;
+        if (state.doorOpen !== baseline.doorOpen) meta.doorOpen = state.doorOpen;
+        if (!this.valuesEqual(state.playersOnDoor, baseline.playersOnDoor)) meta.playersOnDoor = state.playersOnDoor;
+        if (state.totalAlivePlayers !== baseline.totalAlivePlayers) meta.totalAlivePlayers = state.totalAlivePlayers;
+        if (state.allPlayersDead !== baseline.allPlayersDead) meta.allPlayersDead = state.allPlayersDead;
+        if (!this.valuesEqual(state.deadPlayers, baseline.deadPlayers)) meta.deadPlayers = state.deadPlayers;
+        if (Object.keys(meta).length) {
+            payload.meta = meta;
+            hasChanges = true;
+        }
+        
+        if (!hasChanges) {
+            return null;
+        }
+        
+        this.lastSentGameState = this.deepClone(state);
+        return payload;
+    }
+    
+    roundNumber(value, decimals = 2) {
+        if (typeof value !== 'number' || !Number.isFinite(value)) return value;
+        const factor = Math.pow(10, decimals);
+        return Math.round(value * factor) / factor;
+    }
+    
+    roundDeep(value, decimals = 2) {
+        if (Array.isArray(value)) {
+            return value.map(item => this.roundDeep(item, decimals));
+        }
+        if (value && typeof value === 'object') {
+            const clone = {};
+            Object.keys(value).forEach(key => {
+                const child = value[key];
+                if (typeof child === 'number') {
+                    clone[key] = this.roundNumber(child, decimals);
+                } else {
+                    clone[key] = this.roundDeep(child, decimals);
+                }
+            });
+            return clone;
+        }
+        if (typeof value === 'number') {
+            return this.roundNumber(value, decimals);
+        }
+        return value;
+    }
+    
+    diffById(currentList = [], previousList = [], key = 'id', options = {}) {
+        const changed = [];
+        const removed = [];
+        
+        const prevMap = new Map();
+        if (Array.isArray(previousList)) {
+            previousList.forEach(item => {
+                if (item && item[key] !== undefined && item[key] !== null) {
+                    prevMap.set(item[key], item);
+                }
+            });
+        }
+        
+        const seenIds = new Set();
+        if (Array.isArray(currentList)) {
+            currentList.forEach(item => {
+                if (!item || item[key] === undefined || item[key] === null) return;
+                const id = item[key];
+                seenIds.add(id);
+                
+                const prevItem = prevMap.get(id);
+                if (!prevItem) {
+                    changed.push(this.deepClone(item));
+                    return;
+                }
+                
+                const diff = this.computeObjectDiff(item, prevItem, options, key);
+                if (diff) {
+                    diff[key] = id;
+                    changed.push(diff);
+                }
+            });
+        }
+        
+        prevMap.forEach((_value, id) => {
+            if (!seenIds.has(id)) {
+                removed.push(id);
+            }
+        });
+        
+        return { changed, removed };
+    }
+    
+    computeObjectDiff(current, previous, options = {}, keyName) {
+        const diff = {};
+        let hasChanges = false;
+        const ignore = options.ignoreKeys || [];
+        const tolerance = options.numericTolerance || 0;
+        
+        Object.keys(current).forEach(prop => {
+            if (prop === keyName) return;
+            if (ignore.includes(prop)) return;
+            const currVal = current[prop];
+            const prevVal = previous[prop];
+            if (!this.valuesEqual(currVal, prevVal, tolerance)) {
+                diff[prop] = this.deepClone(currVal);
+                hasChanges = true;
+            }
+        });
+        
+        return hasChanges ? diff : null;
+    }
+    
+    deepClone(value) {
+        if (value === null || value === undefined) return value;
+        return JSON.parse(JSON.stringify(value));
+    }
+    
+    valuesEqual(a, b, tolerance = 0) {
+        if (a === b) return true;
+        if (a === undefined || b === undefined) return false;
+        if (a === null || b === null) return a === b;
+        
+        if (typeof a === 'number' && typeof b === 'number') {
+            if (!Number.isFinite(a) || !Number.isFinite(b)) {
+                return a === b;
+            }
+            return Math.abs(a - b) <= tolerance;
+        }
+        
+        if (Array.isArray(a) && Array.isArray(b)) {
+            if (a.length !== b.length) return false;
+            for (let i = 0; i < a.length; i++) {
+                if (!this.valuesEqual(a[i], b[i], tolerance)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        
+        if (typeof a === 'object' && typeof b === 'object') {
+            const aKeys = Object.keys(a);
+            const bKeys = Object.keys(b);
+            if (aKeys.length !== bKeys.length) return false;
+            for (const key of aKeys) {
+                if (!this.valuesEqual(a[key], b[key], tolerance)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        
+        return false;
+    }
+    
+    inputsEqual(a, b) {
+        return this.valuesEqual(a, b);
     }
     
     // Serialize player stats for all players (host only)
@@ -935,12 +1309,33 @@ class MultiplayerManager {
         }
         
         // Apply game state
-        this.applyGameState(data);
+        if (!data) return;
+        
+        if (data.full === true || data.state) {
+            const fullState = data.state || data;
+            this.latestGameState = this.deepClone(fullState);
+            this.applyGameState(fullState);
+            return;
+        }
+        
+        if (!this.latestGameState) {
+            console.warn('[Multiplayer] Received delta game_state without baseline');
+            return;
+        }
+        
+        const merged = this.mergeGameStateDelta(data);
+        if (merged) {
+            this.applyGameState(merged);
+        }
     }
     
     // Handle player state update (host receives from clients)
     handlePlayerState(data) {
         if (!this.isHost) return; // Only host processes player states
+        
+        const playerId = data.id || data.playerId;
+        if (!playerId) return;
+        data.id = playerId;
         
         // Sync currency and upgrades from client (authoritative on host, but sync for validation)
         if (typeof Game !== 'undefined') {
@@ -1039,6 +1434,31 @@ class MultiplayerManager {
         
         // Update remote player in our game state (for rendering)
         this.updateRemotePlayer(data);
+    }
+    
+    handlePlayerStateBatch(batch) {
+        if (!this.isHost) return;
+        if (!batch || !Array.isArray(batch.frames) || batch.frames.length === 0) return;
+        
+        const playerId = batch.playerId;
+        batch.frames.forEach(frame => {
+            const payload = {
+                id: frame.id || playerId,
+                clientTimestamp: frame.clientTimestamp,
+                input: frame.input
+            };
+            if (frame.transform) {
+                payload.x = frame.transform.x;
+                payload.y = frame.transform.y;
+                payload.rotation = frame.transform.rotation;
+            }
+            if (frame.class !== undefined) payload.class = frame.class;
+            if (frame.currency !== undefined) payload.currency = frame.currency;
+            if (frame.upgrades !== undefined) payload.upgrades = frame.upgrades;
+            if (frame.sequence !== undefined) payload.sequence = frame.sequence;
+            
+            this.handlePlayerState(payload);
+        });
     }
     
     // Handle game start
@@ -1325,10 +1745,12 @@ class MultiplayerManager {
             if (playerId !== localPlayerId && Game.remotePlayerInstances) {
                 const remotePlayer = Game.remotePlayerInstances.get(playerId);
                 if (remotePlayer && remotePlayer.equipGear) {
-                    // Equip gear on remote player instance
-                    // Note: oldGear is handled by the client's gear_dropped message, not here
-                    remotePlayer.equipGear(gear);
+                    const oldGear = remotePlayer.equipGear(gear);
                     console.log(`[Host] Equipped ${gear.tier} ${gear.slot} on remote player ${playerId}`);
+                    
+                    if (oldGear) {
+                        this.spawnDroppedGear(oldGear, remotePlayer, playerId);
+                    }
                 }
             }
         }
@@ -1351,6 +1773,82 @@ class MultiplayerManager {
             groundLoot.push(fullGear);
             console.log(`[Multiplayer] Player ${playerId} dropped ${gear.tier} ${gear.slot} at (${gear.x.toFixed(0)}, ${gear.y.toFixed(0)})`);
         }
+    }
+    
+    spawnDroppedGear(oldGear, playerInstance, playerId) {
+        if (typeof groundLoot === 'undefined' || !oldGear) return;
+        const drop = this.prepareGearDrop(oldGear, playerInstance);
+        groundLoot.push(drop);
+        
+        this.send({
+            type: 'gear_dropped',
+            data: {
+                playerId,
+                gear: this.serializeGearForNetwork(drop)
+            }
+        });
+    }
+    
+    prepareGearDrop(gear, playerInstance) {
+        const drop = this.deepClone(gear) || {};
+        drop.id = drop.id || `gear-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        drop.size = drop.size || 15;
+        drop.pulse = 0;
+        drop.color = drop.color || this.getGearTierColor(drop.tier);
+        
+        const baseX = (playerInstance && playerInstance.x !== undefined) ? playerInstance.x : (gear.x || 0);
+        const baseY = (playerInstance && playerInstance.y !== undefined) ? playerInstance.y : (gear.y || 0);
+        const offsetX = (Math.random() - 0.5) * 20;
+        const offsetY = (Math.random() - 0.5) * 20;
+        
+        let dropX = baseX + offsetX;
+        let dropY = baseY + offsetY;
+        const margin = 50;
+        const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : 2400;
+        const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : 1350;
+        dropX = Math.max(margin, Math.min(roomWidth - margin, dropX));
+        dropY = Math.max(margin, Math.min(roomHeight - margin, dropY));
+        
+        drop.x = dropX;
+        drop.y = dropY;
+        drop.roomNumber = (typeof Game !== 'undefined' && Game.roomNumber !== undefined) ? Game.roomNumber : gear.roomNumber;
+        
+        return drop;
+    }
+    
+    serializeGearForNetwork(gear) {
+        return {
+            id: gear.id,
+            x: gear.x,
+            y: gear.y,
+            slot: gear.slot,
+            tier: gear.tier,
+            color: gear.color,
+            size: gear.size || 15,
+            bonus: gear.bonus,
+            stats: gear.stats,
+            affixes: gear.affixes || [],
+            classModifier: gear.classModifier || null,
+            weaponType: gear.weaponType || null,
+            armorType: gear.armorType || null,
+            legendaryEffect: gear.legendaryEffect || null,
+            name: gear.name,
+            roomNumber: gear.roomNumber,
+            scaling: gear.scaling,
+            pulse: gear.pulse || 0
+        };
+    }
+    
+    getGearTierColor(tier) {
+        if (!tier) return '#999999';
+        const map = {
+            gray: '#999999',
+            green: '#4caf50',
+            blue: '#2196f3',
+            purple: '#9c27b0',
+            orange: '#ff9800'
+        };
+        return map[tier] || '#999999';
     }
     
     // Handle upgrade purchase request (host only - processes and validates)
@@ -1651,6 +2149,105 @@ class MultiplayerManager {
     }
     
     // Apply full game state (clients)
+    mergeGameStateDelta(delta) {
+        const base = this.latestGameState ? this.deepClone(this.latestGameState) : null;
+        if (!base) return null;
+        
+        if (delta.meta) {
+            if (delta.meta.roomNumber !== undefined) base.roomNumber = delta.meta.roomNumber;
+            if (delta.meta.doorOpen !== undefined) base.doorOpen = delta.meta.doorOpen;
+            if (delta.meta.gameState !== undefined) base.gameState = delta.meta.gameState;
+            if (delta.meta.playersOnDoor !== undefined) base.playersOnDoor = this.deepClone(delta.meta.playersOnDoor);
+            if (delta.meta.totalAlivePlayers !== undefined) base.totalAlivePlayers = delta.meta.totalAlivePlayers;
+            if (delta.meta.allPlayersDead !== undefined) base.allPlayersDead = delta.meta.allPlayersDead;
+            if (delta.meta.deadPlayers !== undefined) base.deadPlayers = this.deepClone(delta.meta.deadPlayers);
+        }
+        
+        if (delta.playerStats) {
+            base.playerStats = base.playerStats || {};
+            Object.keys(delta.playerStats).forEach(playerId => {
+                base.playerStats[playerId] = this.deepClone(delta.playerStats[playerId]);
+            });
+        }
+        
+        if (!Array.isArray(base.players)) {
+            base.players = [];
+        }
+        if (delta.players) {
+            const playerMap = new Map(base.players.map(p => [p.id, p]));
+            delta.players.forEach(playerUpdate => {
+                if (!playerUpdate || playerUpdate.id === undefined) return;
+                const existing = playerMap.get(playerUpdate.id);
+                if (existing) {
+                    Object.assign(existing, this.deepClone(playerUpdate));
+                } else {
+                    const clone = this.deepClone(playerUpdate);
+                    base.players.push(clone);
+                    playerMap.set(playerUpdate.id, clone);
+                }
+            });
+        }
+        if (delta.removedPlayers && delta.removedPlayers.length) {
+            const removedSet = new Set(delta.removedPlayers);
+            base.players = base.players.filter(p => !removedSet.has(p.id));
+        }
+        
+        if (!Array.isArray(base.enemies)) {
+            base.enemies = [];
+        }
+        if (delta.enemies) {
+            const enemyMap = new Map(base.enemies.map(e => [e.id, e]));
+            delta.enemies.forEach(enemyUpdate => {
+                if (!enemyUpdate || enemyUpdate.id === undefined) return;
+                const existing = enemyMap.get(enemyUpdate.id);
+                if (existing) {
+                    Object.assign(existing, this.deepClone(enemyUpdate));
+                } else {
+                    const clone = this.deepClone(enemyUpdate);
+                    base.enemies.push(clone);
+                    enemyMap.set(enemyUpdate.id, clone);
+                }
+            });
+        }
+        if (delta.removedEnemies && delta.removedEnemies.length) {
+            const removedSet = new Set(delta.removedEnemies);
+            base.enemies = base.enemies.filter(e => !removedSet.has(e.id));
+        }
+        
+        if (!Array.isArray(base.groundLoot)) {
+            base.groundLoot = [];
+        }
+        if (delta.groundLoot) {
+            const lootMap = new Map(base.groundLoot.map(l => [l.id, l]));
+            delta.groundLoot.forEach(lootUpdate => {
+                if (!lootUpdate || lootUpdate.id === undefined) return;
+                const existing = lootMap.get(lootUpdate.id);
+                if (existing) {
+                    Object.assign(existing, this.deepClone(lootUpdate));
+                } else {
+                    const clone = this.deepClone(lootUpdate);
+                    base.groundLoot.push(clone);
+                    lootMap.set(lootUpdate.id, clone);
+                }
+            });
+        }
+        if (delta.removedGroundLoot && delta.removedGroundLoot.length) {
+            const removedSet = new Set(delta.removedGroundLoot);
+            base.groundLoot = base.groundLoot.filter(l => !removedSet.has(l.id));
+        }
+        
+        if (delta.projectiles) {
+            base.projectiles = this.deepClone(delta.projectiles);
+        }
+        
+        if (delta.timestamp) {
+            base.timestamp = delta.timestamp;
+        }
+        
+        this.latestGameState = this.deepClone(base);
+        return base;
+    }
+    
     applyGameState(state) {
         if (!state) return;
         
@@ -2058,6 +2655,14 @@ class MultiplayerManager {
         
         this.connected = false;
         this.connecting = false;
+
+        this.lastSentGameState = null;
+        this.latestGameState = null;
+        this.lastFullGameStateSentAt = 0;
+        this.lastProjectileSnapshot = null;
+        this.lastPlayerStateSnapshot = null;
+        this.playerStateBuffer = [];
+        this.playerLastUpdateTimes.clear();
     }
     
     // Disconnect

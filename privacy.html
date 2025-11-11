@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shape Slayer Privacy & Telemetry Policy</title>
+    <style>
+        :root {
+            color-scheme: dark;
+        }
+        body {
+            margin: 0;
+            font-family: "Inter", "Segoe UI", Arial, sans-serif;
+            background: #0d1117;
+            color: #d7deed;
+            line-height: 1.6;
+        }
+        header {
+            padding: 3rem 1.5rem 2rem;
+            background: radial-gradient(circle at top, rgba(73,132,255,0.25), transparent 60%);
+            text-align: center;
+        }
+        header h1 {
+            margin: 0;
+            font-size: clamp(2.2rem, 4vw, 3rem);
+            color: #f8fbff;
+        }
+        header p {
+            margin: 1rem auto 0;
+            max-width: 640px;
+            font-size: 1rem;
+            color: #9fb4ff;
+        }
+        main {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem 4rem;
+        }
+        section {
+            background: rgba(22, 28, 48, 0.88);
+            border: 1px solid rgba(120, 160, 255, 0.18);
+            border-radius: 18px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 24px 50px rgba(0, 0, 0, 0.35);
+        }
+        section h2 {
+            margin-top: 0;
+            font-size: 1.6rem;
+            color: #f1f6ff;
+        }
+        ul {
+            padding-left: 1.25rem;
+        }
+        li {
+            margin-bottom: 0.75rem;
+        }
+        a {
+            color: #88b4ff;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        .tag {
+            display: inline-block;
+            padding: 0.25rem 0.6rem;
+            border-radius: 999px;
+            background: rgba(114, 168, 255, 0.12);
+            border: 1px solid rgba(114, 168, 255, 0.3);
+            font-size: 0.85rem;
+            color: #9abfff;
+            margin-right: 0.5rem;
+        }
+        footer {
+            text-align: center;
+            padding: 2rem 1rem 3rem;
+            color: #607099;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Shape Slayer Privacy & Telemetry Policy</h1>
+        <p>
+            We believe in transparent telemetry. This page explains exactly what gameplay data Shape Slayer collects, how it is used, and how you can opt in or out at any time.
+        </p>
+    </header>
+
+    <main>
+        <section>
+            <h2>What We Collect</h2>
+            <span class="tag">Gameplay Only</span>
+            <span class="tag">No Personal Identifiers</span>
+            <ul>
+                <li><strong>Run Summary:</strong> game mode (solo/multiplayer), run duration, result (success / failure / abandoned), version number, procedural seed.</li>
+                <li><strong>Room Metrics:</strong> per-room completion time, damage dealt/taken, hits taken, and room entry/exit stat snapshots (damage, defense, speed, cooldown modifiers, etc.).</li>
+                <li><strong>Boss Encounters:</strong> encounter length, player damage to bosses, boss damage to players, phase timing.</li>
+                <li><strong>Gear & Build Data:</strong> equipped weapon/armor/accessory, affixes, class modifiers, and key stat multipliers at room start/end.</li>
+                <li><strong>Event Counts:</strong> aggregate counts of damage and hit events for balance analysis (no raw controller input or personally identifiable data).</li>
+            </ul>
+            <p>Telemetry is recorded per run. Player IDs used inside telemetry are session identifiers only and do not include personal data.</p>
+        </section>
+
+        <section>
+            <h2>Why We Collect It</h2>
+            <ul>
+                <li><strong>Balance & Scaling:</strong> track damage/defense curves room-by-room to ensure affixes and enemies scale fairly.</li>
+                <li><strong>Build Diversity:</strong> understand which gear combinations are thriving (or underperforming) to guide future updates.</li>
+                <li><strong>Boss & Encounter Tuning:</strong> analyze per-phase difficulty spikes and player survivability.</li>
+                <li><strong>Performance Monitoring:</strong> detect rooms or affixes that create unexpected spikes in damage or clear times.</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>When Data Is Sent</h2>
+            <ul>
+                <li>Telemetry is collected only when the host (or solo player) has opted in.</li>
+                <li>Data is buffered locally during the run and uploaded once the run completes.</li>
+                <li>No telemetry is uploaded if you opt out—collection stops immediately and any buffered run data is discarded.</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>What We Do With Your Data</h2>
+            <span class="tag">Internal Use Only</span>
+            <ul>
+                <li>Telemetry is used exclusively by me (the developer) to analyze balance, identify rough edges in progression, and prioritize quality-of-life improvements.</li>
+                <li>Aggregated dashboards guide tuning passes (damage curves, defense scaling, affix power) so every class and build remains viable.</li>
+                <li>Raw telemetry is never shared, sold, or licensed to third parties. There are no ad networks, analytics brokers, or external processors involved.</li>
+            </ul>
+            <p>If I ever introduce community-facing stats (for example, global boss clear rates), they will be published only as anonymized aggregate metrics or I will ask the community for permission and if they want public leaderboards.</p>
+        </section>
+
+        <section>
+            <h2>What We Don’t Collect</h2>
+            <span class="tag">No Tracking IDs</span>
+            <span class="tag">No Personal Data</span>
+            <ul>
+                <li><strong>No personal identifiers:</strong> we never store your name, email, account information, IP address, or hardware fingerprints.</li>
+                <li><strong>No social or network data:</strong> telemetry does not include friend lists, chat messages, lobby codes, or network metadata.</li>
+                <li><strong>No cross-run tracking:</strong> each run is stored independently and cannot be linked back to previous runs or to a specific player.</li>
+                <li><strong>No raw inputs:</strong> we do not record controller/keyboard inputs, screenshots, or video of your gameplay.</li>
+                <li><strong>No monetization data:</strong> there are no ads, payment processors, or third-party analytics embedded in Shape Slayer.</li>
+            </ul>
+            <p>All telemetry is anonymous and scoped to a single run. Once a run ends, the data is uploaded (if you opted in) and the local buffer is cleared.</p>
+        </section>
+
+        <section>
+            <h2>Your Controls</h2>
+            <ul>
+                <li>You decide during onboarding whether telemetry is enabled.</li>
+                <li>You can revisit the setting anytime from the in-game pause menu (Settings → Privacy).</li>
+                <li>Opting out instantly clears any active telemetry buffer and prevents future uploads until you opt back in.</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>Contact</h2>
+            <p>
+                Questions or concerns? Reach out via the project issue tracker or contact me directly.
+            </p>
+        </section>
+    </main>
+
+    <footer>
+        &copy; <span id="year"></span> Shape Slayer. Telemetry designed for player-first transparency.
+    </footer>
+
+    <script>
+        document.getElementById('year').textContent = new Date().getFullYear();
+    </script>
+</body>
+</html>
+

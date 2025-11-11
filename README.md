@@ -355,6 +355,33 @@ shape_slayer/
 └── DAMAGE_NUMBERS_*.md        # Debug notes & final report
 ```
 
+## Telemetry & Analytics
+
+- **Client instrumentation** (`js/telemetry.js`) collects per-run metrics (damage, hits, room timings, boss encounters) in solo or multiplayer host sessions. Data posts to the ingestion endpoint once a run ends.
+- **Ingestion service** (`metrics/server`) listens on port `4001`, validates payloads, and stores them in SQLite.
+  ```bash
+  cd metrics/server
+  npm install
+  npm run dev            # or npm start for production
+  # optional: node --test tests/ingest.test.js
+  ```
+  Configure the service via environment variables:
+  - `METRICS_PORT` (default `4001`)
+  - `METRICS_DB_PATH` (custom SQLite location)
+  - `METRICS_INGEST_TOKEN` (required header for uploads)
+  Use `samples/sample-run.json` to seed local data while developing the dashboard.
+- **Analytics GUI** (`metrics/gui`) serves a dashboard on port `5000` and reads from the shared SQLite database.
+  ```bash
+  cd metrics/gui
+  npm install
+  npm run dev            # launches on port 5000 by default
+  ```
+  Endpoints:
+  - `GET /api/summary` – aggregate KPIs (runs, modes, affixes, boss stats)
+  - `GET /api/runs?limit=50` – latest runs with damage and hit totals
+  - `GET /api/runs/:runId` – deep dive (players, rooms, boss encounters, affixes)
+- **Testing** – `tests/telemetry-client.test.js` validates serialization logic, and `metrics/server/tests/ingest.test.js` covers payload ingestion + idempotency.
+
 ## Troubleshooting
 
 - **Unable to connect** – make sure the WebSocket server is running, the URL in `mp-config.js` matches, and port `4000` is reachable (check firewalls/NAT).

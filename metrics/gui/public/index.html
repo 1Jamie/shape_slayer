@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shape Slayer Telemetry Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="vendor/chart.umd.min.js" defer></script>
+    <script src="app.js" defer></script>
+</head>
+<body>
+    <header>
+        <h1>Shape Slayer Telemetry</h1>
+        <p>Gameplay insights aggregated from live runs</p>
+    </header>
+    <main>
+        <section id="summary-section" class="panel">
+            <h2>Summary</h2>
+            <div id="summary-cards" class="summary-grid">
+                <div class="card">
+                    <span class="label">Total Runs</span>
+                    <span class="value" data-summary="runs">–</span>
+                </div>
+                <div class="card">
+                    <span class="label">Avg Duration</span>
+                    <span class="value" data-summary="avg-duration">–</span>
+                </div>
+                <div class="card">
+                    <span class="label">Avg Damage / Run</span>
+                    <span class="value" data-summary="avg-damage">–</span>
+                </div>
+                <div class="card">
+                    <span class="label">Avg Hits / Run</span>
+                    <span class="value" data-summary="avg-hits">–</span>
+                </div>
+            </div>
+            <div id="breakdowns" class="breakdowns-grid">
+                <div>
+                    <h3>Run Results</h3>
+                    <ul id="result-breakdown"></ul>
+                </div>
+                <div>
+                    <h3>Modes</h3>
+                    <ul id="mode-breakdown"></ul>
+                </div>
+                <div>
+                    <h3>Top Affixes</h3>
+                    <ul id="affix-breakdown"></ul>
+                </div>
+                <div>
+                    <h3>Boss Encounters</h3>
+                    <ul id="boss-breakdown"></ul>
+                </div>
+            </div>
+        </section>
+
+        <section id="runs-section" class="panel">
+            <div class="panel-header">
+                <h2>Recent Runs</h2>
+                <div class="controls">
+                    <label>
+                        Show
+                        <select id="runs-limit">
+                            <option value="25">25</option>
+                            <option value="50" selected>50</option>
+                            <option value="100">100</option>
+                        </select>
+                        runs
+                    </label>
+                </div>
+            </div>
+            <div class="table-wrapper">
+                <table id="runs-table">
+                    <thead>
+                        <tr>
+                            <th>Run ID</th>
+                            <th>Started</th>
+                            <th>Duration</th>
+                            <th>Mode</th>
+                            <th>Result</th>
+                            <th>Total Damage</th>
+                            <th>Total Hits</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="7" class="empty">Loading…</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section id="detail-section" class="panel">
+            <h2>Run Detail</h2>
+            <div id="run-detail">
+                <p>Select a run to see detailed metrics.</p>
+            </div>
+            <div class="chart-container">
+                <canvas id="room-damage-chart"></canvas>
+            </div>
+        </section>
+    </main>
+    <footer>
+        <span>Listening on port 5000 – telemetry storage powered by SQLite.</span>
+    </footer>
+</body>
+</html>
+

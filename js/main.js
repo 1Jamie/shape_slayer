@@ -120,6 +120,10 @@ const Game = {
     // Modal states
     launchModalVisible: false,
     updateModalVisible: false,
+    privacyModalVisible: false,
+    privacyModalContext: 'onboarding', // 'onboarding' | 'pause'
+    privacyModalReturnToPause: false,
+    privacyModalPreviousShowPauseMenu: false,
     
     // Class selection
     selectedClass: null,
@@ -238,6 +242,9 @@ const Game = {
     waitingForHostReturn: false, // Client flag: waiting for host to signal return to nexus
     finalStats: null, // Final stats from host when all players die (clients only)
     
+    // Privacy / telemetry settings
+    telemetryOptIn: null,
+    
     // Time tracking for death screen
     startTime: 0,
     endTime: 0,
@@ -350,16 +357,24 @@ const Game = {
             const saveData = SaveSystem.load();
             this.currentCurrency = Math.floor(saveData.currency || 0);
             this.selectedClass = saveData.selectedClass || null;
+            this.telemetryOptIn = SaveSystem.getTelemetryOptIn ? SaveSystem.getTelemetryOptIn() : null;
             
-            // Check if launch modal should show (first time ever)
-            if (!SaveSystem.getHasSeenLaunchModal()) {
-                this.launchModalVisible = true;
+            const hasAcknowledgedPrivacy = SaveSystem.hasAcknowledgedPrivacy ? SaveSystem.hasAcknowledgedPrivacy() : true;
+            if (!hasAcknowledgedPrivacy) {
+                this.openPrivacyModal('onboarding');
+            } else {
+                // Check if launch modal should show (first time ever)
+                if (!SaveSystem.getHasSeenLaunchModal()) {
+                    this.launchModalVisible = true;
+                }
             }
             
             // Check if update modal should show (version changed)
             if (SaveSystem.shouldShowUpdateModal()) {
                 this.updateModalVisible = true;
             }
+        } else {
+            this.telemetryOptIn = null;
         }
         
         // Player will be created after class selection
@@ -409,6 +424,12 @@ const Game = {
             const gameCoords = this.screenToGame(e.clientX, e.clientY);
             
             console.log('[CLICK] Canvas clicked at:', gameCoords.x, gameCoords.y, 'state:', this.state, 'pausedFrom:', this.pausedFromState, 'showPauseMenu:', this.showPauseMenu);
+            
+            if (this.privacyModalVisible && typeof handlePrivacyModalClick === 'function') {
+                if (handlePrivacyModalClick(e.clientX, e.clientY)) {
+                    return;
+                }
+            }
             
             // Check modal close button first (highest priority when modals are visible)
             if (this.launchModalVisible || this.updateModalVisible) {
@@ -1275,6 +1296,87 @@ const Game = {
         }
         return this.playerStats.get(playerId);
     },
+
+    openPrivacyModal(context = 'onboarding') {
+        this.privacyModalContext = context;
+        this.privacyModalVisible = true;
+        this.privacyModalReturnToPause = context === 'pause';
+        this.privacyModalPreviousShowPauseMenu = this.showPauseMenu;
+        if (this.privacyModalReturnToPause && this.showPauseMenu) {
+            this.showPauseMenu = false;
+        }
+    },
+
+    closePrivacyModal() {
+        this.privacyModalVisible = false;
+        if (this.privacyModalReturnToPause) {
+            if (this.multiplayerEnabled) {
+                this.showPauseMenu = this.privacyModalPreviousShowPauseMenu;
+            } else {
+                this.showPauseMenu = false;
+            }
+        }
+        this.privacyModalReturnToPause = false;
+        this.privacyModalContext = 'onboarding';
+        this.privacyModalPreviousShowPauseMenu = false;
+    },
+
+    setTelemetryPreference(optIn) {
+        const enabled = optIn === true;
+        this.telemetryOptIn = enabled;
+        if (typeof SaveSystem !== 'undefined' && SaveSystem.setTelemetryOptIn) {
+            SaveSystem.setTelemetryOptIn(enabled);
+        }
+        if (!enabled && typeof Telemetry !== 'undefined' && Telemetry.reset) {
+            Telemetry.reset();
+        }
+    },
+
+    handlePrivacyChoice(optIn) {
+        if (typeof SaveSystem !== 'undefined' && SaveSystem.setPrivacyAcknowledged) {
+            SaveSystem.setPrivacyAcknowledged(true);
+        }
+        const context = this.privacyModalContext;
+        this.setTelemetryPreference(optIn);
+        this.closePrivacyModal();
+        if (context === 'onboarding') {
+            if (typeof SaveSystem !== 'undefined' && !SaveSystem.getHasSeenLaunchModal()) {
+                this.launchModalVisible = true;
+            }
+        }
+    },
+
+    collectTelemetryParticipants(includeRemote = true) {
+        const participants = [];
+        const localId = this.getLocalPlayerId ? this.getLocalPlayerId() : 'local';
+
+        if (this.player) {
+            participants.push({
+                player: this.player,
+                playerId: localId
+            });
+        }
+
+        if (
+            includeRemote &&
+            this.multiplayerEnabled &&
+            typeof this.isHost === 'function' &&
+            this.isHost() &&
+            this.remotePlayerInstances &&
+            this.remotePlayerInstances.size > 0
+        ) {
+            this.remotePlayerInstances.forEach((playerInstance, playerId) => {
+                if (playerInstance) {
+                    participants.push({
+                        player: playerInstance,
+                        playerId
+                    });
+                }
+            });
+        }
+
+        return participants;
+    },
     
     // Distribute XP to all alive players (host only in multiplayer, all in solo)
     distributeXPToAllPlayers(xpAmount) {
@@ -1889,6 +1991,16 @@ const Game = {
         
         // Apply damage
         state.hp -= damage;
+        
+        if (typeof Telemetry !== 'undefined') {
+            Telemetry.recordPlayerHit({
+                playerId,
+                amount: damage,
+                roomNumber: this.roomNumber,
+                sourceId: null,
+                sourceType: 'enemy'
+            });
+        }
         state.invulnerable = true;
         state.invulnerabilityTime = 0.5; // Same as local player
         
@@ -1919,6 +2031,10 @@ const Game = {
             if (this.getPlayerStats) {
                 const stats = this.getPlayerStats(playerId);
                 stats.onDeath();
+            }
+            
+            if (typeof Telemetry !== 'undefined') {
+                Telemetry.recordPlayerDeath(playerId);
             }
             
             // Check if all players are dead
@@ -2796,6 +2912,11 @@ const Game = {
                 
                 console.log(`Advanced to Room ${this.roomNumber}${newRoom.type === 'boss' ? ' (BOSS ROOM)' : ''}`);
                 
+                if (typeof Telemetry !== 'undefined') {
+                    const participants = this.collectTelemetryParticipants(true);
+                    Telemetry.recordRoomEnter(this.roomNumber, newRoom.type, participants);
+                }
+                
                 // Multiplayer: Send room transition message and immediate state update
                 if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
                     if (multiplayerManager.isHost) {
@@ -3066,7 +3187,9 @@ const Game = {
         }
         
         // Render modals on top of everything (launch modal takes priority)
-        if (this.launchModalVisible && typeof renderLaunchModal !== 'undefined') {
+        if (this.privacyModalVisible && typeof renderPrivacyModal !== 'undefined') {
+            renderPrivacyModal(this.ctx);
+        } else if (this.launchModalVisible && typeof renderLaunchModal !== 'undefined') {
             renderLaunchModal(this.ctx);
         } else if (this.updateModalVisible && typeof renderUpdateModal !== 'undefined') {
             renderUpdateModal(this.ctx);
@@ -3304,6 +3427,37 @@ const Game = {
             }
         }
         
+        if (typeof Telemetry !== 'undefined') {
+            const participants = this.collectTelemetryParticipants(true);
+            let result = 'abandoned';
+            if (this.allPlayersDead || (this.player && this.player.dead)) {
+                result = 'failure';
+            } else if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'boss' && currentRoom.cleared) {
+                result = 'success';
+            }
+            
+            const roomsClearedByPlayer = {};
+            if (this.playerStats && this.playerStats.size > 0) {
+                this.playerStats.forEach((stats, playerId) => {
+                    roomsClearedByPlayer[playerId] = typeof stats.roomsCleared === 'number'
+                        ? stats.roomsCleared
+                        : Math.max(0, this.roomNumber - 1);
+                });
+            }
+            
+            Telemetry.completeRun({
+                result,
+                metadata: {
+                    reason: 'returnToNexus',
+                    lobbyCode: this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager
+                        ? multiplayerManager.lobbyCode || null
+                        : null
+                },
+                roomsClearedByPlayer,
+                finalPlayers: participants
+            });
+        }
+        
         // Reset game state
         this.state = 'NEXUS';
         this.enemies = [];
@@ -3513,6 +3667,27 @@ const Game = {
         // Spawn enemies
         this.spawnEnemies();
         
+        if (typeof Telemetry !== 'undefined') {
+            const localPlayerId = this.getLocalPlayerId ? this.getLocalPlayerId() : 'local';
+            const runPlayers = this.collectTelemetryParticipants(true);
+            
+            Telemetry.startRun({
+                mode: this.multiplayerEnabled ? 'multiplayer' : 'singleplayer',
+                hostPlayerId: localPlayerId,
+                difficulty: this.difficulty || 'default',
+                seed: (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.seed) ? currentRoom.seed : null,
+                players: runPlayers,
+                metadata: {
+                    lobbyCode: this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager
+                        ? multiplayerManager.lobbyCode || null
+                        : null
+                }
+            });
+            
+            const firstRoomType = (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type) ? currentRoom.type : 'normal';
+            Telemetry.recordRoomEnter(this.roomNumber, firstRoomType, runPlayers);
+        }
+        
         // Switch to playing state
         this.state = 'PLAYING';
         this.showPauseMenu = false;
@@ -3603,6 +3778,27 @@ const Game = {
         
         // Spawn enemies
         this.spawnEnemies();
+        
+        if (typeof Telemetry !== 'undefined') {
+            const localPlayerId = this.getLocalPlayerId ? this.getLocalPlayerId() : 'local';
+            const runPlayers = this.collectTelemetryParticipants(true);
+            
+            Telemetry.startRun({
+                mode: this.multiplayerEnabled ? 'multiplayer' : 'singleplayer',
+                hostPlayerId: localPlayerId,
+                difficulty: this.difficulty || 'default',
+                seed: (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.seed) ? currentRoom.seed : null,
+                players: runPlayers,
+                metadata: {
+                    lobbyCode: this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager
+                        ? multiplayerManager.lobbyCode || null
+                        : null
+                }
+            });
+            
+            const firstRoomType = (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type) ? currentRoom.type : 'normal';
+            Telemetry.recordRoomEnter(this.roomNumber, firstRoomType, runPlayers);
+        }
         
         // Initialize camera position to follow player
         this.initializeCamera();

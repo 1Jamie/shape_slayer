@@ -5,7 +5,8 @@
   "main": "damage-numbers.test.js",
   "scripts": {
     "test": "node damage-numbers.test.js",
-    "test:damage-numbers": "node damage-numbers.test.js"
+    "test:damage-numbers": "node damage-numbers.test.js",
+    "test:telemetry": "node --test telemetry-client.test.js"
   },
   "keywords": ["test", "multiplayer", "game"],
   "author": "",

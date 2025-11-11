@@ -9,6 +9,7 @@ const DIAMOND_CONFIG = {
     size: 18,                      // Enemy size (pixels)
     maxHp: 35,                     // Maximum health points
     damage: 6,                     // Damage per hit
+    damageScalingMultiplier: 0.65, // Additional reduction applied after global scaling
     moveSpeed: 100,                // Movement speed (pixels/second)
     xpValue: 15,                   // XP awarded when killed
     lootChance: 0.12,              // Chance to drop loot (0.12 = 12%, reduced for larger rooms)
@@ -37,6 +38,7 @@ class DiamondEnemy extends EnemyBase {
         this.maxHp = DIAMOND_CONFIG.maxHp;
         this.hp = DIAMOND_CONFIG.maxHp;
         this.damage = DIAMOND_CONFIG.damage;
+        this.damageScalingMultiplier = DIAMOND_CONFIG.damageScalingMultiplier;
         this.moveSpeed = DIAMOND_CONFIG.moveSpeed;
         this.baseMoveSpeed = DIAMOND_CONFIG.moveSpeed; // Store for stun system
         

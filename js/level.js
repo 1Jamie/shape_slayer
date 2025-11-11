@@ -284,6 +284,9 @@ function generateRoom(roomNumber) {
         enemy.maxHp = Math.floor(enemy.maxHp * enemyHpScale * mpScaling.enemyHP);
         enemy.hp = enemy.maxHp;
         enemy.damage = enemy.damage * enemyDamageScale * mpScaling.enemyDamage;
+        if (typeof enemy.damageScalingMultiplier === 'number') {
+            enemy.damage *= enemy.damageScalingMultiplier;
+        }
         enemy.xpValue = Math.floor(enemy.xpValue * enemyHpScale);
         
             // Set initial state to standby (will activate when player gets close)
@@ -313,6 +316,13 @@ function checkRoomCleared() {
         }
         
         currentRoom.doorOpen = true;
+        
+        if (typeof Telemetry !== 'undefined') {
+            const participants = typeof Game !== 'undefined' && Game && Game.collectTelemetryParticipants
+                ? Game.collectTelemetryParticipants(true)
+                : [];
+            Telemetry.recordRoomCleared(currentRoom.number, participants);
+        }
     }
     
     return currentRoom.cleared;

@@ -245,45 +245,64 @@ class BossBase extends EnemyBase {
     
     // Check player collision with hazards (called from boss update)
     checkHazardCollisions(player, deltaTime) {
-        if (!player || !player.alive || player.invulnerable) return;
         const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
         if (isClient) return;
-        
-        this.environmentalHazards.forEach(hazard => {
-            if (hazard.expired) return;
-            
-            if (hazard.type === 'pullField') {
-                // Pull field applies force
-                if (hazard.applyPull) {
-                    hazard.applyPull(player);
-                } else if (player.applyPullForce) {
-                    // Fallback for inline objects
-                    player.applyPullForce(hazard.x, hazard.y, hazard.strength || 50, hazard.radius);
+
+        const targets = new Set();
+        if (player) {
+            targets.add(player);
+        }
+        if (typeof this.getAllAlivePlayers === 'function') {
+            const allPlayers = this.getAllAlivePlayers();
+            allPlayers.forEach(entry => {
+                if (entry && entry.player) {
+                    targets.add(entry.player);
                 }
-            } else {
-                // Damage hazards
+            });
+        }
+
+        if (!targets.size) return;
+
+        this.environmentalHazards.forEach(hazard => {
+            if (!hazard || hazard.expired) return;
+
+            targets.forEach(target => {
+                if (!target) return;
+                if (target.dead || target.alive === false) return;
+                if (target.invulnerable && !(hazard && hazard.ignoreInvulnerability)) return;
+
+                if (hazard.type === 'pullField') {
+                    if (hazard.applyPull) {
+                        hazard.applyPull(target);
+                    } else if (target.applyPullForce) {
+                        target.applyPullForce(hazard.x, hazard.y, hazard.strength || 50, hazard.radius);
+                    }
+                    return;
+                }
+
                 if (hazard.applyDamage) {
-                    hazard.applyDamage(player);
-                } else {
-                    // Fallback for inline objects
-                    const dx = player.x - hazard.x;
-                    const dy = player.y - hazard.y;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
-                    
-                    if (dist < hazard.radius + player.size) {
-                        if (hazard.damagePerSecond) {
-                            const timeSinceLastDamage = hazard.elapsed - hazard.lastDamageTime;
-                            if (timeSinceLastDamage >= 1.0) {
-                                player.takeDamage(hazard.damage);
-                                hazard.lastDamageTime = hazard.elapsed;
-                            }
-                        } else if (!hazard.hasHitPlayer) {
-                            player.takeDamage(hazard.damage);
-                            hazard.hasHitPlayer = true;
+                    hazard.applyDamage(target);
+                    return;
+                }
+
+                const size = target.size !== undefined ? target.size : 20;
+                const dx = target.x - hazard.x;
+                const dy = target.y - hazard.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                if (dist < hazard.radius + size) {
+                    if (hazard.damagePerSecond) {
+                        const timeSinceLastDamage = hazard.elapsed - hazard.lastDamageTime;
+                        if (timeSinceLastDamage >= 1.0 && typeof target.takeDamage === 'function') {
+                            target.takeDamage(hazard.damage);
+                            hazard.lastDamageTime = hazard.elapsed;
                         }
+                    } else if (!hazard.hasHitPlayer && typeof target.takeDamage === 'function') {
+                        target.takeDamage(hazard.damage);
+                        hazard.hasHitPlayer = true;
                     }
                 }
-            }
+            });
         });
     }
     

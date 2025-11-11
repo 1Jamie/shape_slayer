@@ -1,0 +1,174 @@
+{
+  "run": {
+    "runId": "sample-run-001",
+    "gameVersion": "1.0.0",
+    "mode": "singleplayer",
+    "hostPlayerId": "local",
+    "startedAt": "2025-11-10T12:00:00.000Z",
+    "endedAt": "2025-11-10T12:12:45.000Z",
+    "durationMs": 765000,
+    "result": "success",
+    "seed": "demo-seed",
+    "difficulty": "standard",
+    "metadata": {
+      "notes": "Sample payload for local testing"
+    },
+    "players": [
+      {
+        "playerId": "local",
+        "class": "warrior",
+        "deck": ["basic_slash", "shield_block"],
+        "affixes": [
+          { "id": "attackSpeed", "value": 0.1, "tier": "basic" },
+          { "id": "critChance", "value": 0.05, "tier": "advanced" }
+        ],
+        "gear": {
+          "weapon": { "id": "sword-alpha", "name": "Arc Edge", "tier": "orange", "affixes": [{ "id": "attackSpeed", "value": 0.15, "tier": "advanced" }] },
+          "armor": { "id": "armor-shield", "name": "Hex Guard", "tier": "purple", "affixes": [{ "id": "defense", "value": 0.12, "tier": "advanced" }] },
+          "accessory": { "id": "ring-focus", "name": "Focus Ring", "tier": "blue", "affixes": [{ "id": "critChance", "value": 0.06, "tier": "advanced" }] }
+        },
+        "totalDamageDealt": 1250,
+        "totalDamageTaken": 320,
+        "hitsTaken": 18,
+        "roomsCleared": 6,
+        "deaths": 0
+      }
+    ],
+    "affixPool": [
+      { "id": "attackSpeed", "source": "player", "minValue": 0.1, "maxValue": 0.1 },
+      { "id": "critChance", "source": "player", "minValue": 0.05, "maxValue": 0.05 }
+    ],
+    "rooms": [
+      {
+        "roomId": "room-1",
+        "roomNumber": 1,
+        "type": "combat",
+        "enteredAt": "2025-11-10T12:00:00.000Z",
+        "clearedAt": "2025-11-10T12:02:30.000Z",
+        "durationMs": 150000,
+        "damageDealtByPlayer": { "local": 210 },
+        "damageTakenByPlayer": { "local": 45 },
+        "hitsTakenByPlayer": { "local": 4 },
+        "playerStatsStart": [
+          {
+            "playerId": "local",
+            "class": "warrior",
+            "level": 3,
+            "stats": { "damage": 32, "defense": 0.18, "moveSpeed": 295, "hp": 100, "maxHp": 110 },
+            "gear": {
+              "weapon": { "id": "sword-alpha", "name": "Arc Edge", "tier": "orange", "affixes": [] },
+              "armor": { "id": "armor-shield", "name": "Hex Guard", "tier": "purple", "affixes": [] },
+              "accessory": { "id": "ring-focus", "name": "Focus Ring", "tier": "blue", "affixes": [] }
+            }
+          }
+        ],
+        "playerStatsEnd": [
+          {
+            "playerId": "local",
+            "class": "warrior",
+            "level": 3,
+            "stats": { "damage": 34, "defense": 0.19, "moveSpeed": 295, "hp": 98, "maxHp": 110 },
+            "gear": {
+              "weapon": { "id": "sword-alpha", "name": "Arc Edge", "tier": "orange", "affixes": [] },
+              "armor": { "id": "armor-shield", "name": "Hex Guard", "tier": "purple", "affixes": [] },
+              "accessory": { "id": "ring-focus", "name": "Focus Ring", "tier": "blue", "affixes": [] }
+            }
+          }
+        ],
+        "events": []
+      },
+      {
+        "roomId": "room-2",
+        "roomNumber": 2,
+        "type": "combat",
+        "enteredAt": "2025-11-10T12:02:50.000Z",
+        "clearedAt": "2025-11-10T12:06:30.000Z",
+        "durationMs": 220000,
+        "damageDealtByPlayer": { "local": 420 },
+        "damageTakenByPlayer": { "local": 120 },
+        "hitsTakenByPlayer": { "local": 7 },
+        "playerStatsStart": [
+          {
+            "playerId": "local",
+            "class": "warrior",
+            "level": 3,
+            "stats": { "damage": 36, "defense": 0.2, "moveSpeed": 297, "hp": 92, "maxHp": 110 },
+            "gear": {
+              "weapon": { "id": "sword-alpha", "name": "Arc Edge", "tier": "orange", "affixes": [] },
+              "armor": { "id": "armor-shield", "name": "Hex Guard", "tier": "purple", "affixes": [] },
+              "accessory": { "id": "ring-focus", "name": "Focus Ring", "tier": "blue", "affixes": [] }
+            }
+          }
+        ],
+        "playerStatsEnd": [
+          {
+            "playerId": "local",
+            "class": "warrior",
+            "level": 4,
+            "stats": { "damage": 38, "defense": 0.21, "moveSpeed": 300, "hp": 88, "maxHp": 115 },
+            "gear": {
+              "weapon": { "id": "sword-alpha", "name": "Arc Edge", "tier": "orange", "affixes": [] },
+              "armor": { "id": "armor-shield", "name": "Hex Guard", "tier": "purple", "affixes": [] },
+              "accessory": { "id": "ring-focus", "name": "Focus Ring", "tier": "blue", "affixes": [] }
+            }
+          }
+        ],
+        "events": []
+      },
+      {
+        "roomId": "room-3",
+        "roomNumber": 3,
+        "type": "boss",
+        "enteredAt": "2025-11-10T12:06:50.000Z",
+        "clearedAt": "2025-11-10T12:12:45.000Z",
+        "durationMs": 355000,
+        "damageDealtByPlayer": { "local": 620 },
+        "damageTakenByPlayer": { "local": 155 },
+        "hitsTakenByPlayer": { "local": 7 },
+        "playerStatsStart": [
+          {
+            "playerId": "local",
+            "class": "warrior",
+            "level": 4,
+            "stats": { "damage": 40, "defense": 0.22, "moveSpeed": 302, "hp": 85, "maxHp": 115 },
+            "gear": {
+              "weapon": { "id": "sword-alpha", "name": "Arc Edge", "tier": "orange", "affixes": [] },
+              "armor": { "id": "armor-shield", "name": "Hex Guard", "tier": "purple", "affixes": [] },
+              "accessory": { "id": "ring-focus", "name": "Focus Ring", "tier": "blue", "affixes": [] }
+            }
+          }
+        ],
+        "playerStatsEnd": [
+          {
+            "playerId": "local",
+            "class": "warrior",
+            "level": 5,
+            "stats": { "damage": 45, "defense": 0.24, "moveSpeed": 305, "hp": 70, "maxHp": 120 },
+            "gear": {
+              "weapon": { "id": "sword-alpha", "name": "Arc Edge", "tier": "orange", "affixes": [] },
+              "armor": { "id": "armor-shield", "name": "Hex Guard", "tier": "purple", "affixes": [] },
+              "accessory": { "id": "ring-focus", "name": "Focus Ring", "tier": "blue", "affixes": [] }
+            }
+          }
+        ],
+        "events": []
+      }
+    ],
+    "bossEncounters": [
+      {
+        "bossId": "swarm_king",
+        "startedAt": "2025-11-10T12:06:50.000Z",
+        "endedAt": "2025-11-10T12:12:45.000Z",
+        "durationMs": 355000,
+        "damageByPlayer": { "local": 620 },
+        "damageToPlayers": { "local": 155 },
+        "hitsTakenByPlayers": { "local": 7 },
+        "phases": []
+      }
+    ]
+  },
+  "submittedAt": "2025-11-10T12:12:50.000Z",
+  "clientVersion": "1.0.0",
+  "authToken": null
+}
+

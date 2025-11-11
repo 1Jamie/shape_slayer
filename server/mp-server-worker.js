@@ -19,6 +19,12 @@ class WorkerProcess {
         // Pending lobby lookup requests
         this.pendingLookups = new Map(); // requestId -> callback
         this.lookupRequestId = 0;
+
+        this.telemetry = {
+            messageStats: new Map(),
+            rawBytes: 0,
+            lastLog: Date.now()
+        };
     }
     
     start() {
@@ -45,6 +51,9 @@ class WorkerProcess {
         
         // Start lobby cleanup
         this.startLobbyCleanup();
+
+        // Start telemetry logging
+        this.startTelemetryReporting();
     }
     
     handleConnection(ws) {
@@ -57,9 +66,16 @@ class WorkerProcess {
         ws.on('message', (message) => {
             this.metrics.messageCount++;
             
+            const rawSize = typeof message === 'string'
+                ? Buffer.byteLength(message, 'utf8')
+                : (message ? message.length : 0);
+            if (!Number.isNaN(rawSize)) {
+                this.telemetry.rawBytes += rawSize;
+            }
+
             try {
                 const msg = JSON.parse(message.toString());
-                this.handleMessage(ws, msg);
+                this.handleMessage(ws, msg, rawSize);
             } catch (err) {
                 console.error('[Error] Failed to parse message:', err);
             }
@@ -75,8 +91,10 @@ class WorkerProcess {
         });
     }
     
-    handleMessage(ws, msg) {
+    handleMessage(ws, msg, rawSize = 0) {
         const { type, data } = msg;
+
+        this.recordMessageStat(type, rawSize);
         
         switch (type) {
             case 'create_lobby':
@@ -93,6 +111,9 @@ class WorkerProcess {
                 break;
             case 'player_state':
                 this.handlePlayerState(ws, data);
+                break;
+            case 'player_state_batch':
+                this.handlePlayerStateBatch(ws, data);
                 break;
             case 'game_start':
                 this.handleGameStart(ws, data);
@@ -115,6 +136,9 @@ class WorkerProcess {
             case 'loot_pickup':
                 this.handleLootPickup(ws, data);
                 break;
+            case 'gear_dropped':
+                this.handleGearDropped(ws, data);
+                break;
             case 'upgrade_purchase':
                 this.handleUpgradePurchase(ws, data);
                 break;
@@ -126,6 +150,9 @@ class WorkerProcess {
                 break;
             case 'damage_number':
                 this.handleDamageNumber(ws, data);
+                break;
+            case 'player_leveled_up':
+                this.handlePlayerLeveledUp(ws, data);
                 break;
             case 'final_stats':
                 this.handleFinalStats(ws, data);
@@ -377,6 +404,30 @@ class WorkerProcess {
         }
     }
     
+    handlePlayerStateBatch(ws, data) {
+        const code = this.playerToLobby.get(ws);
+        if (!code) return;
+        
+        const lobby = this.lobbies.get(code);
+        if (!lobby) return;
+        
+        const player = lobby.players.find(p => p.ws === ws);
+        if (!player) return;
+        
+        if (!Array.isArray(data && data.frames) || data.frames.length === 0) return;
+        
+        if (lobby.host && lobby.host !== ws && lobby.host.readyState === WebSocket.OPEN) {
+            lobby.host.send(JSON.stringify({
+                type: 'player_state_batch',
+                data: {
+                    playerId: player.id,
+                    frames: data.frames,
+                    ack: data.ack
+                }
+            }));
+        }
+    }
+    
     handleGameStart(ws, data) {
         const code = this.playerToLobby.get(ws);
         if (!code) return;
@@ -475,6 +526,25 @@ class WorkerProcess {
             type: 'loot_pickup',
             data
         });
+    }
+    
+    handleGearDropped(ws, data) {
+        const code = this.playerToLobby.get(ws);
+        if (!code) return;
+        
+        const lobby = this.lobbies.get(code);
+        if (!lobby || lobby.host !== ws) return;
+        
+        if (!data || !data.gear) return;
+        
+        if (config.logging.level === 'debug') {
+            console.log(`[Worker ${this.getWorkerId()}] Broadcasting gear drop from player ${data.playerId} in lobby ${code}`);
+        }
+        
+        this.broadcastToLobby(lobby, {
+            type: 'gear_dropped',
+            data
+        }, ws);
     }
     
     handleUpgradePurchase(ws, data) {
@@ -580,6 +650,25 @@ class WorkerProcess {
         // Broadcast damage number to all clients (not host)
         this.broadcastToLobby(lobby, {
             type: 'damage_number',
+            data
+        }, ws);
+    }
+    
+    handlePlayerLeveledUp(ws, data) {
+        const code = this.playerToLobby.get(ws);
+        if (!code) return;
+        
+        const lobby = this.lobbies.get(code);
+        if (!lobby || lobby.host !== ws) return;
+        
+        if (!data || typeof data.playerId === 'undefined' || typeof data.level === 'undefined') return;
+        
+        if (config.logging.level === 'debug') {
+            console.log(`[Worker ${this.getWorkerId()}] Broadcasting level up for player ${data.playerId} (level ${data.level}) in lobby ${code}`);
+        }
+        
+        this.broadcastToLobby(lobby, {
+            type: 'player_leveled_up',
             data
         }, ws);
     }
@@ -751,6 +840,47 @@ class WorkerProcess {
                 }
             }
         }, config.lobby.cleanupInterval);
+    }
+
+    recordMessageStat(type, rawSize) {
+        if (!type) return;
+        const entry = this.telemetry.messageStats.get(type) || { count: 0, bytes: 0 };
+        entry.count += 1;
+        if (rawSize && Number.isFinite(rawSize)) {
+            entry.bytes += rawSize;
+        }
+        this.telemetry.messageStats.set(type, entry);
+    }
+
+    startTelemetryReporting() {
+        const interval = config.metrics && config.metrics.telemetryInterval
+            ? config.metrics.telemetryInterval
+            : 5000;
+        setInterval(() => this.logTelemetry(), interval);
+    }
+
+    logTelemetry() {
+        const now = Date.now();
+        const elapsed = now - this.telemetry.lastLog;
+        if (elapsed <= 0) return;
+
+        const entries = Array.from(this.telemetry.messageStats.entries());
+        if (entries.length === 0) return;
+
+        const sorted = entries.sort((a, b) => b[1].bytes - a[1].bytes);
+        const top = sorted.slice(0, 5);
+
+        const mbps = (this.telemetry.rawBytes * 8) / (elapsed / 1000) / 1_000_000;
+
+        console.log(`[Worker ${this.getWorkerId()}] Message telemetry (${(elapsed / 1000).toFixed(1)}s window): total ${this.telemetry.rawBytes} bytes (${mbps.toFixed(2)} Mbps)`);
+        top.forEach(([type, stats]) => {
+            const avg = stats.count > 0 ? (stats.bytes / stats.count) : 0;
+            console.log(`  - ${type}: ${stats.count} msgs, ${stats.bytes} bytes, avg ${avg.toFixed(1)} bytes`);
+        });
+
+        this.telemetry.messageStats.clear();
+        this.telemetry.rawBytes = 0;
+        this.telemetry.lastLog = now;
     }
     
     generateLobbyCode() {

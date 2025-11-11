@@ -2242,6 +2242,7 @@ let pauseMenuButtons = {
     controlMode: { x: 0, y: 0, width: 0, height: 0, pressed: false },
     volume: { x: 0, y: 0, width: 0, height: 0, pressed: false },
     howToPlay: { x: 0, y: 0, width: 0, height: 0, pressed: false },
+    privacy: { x: 0, y: 0, width: 0, height: 0, pressed: false },
     multiplayer: { x: 0, y: 0, width: 0, height: 0, pressed: false }
 };
 
@@ -2254,6 +2255,14 @@ let multiplayerMenuButtons = {
     copyCode: { x: 0, y: 0, width: 0, height: 0, pressed: false },
     pasteCode: { x: 0, y: 0, width: 0, height: 0, pressed: false },
     back: { x: 0, y: 0, width: 0, height: 0, pressed: false }
+};
+
+// Privacy modal buttons
+const privacyModalButtons = {
+    optIn: { x: 0, y: 0, width: 0, height: 0, pressed: false },
+    optOut: { x: 0, y: 0, width: 0, height: 0, pressed: false },
+    policy: { x: 0, y: 0, width: 0, height: 0, pressed: false },
+    close: { x: 0, y: 0, width: 0, height: 0, pressed: false }
 };
 let joinCodeInput = '';
 let multiplayerError = '';
@@ -2578,6 +2587,15 @@ function renderPauseMenu(ctx) {
     pauseMenuButtons.howToPlay.width = settingsButtonWidth;
     pauseMenuButtons.howToPlay.height = settingsButtonHeight;
     renderPauseMenuButton(ctx, pauseMenuButtons.howToPlay, 'How to Play', false);
+    rightY += settingsButtonHeight + buttonSpacing;
+
+    const telemetryEnabled = Game && Game.telemetryOptIn === true;
+    const privacyLabel = telemetryEnabled === true ? 'Telemetry: On' : telemetryEnabled === false ? 'Telemetry: Off' : 'Telemetry';
+    pauseMenuButtons.privacy.x = rightColumnX;
+    pauseMenuButtons.privacy.y = rightY;
+    pauseMenuButtons.privacy.width = settingsButtonWidth;
+    pauseMenuButtons.privacy.height = settingsButtonHeight;
+    renderPauseMenuButton(ctx, pauseMenuButtons.privacy, privacyLabel, false);
     rightY += settingsButtonHeight + buttonSpacing;
     
     // Updates button
@@ -3047,6 +3065,15 @@ function checkPauseMenuButtonClick(x, y) {
         y >= pauseMenuButtons.howToPlay.y && y <= pauseMenuButtons.howToPlay.y + pauseMenuButtons.howToPlay.height) {
         if (Game) {
             Game.launchModalVisible = true;
+            return true;
+        }
+    }
+
+    // Check privacy settings button
+    if (x >= pauseMenuButtons.privacy.x && x <= pauseMenuButtons.privacy.x + pauseMenuButtons.privacy.width &&
+        y >= pauseMenuButtons.privacy.y && y <= pauseMenuButtons.privacy.y + pauseMenuButtons.privacy.height) {
+        if (Game && Game.openPrivacyModal) {
+            Game.openPrivacyModal('pause');
             return true;
         }
     }
@@ -4686,6 +4713,229 @@ function renderLaunchModal(ctx) {
     ctx.font = 'bold 24px Arial';
     ctx.textAlign = 'center';
     ctx.fillText('Close', centerX, closeButtonY + closeButtonHeight / 2);
+}
+
+function renderPrivacyModal(ctx) {
+    const canvasWidth = Game ? Game.config.width : 1280;
+    const canvasHeight = Game ? Game.config.height : 720;
+    const centerX = canvasWidth / 2;
+    const centerY = canvasHeight / 2;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+    const panelWidth = Math.min(880, canvasWidth * 0.88);
+    const panelHeight = Math.min(620, canvasHeight * 0.85);
+    const panelX = Math.max(40, centerX - panelWidth / 2);
+    const panelY = Math.max(30, centerY - panelHeight / 2);
+
+    const panelGradient = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelHeight);
+    panelGradient.addColorStop(0, 'rgba(38, 44, 68, 0.97)');
+    panelGradient.addColorStop(0.5, 'rgba(24, 28, 48, 0.97)');
+    panelGradient.addColorStop(1, 'rgba(18, 20, 38, 0.97)');
+    ctx.fillStyle = panelGradient;
+    ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
+
+    ctx.strokeStyle = 'rgba(150, 190, 255, 0.8)';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
+
+    const buttonRadius = 12;
+    const drawButton = (button, text, primary = false) => {
+        if (!button) return;
+        const gradient = ctx.createLinearGradient(button.x, button.y, button.x, button.y + button.height);
+        if (primary) {
+            gradient.addColorStop(0, button.pressed ? 'rgba(120, 190, 255, 1.0)' : 'rgba(90, 150, 255, 0.95)');
+            gradient.addColorStop(1, button.pressed ? 'rgba(70, 140, 240, 1.0)' : 'rgba(60, 110, 210, 0.95)');
+        } else {
+            gradient.addColorStop(0, button.pressed ? 'rgba(120, 120, 150, 0.9)' : 'rgba(90, 90, 120, 0.85)');
+            gradient.addColorStop(1, button.pressed ? 'rgba(80, 80, 110, 0.9)' : 'rgba(70, 70, 100, 0.85)');
+        }
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.moveTo(button.x + buttonRadius, button.y);
+        ctx.lineTo(button.x + button.width - buttonRadius, button.y);
+        ctx.quadraticCurveTo(button.x + button.width, button.y, button.x + button.width, button.y + buttonRadius);
+        ctx.lineTo(button.x + button.width, button.y + button.height - buttonRadius);
+        ctx.quadraticCurveTo(button.x + button.width, button.y + button.height, button.x + button.width - buttonRadius, button.y + button.height);
+        ctx.lineTo(button.x + buttonRadius, button.y + button.height);
+        ctx.quadraticCurveTo(button.x, button.y + button.height, button.x, button.y + button.height - buttonRadius);
+        ctx.lineTo(button.x, button.y + buttonRadius);
+        ctx.quadraticCurveTo(button.x, button.y, button.x + buttonRadius, button.y);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.strokeStyle = primary ? 'rgba(210, 230, 255, 0.9)' : 'rgba(180, 190, 220, 0.7)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = primary ? 'bold 20px Arial' : 'bold 18px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, button.x + button.width / 2, button.y + button.height / 2);
+    };
+
+    // Title
+    ctx.fillStyle = '#f5f9ff';
+    ctx.font = 'bold 36px Arial';
+    ctx.textAlign = 'left';
+    const titleX = panelX + 40;
+    const titleY = panelY + 70;
+    ctx.fillText('Privacy & Telemetry', titleX, titleY);
+
+    // Policy button
+    const policyButtonWidth = 240;
+    const policyButtonHeight = 46;
+    const policyButtonX = panelX + panelWidth - policyButtonWidth - 40;
+    const policyButtonY = panelY + 40;
+    privacyModalButtons.policy.x = policyButtonX;
+    privacyModalButtons.policy.y = policyButtonY;
+    privacyModalButtons.policy.width = policyButtonWidth;
+    privacyModalButtons.policy.height = policyButtonHeight;
+    drawButton(privacyModalButtons.policy, 'Open Privacy Policy', false);
+
+    // Description text
+    ctx.fillStyle = '#d0d7eb';
+    ctx.font = '18px Arial';
+    ctx.textAlign = 'left';
+    const textX = panelX + 40;
+    let textY = titleY + 40;
+    const lineHeight = 26;
+    const paragraphs = [
+        'Your feedback is fantastic, but “the boss feels spicy” isn’t exactly spreadsheet-compatible. Telemetry lets me pin numbers to this "spicy" so I can do something about it.',
+        'Here’s what gets logged: raw gameplay telemetry--damage, room timing, affix usage, boss smackdowns. No therapy sessions, just math.',
+        'Absolutely zero personal info is attached. Each run is a fresh anonymous blob; no player dossiers, no secret tracking, no input tracking, no drama. I don\'t want your personal data, you can keep it. I have a hard enough time keeping track of my own.',
+        'Changed your mind? Flip telemetry on or off anytime from the pause menu and the game will respect your newfound mood instantly.'
+];
+    paragraphs.forEach(paragraph => {
+        textY = wrapText(ctx, paragraph, textX, textY, panelWidth - 80, lineHeight);
+        textY += 6;
+    });
+
+    const telemetryStatus = Game ? Game.telemetryOptIn === true : null;
+    let statusText = 'Telemetry is currently disabled.';
+    if (telemetryStatus === true) {
+        statusText = 'Telemetry is currently enabled.';
+    } else if (telemetryStatus === null) {
+        statusText = 'Telemetry has not been configured yet.';
+    }
+    ctx.fillStyle = '#ffe082';
+    ctx.font = 'bold 20px Arial';
+    ctx.fillText(statusText, textX, textY);
+
+    // Buttons area
+    const buttonAreaY = panelY + panelHeight - 180;
+    const buttonGap = 30;
+    const buttonWidth = Math.min(320, (panelWidth - 2 * 40 - buttonGap) / 2);
+    const buttonHeight = 60;
+
+    privacyModalButtons.optIn.x = panelX + 40;
+    privacyModalButtons.optIn.y = buttonAreaY;
+    privacyModalButtons.optIn.width = buttonWidth;
+    privacyModalButtons.optIn.height = buttonHeight;
+
+    privacyModalButtons.optOut.x = panelX + panelWidth - 40 - buttonWidth;
+    privacyModalButtons.optOut.y = buttonAreaY;
+    privacyModalButtons.optOut.width = buttonWidth;
+    privacyModalButtons.optOut.height = buttonHeight;
+
+    drawButton(privacyModalButtons.optIn, 'Enable Telemetry & Continue', true);
+    drawButton(privacyModalButtons.optOut, 'Disable Telemetry & Continue', true);
+
+    if (Game && Game.privacyModalContext === 'pause') {
+        const closeWidth = 180;
+        const closeHeight = 48;
+        privacyModalButtons.close.x = panelX + panelWidth / 2 - closeWidth / 2;
+        privacyModalButtons.close.y = buttonAreaY + buttonHeight + 25;
+        privacyModalButtons.close.width = closeWidth;
+        privacyModalButtons.close.height = closeHeight;
+        drawButton(privacyModalButtons.close, 'Back', false);
+    } else {
+        privacyModalButtons.close.x = 0;
+        privacyModalButtons.close.y = 0;
+        privacyModalButtons.close.width = 0;
+        privacyModalButtons.close.height = 0;
+    }
+
+    ctx.restore();
+}
+
+function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+    const words = text.split(' ');
+    let line = '';
+    let currentY = y;
+
+    for (let n = 0; n < words.length; n++) {
+        const testLine = line + words[n] + ' ';
+        const metrics = ctx.measureText(testLine);
+        const testWidth = metrics.width;
+        if (testWidth > maxWidth && n > 0) {
+            ctx.fillText(line, x, currentY);
+            line = words[n] + ' ';
+            currentY += lineHeight;
+        } else {
+            line = testLine;
+        }
+    }
+    ctx.fillText(line.trim(), x, currentY);
+    return currentY + lineHeight;
+}
+
+function handlePrivacyModalClick(x, y) {
+    if (Game && Game.screenToGame) {
+        const gameCoords = Game.screenToGame(x, y);
+        x = gameCoords.x;
+        y = gameCoords.y;
+    }
+
+    const withinButton = (button) => (
+        button.width > 0 &&
+        button.height > 0 &&
+        x >= button.x &&
+        x <= button.x + button.width &&
+        y >= button.y &&
+        y <= button.y + button.height
+    );
+
+    if (withinButton(privacyModalButtons.policy)) {
+        privacyModalButtons.policy.pressed = true;
+        setTimeout(() => { privacyModalButtons.policy.pressed = false; }, 120);
+        if (typeof window !== 'undefined' && window.open) {
+            window.open('privacy.html', '_blank', 'noreferrer');
+        }
+        return true;
+    }
+
+    if (withinButton(privacyModalButtons.optIn)) {
+        privacyModalButtons.optIn.pressed = true;
+        setTimeout(() => { privacyModalButtons.optIn.pressed = false; }, 120);
+        if (Game && Game.handlePrivacyChoice) {
+            Game.handlePrivacyChoice(true);
+        }
+        return true;
+    }
+
+    if (withinButton(privacyModalButtons.optOut)) {
+        privacyModalButtons.optOut.pressed = true;
+        setTimeout(() => { privacyModalButtons.optOut.pressed = false; }, 120);
+        if (Game && Game.handlePrivacyChoice) {
+            Game.handlePrivacyChoice(false);
+        }
+        return true;
+    }
+
+    if (withinButton(privacyModalButtons.close)) {
+        privacyModalButtons.close.pressed = true;
+        setTimeout(() => { privacyModalButtons.close.pressed = false; }, 120);
+        if (Game && Game.closePrivacyModal) {
+            Game.closePrivacyModal();
+        }
+        return true;
+    }
+
+    return false;
 }
 
 // Render update modal

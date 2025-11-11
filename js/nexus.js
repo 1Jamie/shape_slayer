@@ -650,6 +650,101 @@ function renderClassStationTooltip(ctx, player, station) {
     }
 }
 
+// Render simplified remote player visuals in the Nexus using interpolation-friendly data
+function renderNexusRemotePlayer(ctx, options) {
+    if (!ctx || !options) return;
+    
+    const {
+        x,
+        y,
+        rotation = 0,
+        classKey = 'square',
+        name = 'Player',
+        size = 20
+    } = options;
+    
+    if (typeof x !== 'number' || typeof y !== 'number' || Number.isNaN(x) || Number.isNaN(y)) {
+        return;
+    }
+    
+    const classDef = CLASS_DEFINITIONS[classKey] || CLASS_DEFINITIONS.square;
+    const playerShape = classDef.shape || 'square';
+    const playerColor = classDef.color || '#888888';
+    
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rotation);
+    ctx.fillStyle = playerColor;
+    
+    if (playerShape === 'triangle') {
+        ctx.beginPath();
+        ctx.moveTo(size, 0);
+        ctx.lineTo(-size * 0.5, -size * 0.866);
+        ctx.lineTo(-size * 0.5, size * 0.866);
+        ctx.closePath();
+        ctx.fill();
+    } else if (playerShape === 'hexagon') {
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+            const angle = (Math.PI / 3) * i;
+            const px = Math.cos(angle) * size;
+            const py = Math.sin(angle) * size;
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fill();
+    } else if (playerShape === 'pentagon') {
+        const rotationOffset = 18 * Math.PI / 180;
+        ctx.beginPath();
+        for (let i = 0; i < 5; i++) {
+            const angle = (Math.PI * 2 / 5) * i - Math.PI / 2 + rotationOffset;
+            const px = Math.cos(angle) * size;
+            const py = Math.sin(angle) * size;
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fill();
+    } else {
+        ctx.beginPath();
+        ctx.rect(-size * 0.8, -size * 0.8, size * 1.6, size * 1.6);
+        ctx.fill();
+    }
+    
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    if (playerShape === 'pentagon') {
+        const rotationOffset = 18 * Math.PI / 180;
+        const vertexIndex = 1;
+        const vertexAngle = (Math.PI * 2 / 5) * vertexIndex - Math.PI / 2 + rotationOffset;
+        const indicatorDistance = size * 0.7;
+        const indicatorX = Math.cos(vertexAngle) * indicatorDistance;
+        const indicatorY = Math.sin(vertexAngle) * indicatorDistance;
+        ctx.arc(indicatorX, indicatorY, 5, 0, Math.PI * 2);
+    } else {
+        ctx.arc(Math.cos(0) * (size - 5), Math.sin(0) * (size - 5), 5, 0, Math.PI * 2);
+    }
+    ctx.fill();
+    
+    ctx.restore();
+    
+    if (name) {
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 12px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(name, x, y - size - 10);
+    }
+}
+
+// Helper to retrieve stored remote player metadata (class, name, etc.)
+function getRemotePlayerMeta(playerId) {
+    if (typeof Game === 'undefined' || !Game || !Array.isArray(Game.remotePlayers)) {
+        return null;
+    }
+    return Game.remotePlayers.find(playerData => playerData && playerData.id === playerId) || null;
+}
+
 // Purchase upgrade
 function purchaseUpgrade(classType, statType) {
     if (typeof SaveSystem === 'undefined') return;
@@ -1091,90 +1186,57 @@ function renderNexus(ctx) {
     }
     
     // Render remote players (multiplayer) in the Nexus
-    if (Game.remotePlayers && Game.remotePlayers.length > 0) {
-        Game.remotePlayers.forEach(remotePlayer => {
-            // Skip rendering dead players
-            if (remotePlayer.dead) {
-                return;
-            }
-            
-            // Get class definition for remote player
-            const classDef = CLASS_DEFINITIONS[remotePlayer.class] || CLASS_DEFINITIONS.square;
-            const playerColor = classDef.color;
-            const playerShape = classDef.shape;
-            const playerSize = 20; // Standard player size
-            
-            ctx.save();
-            ctx.translate(remotePlayer.x, remotePlayer.y);
-            ctx.rotate(remotePlayer.rotation);
-            ctx.fillStyle = playerColor;
-            
-            // Draw player shape based on class
-            if (playerShape === 'triangle') {
-                ctx.beginPath();
-                ctx.moveTo(playerSize, 0);
-                ctx.lineTo(-playerSize * 0.5, -playerSize * 0.866);
-                ctx.lineTo(-playerSize * 0.5, playerSize * 0.866);
-                ctx.closePath();
-                ctx.fill();
-            } else if (playerShape === 'hexagon') {
-                ctx.beginPath();
-                for (let i = 0; i < 6; i++) {
-                    const angle = (Math.PI / 3) * i;
-                    const px = Math.cos(angle) * playerSize;
-                    const py = Math.sin(angle) * playerSize;
-                    if (i === 0) ctx.moveTo(px, py);
-                    else ctx.lineTo(px, py);
+    const inMultiplayer = Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager;
+    if (inMultiplayer) {
+        if (multiplayerManager.isHost && Game.remotePlayerInstances && Game.remotePlayerInstances.size > 0) {
+            Game.remotePlayerInstances.forEach((playerInstance, playerId) => {
+                if (!playerInstance || playerInstance.dead || !playerInstance.alive) {
+                    return;
                 }
-                ctx.closePath();
-                ctx.fill();
-            } else if (playerShape === 'pentagon') {
-                const rotationOffset = 18 * Math.PI / 180;
-                ctx.beginPath();
-                for (let i = 0; i < 5; i++) {
-                    const angle = (Math.PI * 2 / 5) * i - Math.PI / 2 + rotationOffset;
-                    const px = Math.cos(angle) * playerSize;
-                    const py = Math.sin(angle) * playerSize;
-                    if (i === 0) ctx.moveTo(px, py);
-                    else ctx.lineTo(px, py);
+                
+                const meta = getRemotePlayerMeta(playerId);
+                const classKey = playerInstance.playerClass || (meta ? meta.class : null) || 'square';
+                
+                renderNexusRemotePlayer(ctx, {
+                    x: playerInstance.x,
+                    y: playerInstance.y,
+                    rotation: playerInstance.rotation || 0,
+                    classKey,
+                    name: meta ? meta.name : 'Player'
+                });
+            });
+        } else if (!multiplayerManager.isHost && Game.remotePlayerShadowInstances && Game.remotePlayerShadowInstances.size > 0) {
+            Game.remotePlayerShadowInstances.forEach((shadowInstance, playerId) => {
+                if (!shadowInstance || shadowInstance.dead || !shadowInstance.alive) {
+                    return;
                 }
-                ctx.closePath();
-                ctx.fill();
-            } else {
-                // Default to square
-                ctx.beginPath();
-                ctx.rect(-playerSize * 0.8, -playerSize * 0.8, playerSize * 1.6, playerSize * 1.6);
-                ctx.fill();
-            }
-            
-            // Draw direction indicator
-            ctx.fillStyle = '#ffffff';
-            ctx.beginPath();
-            if (playerShape === 'pentagon') {
-                const rotationOffset = 18 * Math.PI / 180;
-                const vertexIndex = 1;
-                const vertexAngle = (Math.PI * 2 / 5) * vertexIndex - Math.PI / 2 + rotationOffset;
-                const indicatorDistance = playerSize * 0.7;
-                const indicatorX = Math.cos(vertexAngle) * indicatorDistance;
-                const indicatorY = Math.sin(vertexAngle) * indicatorDistance;
-                ctx.arc(indicatorX, indicatorY, 5, 0, Math.PI * 2);
-            } else {
-                ctx.arc(
-                    Math.cos(0) * (playerSize - 5),
-                    Math.sin(0) * (playerSize - 5),
-                    5, 0, Math.PI * 2
-                );
-            }
-            ctx.fill();
-            
-            ctx.restore();
-            
-            // Draw player name tag above remote player
-            ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 12px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText(remotePlayer.name || 'Player', remotePlayer.x, remotePlayer.y - playerSize - 10);
-        });
+                
+                const meta = getRemotePlayerMeta(playerId);
+                const classKey = (meta ? meta.class : null) || shadowInstance.playerClass || shadowInstance.classType || 'square';
+                
+                renderNexusRemotePlayer(ctx, {
+                    x: shadowInstance.x,
+                    y: shadowInstance.y,
+                    rotation: shadowInstance.rotation || 0,
+                    classKey,
+                    name: meta ? meta.name : 'Player'
+                });
+            });
+        } else if (Game.remotePlayers && Game.remotePlayers.length > 0) {
+            Game.remotePlayers.forEach(remotePlayer => {
+                if (!remotePlayer || remotePlayer.dead) {
+                    return;
+                }
+                
+                renderNexusRemotePlayer(ctx, {
+                    x: remotePlayer.x,
+                    y: remotePlayer.y,
+                    rotation: remotePlayer.rotation || 0,
+                    classKey: remotePlayer.class || 'square',
+                    name: remotePlayer.name || 'Player'
+                });
+            });
+        }
     }
     
     // Restore context after camera transform

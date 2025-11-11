@@ -5,7 +5,7 @@ const MultiplayerConfig = {
     // CHANGE THIS to point to your multiplayer server
     // For local testing: 'ws://localhost:4000'
     // For production: 'wss://yourdomain.com' or 'ws://your-server-ip:4000'
-    SERVER_URL: 'wss://shape-slayer.goodgirl.software',
+    SERVER_URL: 'ws://localhost:4000',
     
     // Connection settings
     RECONNECT_ATTEMPTS: 3,

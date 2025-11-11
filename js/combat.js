@@ -280,6 +280,23 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                     }
                 }
                 
+                if (!isClient && typeof Telemetry !== 'undefined' && attackerId) {
+                    const enemyId = enemy.enemyId || enemy.id || enemy.bossName || enemy.type || null;
+                    const enemyType = enemy.isBoss ? 'boss' : (enemy.type || (enemy.constructor && enemy.constructor.name) || 'enemy');
+                    const roomNumber = typeof Game !== 'undefined' && typeof Game.roomNumber === 'number'
+                        ? Game.roomNumber
+                        : null;
+                    
+                    Telemetry.recordDamage({
+                        playerId: attackerId,
+                        amount: damageDealt,
+                        enemyId,
+                        enemyType,
+                        roomNumber,
+                        isBoss: !!enemy.isBoss
+                    });
+                }
+                
                 // Apply hammer-specific effects (knockback and stun)
                 if (hitbox.type === 'hammer') {
                     // Calculate knockback direction (away from player center)
