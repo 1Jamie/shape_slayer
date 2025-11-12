@@ -4,7 +4,8 @@
   "description": "A skill-based 2D top-down ARPG",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "server": "node harness/index.js"
   },
   "keywords": ["game", "arpg", "canvas"],
   "author": "",

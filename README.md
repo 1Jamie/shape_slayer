@@ -357,6 +357,7 @@ shape_slayer/
 
 ## Telemetry & Analytics
 
+- **Service Harness** (`harness/index.js`) orchestrates the multiplayer server, metrics ingestion service, and metrics dashboard from a single command. Run `npm run server` at the repo root to start all three; logs stream to the console and persist at `harness/logs/*.log`. Use `--only=mp,metrics`, `--skip=gui`, or `--list` to control which services run, and `--log-dir=/custom/path` to override the log destination.
 - **Client instrumentation** (`js/telemetry.js`) collects per-run metrics (damage, hits, room timings, boss encounters) in solo or multiplayer host sessions. Data posts to the ingestion endpoint once a run ends.
 - **Ingestion service** (`metrics/server`) listens on port `4001`, validates payloads, and stores them in SQLite.
   ```bash

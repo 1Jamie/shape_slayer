@@ -71,3 +71,8 @@ out/
 logs/
 *.log
 
+# Metrics database
+*metrics.sqlite
+*sqlite-shm
+*sqlite-wal
+
