@@ -250,7 +250,7 @@ class OctagonEnemy extends EnemyBase {
                     this.lastPlayerDodge = Date.now();
                     this.playerBehaviorPatterns.dodgeFrequency += 1;
                 }
-                if (p.attackHitboxes && p.attackHitboxes.length > 0) {
+                if (this.isPlayerAttackThreatening(p, { expansion: 1.1, padding: 8, includeEnemySize: false })) {
                     this.playerBehaviorPatterns.attackFrequency += 1;
                     // Check if heavy attack
                     if (p.heavyAttackActive || (p.heavyAttackCooldown !== undefined && p.heavyAttackCooldown < p.heavyAttackCooldownTime * 0.9)) {
@@ -350,7 +350,7 @@ class OctagonEnemy extends EnemyBase {
                 let playerAttacking = false;
                 const allPlayers = this.getAllAlivePlayers();
                 for (const { player: p } of allPlayers) {
-                    if (p.attackHitboxes && p.attackHitboxes.length > 0) {
+                    if (this.isPlayerAttackThreatening(p, { expansion: 1.15, padding: 10 })) {
                         playerAttacking = true;
                         break;
                     }

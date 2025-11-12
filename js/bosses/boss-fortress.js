@@ -131,12 +131,11 @@ class BossFortress extends BossBase {
 
     update(deltaTime, player) {
         if (!this.introComplete) return;
-        if (!player) {
-            const nearestPlayer = this.getNearestPlayer();
-            if (!nearestPlayer || !nearestPlayer.alive) return;
-            player = nearestPlayer;
-        }
-        if (!this.alive || !player || !player.alive) return;
+        if (!this.alive) return;
+
+        const aggroPlayer = this.resolveAggroPlayer(deltaTime, player);
+        if (!aggroPlayer) return;
+        player = aggroPlayer;
 
         const room = (typeof currentRoom !== 'undefined') ? currentRoom : null;
         if (!this.anchorInitialized && room) {

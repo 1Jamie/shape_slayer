@@ -346,24 +346,29 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 *TL;DR:* Telemetry now exist in opt in and the pause menu looks much nicer*
 `,
         '0.5.3.1': `**🔴 CIRCLE OF TRUST ISSUES** (11/12/2025)
-*"Remember those red circles you bullied for being free XP? They called a meeting. You're the agenda and only thing they want is revenge!"*
+*"Remember those red circles you mercy-farmed in Room 1? They compared notes, formed a study group, and now you're the pop quiz."*
 
-• **Honor Society Enrollment (All Enemies):** Intelligence scaling got reprinted and stapled to everyone's forehead. Feints, combo detection, surround formations, lateral spread, wall awareness, pattern reads—all unlocked earlier and smarter. Room 4's PTA meeting is now a tactical seminar and you're the powerpoint.
-• **Predictive Brainstem (All Melee):** They now track your speed, dodge cadence, and "oops I always roll left" habits. They lead your future position, pick approach angles that aren't your face, and only retreat when combo'd, cornered, or 5 HP from death. Translation: They actually use some strat.
-• **Threat Board & Timing Tutors (Roster-Wide):** Every enemy now keeps a super petty threat ledger. Low HP? Dodging on cooldown? Swinging a lot? Congrats, you're on the menu. They wait out your iframes, dogpile when you're vulnerable, and stagger attacks like they're covering the lunch rush.
-• **Simultaneous Swarming (Circle Squad):** Up to five red buddies can lunge at once, wave attacks trigger off any ready goons, and "positioners" rotate into attacker the second there's a gap. Your orderly duel queue? Replaced with synchronized homicide featuring orbital drift, feints, and combo lunges from room 1 onward.
-• **Orbital Offense (Circles):** Predictive positioning, approach-angle variance, lateral spread, flanking bias, and environmental reads finally share a group chat. They'll slide to your blind spot, fake you out, orbit for surround coverage, and respect optimal spacing like they discovered geometry yesterday.
-• **Sharpshooter Shapes (Triangle & Octagon):** Predictive aiming is mandatory with smoothed velocity history, iterative intercept math, and accuracy scaling from "hey nice try" to "95% of your future coordinates belong to us." Keep circle-strafing; they'll be over here solving for t.
-• **Diamond Dash Etiquette (Diamond):** Telegraphs lock aim vectors on start, combo follow-ups wait a dramatic 250ms, and charge paths stay perfectly linear. If you still get full-body autographed, maybe stop dodging into the arrow labeled "danger zone."
-• **Visual Aid, Now With Shade (All Enemies):** Telegraphs pulse harder, lunge trails linger, recovery backs off before re-engaging, and state colors scream what happens next. You begged for readability; they weaponized it and hit you right when the UI says "incoming."
+• **Honor Society Enrollment (All Enemies):** IQ got scaled harder than exponential growth. Feints, combo detection, surround formations, wall checks, pattern recognition—all unlocked earlier. Room 4 stopped being recess and turned into Euclid’s nightmare.
+• **Predictive Brainstem (All Melee):** Every triangle and circle tracks your dodge cadence like it’s a metronome, solves for your future vector, and only retreats when the inequality says “certain death.” Translation: fewer whiffs, more proofs.
+• **Threat Board & Timing Tutors (Roster-Wide):** Each enemy now keeps a threat ledger pettier than your algebra teacher. Low HP, cooldowns burning, button mashing? Congratulations, you just became priority variable x.
+• **Simultaneous Swarming (Circle Squad):** Up to five circles now lunge in phase, wave attacks externalize across whoever’s ready, and idle units rotate in like we’re running polar coordinates on your face. Your single-file duels were deprecated.
+• **Orbital Offense (Circles):** Predictive positioning, lateral spread, flanking bias, wall awareness—the red bois stole your playbook, highlighted the margins, and drew diagrams.
+• **Sharpshooter Shapes (Triangle & Octagon):** Ranged enemies interpolate your velocity, iterate intercept math, and upgrade accuracy from 30° cones to sniper-grade radians. Keep circle-strafing; they already integrated the curve.
+• **Diamond Dash Etiquette (Diamond):** Telegraph vectors lock on immediately, follow-ups take a dramatic quarter-second pause, dash paths stay linear. If you still catch a rhombus to the face, consider reading the signage.
+• **Visual Aid, Now With Shade (All Enemies):** Telegraphs pulse harder, lunge trails linger longer, recovery states glow neon. You demanded readability; they added captions that say “incoming pain.”
 
-**Other Changes (Because Apparently AI Overhauls Weren't Enough):**
-• **Multiplayer Tweaks:** Lobby slots now remember your player ID, so reconnecting doesn't spawn Evil Twin You with none of your stuff. Less paperwork for everyone.
-• **Menu Overhaul:** We torched the old UI, salted the earth, and built one that actually works on mobile. You can join a lobby without performing a 12-step ritual. You're welcome.
-• **Telemetry Fix:** Damage numbers and affixes were ghosting our analytics. Turns out balancing is easier when the numbers actually exist. Wild concept, we know.
-• **Blue Diamond Boundaries:** The blue boys finally learned personal space. Less involuntary cuddle sessions, more respectable stabbings.
+**Other Changes (Because Apparently AI Overhauls Weren’t Enough):**
+• **Multiplayer Tweaks:** Lobby slots now remember your player ID, so reconnecting doesn’t spawn Evil Twin You with zero gear and negative vibes.
+• **Menu Overhaul:** Old UI got yeeted into a black hole. New UI actually works on mobile without requiring a ritual sacrifice to join a lobby.
+• **Telemetry Fix:** Damage numbers and affixes now report in. Balancing graphs look less like missing-data art installations.
+• **Blue Diamond Boundaries:** Those azure stabbers finally learned Euclidean personal space. Less accidental spooning, more intentional skewering.
+• **Flinch Etiquette:** Melee creeps roll a d20 before panic jogging. Sometimes they stand their ground, sometimes they scurry. Either way, the comedy is now RNG-driven.
+• **Bosses Finally Read the Threat Table:** Big bads stopped orbiting the host like it’s homecoming. Tanks tank, glass cannons sweat, everyone’s VO2 max gets tested.
+• **Clone & Decoy Witness Protection:** Rogue shadow clones and Mage blink decoys now count as legit disposable interns—health bars, damage reactions, everything except dental insurance. Bosses chew through them and move on without an existential crisis.
+• **Illusion Damage Control:** Enemy hits and projectiles run through the same math on illusions as real players. No more immortal cardboard cutouts or threat-table singularities—just geometry earning minimum wage.
+• **Client Level-Ups Actually Level:** Remote players finally receive actual stat bumps instead of placebo sparkles. Yes, Karen, your HP now scales even when you’re not the host. Please pace yourself; these gains are real this time.
 
-*TL;DR:* Circles graduated from cannon fodder to coordinated nuisance, the ranged kids min-maxed physics homework, and every enemy now knows what "flank" means. Bring AoE, bring timing, bring therapy.`,
+*TL;DR:* Circles graduated from cannon fodder to coordinated chaos, ranged kids min-maxed trigonometry, bosses obey the threat matrix, and illusions stopped falsifying résumés. Bring AoE, bring timing, bring snacks for the inevitable group wipe`,
     },
     
     // Update type labels - can be: 'major', 'feature', 'minor', 'hotfix', 'bugfix', 'refactor', 'rebalance'

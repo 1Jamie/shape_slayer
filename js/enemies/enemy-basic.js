@@ -299,7 +299,15 @@ class Enemy extends EnemyBase {
         if (this.roomNumber >= BASIC_ENEMY_CONFIG.intelligenceThresholds.playerReactions) {
             const allPlayers = this.getAllAlivePlayers();
             allPlayers.forEach(({ player: p }) => {
-                if (p.attackHitboxes && p.attackHitboxes.length > 0) {
+                const reaction = this.shouldReactToPlayerAttack(p, {
+                    expansion: 1.1,
+                    padding: 8,
+                    baseChance: 0.08 + this.intelligenceLevel * 0.12,
+                    proximityWeight: 0.4,
+                    maxChance: 0.25,
+                    cooldownMs: 250
+                });
+                if (reaction.shouldReact) {
                     this.reactToPlayerAction('attack', p);
                     this.lastPlayerAttackTime = Date.now();
                 }
@@ -799,7 +807,7 @@ class Enemy extends EnemyBase {
             let shouldCancelRetreat = false;
             if (targetPlayer && targetPlayer.alive) {
                 // Cancel if player stopped attacking
-                if (!targetPlayer.attackHitboxes || targetPlayer.attackHitboxes.length === 0) {
+                if (!this.isPlayerAttackThreatening(targetPlayer, { expansion: 1.05, padding: 6, includeEnemySize: false })) {
                     if (this.retreatTimer < 0.2) { // Only cancel if we've retreated a bit
                         shouldCancelRetreat = true;
                     }

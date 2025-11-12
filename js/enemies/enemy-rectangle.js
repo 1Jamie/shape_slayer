@@ -205,42 +205,42 @@ class RectangleEnemy extends EnemyBase {
                 }
                 
                 if (!shouldFakeOut) {
-                    // Avoid starting charge if player is actively attacking (gives player time to react)
-                    // Check all alive players for attacks
-                    let avoidance = { x: 0, y: 0 };
-                    const allPlayers = this.getAllAlivePlayers();
-                    allPlayers.forEach(({ player: p }) => {
-                        const playerAvoidance = this.avoidPlayerAttacks(p, 100);
-                        avoidance.x += playerAvoidance.x;
-                        avoidance.y += playerAvoidance.y;
-                    });
-                    const avoidDist = Math.sqrt(avoidance.x * avoidance.x + avoidance.y * avoidance.y);
+                // Avoid starting charge if player is actively attacking (gives player time to react)
+                // Check all alive players for attacks
+                let avoidance = { x: 0, y: 0 };
+                const allPlayers = this.getAllAlivePlayers();
+                allPlayers.forEach(({ player: p }) => {
+                    const playerAvoidance = this.avoidPlayerAttacks(p, 100);
+                    avoidance.x += playerAvoidance.x;
+                    avoidance.y += playerAvoidance.y;
+                });
+                const avoidDist = Math.sqrt(avoidance.x * avoidance.x + avoidance.y * avoidance.y);
+                
+                // If player is attacking nearby, wait and move away instead of charging
+                if (avoidDist > 50) {
+                    // Move away slightly to avoid interrupting player's attack
+                    const dirX = dx / distance;
+                    const dirY = dy / distance;
+                    const avoidNormX = avoidance.x / avoidDist;
+                    const avoidNormY = avoidance.y / avoidDist;
                     
-                    // If player is attacking nearby, wait and move away instead of charging
-                    if (avoidDist > 50) {
-                        // Move away slightly to avoid interrupting player's attack
-                        const dirX = dx / distance;
-                        const dirY = dy / distance;
-                        const avoidNormX = avoidance.x / avoidDist;
-                        const avoidNormY = avoidance.y / avoidDist;
-                        
-                        // Blend movement with avoidance
-                        let moveX = dirX * 0.7 + avoidNormX * 0.3;
-                        let moveY = dirY * 0.7 + avoidNormY * 0.3;
-                        const moveDist = Math.sqrt(moveX * moveX + moveY * moveY);
-                        if (moveDist > 0) {
-                            moveX /= moveDist;
-                            moveY /= moveDist;
-                        }
-                        
-                        this.x += moveX * this.moveSpeed * deltaTime;
-                        this.y += moveY * this.moveSpeed * deltaTime;
-                        
-                        // Update rotation to face movement direction
-                        if (moveX !== 0 || moveY !== 0) {
-                            this.rotation = Math.atan2(moveY, moveX);
-                        }
-                    } else {
+                    // Blend movement with avoidance
+                    let moveX = dirX * 0.7 + avoidNormX * 0.3;
+                    let moveY = dirY * 0.7 + avoidNormY * 0.3;
+                    const moveDist = Math.sqrt(moveX * moveX + moveY * moveY);
+                    if (moveDist > 0) {
+                        moveX /= moveDist;
+                        moveY /= moveDist;
+                    }
+                    
+                    this.x += moveX * this.moveSpeed * deltaTime;
+                    this.y += moveY * this.moveSpeed * deltaTime;
+                    
+                    // Update rotation to face movement direction
+                    if (moveX !== 0 || moveY !== 0) {
+                        this.rotation = Math.atan2(moveY, moveX);
+                    }
+                } else {
                         // Roar before charging (rooms 21+)
                         if (this.roomNumber >= RECTANGLE_CONFIG.intelligenceThresholds.roarAbility && 
                             this.roarCooldown <= 0) {
@@ -257,10 +257,10 @@ class RectangleEnemy extends EnemyBase {
                             this.roarCooldown = 5.0; // 5 second cooldown
                         }
                         
-                        // Play slam charge sound
-                        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-                            AudioManager.sounds.enemySlam();
-                        }
+                    // Play slam charge sound
+                    if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+                        AudioManager.sounds.enemySlam();
+                    }
                         
                         // Variable charge timing (rooms 11+)
                         if (this.useVariableTiming) {
@@ -270,11 +270,11 @@ class RectangleEnemy extends EnemyBase {
                         } else {
                             this.currentChargeDuration = this.chargeDuration;
                         }
-                        
-                        // No player attacks nearby (or very weak), start charge normally
-                        this.state = 'charge';
-                        this.chargeElapsed = 0;
-                        this.sizeMultiplier = 1.0;
+                    
+                    // No player attacks nearby (or very weak), start charge normally
+                    this.state = 'charge';
+                    this.chargeElapsed = 0;
+                    this.sizeMultiplier = 1.0;
                     }
                 }
             } else {

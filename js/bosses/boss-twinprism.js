@@ -86,13 +86,11 @@ class BossTwinPrism extends BossBase {
     
     update(deltaTime, player) {
         if (!this.introComplete) return;
-        // Get player from getAllAlivePlayers if not provided
-        if (!player) {
-            const nearestPlayer = this.getNearestPlayer();
-            if (!nearestPlayer || !nearestPlayer.alive) return;
-            player = nearestPlayer;
-        }
-        if (!this.alive || !player || !player.alive) return;
+        if (!this.alive) return;
+        
+        const aggroPlayer = this.resolveAggroPlayer(deltaTime, player);
+        if (!aggroPlayer) return;
+        player = aggroPlayer;
         
         // Safety check: ensure deltaTime is valid to prevent freeze from invalid timestep
         if (!isFinite(deltaTime) || deltaTime <= 0 || deltaTime > 1.0) {

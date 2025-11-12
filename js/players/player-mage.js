@@ -112,6 +112,7 @@ class Mage extends PlayerBase {
         this.blinkDecoyHealth = 0;
         this.blinkDecoyMaxHealth = MAGE_CONFIG.blinkDecoyMaxHealth;
         this.blinkDecoyHealthDecay = MAGE_CONFIG.blinkDecoyHealthDecay;
+        this.blinkDecoyEntity = null;
         
         // Blink explosion at destination
         this.blinkExplosionActive = false;
@@ -710,7 +711,79 @@ class Mage extends PlayerBase {
         this.specialCooldown = effectiveSpecialCooldown;
         this.invulnerable = true;
         this.invulnerabilityTime = 1.2; // 1.2s post-teleport i-frames for safer dashing through enemies
+        this.updateBlinkDecoyEntity();
         console.log('Blink activated!');
+    }
+    
+    updateBlinkDecoyEntity() {
+        if (!this.blinkDecoyEntity) {
+            this.blinkDecoyEntity = {
+                owner: this,
+                takeDamage: (amount = 0, options = {}) => this.applyBlinkDecoyDamage(amount, options),
+                invulnerable: false
+            };
+        }
+        
+        const entity = this.blinkDecoyEntity;
+        entity.x = this.blinkDecoyX;
+        entity.y = this.blinkDecoyY;
+        entity.size = this.size;
+        entity.maxHp = this.blinkDecoyMaxHealth;
+        entity.health = this.blinkDecoyHealth;
+        entity.hp = this.blinkDecoyHealth;
+        entity.alive = this.blinkDecoyActive && this.blinkDecoyHealth > 0;
+        entity.dead = !entity.alive;
+        entity.playerClass = this.playerClass;
+        entity.ownerId = this.playerId || null;
+        entity.applyKnockback = entity.applyKnockback || (() => {});
+        
+        return entity;
+    }
+    
+    getBlinkDecoyTarget() {
+        if (!this.blinkDecoyActive || this.blinkDecoyHealth <= 0) {
+            if (this.blinkDecoyEntity) {
+                this.blinkDecoyEntity.alive = false;
+                this.blinkDecoyEntity.dead = true;
+                this.blinkDecoyEntity.health = 0;
+                this.blinkDecoyEntity.hp = 0;
+            }
+            return null;
+        }
+        return this.updateBlinkDecoyEntity();
+    }
+    
+    applyBlinkDecoyDamage(amount = 0, options = {}) {
+        if (!this.blinkDecoyActive || this.blinkDecoyHealth <= 0) {
+            return 0;
+        }
+        
+        const damage = Math.max(0, amount);
+        if (damage <= 0) return 0;
+        
+        this.blinkDecoyHealth = Math.max(0, this.blinkDecoyHealth - damage);
+        
+        const {
+            showNumber = true,
+            particleColor = '#96c8ff',
+            particleCount = 4
+        } = options;
+        
+        if (showNumber && typeof createDamageNumber !== 'undefined') {
+            createDamageNumber(this.blinkDecoyX, this.blinkDecoyY, damage, false, false);
+        }
+        
+        if (particleColor && typeof createParticleBurst !== 'undefined') {
+            createParticleBurst(this.blinkDecoyX, this.blinkDecoyY, particleColor, particleCount);
+        }
+        
+        if (this.blinkDecoyHealth <= 0) {
+            this.blinkDecoyHealth = 0;
+            this.blinkDecoyActive = false;
+        }
+        
+        this.updateBlinkDecoyEntity();
+        return damage;
     }
     
     // Override updateClassAbilities for Mage-specific updates
@@ -741,14 +814,14 @@ class Mage extends PlayerBase {
         
         // Update blink decoy - health decay system
         if (this.blinkDecoyActive) {
-            // Health decay over time
-            this.blinkDecoyHealth -= this.blinkDecoyHealthDecay * deltaTime;
+            this.blinkDecoyHealth = Math.max(0, this.blinkDecoyHealth - this.blinkDecoyHealthDecay * deltaTime);
             
-            // Deactivate decoy if health depleted
             if (this.blinkDecoyHealth <= 0) {
-                this.blinkDecoyActive = false;
                 this.blinkDecoyHealth = 0;
+                this.blinkDecoyActive = false;
             }
+            
+            this.updateBlinkDecoyEntity();
         }
         
         // Check for damage to blink decoy from enemy projectiles
@@ -763,16 +836,10 @@ class Mage extends PlayerBase {
                 
                 // Check collision with decoy (use player size as decoy size)
                 if (distance < this.size + (projectile.size || 5)) {
-                    // Decoy takes damage from projectile
-                    this.blinkDecoyHealth -= projectile.damage || 10;
-                    // Mark projectile as hit so it gets removed
+                    this.applyBlinkDecoyDamage(projectile.damage || 10, {
+                        showNumber: false
+                    });
                     projectile.lifetime = 0;
-                    
-                    // Deactivate decoy if health depleted
-                    if (this.blinkDecoyHealth <= 0) {
-                        this.blinkDecoyActive = false;
-                        this.blinkDecoyHealth = 0;
-                    }
                 }
             });
         }

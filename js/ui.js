@@ -2802,11 +2802,15 @@ function renderPauseMenu(ctx) {
     drawHexagonOutline(ctx, accentOffset * 1.5, 0, accentSize);
     ctx.stroke();
     
-    // Text - solid color, no glow
+    // Text - solid color with subtle outline to improve contrast
     ctx.fillStyle = '#ffff00'; // Selection yellow for emphasis
     const pausedFontSize = isMobile ? Math.min(32, leftSectionWidth * 0.85) : Math.min(60, leftSectionWidth * 0.90);
     ctx.font = `bold ${pausedFontSize}px Arial`;
     ctx.textAlign = 'center';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.lineWidth = Math.max(1, pausedFontSize * 0.06);
+    ctx.strokeText('PAUSED', 0, 0);
     ctx.fillText('PAUSED', 0, 0);
     ctx.restore();
     

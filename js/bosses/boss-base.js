@@ -33,6 +33,48 @@ class BossBase extends EnemyBase {
         this.color = '#ff0000'; // Bright red for bosses
     }
     
+    isValidAggroTarget(target) {
+        if (!target) return false;
+        if (target.alive === false) return false;
+        if (target.dead === true) return false;
+        if (typeof target.hp === 'number' && target.hp <= 0) return false;
+        if (typeof target.health === 'number' && target.health <= 0) return false;
+        return true;
+    }
+    
+    resolveAggroPlayer(deltaTime = 0, fallbackPlayer = null) {
+        if (typeof this.updateTargetLock === 'function') {
+            this.updateTargetLock(deltaTime);
+        }
+        if (typeof this.updateAggroTarget === 'function') {
+            this.updateAggroTarget();
+        }
+        
+        let targetPlayer = null;
+        
+        if (this.currentTarget) {
+            const candidate = this.getPlayerById(this.currentTarget);
+            if (this.isValidAggroTarget(candidate)) {
+                targetPlayer = candidate;
+            } else {
+                this.currentTarget = null;
+            }
+        }
+        
+        if (!targetPlayer && this.isValidAggroTarget(fallbackPlayer)) {
+            targetPlayer = fallbackPlayer;
+        }
+        
+        if (!targetPlayer) {
+            const nearestPlayer = this.getNearestPlayer();
+            if (this.isValidAggroTarget(nearestPlayer)) {
+                targetPlayer = nearestPlayer;
+            }
+        }
+        
+        return targetPlayer;
+    }
+    
     // Check and transition phases based on HP thresholds
     checkPhaseTransition() {
         const hpPercent = this.hp / this.maxHp;

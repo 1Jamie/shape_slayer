@@ -649,7 +649,7 @@ function checkEnemiesVsClones(player, enemies) {
         // Check shadow clones (Rogue)
         if (p.shadowClonesActive && p.shadowClones && p.shadowClones.length > 0) {
             p.shadowClones.forEach((clone, cloneIndex) => {
-                if (clone.health > 0) {
+                if (clone && clone.alive !== false && (clone.health === undefined || clone.health > 0)) {
                     enemies.forEach(enemy => {
                         if (!enemy.alive) return;
                         
@@ -664,19 +664,29 @@ function checkEnemiesVsClones(player, enemies) {
                             if (currentTime - lastDamageTime >= damageCooldownMs) {
                                 // Clone takes damage from enemy
                                 const damageAmount = enemy.damage || 5;
-                                clone.health -= damageAmount;
+                                if (clone.takeDamage) {
+                                    clone.takeDamage(damageAmount, {
+                                        particleColor: '#666666'
+                                    });
+                                } else if (clone.health !== undefined) {
+                                    clone.health = Math.max(0, clone.health - damageAmount);
+                                    clone.hp = clone.health;
+                                    if (clone.health <= 0) {
+                                        clone.alive = false;
+                                        clone.dead = true;
+                                    }
+                                }
                                 
                                 // Update cooldown
                                 checkEnemiesVsClones.damageCooldowns.set(cooldownKey, currentTime);
                                 
-                                // Create damage number if available
-                                if (typeof createDamageNumber !== 'undefined') {
-                                    createDamageNumber(clone.x, clone.y, damageAmount, false, false);
-                                }
-                                
-                                // Visual feedback: particles
-                                if (typeof createParticleBurst !== 'undefined') {
-                                    createParticleBurst(clone.x, clone.y, '#666666', 4);
+                                if (!clone.takeDamage) {
+                                    if (typeof createDamageNumber !== 'undefined') {
+                                        createDamageNumber(clone.x, clone.y, damageAmount, false, false);
+                                    }
+                                    if (typeof createParticleBurst !== 'undefined') {
+                                        createParticleBurst(clone.x, clone.y, '#666666', 4);
+                                    }
                                 }
                             }
                         }
@@ -701,26 +711,31 @@ function checkEnemiesVsClones(player, enemies) {
                     if (currentTime - lastDamageTime >= damageCooldownMs) {
                         // Decoy takes damage from enemy
                         const damageAmount = enemy.damage || 5;
-                        p.blinkDecoyHealth -= damageAmount;
+                        if (typeof p.applyBlinkDecoyDamage === 'function') {
+                            p.applyBlinkDecoyDamage(damageAmount, {
+                                particleColor: '#96c8ff'
+                            });
+                        } else {
+                            p.blinkDecoyHealth -= damageAmount;
+                            
+                            // Create damage number if available
+                            if (typeof createDamageNumber !== 'undefined') {
+                                createDamageNumber(p.blinkDecoyX, p.blinkDecoyY, damageAmount, false, false);
+                            }
+                            
+                            // Visual feedback: particles
+                            if (typeof createParticleBurst !== 'undefined') {
+                                createParticleBurst(p.blinkDecoyX, p.blinkDecoyY, '#96c8ff', 4);
+                            }
+                            
+                            if (p.blinkDecoyHealth <= 0) {
+                                p.blinkDecoyActive = false;
+                                p.blinkDecoyHealth = 0;
+                            }
+                        }
                         
                         // Update cooldown
                         checkEnemiesVsClones.damageCooldowns.set(cooldownKey, currentTime);
-                        
-                        // Create damage number if available
-                        if (typeof createDamageNumber !== 'undefined') {
-                            createDamageNumber(p.blinkDecoyX, p.blinkDecoyY, damageAmount, false, false);
-                        }
-                        
-                        // Visual feedback: particles
-                        if (typeof createParticleBurst !== 'undefined') {
-                            createParticleBurst(p.blinkDecoyX, p.blinkDecoyY, '#96c8ff', 4);
-                        }
-                        
-                        // Deactivate decoy if health depleted
-                        if (p.blinkDecoyHealth <= 0) {
-                            p.blinkDecoyActive = false;
-                            p.blinkDecoyHealth = 0;
-                        }
                     }
                 }
             });

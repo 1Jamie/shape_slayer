@@ -402,7 +402,7 @@ class StarEnemy extends EnemyBase {
                         }
                     }
                     // Regular shots - shoot method handles all prediction
-                    this.shoot(targetX, targetY);
+                this.shoot(targetX, targetY);
                 }
                 this.attackCooldown = this.attackCooldownTime;
             }

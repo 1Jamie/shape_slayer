@@ -117,6 +117,9 @@ class EnemyBase {
             movementHistory: []
         };
         this.patternSampleCount = 0;
+        this.lastAttackReactionTime = 0;
+        this.lastRetreatDecisionTime = 0;
+        this.attackAvoidanceBias = 0.75 + Math.random() * 0.5; // 0.75 - 1.25 variation
         
         // Environmental awareness
         this.wallProximity = 0; // 0-1, how close to walls
@@ -183,6 +186,172 @@ class EnemyBase {
         };
     }
     
+    // Determine the center position of a player attack hitbox (world coordinates)
+    getHitboxCenter(hitbox, player = null) {
+        if (!hitbox) {
+            return {
+                x: player ? player.x : this.x,
+                y: player ? player.y : this.y
+            };
+        }
+        
+        const fallbackX = player ? player.x : this.x;
+        const fallbackY = player ? player.y : this.y;
+        
+        const centerX = hitbox.x !== undefined ? hitbox.x :
+            (hitbox.centerX !== undefined ? hitbox.centerX : fallbackX);
+        const centerY = hitbox.y !== undefined ? hitbox.y :
+            (hitbox.centerY !== undefined ? hitbox.centerY : fallbackY);
+        
+        return { x: centerX, y: centerY };
+    }
+    
+    // Estimate a representative radius for a hitbox (used for threat detection)
+    getHitboxBaseRadius(hitbox) {
+        if (!hitbox) return 0;
+        
+        if (typeof hitbox.radius === 'number') {
+            return Math.abs(hitbox.radius);
+        }
+        
+        if (hitbox.width !== undefined || hitbox.height !== undefined) {
+            const width = Math.abs(hitbox.width || 0);
+            const height = Math.abs(hitbox.height || 0);
+            return Math.max(width, height) * 0.5;
+        }
+        
+        if (hitbox.halfWidth !== undefined || hitbox.halfHeight !== undefined) {
+            return Math.max(Math.abs(hitbox.halfWidth || 0), Math.abs(hitbox.halfHeight || 0));
+        }
+        
+        if (hitbox.length !== undefined) {
+            return Math.abs(hitbox.length) * 0.5;
+        }
+        
+        if (hitbox.size !== undefined) {
+            return Math.abs(hitbox.size);
+        }
+        
+        return 0;
+    }
+    
+    // Calculate an expanded threat radius for a hitbox with padding for enemy size
+    getHitboxThreatRadius(hitbox, options = {}) {
+        const expansion = options.expansion !== undefined ? options.expansion : 1.2;
+        const includeEnemySize = options.includeEnemySize !== false;
+        const padding = options.padding !== undefined ? options.padding : Math.max(this.size * 0.35, 8);
+        
+        const baseRadius = this.getHitboxBaseRadius(hitbox);
+        const sizePadding = includeEnemySize ? this.size * 0.5 : 0;
+        
+        const threatRadius = baseRadius * expansion + padding + sizePadding;
+        return Math.max(threatRadius, padding + sizePadding);
+    }
+    
+    // Determine if a single hitbox currently threatens this enemy
+    isHitboxThreatening(hitbox, player = null, options = {}) {
+        if (!hitbox) return false;
+        
+        const center = this.getHitboxCenter(hitbox, player);
+        const threatRadius = this.getHitboxThreatRadius(hitbox, options);
+        if (threatRadius <= 0) return false;
+        
+        const dx = this.x - center.x;
+        const dy = this.y - center.y;
+        return (dx * dx + dy * dy) <= (threatRadius * threatRadius);
+    }
+    
+    // Gather detailed information about the strongest player attack threat
+    getPlayerAttackThreatInfo(player, options = {}) {
+        const emptyInfo = {
+            threatening: false,
+            proximity: 0,
+            rawProximity: -Infinity,
+            distance: Infinity,
+            threatRadius: 0,
+            hitbox: null,
+            center: null
+        };
+        
+        if (!player || !player.attackHitboxes || player.attackHitboxes.length === 0) {
+            return emptyInfo;
+        }
+        
+        const expansion = options.expansion !== undefined ? options.expansion : 1.2;
+        const padding = options.padding !== undefined ? options.padding : Math.max(this.size * 0.35, 10);
+        const includeEnemySize = options.includeEnemySize !== undefined ? options.includeEnemySize : true;
+        
+        let best = null;
+        
+        for (let i = 0; i < player.attackHitboxes.length; i++) {
+            const hitbox = player.attackHitboxes[i];
+            const center = this.getHitboxCenter(hitbox, player);
+            const threatRadius = this.getHitboxThreatRadius(hitbox, {
+                expansion,
+                padding,
+                includeEnemySize
+            });
+            
+            if (threatRadius <= 0) continue;
+            
+            const dx = this.x - center.x;
+            const dy = this.y - center.y;
+            const distSq = dx * dx + dy * dy;
+            const dist = Math.sqrt(distSq);
+            const proximity = threatRadius > 0 ? (threatRadius - dist) / threatRadius : 0; // >0 when inside
+            
+            if (!best || proximity > best.proximity) {
+                best = {
+                    threatening: proximity > 0,
+                    proximity: Math.max(0, proximity),
+                    rawProximity: proximity,
+                    distance: dist,
+                    threatRadius: threatRadius,
+                    hitbox,
+                    center
+                };
+            }
+        }
+        
+        return best || emptyInfo;
+    }
+    
+    // Determine if any of the player's active attack hitboxes threaten this enemy
+    isPlayerAttackThreatening(player, options = {}) {
+        const info = this.getPlayerAttackThreatInfo(player, options);
+        return !!(info && info.threatening);
+    }
+    
+    // Decide if this enemy should react to a threatening player attack (returns reaction info)
+    shouldReactToPlayerAttack(player, options = {}) {
+        const info = this.getPlayerAttackThreatInfo(player, options);
+        if (!info || !info.threatening) {
+            return { shouldReact: false, info, chance: 0 };
+        }
+        
+        const now = Date.now();
+        const cooldownMs = options.cooldownMs !== undefined ? options.cooldownMs : 250;
+        if (cooldownMs > 0 && now - this.lastAttackReactionTime < cooldownMs) {
+            return { shouldReact: false, info, chance: 0 };
+        }
+        
+        const baseChance = options.baseChance !== undefined ? options.baseChance : (0.06 + this.intelligenceLevel * 0.12);
+        const proximityWeight = options.proximityWeight !== undefined ? options.proximityWeight : 0.35;
+        const bonus = options.additionalBonus !== undefined ? options.additionalBonus : 0;
+        const maxChance = options.maxChance !== undefined ? options.maxChance : 0.25;
+        const minChance = options.minChance !== undefined ? options.minChance : 0.02;
+        
+        let chance = baseChance + info.proximity * proximityWeight + bonus;
+        chance = Math.max(minChance, Math.min(maxChance, chance));
+        
+        const shouldReact = Math.random() < chance;
+        if (shouldReact) {
+            this.lastAttackReactionTime = now;
+        }
+        
+        return { shouldReact, info, chance };
+    }
+    
     // Assess threat level of player
     assessThreat(player) {
         if (!player) return 0;
@@ -194,7 +363,7 @@ class EnemyBase {
         threat += (1 - hpPercent) * 0.3;
         
         // Factor 2: Player is attacking
-        if (player.attackHitboxes && player.attackHitboxes.length > 0) {
+        if (this.isPlayerAttackThreatening(player, { expansion: 1.1, padding: 8, includeEnemySize: false })) {
             threat += 0.4;
         }
         
@@ -921,21 +1090,37 @@ class EnemyBase {
     }
     
     // Calculate avoidance force to dodge player attacks
-    avoidPlayerAttacks(player, avoidanceRadius = 60) {
+    avoidPlayerAttacks(player, options = {}) {
         if (!player || !player.attackHitboxes || player.attackHitboxes.length === 0) {
             return { x: 0, y: 0 };
         }
+        
+        const expansion = options.expansion !== undefined ? options.expansion : 1.15;
+        const padding = options.padding !== undefined ? options.padding : Math.max(this.size * 0.35, 8);
+        const includeEnemySize = options.includeEnemySize !== undefined ? options.includeEnemySize : true;
+        const strengthMultiplier = options.strengthMultiplier !== undefined ? options.strengthMultiplier : 220;
+        const avoidanceBias = options.avoidanceBias !== undefined ? options.avoidanceBias : this.attackAvoidanceBias;
+        const bias = Math.max(0, avoidanceBias);
         
         let avoidanceX = 0;
         let avoidanceY = 0;
         
         player.attackHitboxes.forEach(hitbox => {
-            const dx = this.x - hitbox.x;
-            const dy = this.y - hitbox.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
+            const center = this.getHitboxCenter(hitbox, player);
+            const dx = this.x - center.x;
+            const dy = this.y - center.y;
+            const distSq = dx * dx + dy * dy;
+            const threatRadius = this.getHitboxThreatRadius(hitbox, {
+                expansion,
+                padding,
+                includeEnemySize
+            });
+            const radiusSq = threatRadius * threatRadius;
             
-            if (dist < avoidanceRadius && dist > 0) {
-                const strength = (avoidanceRadius - dist) / avoidanceRadius * 200;
+            if (distSq < radiusSq && distSq > 0.0001) {
+                const dist = Math.sqrt(distSq);
+                const penetration = (threatRadius - dist) / threatRadius;
+                const strength = penetration * strengthMultiplier * bias;
                 avoidanceX += (dx / dist) * strength;
                 avoidanceY += (dy / dist) * strength;
             }
@@ -1064,9 +1249,9 @@ class EnemyBase {
     isGoodAttackTiming(player, reactionDelay = 0.3) {
         if (!player) return true;
         
-        // Check if player is attacking
-        if (player.attackHitboxes && player.attackHitboxes.length > 0) {
-            return false; // Bad timing - player is attacking
+        // Check if player's current attack threatens this enemy
+        if (this.isPlayerAttackThreatening(player, { expansion: 1.05, padding: 6 })) {
+            return false; // Bad timing - attack is incoming
         }
         
         // Check if player just dodged (vulnerable window)
@@ -1131,7 +1316,7 @@ class EnemyBase {
         }
         
         // Track attack frequency
-        if (player.attackHitboxes && player.attackHitboxes.length > 0) {
+        if (this.isPlayerAttackThreatening(player, { expansion: 1.05, padding: 8, includeEnemySize: false })) {
             this.playerPatterns.attackFrequency = 
                 (this.playerPatterns.attackFrequency * this.patternSampleCount + 1) / 
                 (this.patternSampleCount + 1);
@@ -1307,19 +1492,26 @@ class EnemyBase {
             return false; // Stay and fight with allies
         }
         
+        const threatInfo = this.getPlayerAttackThreatInfo(player, { expansion: 1.05, padding: 10 });
+        const now = Date.now();
+        
         // Only retreat if being actively combo'd AND low HP (not just low HP)
-        if (this.isBeingComboed() && hpPercent < 0.4) {
-            // Check if player is actively attacking (not just low HP)
-            if (player.attackHitboxes && player.attackHitboxes.length > 0 && dist < 100) {
-                return true; // Being combo'd while player is attacking - tactical retreat
+        if (this.isBeingComboed() && hpPercent < 0.4 && threatInfo.threatening && dist < 100) {
+            const comboRetreatChance = Math.min(0.9,
+                0.35 + threatInfo.proximity * 0.4 + this.intelligenceLevel * 0.3);
+            if (Math.random() < comboRetreatChance) {
+                this.lastRetreatDecisionTime = now;
+                return true; // Tactical retreat due to combo pressure
             }
         }
         
         // Only retreat if player is actively attacking AND we're very close AND low HP
-        if (player.attackHitboxes && player.attackHitboxes.length > 0) {
-            if (dist < 60 && hpPercent < 0.25) {
-                // Very close to attacking player, very low HP - quick reposition
-                return true;
+        if (threatInfo.threatening && dist < 60 && hpPercent < 0.25) {
+            const closeRetreatChance = Math.min(0.85,
+                0.25 + threatInfo.proximity * 0.5 + this.intelligenceLevel * 0.35);
+            if (Math.random() < closeRetreatChance) {
+                this.lastRetreatDecisionTime = now;
+                return true; // Quick reposition from lethal proximity
             }
         }
         
@@ -1728,6 +1920,10 @@ class EnemyBase {
             // Add local player's decoys/clones
             if (Game.player.shadowClones) {
                 Game.player.shadowClones.forEach((clone, i) => {
+                    if (!clone) return;
+                    if (clone.alive === false) return;
+                    if (clone.health !== undefined && clone.health <= 0) return;
+                    
                     allPlayers.push({
                         id: `local-clone-${i}`,
                         player: clone
@@ -1736,10 +1932,16 @@ class EnemyBase {
             }
             
             if (Game.player.blinkDecoyActive) {
-                allPlayers.push({
-                    id: 'local-blink-decoy',
-                    player: { x: Game.player.blinkDecoyX, y: Game.player.blinkDecoyY }
-                });
+                const decoyTarget = typeof Game.player.getBlinkDecoyTarget === 'function'
+                    ? Game.player.getBlinkDecoyTarget()
+                    : null;
+                
+                if (decoyTarget) {
+                    allPlayers.push({
+                        id: 'local-blink-decoy',
+                        player: decoyTarget
+                    });
+                }
             }
         }
         
@@ -1755,6 +1957,10 @@ class EnemyBase {
                     // Add remote player's decoys/clones
                     if (playerInstance.shadowClones) {
                         playerInstance.shadowClones.forEach((clone, i) => {
+                            if (!clone) return;
+                            if (clone.alive === false) return;
+                            if (clone.health !== undefined && clone.health <= 0) return;
+                            
                             allPlayers.push({
                                 id: `${playerId}-clone-${i}`,
                                 player: clone
@@ -1763,10 +1969,16 @@ class EnemyBase {
                     }
                     
                     if (playerInstance.blinkDecoyActive) {
-                        allPlayers.push({
-                            id: `${playerId}-blink-decoy`,
-                            player: { x: playerInstance.blinkDecoyX, y: playerInstance.blinkDecoyY }
-                        });
+                        const decoyTarget = typeof playerInstance.getBlinkDecoyTarget === 'function'
+                            ? playerInstance.getBlinkDecoyTarget()
+                            : null;
+                        
+                        if (decoyTarget) {
+                            allPlayers.push({
+                                id: `${playerId}-blink-decoy`,
+                                player: decoyTarget
+                            });
+                        }
                     }
                 }
             });
@@ -1777,10 +1989,28 @@ class EnemyBase {
     
     // Get player by ID (for aggro targeting)
     getPlayerById(playerId) {
+        if (playerId === null || playerId === undefined) {
+            return null;
+        }
+        
         // Check local player
         if (typeof Game !== 'undefined' && Game.player && Game.getLocalPlayerId) {
             if (Game.getLocalPlayerId() === playerId) {
                 return Game.player;
+            }
+            
+            if (playerId.startsWith('local-clone-')) {
+                const index = parseInt(playerId.split('-')[2]);
+                if (Game.player.shadowClones && Game.player.shadowClones[index]) {
+                    const clone = Game.player.shadowClones[index];
+                    if (clone && clone.alive !== false && (clone.health === undefined || clone.health > 0)) {
+                        return clone;
+                    }
+                }
+            }
+            
+            if (playerId === 'local-blink-decoy' && typeof Game.player.getBlinkDecoyTarget === 'function') {
+                return Game.player.getBlinkDecoyTarget();
             }
         }
         
@@ -1791,14 +2021,45 @@ class EnemyBase {
             
             // Check remote player decoys/clones
             for (const [pid, instance] of Game.remotePlayerInstances) {
-                if (playerId.startsWith(`${pid}-clone-`)) {
+                if (typeof playerId === 'string' && playerId.startsWith(`${pid}-clone-`)) {
                     const index = parseInt(playerId.split('-')[2]);
                     if (instance.shadowClones && instance.shadowClones[index]) {
-                        return instance.shadowClones[index];
+                        const clone = instance.shadowClones[index];
+                        if (clone && clone.alive !== false && (clone.health === undefined || clone.health > 0)) {
+                            return clone;
+                        }
                     }
                 }
-                if (playerId === `${pid}-blink-decoy` && instance.blinkDecoyActive) {
-                    return { x: instance.blinkDecoyX, y: instance.blinkDecoyY };
+                if (playerId === `${pid}-blink-decoy` && instance && instance.blinkDecoyActive) {
+                    if (typeof instance.getBlinkDecoyTarget === 'function') {
+                        return instance.getBlinkDecoyTarget();
+                    }
+                    const decoyTarget = {
+                        x: instance.blinkDecoyX,
+                        y: instance.blinkDecoyY,
+                        size: instance.size,
+                        hp: instance.blinkDecoyHealth,
+                        health: instance.blinkDecoyHealth,
+                        maxHp: instance.blinkDecoyMaxHealth,
+                        alive: instance.blinkDecoyActive && instance.blinkDecoyHealth > 0,
+                        dead: !(instance.blinkDecoyActive && instance.blinkDecoyHealth > 0),
+                        takeDamage: (amount = 0) => {
+                            if (typeof instance.applyBlinkDecoyDamage === 'function') {
+                                instance.applyBlinkDecoyDamage(amount);
+                            } else {
+                                instance.blinkDecoyHealth = Math.max(0, instance.blinkDecoyHealth - amount);
+                                if (instance.blinkDecoyHealth <= 0) {
+                                    instance.blinkDecoyHealth = 0;
+                                    instance.blinkDecoyActive = false;
+                                }
+                            }
+                            decoyTarget.hp = instance.blinkDecoyHealth;
+                            decoyTarget.health = instance.blinkDecoyHealth;
+                            decoyTarget.alive = instance.blinkDecoyActive && instance.blinkDecoyHealth > 0;
+                            decoyTarget.dead = !decoyTarget.alive;
+                        }
+                    };
+                    return decoyTarget;
                 }
             }
         }

@@ -188,7 +188,7 @@ class DiamondEnemy extends EnemyBase {
             if (this.roomNumber >= DIAMOND_CONFIG.intelligenceThresholds.backstabPositioning) {
                 const allPlayers = this.getAllAlivePlayers();
                 allPlayers.forEach(({ player: p }) => {
-                    if (p.attackHitboxes && p.attackHitboxes.length > 0) {
+                    if (this.isPlayerAttackThreatening(p, { expansion: 1.05, padding: 10 })) {
                         // Player is attacking, try to position behind
                         const playerAngle = Math.atan2(p.vy || 0, p.vx || 0);
                         const toPlayerX = p.x - this.x;
@@ -270,7 +270,7 @@ class DiamondEnemy extends EnemyBase {
                 if (this.roomNumber >= DIAMOND_CONFIG.intelligenceThresholds.backstabPositioning) {
                     const allPlayers = this.getAllAlivePlayers();
                     allPlayers.forEach(({ player: p }) => {
-                        if (p.attackHitboxes && p.attackHitboxes.length > 0) {
+                        if (this.isPlayerAttackThreatening(p, { expansion: 1.1, padding: 8, includeEnemySize: false })) {
                             // Player attacking: orbit closer for backstab opportunity
                             orbitDistance *= 0.8;
                         } else if (p.isDodging || (p.vx === 0 && p.vy === 0)) {

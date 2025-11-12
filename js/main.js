@@ -629,6 +629,12 @@ const Game = {
                 if (typeof multiplayerMenuVisible !== 'undefined' && multiplayerMenuVisible) {
                     // Just close the multiplayer submenu, keep the pause menu open
                     multiplayerMenuVisible = false;
+                    
+                    // Ensure the main pause menu remains visible (especially in nexus state)
+                    if (typeof this.showPauseMenu !== 'undefined') {
+                        this.showPauseMenu = true;
+                    }
+                    
                     return;
                 }
                 

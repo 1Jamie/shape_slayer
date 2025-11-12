@@ -331,22 +331,15 @@ class Rogue extends PlayerBase {
         const cloneHealthDecayRate = ROGUE_CONFIG.shadowCloneHealthDecay;
         
         for (let i = 0; i < numClones; i++) {
-            // Position clones at angles offset from player
-            const angle = this.rotation + (i * 2 - 1) * ROGUE_CONFIG.shadowCloneSpawnAngle;
-            const distance = ROGUE_CONFIG.shadowCloneDistance;
-            const cloneX = this.x + Math.cos(angle) * distance;
-            const cloneY = this.y + Math.sin(angle) * distance;
-            
-            // Keep clones in bounds
-            const clone = {
-                x: Game ? clamp(cloneX, this.size, (typeof currentRoom !== 'undefined' && currentRoom ? currentRoom.width : Game.canvas.width) - this.size) : cloneX,
-                y: Game ? clamp(cloneY, this.size, (typeof currentRoom !== 'undefined' && currentRoom ? currentRoom.height : Game.canvas.height) - this.size) : cloneY,
-                rotation: this.rotation,
-                health: cloneMaxHealth,
+            const clone = this.createShadowCloneEntity({
+                angleOffset: (i * 2 - 1) * ROGUE_CONFIG.shadowCloneSpawnAngle,
+                distance: ROGUE_CONFIG.shadowCloneDistance,
                 maxHealth: cloneMaxHealth,
                 healthDecayRate: cloneHealthDecayRate
-            };
-            this.shadowClones.push(clone);
+            });
+            if (clone) {
+                this.shadowClones.push(clone);
+            }
         }
         
         // Clear enemy target locks for enemies within detection range of ANY clone
@@ -379,6 +372,88 @@ class Rogue extends PlayerBase {
         this.invulnerable = true;
         this.invulnerabilityTime = ROGUE_CONFIG.shadowCloneInvulnTime;
         console.log('Shadow clones activated!');
+    }
+    
+    createShadowCloneEntity(config = {}) {
+        const {
+            angleOffset = 0,
+            distance = ROGUE_CONFIG.shadowCloneDistance,
+            maxHealth = ROGUE_CONFIG.shadowCloneMaxHealth,
+            health = null,
+            healthDecayRate = ROGUE_CONFIG.shadowCloneHealthDecay,
+            x = null,
+            y = null,
+            rotation = this.rotation
+        } = config;
+        
+        let cloneX = x;
+        let cloneY = y;
+        
+        if (cloneX === null || cloneY === null) {
+            const spawnAngle = this.rotation + angleOffset;
+            cloneX = this.x + Math.cos(spawnAngle) * distance;
+            cloneY = this.y + Math.sin(spawnAngle) * distance;
+        }
+        
+        const boundsWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : (Game && Game.canvas ? Game.canvas.width : 2400);
+        const boundsHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : (Game && Game.canvas ? Game.canvas.height : 1350);
+        
+        const clampedX = Game ? clamp(cloneX, this.size, boundsWidth - this.size) : cloneX;
+        const clampedY = Game ? clamp(cloneY, this.size, boundsHeight - this.size) : cloneY;
+        
+        const initialHealth = health !== null ? health : maxHealth;
+        
+        const clone = {
+            x: clampedX,
+            y: clampedY,
+            rotation,
+            health: initialHealth,
+            hp: initialHealth,
+            maxHealth,
+            healthDecayRate,
+            size: this.size,
+            alive: initialHealth > 0,
+            dead: initialHealth <= 0,
+            owner: this,
+            ownerId: this.playerId || null,
+            playerClass: this.playerClass,
+            isShadowClone: true,
+            invulnerable: false
+        };
+        
+        clone.takeDamage = (amount = 0, options = {}) => {
+            if (!clone.alive) return 0;
+            const damage = Math.max(0, amount);
+            if (damage <= 0) return 0;
+            
+            clone.health = Math.max(0, clone.health - damage);
+            clone.hp = clone.health;
+            
+            const {
+                showNumber = true,
+                particleColor = '#666666',
+                particleCount = 4
+            } = options;
+            
+            if (showNumber && typeof createDamageNumber !== 'undefined') {
+                createDamageNumber(clone.x, clone.y, damage, false, false);
+            }
+            
+            if (particleColor && typeof createParticleBurst !== 'undefined') {
+                createParticleBurst(clone.x, clone.y, particleColor, particleCount);
+            }
+            
+            if (clone.health <= 0) {
+                clone.alive = false;
+                clone.dead = true;
+            }
+            
+            return damage;
+        };
+        
+        clone.applyKnockback = () => {};
+        
+        return clone;
     }
     
     // Override startDodge for Rogue directional dodge
@@ -464,19 +539,26 @@ class Rogue extends PlayerBase {
     updateClassAbilities(deltaTime, input) {
         // Update shadow clones animation and health
         if (this.shadowClonesActive) {
-            // Update each clone: health decay, rotation, and check for removal
             this.shadowClones = this.shadowClones.filter(clone => {
+                if (!clone || clone.alive === false) {
+                    return false;
+                }
+                
                 // Health decay over time
-                clone.health -= clone.healthDecayRate * deltaTime;
+                clone.health = Math.max(0, clone.health - clone.healthDecayRate * deltaTime);
+                clone.hp = clone.health;
                 
                 // Random rotation for illusory movement
                 clone.rotation += deltaTime * 0.5;
                 
-                // Remove clone if health depleted
-                return clone.health > 0;
+                if (clone.health <= 0) {
+                    clone.alive = false;
+                    clone.dead = true;
+                    return false;
+                }
+                return true;
             });
             
-            // End shadow clones if all clones destroyed
             if (this.shadowClones.length === 0) {
                 this.shadowClonesActive = false;
                 this.shadowClones = [];
@@ -496,8 +578,12 @@ class Rogue extends PlayerBase {
                     
                     // Check collision with clone (use player size as clone size)
                     if (distance < this.size + (projectile.size || 5)) {
-                        // Clone takes damage from projectile
-                        clone.health -= projectile.damage || 10;
+                        if (clone && clone.takeDamage) {
+                            clone.takeDamage(projectile.damage || 10, {
+                                showNumber: false,
+                                particleColor: '#666666'
+                            });
+                        }
                         // Mark projectile as hit so it gets removed
                         projectile.lifetime = 0;
                     }
@@ -848,7 +934,8 @@ class Rogue extends PlayerBase {
                 y: clone.y,
                 rotation: clone.rotation,
                 health: clone.health,
-                maxHealth: clone.maxHealth
+                maxHealth: clone.maxHealth,
+                healthDecayRate: clone.healthDecayRate
             }))
         };
     }
@@ -857,8 +944,21 @@ class Rogue extends PlayerBase {
     applyState(state) {
         super.applyState(state);
         // Rogue-specific properties
-        if (state.shadowClonesActive !== undefined) this.shadowClonesActive = state.shadowClonesActive;
-        if (state.shadowClones !== undefined) this.shadowClones = state.shadowClones;
+        if (state.shadowClonesActive !== undefined) {
+            this.shadowClonesActive = state.shadowClonesActive;
+        }
+        if (state.shadowClones !== undefined) {
+            this.shadowClones = state.shadowClones
+                .map(cloneState => this.createShadowCloneEntity({
+                    x: cloneState.x,
+                    y: cloneState.y,
+                    rotation: cloneState.rotation,
+                    maxHealth: cloneState.maxHealth !== undefined ? cloneState.maxHealth : ROGUE_CONFIG.shadowCloneMaxHealth,
+                    health: cloneState.health !== undefined ? cloneState.health : cloneState.maxHealth,
+                    healthDecayRate: cloneState.healthDecayRate !== undefined ? cloneState.healthDecayRate : ROGUE_CONFIG.shadowCloneHealthDecay
+                }))
+                .filter(clone => clone && clone.alive);
+        }
     }
 
     getAdditionalAudioTrackedFields(state) {

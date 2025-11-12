@@ -98,13 +98,11 @@ class BossSwarmKing extends BossBase {
     
     update(deltaTime, player) {
         if (!this.introComplete) return; // Don't update during intro
-        // Get player from getAllAlivePlayers if not provided
-        if (!player) {
-            const nearestPlayer = this.getNearestPlayer();
-            if (!nearestPlayer || !nearestPlayer.alive) return;
-            player = nearestPlayer;
-        }
-        if (!this.alive || !player || !player.alive) return;
+        if (!this.alive) return;
+        
+        const aggroPlayer = this.resolveAggroPlayer(deltaTime, player);
+        if (!aggroPlayer) return;
+        player = aggroPlayer;
         
         // Process knockback first
         this.processKnockback(deltaTime);
