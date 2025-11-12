@@ -357,11 +357,11 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 • **Diamond Dash Etiquette (Diamond):** Telegraphs lock aim vectors on start, combo follow-ups wait a dramatic 250ms, and charge paths stay perfectly linear. If you still get full-body autographed, maybe stop dodging into the arrow labeled "danger zone."
 • **Visual Aid, Now With Shade (All Enemies):** Telegraphs pulse harder, lunge trails linger, recovery backs off before re-engaging, and state colors scream what happens next. You begged for readability; they weaponized it and hit you right when the UI says "incoming."
 
-**Other Changes:**
-• **Multiplayer tweaks:** added player id to lobby tracking so if you reconnect you resume the same character instead of making a new one.
-• **Menu overhaul:** Completely redid all the styling as lets be fair... the old was bubkis. Oh and now you can join lobbies from mobile without having to fight with the ui, it now actually kinda works.
-• **Telemtry Fix:** Damage numbers were not being properly recorded and affixes were not being recorded either.... kinda makes the balancing a lot hard to do without those numbers.
-• **Blue Diamond fix:** The blue diamond was having issues with ending up inside players.... hoepfully this patch they will feel a little less like sexual harassment.
+**Other Changes (Because Apparently AI Overhauls Weren't Enough):**
+• **Multiplayer Tweaks:** Lobby slots now remember your player ID, so reconnecting doesn't spawn Evil Twin You with none of your stuff. Less paperwork for everyone.
+• **Menu Overhaul:** We torched the old UI, salted the earth, and built one that actually works on mobile. You can join a lobby without performing a 12-step ritual. You're welcome.
+• **Telemetry Fix:** Damage numbers and affixes were ghosting our analytics. Turns out balancing is easier when the numbers actually exist. Wild concept, we know.
+• **Blue Diamond Boundaries:** The blue boys finally learned personal space. Less involuntary cuddle sessions, more respectable stabbings.
 
 *TL;DR:* Circles graduated from cannon fodder to coordinated nuisance, the ranged kids min-maxed physics homework, and every enemy now knows what "flank" means. Bring AoE, bring timing, bring therapy.`,
     },
