@@ -353,7 +353,7 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 • **Threat Board & Timing Tutors (Roster-Wide):** Each enemy now keeps a threat ledger pettier than your algebra teacher. Low HP, cooldowns burning, button mashing? Congratulations, you just became priority variable x.
 • **Simultaneous Swarming (Circle Squad):** Up to five circles now lunge in phase, wave attacks externalize across whoever’s ready, and idle units rotate in like we’re running polar coordinates on your face. Your single-file duels were deprecated.
 • **Orbital Offense (Circles):** Predictive positioning, lateral spread, flanking bias, wall awareness—the red bois stole your playbook, highlighted the margins, and drew diagrams.
-• **Sharpshooter Shapes (Triangle & Octagon):** Ranged enemies interpolate your velocity, iterate intercept math, and upgrade accuracy from 30° cones to sniper-grade radians. Keep circle-strafing; they already integrated the curve.
+• **Sharpshooter Shapes (Triangle & Octagon):** Ranged enemies try to predict your velocity, iterates through the intercept math to do said predcitive aiming, and upgrade accuracy from 30° cones to sniper-grade radians, this way they can hit you more consistently and actually require awareness. Keep circle-strafing; they already integrated the curve.
 • **Diamond Dash Etiquette (Diamond):** Telegraph vectors lock on immediately, follow-ups take a dramatic quarter-second pause, dash paths stay linear. If you still catch a rhombus to the face, consider reading the signage.
 • **Visual Aid, Now With Shade (All Enemies):** Telegraphs pulse harder, lunge trails linger longer, recovery states glow neon. You demanded readability; they added captions that say “incoming pain.”
 
@@ -364,11 +364,11 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 • **Blue Diamond Boundaries:** Those azure stabbers finally learned Euclidean personal space. Less accidental spooning, more intentional skewering.
 • **Flinch Etiquette:** Melee creeps roll a d20 before panic jogging. Sometimes they stand their ground, sometimes they scurry. Either way, the comedy is now RNG-driven.
 • **Bosses Finally Read the Threat Table:** Big bads stopped orbiting the host like it’s homecoming. Tanks tank, glass cannons sweat, everyone’s VO2 max gets tested.
-• **Clone & Decoy Witness Protection:** Rogue shadow clones and Mage blink decoys now count as legit disposable interns—health bars, damage reactions, everything except dental insurance. Bosses chew through them and move on without an existential crisis.
+• **Clone & Decoy Witness Protection:** Rogue shadow clones and Mage blink decoys now count as legit disposable interns—health bars, damage reactions, everything except dental insurance. They’re loyal to you this time, so no accidental Order 66 mid-fight.
 • **Illusion Damage Control:** Enemy hits and projectiles run through the same math on illusions as real players. No more immortal cardboard cutouts or threat-table singularities—just geometry earning minimum wage.
-• **Client Level-Ups Actually Level:** Remote players finally receive actual stat bumps instead of placebo sparkles. Yes, Karen, your HP now scales even when you’re not the host. Please pace yourself; these gains are real this time.
+• **Client Level-Ups Actually Level:** Remote players finally receive actual stat bumps instead of placebo sparkles. Yes, Karen, your HP now scales even when you’re not the host. Try not to sprain your newfound survivability.
 
-*TL;DR:* Circles graduated from cannon fodder to coordinated chaos, ranged kids min-maxed trigonometry, bosses obey the threat matrix, and illusions stopped falsifying résumés. Bring AoE, bring timing, bring snacks for the inevitable group wipe`,
+*TL;DR:* Circles evolved from cannon fodder to coordinated chaos, ranged kids min-maxed trigonometry, bosses respect the threat matrix, and illusions stopped lying on their résumé. Bring AoE, bring timing, bring snacks for the wipe-fest`,
     },
     
     // Update type labels - can be: 'major', 'feature', 'minor', 'hotfix', 'bugfix', 'refactor', 'rebalance'
