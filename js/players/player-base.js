@@ -50,6 +50,7 @@ class PlayerBase {
         // XP system
         this.xp = 0;
         this.xpToNext = 100;
+        this.lastLevelBonusesApplied = 1; // Track last level we applied bonuses for (prevent double application)
         
         // Attack system
         this.attackCooldown = 0;
@@ -1298,14 +1299,14 @@ class PlayerBase {
         }
     }
     
-    // Level up function
-    levelUp() {
-        // Play level up sound
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-            AudioManager.sounds.levelUp();
+    // Apply level up stat bonuses (extracted for multiplayer clients)
+    // This applies damage, health, and speed bonuses based on current level
+    applyLevelUpBonuses() {
+        // Prevent double application - only apply bonuses once per level
+        if (this.lastLevelBonusesApplied >= this.level) {
+            console.log(`[Player] Bonuses already applied for level ${this.level}, skipping`);
+            return;
         }
-        
-        this.level++;
         
         // Increase base stats (damage 7%, HP 10%)
         this.baseDamageBase = (this.baseDamageBase || this.baseDamage) * 1.07;
@@ -1350,6 +1351,22 @@ class PlayerBase {
         
         // Heal to full HP
         this.hp = this.maxHp;
+        
+        // Mark that we've applied bonuses for this level
+        this.lastLevelBonusesApplied = this.level;
+    }
+    
+    // Level up function
+    levelUp() {
+        // Play level up sound
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+            AudioManager.sounds.levelUp();
+        }
+        
+        this.level++;
+        
+        // Apply stat bonuses
+        this.applyLevelUpBonuses();
         
         // Multiplayer: Send level up event and sync state
         if (typeof Game !== 'undefined' && Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
@@ -3208,7 +3225,16 @@ class PlayerBase {
             
             // Only update level if it actually increased (from our own leveling)
             if (state.level !== undefined && state.level > this.level) {
+                const levelIncreased = state.level > this.level;
                 this.level = state.level;
+                
+                // Apply level up bonuses when level increases (for multiplayer clients)
+                // This ensures bonuses are applied even if player_leveled_up event arrives out of order
+                if (levelIncreased && typeof this.applyLevelUpBonuses === 'function') {
+                    console.log(`[Client] Level increased to ${this.level}, applying bonuses via applyState`);
+                    this.applyLevelUpBonuses();
+                }
+                
                 if (typeof showLevelUpMessage === 'function') {
                     showLevelUpMessage(this.level);
                 }

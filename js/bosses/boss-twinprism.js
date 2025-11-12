@@ -106,8 +106,22 @@ class BossTwinPrism extends BossBase {
         this.updateWeakPoints(deltaTime);
         
         // Update center position (boss position is center)
-        this.centerX = this.x;
-        this.centerY = this.y;
+        // For multiplayer clients, ensure center follows interpolated boss position
+        const isMultiplayerClient = typeof Game !== 'undefined' && 
+                                     Game.multiplayerEnabled && 
+                                     typeof multiplayerManager !== 'undefined' && 
+                                     multiplayerManager && 
+                                     !multiplayerManager.isHost;
+        
+        if (isMultiplayerClient) {
+            // On clients, boss position is interpolated, so sync center to interpolated position
+            this.centerX = this.x;
+            this.centerY = this.y;
+        } else {
+            // On host, center is already set correctly
+            this.centerX = this.x;
+            this.centerY = this.y;
+        }
         
         // Update cooldowns (with safety checks to prevent freeze from invalid deltaTime)
         if (isFinite(deltaTime) && deltaTime > 0 && deltaTime <= 1.0) {
@@ -307,12 +321,18 @@ class BossTwinPrism extends BossBase {
         const angle1 = this.rotationAngle;
         const angle2 = this.rotationAngle + Math.PI;
         
+        // Always sync center to boss position (especially important for clients with interpolation)
+        // This ensures diamonds follow the interpolated boss position
+        this.centerX = this.x;
+        this.centerY = this.y;
+        
         // Ensure center is valid
         if (!isFinite(this.centerX) || !isFinite(this.centerY)) {
             this.centerX = this.x;
             this.centerY = this.y;
         }
         
+        // Calculate diamond positions relative to center (which matches interpolated boss position)
         this.diamond1.x = this.centerX + Math.cos(angle1) * (this.separation / 2);
         this.diamond1.y = this.centerY + Math.sin(angle1) * (this.separation / 2);
         this.diamond1.angle = angle1;
@@ -1496,6 +1516,72 @@ class BossTwinPrism extends BossBase {
         }
         
         ctx.restore();
+    }
+    
+    // Serialize boss state for multiplayer sync
+    serialize() {
+        const base = super.serialize();
+        return {
+            ...base,
+            // Twin Prism specific properties
+            diamond1: {
+                x: this.diamond1.x,
+                y: this.diamond1.y,
+                angle: this.diamond1.angle
+            },
+            diamond2: {
+                x: this.diamond2.x,
+                y: this.diamond2.y,
+                angle: this.diamond2.angle
+            },
+            centerX: this.centerX,
+            centerY: this.centerY,
+            rotationAngle: this.rotationAngle,
+            separation: this.separation,
+            state: this.state,
+            stateTimer: this.stateTimer,
+            trackingAngle1: this.trackingAngle1,
+            trackingAngle2: this.trackingAngle2,
+            splitTargetSeparation: this.splitTargetSeparation,
+            splitDashTarget1: this.splitDashTarget1,
+            splitDashTarget2: this.splitDashTarget2
+        };
+    }
+    
+    // Apply state from host (for multiplayer clients)
+    applyState(state) {
+        // Apply base enemy state first (handles position, HP, etc.)
+        // This will set interpolation targets for boss position
+        super.applyState(state);
+        
+        // Apply Twin Prism specific properties
+        // Note: We don't set diamond positions directly - they're calculated in updateDiamondPositions()
+        // based on centerX/centerY, rotationAngle, and separation, which are synced here
+        if (state.centerX !== undefined) this.centerX = state.centerX;
+        if (state.centerY !== undefined) this.centerY = state.centerY;
+        if (state.rotationAngle !== undefined) this.rotationAngle = state.rotationAngle;
+        if (state.separation !== undefined) this.separation = state.separation;
+        if (state.state !== undefined) this.state = state.state;
+        if (state.stateTimer !== undefined) this.stateTimer = state.stateTimer;
+        if (state.trackingAngle1 !== undefined) this.trackingAngle1 = state.trackingAngle1;
+        if (state.trackingAngle2 !== undefined) this.trackingAngle2 = state.trackingAngle2;
+        if (state.splitTargetSeparation !== undefined) this.splitTargetSeparation = state.splitTargetSeparation;
+        if (state.splitDashTarget1 !== undefined) this.splitDashTarget1 = state.splitDashTarget1;
+        if (state.splitDashTarget2 !== undefined) this.splitDashTarget2 = state.splitDashTarget2;
+        
+        // Sync diamond angles if provided (for visual consistency)
+        if (state.diamond1 && state.diamond1.angle !== undefined) {
+            this.diamond1.angle = state.diamond1.angle;
+        }
+        if (state.diamond2 && state.diamond2.angle !== undefined) {
+            this.diamond2.angle = state.diamond2.angle;
+        }
+        
+        // Ensure center position matches boss position (for clients)
+        // The boss position (this.x, this.y) is interpolated, so we need to sync center
+        // This ensures diamonds follow the interpolated boss position
+        this.centerX = this.x;
+        this.centerY = this.y;
     }
 }
 

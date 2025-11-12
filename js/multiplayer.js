@@ -2390,9 +2390,19 @@ class MultiplayerManager {
         
         console.log(`[Multiplayer] Player ${playerId} leveled up to level ${level}`);
         
-        // If this is the local player, trigger level up effects
+        // If this is the local player, apply stat bonuses and trigger level up effects
         if (playerId === localPlayerId && Game.player) {
-            console.log('[Multiplayer] Triggering level up effects for local player');
+            console.log(`[Multiplayer] Applying level up bonuses and effects for local player (level ${level})`);
+            // Ensure level is set correctly (in case event arrives before game_state)
+            if (Game.player.level < level) {
+                Game.player.level = level;
+            }
+            // Apply stat bonuses (damage, health, speed)
+            // The applyLevelUpBonuses function has a guard to prevent double application
+            if (typeof Game.player.applyLevelUpBonuses === 'function') {
+                Game.player.applyLevelUpBonuses();
+            }
+            // Trigger visual effects
             Game.player.triggerLevelUpEffects();
             return;
         }
