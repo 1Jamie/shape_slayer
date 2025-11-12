@@ -79,6 +79,36 @@ class RectangleEnemy extends EnemyBase {
         this.slamRadius = RECTANGLE_CONFIG.slamRadius;
         this.sizeMultiplier = 1.0;
         
+        this.telegraphProfile = {
+            charge: {
+                type: 'rectangle-charge',
+                duration: RECTANGLE_CONFIG.chargeDurationBase * 0.6,
+                color: '#ff9f1c',
+                intensity: 1.2,
+                projectRadius: RECTANGLE_CONFIG.slamRadius
+            },
+            fakeout: {
+                type: 'rectangle-fakeout',
+                duration: RECTANGLE_CONFIG.chargeDurationBase * 0.4,
+                color: '#ffd166',
+                intensity: 0.9,
+                projectRadius: this.size * 1.2
+            },
+            stagger: {
+                type: 'rectangle-stagger',
+                duration: 0.6,
+                color: '#ff8fa3',
+                intensity: 1.0,
+                projectRadius: RECTANGLE_CONFIG.slamRadius * 0.9
+            }
+        };
+        this.chargeTelegraphRemaining = 0;
+        this.chargeTelegraphDuration = 0;
+        this.chargeTarget = null;
+        this.chargeHitSuccessful = false;
+        this.staggerDuration = 0.55;
+        this.staggerElapsed = 0;
+
         // Variable charge timing (rooms 11+)
         this.useVariableTiming = this.roomNumber >= RECTANGLE_CONFIG.intelligenceThresholds.variableTiming;
         
@@ -116,6 +146,9 @@ class RectangleEnemy extends EnemyBase {
         
         // Process burn DoT
         this.processBurn(deltaTime);
+        
+        this.updateTelegraph(deltaTime);
+        this.updateRecoveryWindow(deltaTime);
         
         // Update target lock timer
         this.updateTargetLock(deltaTime);
@@ -201,6 +234,13 @@ class RectangleEnemy extends EnemyBase {
                         this.state = 'fakeout';
                         this.fakeOutTimer = this.chargeDuration * 0.4; // Shorter fake-out
                         this.isFakingOut = true;
+                        const profile = this.telegraphProfile.fakeout;
+                        this.beginTelegraph(profile.type, {
+                            duration: this.fakeOutTimer,
+                            intensity: profile.intensity,
+                            color: profile.color,
+                            projectRadius: profile.projectRadius
+                        });
                     }
                 }
                 
@@ -233,12 +273,12 @@ class RectangleEnemy extends EnemyBase {
                         moveY /= moveDist;
                     }
                     
-                    this.x += moveX * this.moveSpeed * deltaTime;
-                    this.y += moveY * this.moveSpeed * deltaTime;
+                    const desiredX = this.x + moveX * this.moveSpeed * deltaTime;
+                    const desiredY = this.y + moveY * this.moveSpeed * deltaTime;
+                    this.smoothMoveTo(desiredX, desiredY);
                     
-                    // Update rotation to face movement direction
                     if (moveX !== 0 || moveY !== 0) {
-                        this.rotation = Math.atan2(moveY, moveX);
+                        this.smoothRotateTo(Math.atan2(moveY, moveX));
                     }
                 } else {
                         // Roar before charging (rooms 21+)
@@ -272,8 +312,7 @@ class RectangleEnemy extends EnemyBase {
                         }
                     
                     // No player attacks nearby (or very weak), start charge normally
-                    this.state = 'charge';
-                    this.chargeElapsed = 0;
+                    this.startChargeSequence(targetX, targetY);
                     this.sizeMultiplier = 1.0;
                     }
                 }
@@ -303,12 +342,12 @@ class RectangleEnemy extends EnemyBase {
                     }
                 }
                 
-                this.x += moveX * this.moveSpeed * deltaTime;
-                this.y += moveY * this.moveSpeed * deltaTime;
+                const desiredX = this.x + moveX * this.moveSpeed * deltaTime;
+                const desiredY = this.y + moveY * this.moveSpeed * deltaTime;
+                this.smoothMoveTo(desiredX, desiredY);
                 
-                // Update rotation to face movement direction
                 if (moveX !== 0 || moveY !== 0) {
-                    this.rotation = Math.atan2(moveY, moveX);
+                    this.smoothRotateTo(Math.atan2(moveY, moveX));
                 }
             }
         } else if (this.state === 'fakeout') {
@@ -321,15 +360,29 @@ class RectangleEnemy extends EnemyBase {
                 this.isFakingOut = false;
                 this.fakeOutTimer = 0;
                 this.sizeMultiplier = 1.0;
+                if (this.activeTelegraph) this.endTelegraph();
                 this.state = 'chase';
                 // Move away slightly
                 const awayX = -dx / distance;
                 const awayY = -dy / distance;
-                this.x += awayX * this.moveSpeed * 0.5 * deltaTime;
-                this.y += awayY * this.moveSpeed * 0.5 * deltaTime;
+                const desiredX = this.x + awayX * this.moveSpeed * 0.5 * deltaTime;
+                const desiredY = this.y + awayY * this.moveSpeed * 0.5 * deltaTime;
+                this.smoothMoveTo(desiredX, desiredY, 0.4);
             }
         } else if (this.state === 'charge') {
-            // Grow larger during charge
+            if (this.chargeTelegraphRemaining > 0) {
+                this.chargeTelegraphRemaining -= deltaTime;
+                const telegraphProgress = 1 - (this.chargeTelegraphRemaining / Math.max(0.001, this.chargeTelegraphDuration));
+                this.sizeMultiplier = 1.0 + telegraphProgress * 0.4;
+                if (this.chargeTelegraphRemaining <= 0) {
+                    if (this.activeTelegraph) this.endTelegraph();
+                    this.chargeElapsed = 0;
+                    this.sizeMultiplier = 1.0;
+                } else {
+                    return;
+                }
+            }
+            
             this.chargeElapsed += deltaTime;
             this.sizeMultiplier = 1.0 + (this.chargeElapsed / this.currentChargeDuration) * 0.5;
             
@@ -373,8 +426,14 @@ class RectangleEnemy extends EnemyBase {
                                     p.takeDamage(this.damage);
                                 }
                             }
+                            this.chargeHitSuccessful = true;
                         }
                     });
+                    if (this.chargeHitSuccessful) {
+                        this.enterRecoveryWindow(this.attackCooldownTime * 0.5, 'chargeHit', {
+                            modifier: 1.1
+                        });
+                    }
                 }
                 
                 // Check for combo attack (rooms 21+)
@@ -384,19 +443,42 @@ class RectangleEnemy extends EnemyBase {
                     if (Math.random() < comboChance) {
                         // Immediate combo shoulder charge
                         this.comboReady = true;
-                        this.state = 'charge';
-                        this.chargeElapsed = 0;
                         this.currentChargeDuration = this.comboChargeDuration;
+                        this.startChargeSequence(targetX, targetY);
                         this.sizeMultiplier = 1.0;
                         return; // Skip cooldown
                     }
                 }
                 
-                this.state = 'cooldown';
-                this.attackCooldown = RECTANGLE_CONFIG.attackCooldown;
+                if (!this.chargeHitSuccessful) {
+                    this.state = 'stagger';
+                    this.staggerElapsed = 0;
+                    const profile = this.telegraphProfile.stagger;
+                    this.beginTelegraph(profile.type, {
+                        duration: this.staggerDuration,
+                        intensity: profile.intensity,
+                        color: profile.color,
+                        projectRadius: profile.projectRadius
+                    });
+                    this.enterRecoveryWindow(this.staggerDuration, 'stagger', {
+                        modifier: 1.35
+                    });
+                } else {
+                    this.state = 'cooldown';
+                    this.attackCooldown = RECTANGLE_CONFIG.attackCooldown;
+                }
                 this.chargeElapsed = 0;
                 this.sizeMultiplier = 1.0;
                 this.comboReady = false;
+                this.chargeTarget = null;
+            }
+        } else if (this.state === 'stagger') {
+            this.staggerElapsed += deltaTime;
+            if (this.staggerElapsed >= this.staggerDuration) {
+                if (this.activeTelegraph) this.endTelegraph();
+                this.state = 'cooldown';
+                this.attackCooldown = RECTANGLE_CONFIG.attackCooldown;
+                this.staggerElapsed = 0;
             }
         } else if (this.state === 'cooldown') {
             if (this.attackCooldown <= 0) {
@@ -425,20 +507,43 @@ class RectangleEnemy extends EnemyBase {
         this.keepInBounds();
     }
     
+    startChargeSequence(targetX, targetY) {
+        this.state = 'charge';
+        this.chargeElapsed = 0;
+        this.chargeTarget = { x: targetX, y: targetY };
+        this.chargeHitSuccessful = false;
+        this.chargeTelegraphDuration = Math.max(0.25, (this.currentChargeDuration || this.chargeDuration) * 0.5);
+        this.chargeTelegraphRemaining = this.chargeTelegraphDuration;
+        const profile = this.telegraphProfile.charge;
+        this.beginTelegraph(profile.type, {
+            duration: this.chargeTelegraphDuration,
+            intensity: profile.intensity,
+            color: profile.color,
+            projectRadius: profile.projectRadius
+        });
+    }
+    
     render(ctx) {
         // Draw rectangle shape
         ctx.save();
         ctx.translate(this.x, this.y);
         
         let drawColor = this.color;
-        if (this.state === 'charge') {
-            drawColor = '#8b0000'; // Dark red when charging
+        const telegraphData = this.activeTelegraph;
+        let multiplier = this.sizeMultiplier;
+        if (telegraphData) {
+            const progress = telegraphData.progress !== undefined ? telegraphData.progress : 0.5;
+            const pulse = 0.6 + Math.sin(progress * Math.PI * 3) * 0.4;
+            drawColor = telegraphData.color || '#8b0000';
+            multiplier = this.sizeMultiplier * (1 + (telegraphData.intensity || 1) * 0.08 * pulse);
+        } else if (this.state === 'charge') {
+            drawColor = '#8b0000';
         }
         
         ctx.fillStyle = drawColor;
         ctx.beginPath();
-        ctx.rect(-this.width * this.sizeMultiplier * 0.8, -this.height * this.sizeMultiplier * 0.8, 
-                 this.width * this.sizeMultiplier * 1.6, this.height * this.sizeMultiplier * 1.6);
+        ctx.rect(-this.width * multiplier * 0.8, -this.height * multiplier * 0.8, 
+                 this.width * multiplier * 1.6, this.height * multiplier * 1.6);
         ctx.fill();
         
         ctx.restore();
@@ -452,24 +557,26 @@ class RectangleEnemy extends EnemyBase {
         }
         
         // Draw slam AoE indicator with pulsing effect
-        if (this.state === 'charge') {
+        if (telegraphData || this.state === 'charge') {
             ctx.save();
             
-            // Calculate pulse intensity (0 to 1 based on charge progress)
-            const chargeProgress = this.chargeElapsed / this.chargeDuration;
-            const pulseIntensity = 0.3 + (Math.sin(chargeProgress * Math.PI * 8) * 0.5 + 0.5) * 0.7; // Pulse faster as charge progresses
+            const duration = telegraphData ? Math.max(telegraphData.duration || 0.4, 0.01) : this.chargeDuration;
+            const elapsed = telegraphData ? duration * (telegraphData.progress || 0) : this.chargeElapsed;
+            const chargeProgress = Math.min(1, elapsed / duration);
+            const pulseIntensity = 0.3 + (Math.sin(chargeProgress * Math.PI * 8) * 0.5 + 0.5) * 0.7;
             
             // Outer warning ring (bright red, pulsing)
             ctx.strokeStyle = `rgba(255, 0, 0, ${pulseIntensity * 0.8})`;
             ctx.lineWidth = 3;
             ctx.beginPath();
-            ctx.arc(this.x, this.y, this.slamRadius, 0, Math.PI * 2);
+            const radius = telegraphData && telegraphData.projectRadius ? telegraphData.projectRadius : this.slamRadius;
+            ctx.arc(this.x, this.y, radius, 0, Math.PI * 2);
             ctx.stroke();
             
             // Inner fill (semi-transparent red, pulsing)
             ctx.fillStyle = `rgba(255, 0, 0, ${pulseIntensity * 0.2})`;
             ctx.beginPath();
-            ctx.arc(this.x, this.y, this.slamRadius, 0, Math.PI * 2);
+            ctx.arc(this.x, this.y, radius, 0, Math.PI * 2);
             ctx.fill();
             
             // Additional bright flash at high charge
@@ -478,7 +585,7 @@ class RectangleEnemy extends EnemyBase {
                 ctx.strokeStyle = `rgba(255, 255, 0, ${flashAlpha * 0.9})`;
                 ctx.lineWidth = 4;
                 ctx.beginPath();
-                ctx.arc(this.x, this.y, this.slamRadius, 0, Math.PI * 2);
+                ctx.arc(this.x, this.y, radius, 0, Math.PI * 2);
                 ctx.stroke();
             }
             

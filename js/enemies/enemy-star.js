@@ -84,6 +84,25 @@ class StarEnemy extends EnemyBase {
         this.strafeSpeed = STAR_CONFIG.strafeSpeed;
         this.strafeAmplitude = STAR_CONFIG.strafeAmplitude;
         
+        this.telegraphProfile = {
+            single: {
+                type: 'star-single',
+                duration: 0.28,
+                color: '#66d9ff',
+                intensity: 1.05,
+                projectRadius: this.size * 1.2
+            },
+            volley: {
+                type: 'star-volley',
+                duration: 0.4,
+                color: '#ffd166',
+                intensity: 1.2,
+                projectRadius: this.size * 1.4
+            }
+        };
+        this.pendingShot = null;
+        this.suppressionCooldown = 0;
+
         // Burst fire system (rooms 7+)
         this.burstFireActive = false;
         this.burstFireCount = 0;
@@ -121,6 +140,12 @@ class StarEnemy extends EnemyBase {
         // Process burn DoT
         this.processBurn(deltaTime);
         
+        this.updateTelegraph(deltaTime);
+        this.updateRecoveryWindow(deltaTime);
+        if (this.suppressionCooldown > 0) {
+            this.suppressionCooldown = Math.max(0, this.suppressionCooldown - deltaTime);
+        }
+        
         // Update target lock timer
         this.updateTargetLock(deltaTime);
         
@@ -141,6 +166,7 @@ class StarEnemy extends EnemyBase {
         const target = this.findTarget(null);
         const targetX = target.x;
         const targetY = target.y;
+        const targetPlayerRef = this.getPlayerById(this.currentTarget);
         
         // Calculate direction from enemy to target
         const dx = targetX - this.x;
@@ -288,15 +314,13 @@ class StarEnemy extends EnemyBase {
                 }
             }
             
-            this.x += moveX * this.moveSpeed * deltaTime;
-            this.y += moveY * this.moveSpeed * deltaTime;
-            
-            // Add strafing offset
-            this.x += perpX * strafeOffset * deltaTime * 0.4;
-            this.y += perpY * strafeOffset * deltaTime * 0.4;
-            
-            // Update rotation to face movement direction (toward player for shooter)
-            this.rotation = Math.atan2(dy, dx);
+            const desiredVelX = moveX * this.moveSpeed + perpX * strafeOffset * 0.4;
+            const desiredVelY = moveY * this.moveSpeed + perpY * strafeOffset * 0.4;
+            const desiredSpeed = Math.sqrt(desiredVelX * desiredVelX + desiredVelY * desiredVelY);
+            if (desiredSpeed > 0) {
+                this.applySmoothedDirectionalMovement(desiredVelX, desiredVelY, desiredSpeed, deltaTime, 0.4, false);
+            }
+            this.smoothRotateTo(Math.atan2(dy, dx));
         } else if (distance > this.maxRange) {
             // Too far - move closer with separation
             const towardDirX = dx / distance;
@@ -324,13 +348,7 @@ class StarEnemy extends EnemyBase {
                 }
             }
             
-            this.x += moveX * this.moveSpeed * deltaTime;
-            this.y += moveY * this.moveSpeed * deltaTime;
-            
-            // Update rotation to face movement direction
-            if (moveX !== 0 || moveY !== 0) {
-                this.rotation = Math.atan2(moveY, moveX);
-            }
+            this.applySmoothedDirectionalMovement(moveX, moveY, this.moveSpeed, deltaTime, 0.35);
         } else {
             // Right distance - strafe and shoot
             // Strafing movement (perpendicular to player)
@@ -363,35 +381,37 @@ class StarEnemy extends EnemyBase {
                 }
             }
             
-            this.x += moveX * this.moveSpeed * deltaTime * 0.6; // Slower strafing
-            this.y += moveY * this.moveSpeed * deltaTime * 0.6;
+            this.applySmoothedDirectionalMovement(moveX, moveY, this.moveSpeed * 0.6, deltaTime, 0.4, false);
+            this.smoothRotateTo(Math.atan2(dy, dx));
             
-            // Update rotation to face player (shooter faces target)
-            this.rotation = Math.atan2(dy, dx);
+            if (targetPlayerRef && targetPlayerRef.isDodging && this.suppressionCooldown <= 0 && !this.pendingShot) {
+                this.queueShot('single', targetX, targetY, { quick: true });
+                this.attackCooldown = this.attackCooldownTime * 0.6;
+                this.suppressionCooldown = 1.2;
+            }
             
             // Add slight adjustment toward ideal range
             const rangeDiff = distance - this.shootRange;
             if (Math.abs(rangeDiff) > 10) {
-                const adjustDirX = (rangeDiff > 0 ? -towardDirX : towardDirX) * 0.3;
-                const adjustDirY = (rangeDiff > 0 ? -towardDirY : towardDirY) * 0.3;
-                this.x += adjustDirX * this.moveSpeed * deltaTime;
-                this.y += adjustDirY * this.moveSpeed * deltaTime;
+                const adjustDirX = (rangeDiff > 0 ? -towardDirX : towardDirX);
+                const adjustDirY = (rangeDiff > 0 ? -towardDirY : towardDirY);
+                this.applySmoothedDirectionalMovement(adjustDirX, adjustDirY, this.moveSpeed * 0.3, deltaTime, 0.4, false);
+                this.smoothRotateTo(Math.atan2(dy, dx));
             }
             
             // Try to shoot (pass raw target position - shoot method will handle all prediction)
-            if (this.attackCooldown <= 0) {
-                // Check for volley attack (rooms 12+)
+            if (this.attackCooldown <= 0 && (!this.pendingShot || this.burstFireActive)) {
+                let nextCooldown = this.attackCooldownTime;
                 if (this.roomNumber >= STAR_CONFIG.intelligenceThresholds.volleyAttacks && 
                     Math.random() < STAR_CONFIG.volleyChance * this.intelligenceLevel) {
-                    this.shootVolley(targetX, targetY);
+                    this.queueShot('volley', targetX, targetY);
                 } else if (this.burstFireActive && this.burstFireCount > 0) {
-                    // Continue burst fire
-                    this.shoot(targetX, targetY, true);
+                    this.shoot(targetX, targetY, true, true);
+                    nextCooldown = Math.min(nextCooldown, STAR_CONFIG.burstFireDelay);
                 } else {
-                    // Check for burst fire (rooms 4+)
                     if (this.roomNumber >= STAR_CONFIG.intelligenceThresholds.burstFire) {
                         const roomsPastThreshold = Math.max(0, this.roomNumber - STAR_CONFIG.intelligenceThresholds.burstFire);
-                        const burstScale = Math.min(1.0, roomsPastThreshold / 3); // Scales over 3 rooms (was 5)
+                        const burstScale = Math.min(1.0, roomsPastThreshold / 3);
                         const burstChance = STAR_CONFIG.burstFireChanceBase + 
                                           (STAR_CONFIG.burstFireChanceMax - STAR_CONFIG.burstFireChanceBase) * burstScale;
                         
@@ -399,18 +419,36 @@ class StarEnemy extends EnemyBase {
                             this.burstFireActive = true;
                             this.burstFireCount = STAR_CONFIG.burstFireCount;
                             this.burstFireTimer = 0;
+                            this.shoot(targetX, targetY, true, true);
+                            nextCooldown = Math.min(nextCooldown, STAR_CONFIG.burstFireDelay);
+                        } else {
+                            this.queueShot('single', targetX, targetY);
                         }
+                    } else {
+                        this.queueShot('single', targetX, targetY);
                     }
-                    // Regular shots - shoot method handles all prediction
-                this.shoot(targetX, targetY);
                 }
-                this.attackCooldown = this.attackCooldownTime;
+                this.attackCooldown = nextCooldown;
             }
         }
         
         // Resolve stacking with other enemies
         if (enemies.length > 0) {
             this.resolveStacking(enemies);
+        }
+        
+        if (this.pendingShot) {
+            this.pendingShot.timer -= deltaTime;
+            if (this.pendingShot.timer <= 0) {
+                if (this.activeTelegraph) this.endTelegraph();
+                const shot = this.pendingShot;
+                this.pendingShot = null;
+                if (shot.type === 'volley') {
+                    this.shootVolley(shot.x, shot.y, true);
+                } else {
+                    this.shoot(shot.x, shot.y, false, true);
+                }
+            }
         }
         
         // Keep enemy within canvas bounds
@@ -449,7 +487,29 @@ class StarEnemy extends EnemyBase {
         }
     }
     
-    shoot(targetX, targetY, isBurstFire = false) {
+    queueShot(type, targetX, targetY, options = {}) {
+        const profile = this.telegraphProfile[type] || this.telegraphProfile.single;
+        const quickFactor = options.quick ? 0.6 : (1 - this.intelligenceLevel * 0.2);
+        const duration = Math.max(0.15, profile.duration * quickFactor);
+        this.pendingShot = {
+            type,
+            x: targetX,
+            y: targetY,
+            timer: duration
+        };
+        this.beginTelegraph(profile.type, {
+            duration,
+            intensity: profile.intensity,
+            color: profile.color,
+            projectRadius: profile.projectRadius
+        });
+    }
+    
+    shoot(targetX, targetY, isBurstFire = false, skipTelegraph = false) {
+        if (!skipTelegraph) {
+            this.queueShot('single', targetX, targetY, { quick: false });
+            return;
+        }
         if (typeof Game === 'undefined') return;
         
         // Get actual player for better prediction (not clone/decoy)
@@ -576,7 +636,11 @@ class StarEnemy extends EnemyBase {
         });
     }
     
-    shootVolley(targetX, targetY) {
+    shootVolley(targetX, targetY, skipTelegraph = false) {
+        if (!skipTelegraph) {
+            this.queueShot('volley', targetX, targetY);
+            return;
+        }
         if (typeof Game === 'undefined') return;
         
         // Get actual player for better prediction - ensure we have velocity properties
@@ -684,17 +748,26 @@ class StarEnemy extends EnemyBase {
     }
     
     render(ctx) {
-        // Draw triangle enemy (convex polygon like all other non-boss enemies)
         ctx.save();
         ctx.translate(this.x, this.y);
         ctx.rotate(this.rotation);
         
-        ctx.fillStyle = this.color;
+        let drawColor = this.color;
+        const telegraphData = this.activeTelegraph;
+        let scaleMultiplier = 1;
+        if (telegraphData) {
+            const progress = telegraphData.progress !== undefined ? telegraphData.progress : 0.5;
+            const pulse = 0.6 + Math.sin(progress * Math.PI * 3) * 0.4;
+            drawColor = telegraphData.color || this.color;
+            scaleMultiplier = 1 + (telegraphData.intensity || 1) * 0.08 * pulse;
+        }
+        
+        ctx.fillStyle = drawColor;
         ctx.beginPath();
         
         // Draw equilateral triangle pointing in the direction of movement
-        const height = this.size * 1.5;
-        const base = this.size * 1.3;
+        const height = this.size * 1.5 * scaleMultiplier;
+        const base = this.size * 1.3 * scaleMultiplier;
         
         // Triangle vertices (pointing right/forward)
         ctx.moveTo(height * 0.6, 0);  // Front point
@@ -730,6 +803,18 @@ class StarEnemy extends EnemyBase {
             5, 0, Math.PI * 2
         );
         ctx.fill();
+        
+        if (telegraphData) {
+            ctx.save();
+            ctx.strokeStyle = telegraphData.color || this.color;
+            ctx.lineWidth = 2.5;
+            ctx.globalAlpha = 0.6;
+            const radius = telegraphData.projectRadius || this.size * 1.4;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, radius, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        }
     }
 }
 

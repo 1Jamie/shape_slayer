@@ -117,13 +117,13 @@ function generateRoom(roomNumber) {
     // IMPROVED SCALING: Cap enemy count at room 18, then scale stats more aggressively
     // This prevents performance issues and visual clutter while maintaining difficulty
     const ENEMY_COUNT_CAP_ROOM = 18;
-    const CAPPED_ROOM_ENEMY_COUNT = 30; // 8 + (18 * 1.2) = ~30 base (75 in 4p)
+    const CAPPED_ROOM_ENEMY_COUNT = 26; // Slightly lower cap to lean on smarter AI
     
     let baseEnemyCount;
     
     if (roomNumber <= ENEMY_COUNT_CAP_ROOM) {
         // Phase 1: Normal scaling (Rooms 1-18)
-        baseEnemyCount = 8 + Math.floor(roomNumber * 1.2);
+        baseEnemyCount = 6 + Math.floor(roomNumber * 1.05);
     } else {
         // Phase 2: Capped count to avoid overcrowding
         baseEnemyCount = CAPPED_ROOM_ENEMY_COUNT;

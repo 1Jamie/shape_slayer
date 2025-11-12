@@ -36,14 +36,14 @@ const BASIC_ENEMY_CONFIG = {
     
     // Intelligence scaling thresholds (basic features from room 1)
     intelligenceThresholds: {
-        advancedPatterns: 1,       // Room when quick/delayed lunge patterns unlock (room 1)
-        feintAttacks: 2,           // Room when feint attacks unlock
-        playerReactions: 1,        // Room when player reaction system unlocks (room 1)
-        coordination: 1,           // Room when coordination unlocks (room 1)
-        comboLunge: 4,             // Room when combo lunge unlocks
-        waveAttacks: 3,            // Room when wave attacks unlock
-        surroundFormation: 5,      // Room when surround formation unlocks
-        retreatBehavior: 11        // Room when retreat behavior unlocks (was 16)
+        advancedPatterns: 1,       // Room when quick/delayed lunge patterns unlock
+        feintAttacks: 1,           // Feints available from the start (scaled by intelligence)
+        playerReactions: 1,        // Player reaction system unlocks immediately
+        coordination: 1,           // Coordination unlocked immediately
+        comboLunge: 5,             // Combo lunges unlock room 5+
+        waveAttacks: 3,            // Wave attacks unlock room 3+
+        surroundFormation: 4,      // Surround formation unlocks room 4+
+        retreatBehavior: 8         // Retreat behavior unlocks room 8+
     },
     
     // Feint attack behavior
@@ -89,6 +89,8 @@ class Enemy extends EnemyBase {
         this.originalSpeed = this.moveSpeed;
         this.lungeSpeed = BASIC_ENEMY_CONFIG.lungeSpeed;
         this.lungeDistance = BASIC_ENEMY_CONFIG.lungeDistance;
+        this.baseLungeSpeed = BASIC_ENEMY_CONFIG.lungeSpeed;
+        this.baseLungeDuration = BASIC_ENEMY_CONFIG.lungeDuration;
         this.attackRange = BASIC_ENEMY_CONFIG.attackRange;
         this.attackRangeVariance = BASIC_ENEMY_CONFIG.attackRangeVariance;
         this.attackRecoveryDuration = BASIC_ENEMY_CONFIG.attackRecoveryDuration;
@@ -112,6 +114,8 @@ class Enemy extends EnemyBase {
         this.comboLungeWaitTimer = 0;
         this.lastPlayerDodgeTime = 0;
         this.lastPlayerDodgePosition = null;
+        this.counterAttackPending = false;
+        this.attackBranch = 'commit'; // 'commit' | 'feint' | 'counter'
         
         // Player reaction tracking
         this.playerAttackReactionTimer = 0;
@@ -136,6 +140,31 @@ class Enemy extends EnemyBase {
         // Orbital movement
         this.orbitAngle = Math.random() * Math.PI * 2; // Random starting orbit angle
         this.orbitSpeed = 0.5; // Rotation speed around player (radians/second)
+        
+        // Shared telegraph descriptors
+        this.telegraphProfile = {
+            lunge: {
+                type: 'lunge',
+                duration: this.telegraphDuration,
+                color: '#ff4141',
+                intensity: 1.0,
+                projectRadius: this.damageProjectionRadius || this.size * 1.2
+            },
+            feint: {
+                type: 'feint',
+                duration: 0.35,
+                color: '#ffa94d',
+                intensity: 0.75,
+                projectRadius: this.damageProjectionRadius || this.size
+            },
+            counter: {
+                type: 'counter',
+                duration: 0.45,
+                color: '#ffdf5d',
+                intensity: 1.2,
+                projectRadius: (this.damageProjectionRadius || this.size) * 1.1
+            }
+        };
         
         // Initialize attack range variance for this instance
         this.currentAttackRange = this.attackRange + (Math.random() - 0.5) * this.attackRangeVariance * 2;
@@ -167,6 +196,10 @@ class Enemy extends EnemyBase {
         
         // Process burn DoT
         this.processBurn(deltaTime);
+        
+        // Update shared animation signals
+        this.updateTelegraph(deltaTime);
+        this.updateRecoveryWindow(deltaTime);
         
         // Update target lock timer
         this.updateTargetLock(deltaTime);
@@ -286,12 +319,30 @@ class Enemy extends EnemyBase {
         
         // Check for tactical retreat (situational and intelligent, room 10+)
         if (this.state !== 'retreat' && targetPlayer && targetPlayer.alive && this.intelligenceLevel >= 0.7) {
-            if (this.shouldRetreat(targetPlayer, enemies)) {
-                // Short tactical reposition, not a long retreat
-                const retreatPos = this.getRetreatPosition(targetPlayer, 80 + Math.random() * 40); // 80-120px
-                this.state = 'retreat';
-                this.retreatTimer = 0.4 + Math.random() * 0.3; // 0.4-0.7 seconds (short reposition)
-                this.retreatTarget = retreatPos;
+            this.retreatCooldown = Math.max(0, this.retreatCooldown - deltaTime);
+            this.retreatHeat = Math.max(0, this.retreatHeat - this.retreatHeatDecay * deltaTime);
+            if (this.canAttemptRetreat()) {
+                const localGroupSize = this.getNearbyAlliesCount(enemies, this.retreatGroupRadius, true);
+                const contextPressure = Math.min(1, Math.max(0, localGroupSize - 1) * 0.2);
+                const retreatChance = this.computeRetreatChance({
+                    extraPressure: contextPressure,
+                    groupRadius: this.retreatGroupRadius,
+                    localGroupSize,
+                    groupSizeClamp: 8
+                });
+                if (this.shouldRetreat(targetPlayer, enemies)) {
+                    if (Math.random() < retreatChance) {
+                        this.recordRetreatAttempt(true);
+                        const retreatDistance = this.getAdaptiveRetreatDistance(localGroupSize) + Math.random() * 25;
+                        const retreatPos = this.getRetreatPosition(targetPlayer, retreatDistance);
+                        this.state = 'retreat';
+                        const baseRetreatTime = 0.35 + 0.05 * Math.min(localGroupSize, 6);
+                        this.retreatTimer = baseRetreatTime + Math.random() * 0.25; // dynamic reposition
+                        this.retreatTarget = retreatPos;
+                    } else {
+                        this.recordRetreatAttempt(false);
+                    }
+                }
             }
         }
         
@@ -483,77 +534,76 @@ class Enemy extends EnemyBase {
                         this.lungeElapsed = 0;
                         this.telegraphElapsed = 0;
                     } else {
-                        // Check for feint attack (rooms 2+)
-                        let shouldFeint = false;
-                        if (this.roomNumber >= BASIC_ENEMY_CONFIG.intelligenceThresholds.feintAttacks) {
-                            const roomsPastThreshold = Math.max(0, this.roomNumber - BASIC_ENEMY_CONFIG.intelligenceThresholds.feintAttacks);
-                            const feintScale = Math.min(1.0, roomsPastThreshold / 3); // Scales over 3 rooms
-                            const feintChance = BASIC_ENEMY_CONFIG.feintChanceBase + 
-                                               (BASIC_ENEMY_CONFIG.feintChanceMax - BASIC_ENEMY_CONFIG.feintChanceBase) * feintScale;
-                            
-                            if (Math.random() < feintChance * this.intelligenceLevel) {
-                                shouldFeint = true;
-                                this.isFeinting = true;
-                                this.feintTimer = this.telegraphDuration * 0.5; // Shorter feint telegraph
-                                this.state = 'telegraph';
-                                this.telegraphElapsed = 0;
-                            }
-                        }
+                        // Choose attack branch (commit, feint, counter)
+                        this.selectAttackBranch(targetPlayer);
                         
-                        if (!shouldFeint) {
-                            // Choose attack pattern (enabled from room 1)
-                            if (this.roomNumber >= BASIC_ENEMY_CONFIG.intelligenceThresholds.advancedPatterns) {
-                                const quickWeight = this.getPatternWeight('advancedPatterns', BASIC_ENEMY_CONFIG.intelligenceThresholds, 0.6);
-                                const delayedWeight = this.getPatternWeight('advancedPatterns', BASIC_ENEMY_CONFIG.intelligenceThresholds, 0.6);
-                                const totalWeight = quickWeight + delayedWeight + 0.2; // 20% simple pattern
-                                
-                                const rand = Math.random() * totalWeight;
-                                if (rand < quickWeight) {
-                                    this.attackPattern = 'quick';
-                                    this.currentTelegraphDuration = BASIC_ENEMY_CONFIG.quickTelegraphDuration;
-                                } else if (rand < quickWeight + delayedWeight) {
-                                    this.attackPattern = 'delayed';
-                                    this.currentTelegraphDuration = BASIC_ENEMY_CONFIG.delayedTelegraphDuration;
-                                } else {
-                                    this.attackPattern = 'simple';
-                                    this.currentTelegraphDuration = BASIC_ENEMY_CONFIG.telegraphDuration;
-                                }
+                        // Choose attack pattern (enabled from room 1)
+                        if (this.roomNumber >= BASIC_ENEMY_CONFIG.intelligenceThresholds.advancedPatterns) {
+                            const quickWeight = this.getPatternWeight('advancedPatterns', BASIC_ENEMY_CONFIG.intelligenceThresholds, 0.6);
+                            const delayedWeight = this.getPatternWeight('advancedPatterns', BASIC_ENEMY_CONFIG.intelligenceThresholds, 0.6);
+                            const totalWeight = quickWeight + delayedWeight + 0.25;
+                            
+                            const rand = Math.random() * totalWeight;
+                            if (rand < quickWeight) {
+                                this.attackPattern = 'quick';
+                                this.currentTelegraphDuration = BASIC_ENEMY_CONFIG.quickTelegraphDuration;
+                            } else if (rand < quickWeight + delayedWeight) {
+                                this.attackPattern = 'delayed';
+                                this.currentTelegraphDuration = BASIC_ENEMY_CONFIG.delayedTelegraphDuration;
                             } else {
                                 this.attackPattern = 'simple';
                                 this.currentTelegraphDuration = BASIC_ENEMY_CONFIG.telegraphDuration;
                             }
+                        } else {
+                            this.attackPattern = 'simple';
+                            this.currentTelegraphDuration = BASIC_ENEMY_CONFIG.telegraphDuration;
+                        }
+                        
+                        // Adjust telegraph duration by branch type
+                        if (this.attackBranch === 'feint') {
+                            this.currentTelegraphDuration = this.telegraphProfile.feint.duration;
+                        } else if (this.attackBranch === 'counter') {
+                            this.currentTelegraphDuration = this.telegraphProfile.counter.duration;
+                        }
+                        
+                        // Lock in lunge direction at telegraph start
+                        const telegraphDx = targetX - this.x;
+                        const telegraphDy = targetY - this.y;
+                        const telegraphDist = Math.sqrt(telegraphDx * telegraphDx + telegraphDy * telegraphDy);
+                        if (telegraphDist > 0) {
+                            this.lockedLungeDirX = telegraphDx / telegraphDist;
+                            this.lockedLungeDirY = telegraphDy / telegraphDist;
+                        } else {
+                            this.lockedLungeDirX = 1;
+                            this.lockedLungeDirY = 0;
+                        }
+                        
+                        // Minimum telegraph range enforcement
+                        if (distance > this.minTelegraphRange) {
+                            this.state = 'telegraph';
+                            this.telegraphElapsed = 0;
+                            const telegraphProfile = this.attackBranch === 'feint'
+                                ? this.telegraphProfile.feint
+                                : this.attackBranch === 'counter'
+                                    ? this.telegraphProfile.counter
+                                    : this.telegraphProfile.lunge;
+                            this.beginTelegraph(telegraphProfile.type || this.attackBranch, {
+                                duration: this.currentTelegraphDuration,
+                                intensity: telegraphProfile.intensity,
+                                color: telegraphProfile.color,
+                                projectRadius: telegraphProfile.projectRadius,
+                                screenShake: this.attackBranch === 'counter'
+                            });
+                        } else {
+                            const pushDistance = (this.minTelegraphRange - distance) + 1;
+                            const pushX = (this.x - targetX) / distance * pushDistance;
+                            const pushY = (this.y - targetY) / distance * pushDistance;
                             
-                            // Lock in lunge direction at telegraph start (like diamond enemy)
-                            const telegraphDx = targetX - this.x;
-                            const telegraphDy = targetY - this.y;
-                            const telegraphDist = Math.sqrt(telegraphDx * telegraphDx + telegraphDy * telegraphDy);
-                            if (telegraphDist > 0) {
-                                // Lock in lunge direction at telegraph start
-                                this.lockedLungeDirX = telegraphDx / telegraphDist;
-                                this.lockedLungeDirY = telegraphDy / telegraphDist;
-                            } else {
-                                // Fallback direction
-                                this.lockedLungeDirX = 1;
-                                this.lockedLungeDirY = 0;
-                            }
+                            this.x += pushX;
+                            this.y += pushY;
                             
-                            // Check minimum telegraph range so enemies telegraph before relying on collision damage
-                            if (distance > this.minTelegraphRange) {
-                                // Start telegraph
-                                this.state = 'telegraph';
-                                this.telegraphElapsed = 0;
-                            } else {
-                                // Too close to properly telegraph: slide back slightly to reset and avoid phasing
-                                const pushDistance = (this.minTelegraphRange - distance) + 1;
-                                const pushX = (this.x - targetX) / distance * pushDistance;
-                                const pushY = (this.y - targetY) / distance * pushDistance;
-                                
-                                this.x += pushX;
-                                this.y += pushY;
-                                
-                                if (this.keepInBounds) {
-                                    this.keepInBounds();
-                                }
+                            if (this.keepInBounds) {
+                                this.keepInBounds();
                             }
                         }
                     }
@@ -784,20 +834,18 @@ class Enemy extends EnemyBase {
                         }
                         this.state = 'telegraph';
                         this.telegraphElapsed = 0;
+                        this.beginTelegraph('wave', {
+                            duration: this.currentTelegraphDuration,
+                            intensity: 1.2,
+                            color: '#ff8c42',
+                            projectRadius: this.damageProjectionRadius ? this.damageProjectionRadius * 1.2 : this.size * 1.4
+                        });
                         this.waveAttackReady = false;
                     }
                 }
                 
                 // Move with calculated direction
-                this.vx = finalMoveX * this.moveSpeed;
-                this.vy = finalMoveY * this.moveSpeed;
-                this.x += this.vx * deltaTime;
-                this.y += this.vy * deltaTime;
-                
-                // Update rotation to face movement direction
-                if (this.vx !== 0 || this.vy !== 0) {
-                    this.rotation = Math.atan2(this.vy, this.vx);
-                }
+                this.applySmoothedDirectionalMovement(finalMoveX, finalMoveY, this.moveSpeed, deltaTime, 0.3);
             }
         } else if (this.state === 'retreat') {
             // Tactical reposition state - short, smart reposition
@@ -835,9 +883,7 @@ class Enemy extends EnemyBase {
                     // Move toward retreat position
                     const retreatX = retreatDx / retreatDist;
                     const retreatY = retreatDy / retreatDist;
-                    this.x += retreatX * this.moveSpeed * 1.1 * deltaTime; // Slightly faster retreat
-                    this.y += retreatY * this.moveSpeed * 1.1 * deltaTime;
-                    this.rotation = Math.atan2(retreatY, retreatX);
+                    this.applySmoothedDirectionalMovement(retreatX, retreatY, this.moveSpeed * 1.1, deltaTime, 0.35);
                 } else {
                     // Reached retreat position, cancel early
                     this.state = 'chase';
@@ -846,38 +892,65 @@ class Enemy extends EnemyBase {
                 }
             }
         } else if (this.state === 'telegraph') {
-            // Telegraph state - flash red
-            // Lunge direction is already locked from when telegraph started
             this.telegraphElapsed += deltaTime;
             
-            // Check for feint cancellation (rooms 2+)
-            if (this.isFeinting) {
-                this.feintTimer -= deltaTime;
-                if (this.feintTimer <= 0) {
-                    // Cancel feint and reposition
-                    this.isFeinting = false;
-                    this.feintTimer = 0;
-                    this.state = 'chase';
-                    // Reposition by changing orbit angle
-                    this.orbitAngle += Math.PI / 2 + (Math.random() - 0.5) * Math.PI / 4;
-                    return; // Skip rest of telegraph logic
+            // Counter branch: continually refine aim toward predicted dodge vector
+            if (this.attackBranch === 'counter' && targetPlayer && targetPlayer.x !== undefined) {
+                const predictiveWeight = this.getPredictiveWeight(0.25, 0.45);
+                const playerVx = targetPlayer.vx || 0;
+                const playerVy = targetPlayer.vy || 0;
+                const predictionTime = predictiveWeight * (1 + this.intelligenceLevel * 0.35);
+                const predictedX = targetPlayer.x + playerVx * predictionTime;
+                const predictedY = targetPlayer.y + playerVy * predictionTime;
+                const predDx = predictedX - this.x;
+                const predDy = predictedY - this.y;
+                const predDist = Math.sqrt(predDx * predDx + predDy * predDy);
+                if (predDist > 0.001) {
+                    this.lockedLungeDirX = predDx / predDist;
+                    this.lockedLungeDirY = predDy / predDist;
                 }
             }
             
+            if (this.attackBranch === 'feint') {
+                if (this.telegraphElapsed >= this.currentTelegraphDuration) {
+                    if (this.activeTelegraph) this.endTelegraph();
+                    this.comboLungeReady = true;
+                    this.comboLungeWaitTimer = 0.2;
+                    this.attackCooldown = Math.max(this.attackCooldown, this.attackCooldownTime * 0.35);
+                    this.state = 'recovery';
+                    this.recoveryElapsed = 0;
+                    this.enterRecoveryWindow(this.attackRecoveryDuration * 0.7, 'feint', {
+                        modifier: 1.15
+                    });
+                    this.attackBranch = 'commit';
+                    this.counterAttackPending = false;
+                    // Reposition slightly to one side to bait players
+                    this.orbitAngle += (Math.random() > 0.5 ? 1 : -1) * Math.PI / 3;
+                }
+                return;
+            }
+            
             if (this.telegraphElapsed >= this.currentTelegraphDuration) {
-                // Play lunge sound
+                if (this.activeTelegraph) this.endTelegraph();
+                
                 if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
                     AudioManager.sounds.enemyLunge();
                 }
                 
-                // Store lunge start position for distance tracking
                 this.lungeStartX = this.x;
                 this.lungeStartY = this.y;
                 
-                // Enter lunge state
+                if (this.attackBranch === 'counter') {
+                    this.lungeDuration = Math.max(0.25, this.baseLungeDuration * 0.85);
+                    this.lungeSpeed = this.baseLungeSpeed * 1.1;
+                } else {
+                    this.lungeDuration = this.baseLungeDuration;
+                    this.lungeSpeed = this.baseLungeSpeed;
+                }
+                
                 this.state = 'lunge';
                 this.lungeElapsed = 0;
-                this.isFeinting = false; // Clear feint flag if it was set
+                this.isFeinting = false;
             }
         } else if (this.state === 'lunge') {
             // Lunge in locked direction (linear, no reaiming)
@@ -903,6 +976,7 @@ class Enemy extends EnemyBase {
             
             // Update rotation to face lunge direction
             this.rotation = Math.atan2(lungeDirY, lungeDirX);
+            this.movementHeading = this.rotation;
             
             // Check if lunge duration expired or max distance reached
             if (this.lungeElapsed >= this.lungeDuration || lungeTravelDist >= this.lungeDistance) {
@@ -928,6 +1002,9 @@ class Enemy extends EnemyBase {
                             this.telegraphElapsed = 0;
                             this.lungeElapsed = 0;
                             this.coordinationRole = null; // Reset coordination role
+                            this.enterRecoveryWindow(this.attackRecoveryDuration * 0.6, 'comboPrime', {
+                                modifier: 1.1
+                            });
                             return; // Skip rest of lunge logic
                         }
                     }
@@ -940,6 +1017,13 @@ class Enemy extends EnemyBase {
                 this.telegraphElapsed = 0;
                 this.lungeElapsed = 0;
                 this.coordinationRole = null; // Reset coordination role
+                this.enterRecoveryWindow(this.attackRecoveryDuration, this.attackBranch === 'counter' ? 'counter' : 'standard', {
+                    modifier: this.attackBranch === 'counter' ? 1.35 : 1.0
+                });
+                this.counterAttackPending = false;
+                this.attackBranch = 'commit';
+                this.lungeSpeed = this.baseLungeSpeed;
+                this.lungeDuration = this.baseLungeDuration;
             }
         } else if (this.state === 'recovery') {
             // Recovery state - brief backoff after lunge
@@ -958,10 +1042,10 @@ class Enemy extends EnemyBase {
             if (recoveryDist > 0) {
                 const recoveryDirX = recoveryDx / recoveryDist;
                 const recoveryDirY = recoveryDy / recoveryDist;
-                // Move away at reduced speed
-                this.x += recoveryDirX * this.moveSpeed * 0.3 * deltaTime;
-                this.y += recoveryDirY * this.moveSpeed * 0.3 * deltaTime;
-                this.rotation = Math.atan2(recoveryDirY, recoveryDirX);
+                const targetX = this.x + recoveryDirX * this.moveSpeed * 0.3 * deltaTime;
+                const targetY = this.y + recoveryDirY * this.moveSpeed * 0.3 * deltaTime;
+                this.smoothMoveTo(targetX, targetY, 0.35);
+                this.smoothRotateTo(Math.atan2(recoveryDirY, recoveryDirX));
             }
             
             if (this.recoveryElapsed >= this.attackRecoveryDuration) {
@@ -1014,9 +1098,10 @@ class Enemy extends EnemyBase {
                     // Too close - back off
                     const backoffX = cooldownDx / cooldownDist;
                     const backoffY = cooldownDy / cooldownDist;
-                    this.x += backoffX * this.moveSpeed * 0.5 * deltaTime;
-                    this.y += backoffY * this.moveSpeed * 0.5 * deltaTime;
-                    this.rotation = Math.atan2(backoffY, backoffX);
+                    const desiredX = this.x + backoffX * this.moveSpeed * 0.5 * deltaTime;
+                    const desiredY = this.y + backoffY * this.moveSpeed * 0.5 * deltaTime;
+                    this.smoothMoveTo(desiredX, desiredY, 0.3);
+                    this.smoothRotateTo(Math.atan2(backoffY, backoffX));
                 } else {
                     // Apply separation during cooldown
                     const separation = this.getSeparationForce(enemies, BASIC_ENEMY_CONFIG.separationRadius, BASIC_ENEMY_CONFIG.separationStrength);
@@ -1040,10 +1125,7 @@ class Enemy extends EnemyBase {
                         }
                     }
                     
-                    this.vx = moveX * this.moveSpeed;
-                    this.vy = moveY * this.moveSpeed;
-                    this.x += this.vx * deltaTime;
-                    this.y += this.vy * deltaTime;
+                    this.applySmoothedDirectionalMovement(moveX, moveY, this.moveSpeed, deltaTime, 0.3);
                 }
             }
         }
@@ -1057,14 +1139,37 @@ class Enemy extends EnemyBase {
         this.keepInBounds();
     }
     
-    moveTowardPlayer(deltaTime, dx, dy, distance) {
-        // Normalize direction
-        this.vx = (dx / distance) * this.moveSpeed;
-        this.vy = (dy / distance) * this.moveSpeed;
+    selectAttackBranch(targetPlayer) {
+        const thresholds = BASIC_ENEMY_CONFIG.intelligenceThresholds;
+        const canFeint = this.canUsePattern('feintAttacks', thresholds);
+        const canCounter = this.intelligenceLevel > 0.55;
+        const playerThreat = targetPlayer ? this.assessThreat(targetPlayer) : 0;
         
-        // Update position
-        this.x += this.vx * deltaTime;
-        this.y += this.vy * deltaTime;
+        let commitWeight = 0.55;
+        let feintWeight = canFeint ? (0.15 + 0.25 * this.intelligenceLevel) : 0.05;
+        let counterWeight = canCounter ? (0.1 + playerThreat * 0.25 + this.intelligenceLevel * 0.2) : 0.05;
+        
+        // Normalize distribution
+        const total = commitWeight + feintWeight + counterWeight;
+        const roll = Math.random() * total;
+        if (roll <= commitWeight) {
+            this.attackBranch = 'commit';
+            this.isFeinting = false;
+            this.counterAttackPending = false;
+        } else if (roll <= commitWeight + feintWeight) {
+            this.attackBranch = 'feint';
+            this.isFeinting = true;
+            this.counterAttackPending = false;
+            this.feintTimer = this.telegraphProfile.feint.duration;
+        } else {
+            this.attackBranch = 'counter';
+            this.isFeinting = false;
+            this.counterAttackPending = true;
+        }
+    }
+    
+    moveTowardPlayer(deltaTime, dx, dy, distance) {
+        this.applySmoothedDirectionalMovement(dx, dy, this.moveSpeed, deltaTime, 0.4);
     }
     
     render(ctx) {
@@ -1072,13 +1177,20 @@ class Enemy extends EnemyBase {
         let drawColor = this.color;
         let drawSize = this.size;
         
-        if (this.state === 'telegraph') {
-            // Enhanced telegraph visuals - pulsing red with size change
-            const pulseSpeed = 15; // Faster pulse
-            const pulsePhase = Math.sin(this.telegraphElapsed * pulseSpeed);
-            const pulseIntensity = (pulsePhase + 1) / 2; // 0 to 1
-            drawColor = `rgb(${255}, ${107 + pulseIntensity * 148}, ${107 + pulseIntensity * 148})`; // Fade from #ff6b6b to #ff0000
-            drawSize = this.size * (1 + pulseIntensity * 0.15); // Slightly larger when pulsing
+        const telegraphData = this.activeTelegraph;
+        if (telegraphData) {
+            const progress = telegraphData.progress !== undefined
+                ? telegraphData.progress
+                : Math.min(1, this.telegraphElapsed / Math.max(0.05, telegraphData.duration || this.currentTelegraphDuration || 0.5));
+            const pulsePhase = Math.sin(progress * Math.PI * 4);
+            const pulseIntensity = 0.6 + pulsePhase * 0.4;
+            drawColor = telegraphData.color || '#ff4141';
+            drawSize = this.size * (1 + (telegraphData.intensity || 1) * 0.12 * pulseIntensity);
+        } else if (this.state === 'telegraph') {
+            const pulsePhase = Math.sin(this.telegraphElapsed * 15);
+            const pulseIntensity = (pulsePhase + 1) / 2;
+            drawColor = `rgb(${255}, ${107 + pulseIntensity * 148}, ${107 + pulseIntensity * 148})`;
+            drawSize = this.size * (1 + pulseIntensity * 0.15);
         } else if (this.state === 'lunge') {
             drawColor = '#ff3333'; // Bright red during lunge
             drawSize = this.size * 1.1; // Slightly larger during lunge
@@ -1127,7 +1239,18 @@ class Enemy extends EnemyBase {
         ctx.fill();
         
         // Draw telegraph warning indicator (room 1+)
-        if (this.state === 'telegraph') {
+        if (telegraphData) {
+            ctx.save();
+            const telegraphRadius = telegraphData.projectRadius || (drawSize + 5);
+            const alpha = 0.35 + (telegraphData.intensity || 1) * 0.35;
+            ctx.strokeStyle = telegraphData.color || '#ff0000';
+            ctx.lineWidth = 2 + (telegraphData.intensity || 1) * 1.2;
+            ctx.globalAlpha = Math.min(0.8, alpha);
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, telegraphRadius, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        } else if (this.state === 'telegraph') {
             ctx.save();
             ctx.strokeStyle = '#ff0000';
             ctx.lineWidth = 2;

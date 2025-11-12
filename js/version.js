@@ -357,8 +357,19 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 • **Diamond Dash Etiquette (Diamond):** Telegraph vectors lock on immediately, follow-ups take a dramatic quarter-second pause, dash paths stay linear. If you still catch a rhombus to the face, consider reading the signage.
 • **Visual Aid, Now With Shade (All Enemies):** Telegraphs pulse harder, lunge trails linger longer, recovery states glow neon. You demanded readability; they added captions that say “incoming pain.”
 
+**🔥 Geometry With Feelings (AI Overhaul):**
+• **Telegraph Overlord:** The entire warning system got ripped out, given its own command center, and wired back in with synced lights, timers, audio hooks, and “please stop looping that alarm” safeguards. Every shape now speaks the same telegraph language, and the queue keeps backup warnings ready like a Stage Manager from Broadway.
+• **Recovery PTA:** Every swing now schedules a recovery window with vulnerability tags, so you know exactly when to go full anime protagonist. These windows replicate to clients, because lag is already scary without surprise invulnerability.
+• **Motion Blur Without the Blur:** Movement is lerped, eased, and smoothed so enemies glide like smug Roombas instead of jittering like dial-up modems. We juiced the smoothing factors so the shapes still sprint like they stole your lunch money—just prettier.
+• **Retreat Thermostat:** Backsteps run on a personal heat meter plus a short cooldown. Spam it and the odds nosedive, so you get tactical give-and-take instead of panic moonwalks. Yes, the Rectangle finally caught the memo.
+• **Squad Cohesion, Not Stampedes:** Retreat decisions are moderated by a global coordinator that notices when three shapes try to nope out simultaneously. Small skirmish? Expect bravery. Eight-enemy dogpile? Expect staggered “nope nope nope” choreography worthy of a synchronized swimming medal.
+• **Local Crowd Control:** Retreat distance, hesitation, and probability all scale with how many friends are within yelling distance. You can isolate stragglers again; you just can’t expect the whole team to face-tank you in a conga line.
+• **LAN Party Gossip:** Telegraphs, recovery windows, and retreat states are serialized and broadcast across multiplayer so remote clients see every flinch, fake-out, and panic step in real time. Your co-op buddy can finally call out “it’s a feint” without lying.
+• **Status Spice:** Bleed and guard break now stick to players properly, feeding right into that smug threat table so the AI knows exactly which spicy garnish to sprinkle on your next mistake.
+• **Spawn Dietician:** Early rooms cut the enemy carb count so you fight smarter shapes instead of bigger piles. Later rooms still bring the buffet—just with added protein in the form of better brains.
+
 **Other Changes (Because Apparently AI Overhauls Weren’t Enough):**
-• **Multiplayer Tweaks:** Lobby slots now remember your player ID, so reconnecting you get to still be you! No more you with zero gear and negative vibes. They’re loyal to you , so no accidental Order 66 mid-fight. That and you can actually get into the next room since there is a bump on a log with you now.
+• **Multiplayer Tweaks:** Lobby slots now remember your player ID, so reconnecting you get to still be you! No more you with zero gear and negative vibes. They’re loyal to you, so no accidental Order 66 mid-fight. That and you can actually get into the next room since there is a bump on a log with you now.
 • **Menu Overhaul:** Old UI got yeeted into a black hole. New UI actually works on mobile without requiring a ritual sacrifice to join a lobby—looking at you, Diablo II lobby circa 2000.
 • **Telemetry Fix:** Damage numbers and affixes now report in. Balancing graphs look less like missing-data art installations and more like something your spreadsheet professor would grade.
 • **Blue Diamond Boundaries:** Those azure stabbers finally learned Euclidean personal space. Less accidental spooning, more intentional skewering with protractor-level precision.
@@ -368,7 +379,7 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 • **Illusion Damage Control:** Enemy hits and projectiles run through the same math on illusions as real players. No more immortal cardboard cutouts or threat-table singularities—just geometry earning minimum wage.
 • **Client Level-Ups Actually Level:** Remote players finally receive actual stat bumps instead of placebo sparkles. Yes, Karen, your HP now scales even when you’re not the host. Try not to sprain your newfound survivability.
 
-*TL;DR:* Circles evolved from cannon fodder to coordinated chaos, ranged kids min-maxed trigonometry, bosses respect the threat matrix, and illusions stopped lying on their résumé. Bring AoE, bring timing, bring snacks for the wipe-fest`,
+*TL;DR:* Circles evolved from cannon fodder to coordinated chaos, ranged kids min-maxed trigonometry, retreat spam got sent to detention, the telegraph PTA installed synchronized warning lights, and spawn counts went keto. Bring AoE, bring timing, bring snacks for the wipe-fest`,
     },
     
     // Update type labels - can be: 'major', 'feature', 'minor', 'hotfix', 'bugfix', 'refactor', 'rebalance'

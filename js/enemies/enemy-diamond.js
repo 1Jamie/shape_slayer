@@ -30,10 +30,10 @@ const DIAMOND_CONFIG = {
     
     // Intelligence scaling thresholds (lowered for faster ramp-up)
     intelligenceThresholds: {
-        feintAttacks: 5,           // Room when feint attacks unlock (was 9)
-        comboDashes: 8,            // Room when combo dashes unlock (was 13)
-        dodgeTracking: 8,          // Room when dodge tracking unlocks (was 13)
-        backstabPositioning: 12    // Room when backstab positioning unlocks (was 19)
+        feintAttacks: 3,           // Feints unlock early for smarter openers
+        comboDashes: 7,            // Combo dashes unlock mid-game
+        dodgeTracking: 4,          // Dodge tracking unlocks early mid-game
+        backstabPositioning: 9     // Backstab positioning unlocks earlier
     },
     
     // Feint attack behavior
@@ -83,7 +83,7 @@ class DiamondEnemy extends EnemyBase {
         this.lootChance = DIAMOND_CONFIG.lootChance;
         
         // Attack system
-        this.state = 'circle'; // 'circle', 'telegraph', 'dash', 'cooldown', 'feint'
+        this.state = 'circle'; // 'circle', 'telegraph', 'dash', 'cooldown'
         this.attackCooldown = 0;
         this.attackCooldownTime = DIAMOND_CONFIG.attackCooldown;
         this.telegraphDuration = DIAMOND_CONFIG.telegraphDuration;
@@ -97,6 +97,33 @@ class DiamondEnemy extends EnemyBase {
         this.weaveTimer = Math.random() * Math.PI * 2; // Random starting phase for weaving
         this.weaveSpeed = DIAMOND_CONFIG.weaveSpeed;
         this.weaveAmplitude = DIAMOND_CONFIG.weaveAmplitude;
+        this.baseDashSpeed = DIAMOND_CONFIG.dashSpeed;
+        this.baseDashDuration = this.dashDuration;
+        
+        this.telegraphProfile = {
+            dash: {
+                type: 'diamond-dash',
+                duration: this.telegraphDuration,
+                color: '#00c9ff',
+                intensity: 1.1,
+                projectRadius: this.size * 1.1
+            },
+            feint: {
+                type: 'diamond-feint',
+                duration: Math.max(0.18, this.telegraphDuration * 0.6),
+                color: '#48f7ff',
+                intensity: 0.9,
+                projectRadius: this.size
+            },
+            backstab: {
+                type: 'diamond-backstab',
+                duration: this.telegraphDuration * 1.2,
+                color: '#ff4d6d',
+                intensity: 1.3,
+                projectRadius: this.size * 1.2
+            }
+        };
+        this.attackBranch = 'dash'; // dash | feint | backstab
         
         // Feint attack system (rooms 9+)
         this.feintTimer = 0;
@@ -138,6 +165,9 @@ class DiamondEnemy extends EnemyBase {
         // Process burn DoT
         this.processBurn(deltaTime);
         
+        this.updateTelegraph(deltaTime);
+        this.updateRecoveryWindow(deltaTime);
+        
         // Update target lock timer
         this.updateTargetLock(deltaTime);
         
@@ -155,6 +185,9 @@ class DiamondEnemy extends EnemyBase {
         
         // Get target (handles decoy/clone logic, uses internal getAllAlivePlayers)
         const target = this.findTarget(null);
+        const targetPlayer = (this.targetLock && this.targetLock.playerRef)
+            ? this.targetLock.playerRef
+            : (typeof Game !== 'undefined' && Game.player ? Game.player : null);
         const targetX = target.x;
         const targetY = target.y;
         
@@ -203,62 +236,60 @@ class DiamondEnemy extends EnemyBase {
             
             // Check if close enough to attack
             if (distance < this.attackRange && this.attackCooldown <= 0) {
-                // Check for feint attack (rooms 5+)
-                let shouldFeint = false;
-                if (this.roomNumber >= DIAMOND_CONFIG.intelligenceThresholds.feintAttacks) {
-                    // Calculate feint chance based on room progression
-                    const roomsPastThreshold = Math.max(0, this.roomNumber - DIAMOND_CONFIG.intelligenceThresholds.feintAttacks);
-                    const feintScale = Math.min(1.0, roomsPastThreshold / 4); // Scales over 4 rooms (was 6)
-                    const feintChance = DIAMOND_CONFIG.feintChanceBase + 
-                                       (DIAMOND_CONFIG.feintChanceMax - DIAMOND_CONFIG.feintChanceBase) * feintScale;
-                    
-                    if (Math.random() < feintChance * this.intelligenceLevel) {
-                        shouldFeint = true;
-                        this.state = 'feint';
-                        this.feintTimer = this.telegraphDuration * 0.5; // Shorter feint telegraph
-                        this.isFeinting = true;
-                    }
-                }
-                
-                if (!shouldFeint) {
-                    // Check for combo dash opportunity (rooms 13+)
-                    if (this.roomNumber >= DIAMOND_CONFIG.intelligenceThresholds.comboDashes && this.comboDashReady && this.comboDashWaitTimer <= 0) {
-                        // Player dodged last dash, follow up after wait period
-                        this.comboDashReady = false;
-                        this.comboDashWaitTimer = 0;
-                        // Lock in dash direction immediately (no telegraph for combo)
-                        const comboDx = targetX - this.x;
-                        const comboDy = targetY - this.y;
-                        const comboDist = Math.sqrt(comboDx * comboDx + comboDy * comboDy);
-                        if (comboDist > 0) {
-                            this.lockedDashDirX = comboDx / comboDist;
-                            this.lockedDashDirY = comboDy / comboDist;
-                        } else {
-                            // Fallback to stored direction
-                            this.lockedDashDirX = this.lockedDashDirX || 1;
-                            this.lockedDashDirY = this.lockedDashDirY || 0;
-                        }
-                        this.state = 'dash';
-                        this.dashElapsed = 0;
-                        this.telegraphElapsed = 0;
-                        this.dashHasHit = false; // Reset hit flag for combo dash
+                // Check for combo dash opportunity (rooms 7+)
+                if (this.roomNumber >= DIAMOND_CONFIG.intelligenceThresholds.comboDashes && this.comboDashReady && this.comboDashWaitTimer <= 0) {
+                    this.comboDashReady = false;
+                    this.comboDashWaitTimer = 0;
+                    const comboDx = targetX - this.x;
+                    const comboDy = targetY - this.y;
+                    const comboDist = Math.sqrt(comboDx * comboDx + comboDy * comboDy);
+                    if (comboDist > 0) {
+                        this.lockedDashDirX = comboDx / comboDist;
+                        this.lockedDashDirY = comboDy / comboDist;
                     } else {
-                        // Normal telegraph - lock in aim direction NOW
-                        const telegraphDx = targetX - this.x;
-                        const telegraphDy = targetY - this.y;
-                        const telegraphDist = Math.sqrt(telegraphDx * telegraphDx + telegraphDy * telegraphDy);
-                        if (telegraphDist > 0) {
-                            // Lock in dash direction at telegraph start
-                            this.lockedDashDirX = telegraphDx / telegraphDist;
-                            this.lockedDashDirY = telegraphDy / telegraphDist;
-                        } else {
-                            // Fallback direction
-                            this.lockedDashDirX = 1;
-                            this.lockedDashDirY = 0;
-                        }
-                        this.state = 'telegraph';
-                        this.telegraphElapsed = 0;
+                        this.lockedDashDirX = this.lockedDashDirX || 1;
+                        this.lockedDashDirY = this.lockedDashDirY || 0;
                     }
+                    this.state = 'dash';
+                    this.dashElapsed = 0;
+                    this.telegraphElapsed = 0;
+                    this.dashHasHit = false;
+                    this.attackBranch = 'dash';
+                } else {
+                    const branch = this.selectDashBranch(targetPlayer, distance);
+                    this.attackBranch = branch;
+                    
+                    const telegraphDx = targetX - this.x;
+                    const telegraphDy = targetY - this.y;
+                    const telegraphDist = Math.sqrt(telegraphDx * telegraphDx + telegraphDy * telegraphDy);
+                    if (telegraphDist > 0) {
+                        this.lockedDashDirX = telegraphDx / telegraphDist;
+                        this.lockedDashDirY = telegraphDy / telegraphDist;
+                    } else {
+                        this.lockedDashDirX = 1;
+                        this.lockedDashDirY = 0;
+                    }
+                    
+                    if (branch === 'backstab' && targetPlayer) {
+                        this.prepareBackstabAngle(targetPlayer);
+                    }
+                    
+                    const telegraphProfile = branch === 'feint'
+                        ? this.telegraphProfile.feint
+                        : branch === 'backstab'
+                            ? this.telegraphProfile.backstab
+                            : this.telegraphProfile.dash;
+                    
+                    this.currentTelegraphDuration = telegraphProfile.duration;
+                    
+                    this.state = 'telegraph';
+                    this.telegraphElapsed = 0;
+                    this.beginTelegraph(telegraphProfile.type, {
+                        duration: telegraphProfile.duration,
+                        intensity: telegraphProfile.intensity,
+                        color: telegraphProfile.color,
+                        projectRadius: telegraphProfile.projectRadius
+                    });
                 }
             } else {
                 // Circle around player with zigzag weaving and attack avoidance
@@ -336,46 +367,60 @@ class DiamondEnemy extends EnemyBase {
                     }
                     
                     // Apply movement with weaving
-                    this.x += moveX * this.moveSpeed * deltaTime;
-                    this.y += moveY * this.moveSpeed * deltaTime;
+                    const desiredX = this.x + moveX * this.moveSpeed * deltaTime + perpX * weaveOffset * deltaTime * 0.3;
+                    const desiredY = this.y + moveY * this.moveSpeed * deltaTime + perpY * weaveOffset * deltaTime * 0.3;
+                    this.smoothMoveTo(desiredX, desiredY);
                     
-                    // Add perpendicular weaving offset
-                    this.x += perpX * weaveOffset * deltaTime * 0.3;
-                    this.y += perpY * weaveOffset * deltaTime * 0.3;
-                    
-                    // Update rotation to face movement direction
                     if (moveX !== 0 || moveY !== 0) {
-                        this.rotation = Math.atan2(moveY, moveX);
+                        this.smoothRotateTo(Math.atan2(moveY, moveX));
                     }
                 }
             }
-        } else if (this.state === 'feint') {
-            // Feint state: start telegraph but cancel and reposition
-            this.feintTimer -= deltaTime;
-            if (this.feintTimer <= 0) {
-                // Cancel feint and reposition
-                this.isFeinting = false;
-                this.feintTimer = 0;
-                this.state = 'circle';
-                // Reposition by changing orbit angle
-                this.circleAngle += Math.PI / 2 + (Math.random() - 0.5) * Math.PI / 4;
-            }
         } else if (this.state === 'telegraph') {
-            // Stay in place during telegraph (acts as visual telegraph)
-            // Dash direction is already locked in from when telegraph started
             this.telegraphElapsed += deltaTime;
-            if (this.telegraphElapsed >= this.telegraphDuration) {
-                // Play dash sound
+            
+            if (this.attackBranch === 'feint') {
+                if (this.telegraphElapsed >= (this.currentTelegraphDuration || this.telegraphProfile.feint.duration)) {
+                    if (this.activeTelegraph) this.endTelegraph();
+                    this.comboDashReady = true;
+                    this.comboDashWaitTimer = 0.22;
+                    this.attackCooldown = Math.max(this.attackCooldown, this.attackCooldownTime * 0.35);
+                    this.state = 'circle';
+                    this.circleAngle += Math.PI / 3 * (Math.random() > 0.5 ? 1 : -1);
+                    return;
+                }
+            }
+            
+            if (this.attackBranch === 'backstab' && targetPlayer) {
+                this.updateBackstabLock(targetPlayer);
+            }
+            
+            const requiredDuration = this.currentTelegraphDuration || (this.attackBranch === 'backstab'
+                ? this.telegraphProfile.backstab.duration
+                : this.attackBranch === 'feint'
+                    ? this.telegraphProfile.feint.duration
+                    : this.telegraphProfile.dash.duration);
+            
+            if (this.telegraphElapsed >= requiredDuration) {
+                if (this.activeTelegraph) this.endTelegraph();
+                
                 if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
                     AudioManager.sounds.enemyDash();
                 }
                 
-                // Store dash target for combo detection
                 this.lastDashTarget = { x: targetX, y: targetY };
+                
+                if (this.attackBranch === 'backstab') {
+                    this.dashSpeed = this.baseDashSpeed * 1.15;
+                    this.dashDuration = Math.max(0.25, this.baseDashDuration * 0.9);
+                } else {
+                    this.dashSpeed = this.baseDashSpeed;
+                    this.dashDuration = this.baseDashDuration;
+                }
                 
                 this.state = 'dash';
                 this.dashElapsed = 0;
-                this.dashHasHit = false; // Reset hit flag for new dash
+                this.dashHasHit = false;
             }
         } else if (this.state === 'dash') {
             // Dash in locked direction (linear, no curving/chasing)
@@ -419,13 +464,16 @@ class DiamondEnemy extends EnemyBase {
                             const playerId = p.playerId || localPlayerId;
                             
                             if (playerId === localPlayerId) {
-                                // Local player: apply damage directly
                                 p.takeDamage(this.damage, this);
-                            } else {
-                                // Remote player: use damageRemotePlayer
-                                if (typeof Game !== 'undefined' && Game.damageRemotePlayer) {
-                                    Game.damageRemotePlayer(playerId, this.damage);
-                                }
+                            } else if (typeof Game !== 'undefined' && Game.damageRemotePlayer) {
+                                Game.damageRemotePlayer(playerId, this.damage);
+                            }
+                            
+                            if (typeof p.applyBleed === 'function') {
+                                p.applyBleed(this.damage * 0.45, 1.6, this);
+                            }
+                            if (typeof p.applyGuardBreak === 'function') {
+                                p.applyGuardBreak(0.8, { movementPenalty: 0.5, dodgeLockout: 0.5 });
                             }
                             
                             // Apply knockback
@@ -448,6 +496,9 @@ class DiamondEnemy extends EnemyBase {
                         this.telegraphElapsed = 0;
                         this.dashElapsed = 0;
                         this.comboDashReady = false;
+                        this.enterRecoveryWindow(this.attackCooldownTime * 0.5, this.attackBranch === 'backstab' ? 'counter' : 'standard', {
+                            modifier: this.attackBranch === 'backstab' ? 1.25 : 1.0
+                        });
                         
                         // Create impact particle effect
                         if (typeof createParticleBurst !== 'undefined') {
@@ -482,6 +533,10 @@ class DiamondEnemy extends EnemyBase {
                     this.attackCooldown = this.attackCooldownTime;
                     this.telegraphElapsed = 0;
                     this.dashElapsed = 0;
+                    this.enterRecoveryWindow(this.attackCooldownTime * 0.5, 'blocked', {
+                        modifier: 1.1
+                    });
+                    this.attackBranch = 'dash';
                     
                     // Create impact particle effect
                     if (typeof createParticleBurst !== 'undefined') {
@@ -495,6 +550,7 @@ class DiamondEnemy extends EnemyBase {
             
             // Update rotation to face dash direction
             this.rotation = Math.atan2(dashDirY, dashDirX);
+            this.movementHeading = this.rotation;
             
             if (this.dashElapsed >= this.dashDuration) {
                 // Check for combo dash opportunity (rooms 13+)
@@ -517,6 +573,10 @@ class DiamondEnemy extends EnemyBase {
                             this.attackCooldown = this.attackCooldownTime;
                             this.telegraphElapsed = 0;
                             this.dashElapsed = 0;
+                            this.enterRecoveryWindow(this.attackCooldownTime * 0.5, 'comboPrime', {
+                                modifier: 1.05
+                            });
+                            this.attackBranch = 'dash';
                             this.dashHasHit = false; // Reset hit flag for combo dash
                             
                             // Push enemy out if still overlapping player after dash ends
@@ -530,6 +590,10 @@ class DiamondEnemy extends EnemyBase {
                 this.attackCooldown = this.attackCooldownTime;
                 this.telegraphElapsed = 0;
                 this.dashElapsed = 0;
+                this.enterRecoveryWindow(this.attackCooldownTime * 0.6, this.attackBranch === 'backstab' ? 'counter' : 'standard', {
+                    modifier: this.attackBranch === 'backstab' ? 1.25 : 1.0
+                });
+                this.attackBranch = 'dash';
                 this.comboDashReady = false;
                 this.comboDashWaitTimer = 0;
                 
@@ -573,11 +637,11 @@ class DiamondEnemy extends EnemyBase {
                 // Move away from player during cooldown
                 const awayDirX = -dx / distance;
                 const awayDirY = -dy / distance;
-                this.x += awayDirX * this.moveSpeed * 0.5 * deltaTime;
-                this.y += awayDirY * this.moveSpeed * 0.5 * deltaTime;
+                const desiredX = this.x + awayDirX * this.moveSpeed * 0.5 * deltaTime;
+                const desiredY = this.y + awayDirY * this.moveSpeed * 0.5 * deltaTime;
+                this.smoothMoveTo(desiredX, desiredY);
                 
-                // Update rotation to face movement direction
-                this.rotation = Math.atan2(awayDirY, awayDirX);
+                this.smoothRotateTo(Math.atan2(awayDirY, awayDirX));
             }
         }
         
@@ -624,8 +688,17 @@ class DiamondEnemy extends EnemyBase {
     
     render(ctx) {
         let drawColor = this.color;
+        let drawSize = this.size;
+        const telegraphData = this.activeTelegraph;
         
-        if (this.state === 'telegraph') {
+        if (telegraphData) {
+            const progress = telegraphData.progress !== undefined
+                ? telegraphData.progress
+                : Math.min(1, this.telegraphElapsed / Math.max(0.05, telegraphData.duration || this.telegraphDuration));
+            const pulse = 0.6 + Math.sin(progress * Math.PI * 4) * 0.4;
+            drawColor = telegraphData.color || '#48f7ff';
+            drawSize = this.size * (1 + (telegraphData.intensity || 1) * 0.12 * pulse);
+        } else if (this.state === 'telegraph') {
             const flash = Math.sin(this.telegraphElapsed * 20) > 0;
             drawColor = flash ? '#ff0000' : '#00ffff';
         } else if (this.state === 'dash') {
@@ -639,7 +712,7 @@ class DiamondEnemy extends EnemyBase {
         
         ctx.fillStyle = drawColor;
         ctx.beginPath();
-        ctx.rect(-this.size * 0.8, -this.size * 0.8, this.size * 1.6, this.size * 1.6);
+        ctx.rect(-drawSize * 0.8, -drawSize * 0.8, drawSize * 1.6, drawSize * 1.6);
         ctx.fill();
         
         ctx.restore();
@@ -658,11 +731,93 @@ class DiamondEnemy extends EnemyBase {
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();
         ctx.arc(
-            this.x + Math.cos(this.rotation) * (this.size + 5),
-            this.y + Math.sin(this.rotation) * (this.size + 5),
+            this.x + Math.cos(this.rotation) * (drawSize + 5),
+            this.y + Math.sin(this.rotation) * (drawSize + 5),
             5, 0, Math.PI * 2
         );
         ctx.fill();
+        
+        if (telegraphData) {
+            ctx.save();
+            ctx.strokeStyle = telegraphData.color || '#00ffff';
+            ctx.lineWidth = 2.5;
+            ctx.globalAlpha = 0.6;
+            const radius = telegraphData.projectRadius || (drawSize + 6);
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, radius, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
+    
+    selectDashBranch(targetPlayer, distance) {
+        const thresholds = DIAMOND_CONFIG.intelligenceThresholds;
+        const canFeint = this.roomNumber >= thresholds.feintAttacks;
+        const canBackstab = this.roomNumber >= thresholds.backstabPositioning;
+        
+        let dashWeight = 0.55;
+        let feintWeight = canFeint ? (0.15 + 0.2 * this.intelligenceLevel) : 0.05;
+        let backstabWeight = 0;
+        
+        if (targetPlayer && targetPlayer.isDodging) {
+            feintWeight *= 0.6;
+            dashWeight += 0.1;
+        }
+        
+        if (canBackstab && targetPlayer && targetPlayer.rotation !== undefined) {
+            const toEnemyX = this.x - targetPlayer.x;
+            const toEnemyY = this.y - targetPlayer.y;
+            const distToEnemy = Math.sqrt(toEnemyX * toEnemyX + toEnemyY * toEnemyY) || 1;
+            const facingX = Math.cos(targetPlayer.rotation);
+            const facingY = Math.sin(targetPlayer.rotation);
+            const dot = (facingX * toEnemyX + facingY * toEnemyY) / distToEnemy;
+            if (dot < -0.25) {
+                backstabWeight = 0.2 + this.intelligenceLevel * 0.25;
+            }
+        }
+        
+        if (this.playerDodgeTracked && Date.now() - this.lastPlayerDodgeTime < 600) {
+            feintWeight += 0.1;
+        }
+        
+        const total = dashWeight + feintWeight + backstabWeight;
+        if (total <= 0) return 'dash';
+        
+        let roll = Math.random() * total;
+        if ((roll -= feintWeight) <= 0) return 'feint';
+        if ((roll -= backstabWeight) <= 0) return 'backstab';
+        return 'dash';
+    }
+    
+    prepareBackstabAngle(targetPlayer) {
+        if (!targetPlayer || targetPlayer.rotation === undefined) return;
+        const behindAngle = targetPlayer.rotation + Math.PI;
+        const offsetRadius = Math.min(140, Math.max(45, this.attackRange * 0.6));
+        const targetX = targetPlayer.x + Math.cos(behindAngle) * offsetRadius;
+        const targetY = targetPlayer.y + Math.sin(behindAngle) * offsetRadius;
+        const dx = targetX - this.x;
+        const dy = targetY - this.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > 0.001) {
+            this.lockedDashDirX = dx / dist;
+            this.lockedDashDirY = dy / dist;
+        }
+        this.backstabAngle = behindAngle;
+    }
+    
+    updateBackstabLock(targetPlayer) {
+        if (!targetPlayer || targetPlayer.rotation === undefined) return;
+        const behindAngle = targetPlayer.rotation + Math.PI;
+        const offsetRadius = Math.min(140, Math.max(45, this.attackRange * 0.6));
+        const targetX = targetPlayer.x + Math.cos(behindAngle) * offsetRadius;
+        const targetY = targetPlayer.y + Math.sin(behindAngle) * offsetRadius;
+        const dx = targetX - this.x;
+        const dy = targetY - this.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > 0.001) {
+            this.lockedDashDirX = dx / dist;
+            this.lockedDashDirY = dy / dist;
+        }
     }
 }
 

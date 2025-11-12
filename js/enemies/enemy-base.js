@@ -6,6 +6,71 @@ function normalizeAngle(angle) {
     return angle;
 }
 
+class GroupRetreatCoordinator {
+    constructor() {
+        this.recentRetreats = [];
+        this.timeWindowMs = 2200;
+    }
+
+    prune(now = Date.now()) {
+        const cutoff = now - this.timeWindowMs;
+        if (this.recentRetreats.length === 0) return;
+        let idx = 0;
+        while (idx < this.recentRetreats.length && this.recentRetreats[idx].time < cutoff) {
+            idx++;
+        }
+        if (idx > 0) {
+            this.recentRetreats.splice(0, idx);
+        }
+    }
+
+    getGroupPenalty(enemy, { radius = 220, maxPenalty = 0.65 } = {}) {
+        const now = Date.now();
+        this.prune(now);
+        if (!enemy || this.recentRetreats.length === 0) {
+            return 0;
+        }
+        const radiusSq = radius * radius;
+        let weight = 0;
+        for (let i = 0; i < this.recentRetreats.length; i++) {
+            const entry = this.recentRetreats[i];
+            if (entry.enemyId === enemy.id) {
+                continue;
+            }
+            const dx = entry.x - enemy.x;
+            const dy = entry.y - enemy.y;
+            const distSq = dx * dx + dy * dy;
+            if (distSq > radiusSq) {
+                continue;
+            }
+            const proximityWeight = 1 - Math.min(1, distSq / radiusSq);
+            const timeFactor = 1 - Math.min(1, (now - entry.time) / this.timeWindowMs);
+            weight += proximityWeight * (0.5 + timeFactor * 0.5);
+        }
+        if (weight <= 0) {
+            return 0;
+        }
+        const penalty = Math.min(maxPenalty, weight * 0.35);
+        return Math.max(0, Math.min(1, penalty));
+    }
+
+    registerRetreat(enemy) {
+        if (!enemy) return;
+        const now = Date.now();
+        this.prune(now);
+        const enemyId = enemy.id || enemy.uuid || enemy._id || `enemy-${Math.random()}`;
+        this.recentRetreats.push({
+            time: now,
+            x: enemy.x,
+            y: enemy.y,
+            enemyId
+        });
+        if (this.recentRetreats.length > 40) {
+            this.recentRetreats.splice(0, this.recentRetreats.length - 40);
+        }
+    }
+}
+
 class EnemyBase {
     constructor(x, y, inheritedTarget = null) {
         // Position
@@ -17,6 +82,7 @@ class EnemyBase {
         this.rotationSpeed = 0;
         this.rotationBaseline = this.rotation;
         this.rotationBaselineTime = Date.now();
+        this.movementHeading = this.rotation;
         
         // Knockback system
         this.knockbackVx = 0;
@@ -104,6 +170,21 @@ class EnemyBase {
         this.optimalDistance = null; // Preferred distance (set by subclasses)
         this.optimalDistanceTolerance = 20; // Tolerance around optimal distance
         
+        // Telegraph system
+        this.activeTelegraph = null; // { type, duration, elapsed, intensity, visuals }
+        this.telegraphCallbacks = {
+            onStart: null,
+            onEnd: null
+        };
+        const telegraphModule = (typeof globalThis !== 'undefined' && globalThis.TelegraphSystem) ? globalThis.TelegraphSystem : null;
+        if (!telegraphModule || !telegraphModule.TelegraphManager) {
+            throw new Error('TelegraphSystem.TelegraphManager not loaded. Ensure js/enemies/telegraph/telegraph-manager.js is included before EnemyBase.');
+        }
+        this.telegraphController = new telegraphModule.TelegraphManager(this);
+
+        // Recovery window system
+        this.recoveryWindow = null; // { duration, elapsed, vulnerability, modifier }
+
         // Attack timing system
         this.lastDamageTime = 0; // Track when last damage was taken
         this.damageHistory = []; // Recent damage events for combo detection
@@ -124,6 +205,78 @@ class EnemyBase {
         // Environmental awareness
         this.wallProximity = 0; // 0-1, how close to walls
         this.cornerProximity = 0; // 0-1, how close to corners
+
+        // Smoothing configuration
+        this.positionSmoothing = 0.35;
+        this.rotationSmoothing = 0.25;
+        this.movementHeading = this.rotation;
+
+        // Shared retreat coordination
+        if (!EnemyBase.globalRetreatCoordinator) {
+            EnemyBase.globalRetreatCoordinator = new GroupRetreatCoordinator();
+        }
+        this.retreatCoordinator = EnemyBase.globalRetreatCoordinator;
+
+        // Retreat regulation
+        this.retreatCooldown = 0;
+        this.retreatCooldownTime = 0.75;
+        this.retreatHeat = 0;
+        this.retreatHeatGain = 0.35;
+        this.retreatHeatDecay = 0.25;
+        this.maxRetreatHeat = 1.5;
+        this.baseRetreatChance = 0.6;
+        this.minimumRetreatChance = 0.08;
+        this.retreatGroupRadius = 220;
+        this.maxGroupRetreatPenalty = 0.65;
+    }
+    
+    // =====================
+    // Telegraph System
+    // =====================
+
+    beginTelegraph(type, options = {}) {
+        return this.telegraphController.begin(type, options);
+    }
+    
+    queueTelegraph(type, options = {}) {
+        this.telegraphController.queueTelegraph(type, options);
+    }
+    
+    endTelegraph(options = {}) {
+        this.telegraphController.end(options);
+    }
+    
+    cancelTelegraph(options = {}) {
+        this.telegraphController.cancel(options);
+    }
+    
+    updateTelegraph(deltaTime) {
+        this.telegraphController.update(deltaTime);
+    }
+    
+    // =====================
+    // Recovery System
+    // =====================
+    
+    enterRecoveryWindow(duration = 0.4, vulnerability = 'standard', options = {}) {
+        let config;
+        if (typeof duration === 'object' && duration !== null) {
+            config = Object.assign({}, duration);
+        } else {
+            config = Object.assign({}, options, {
+                duration,
+                vulnerability
+            });
+        }
+        return this.telegraphController.enterRecovery(config);
+    }
+    
+    cancelRecoveryWindow() {
+        this.telegraphController.cancelRecovery(true);
+    }
+    
+    updateRecoveryWindow(deltaTime) {
+        this.telegraphController.updateRecovery(deltaTime);
     }
     
     // Calculate intelligence level from room number (0.0 to 1.0)
@@ -172,6 +325,148 @@ class EnemyBase {
         
         // Higher base weight multiplier for more challenging base behavior
         return baseWeight * weightScale * (0.7 + this.intelligenceLevel * 0.3);
+    }
+    
+    // Determine behavior weight as smooth function of intelligence (0-1)
+    getIntelligenceWeightedValue(minValue, maxValue, curve = 1.0) {
+        const t = Math.pow(this.intelligenceLevel, Math.max(0.1, curve));
+        return minValue + (maxValue - minValue) * t;
+    }
+
+    // =====================
+    // Smoothing Helpers
+    // =====================
+
+    smoothMoveTo(targetX, targetY, smoothing = this.positionSmoothing) {
+        const factor = Math.min(Math.max(smoothing, 0), 1);
+        this.x += (targetX - this.x) * factor;
+        this.y += (targetY - this.y) * factor;
+    }
+
+    smoothMoveBy(offsetX, offsetY, smoothing = this.positionSmoothing) {
+        this.smoothMoveTo(this.x + offsetX, this.y + offsetY, smoothing);
+    }
+
+    smoothRotateTo(targetAngle, smoothing = this.rotationSmoothing) {
+        if (!isFinite(targetAngle)) return;
+        const factor = Math.min(Math.max(smoothing, 0), 1);
+        let delta = targetAngle - this.rotation;
+        delta = normalizeAngle(delta);
+        this.rotation += delta * factor;
+        this.movementHeading = this.rotation;
+    }
+
+    updateSmoothedHeading(targetAngle, smoothing = this.rotationSmoothing) {
+        if (!isFinite(targetAngle)) {
+            return this.movementHeading !== undefined ? this.movementHeading : this.rotation;
+        }
+        if (this.movementHeading === undefined || !isFinite(this.movementHeading)) {
+            this.movementHeading = targetAngle;
+            return this.movementHeading;
+        }
+        const factor = Math.min(Math.max(smoothing, 0), 1);
+        let delta = normalizeAngle(targetAngle - this.movementHeading);
+        this.movementHeading = normalizeAngle(this.movementHeading + delta * factor);
+        return this.movementHeading;
+    }
+
+    applySmoothedDirectionalMovement(dirX, dirY, speed, deltaTime, smoothing = this.rotationSmoothing, updateFacing = true) {
+        const magnitude = Math.sqrt(dirX * dirX + dirY * dirY);
+        if (magnitude === 0 || !isFinite(magnitude) || speed === 0) {
+            return;
+        }
+        const normX = dirX / magnitude;
+        const normY = dirY / magnitude;
+        const targetAngle = Math.atan2(normY, normX);
+        const heading = this.updateSmoothedHeading(targetAngle, smoothing);
+        const moveX = Math.cos(heading) * speed * deltaTime;
+        const moveY = Math.sin(heading) * speed * deltaTime;
+        this.x += moveX;
+        this.y += moveY;
+        if (updateFacing) {
+            this.rotation = heading;
+            this.movementHeading = heading;
+        }
+    }
+
+    getNearbyAlliesCount(enemies = [], radius = 200, includeSelf = false) {
+        if (!enemies || enemies.length === 0) {
+            return includeSelf ? 1 : 0;
+        }
+        const radiusSq = radius * radius;
+        let count = includeSelf ? 1 : 0;
+        for (let i = 0; i < enemies.length; i++) {
+            const other = enemies[i];
+            if (!other || other === this || !other.alive) continue;
+            const dx = other.x - this.x;
+            const dy = other.y - this.y;
+            const distSq = dx * dx + dy * dy;
+            if (distSq <= radiusSq) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    getAdaptiveRetreatDistance(localGroupSize = 1) {
+        const clamped = Math.max(1, Math.min(localGroupSize, 8));
+        const base = 60;
+        const extra = 12 * (clamped - 1);
+        return base + extra;
+    }
+
+    canAttemptRetreat() {
+        return this.retreatCooldown <= 0;
+    }
+
+    computeRetreatChance(context = {}) {
+        const heatFactor = Math.min(1, this.retreatHeat / this.maxRetreatHeat);
+        let chance = this.baseRetreatChance * (1 - heatFactor);
+        const localGroupSize = Math.max(1, context.localGroupSize || 1);
+        const groupClamp = Math.max(2, context.groupSizeClamp || 8);
+        const normalizedGroup = Math.min(groupClamp, localGroupSize);
+        // Smaller groups have significantly reduced retreat probability
+        const groupModifier = 0.35 + ((normalizedGroup - 1) / (groupClamp - 1)) * 0.65;
+        chance *= groupModifier;
+
+        // Early rooms should have more timid retreat behavior
+        const roomProgress = Math.min(1, Math.max(0, (this.roomNumber - 1) / 12));
+        const roomModifier = 0.45 + roomProgress * 0.55;
+        chance *= roomModifier;
+
+        if (context.extraPressure !== undefined) {
+            chance *= (1 - Math.min(0.5, context.extraPressure));
+        }
+        if (this.retreatCoordinator) {
+            const groupPenalty = this.retreatCoordinator.getGroupPenalty(this, {
+                radius: context.groupRadius || this.retreatGroupRadius,
+                maxPenalty: this.maxGroupRetreatPenalty
+            });
+            chance *= Math.max(0, 1 - groupPenalty);
+        }
+        return Math.max(this.minimumRetreatChance, Math.min(1, chance));
+    }
+
+    recordRetreatAttempt(successful = true) {
+        this.retreatCooldown = this.retreatCooldownTime;
+        if (successful) {
+            this.retreatHeat = Math.min(this.maxRetreatHeat, this.retreatHeat + this.retreatHeatGain);
+            if (this.retreatCoordinator) {
+                this.retreatCoordinator.registerRetreat(this);
+            }
+        } else {
+            this.retreatHeat = Math.max(0, this.retreatHeat - this.retreatHeatGain * 0.5);
+        }
+    }
+    
+    // Update predictive positioning weight with intelligence
+    getPredictiveWeight(base = 0.35, max = 0.85) {
+        return this.getIntelligenceWeightedValue(base, max, 0.75);
+    }
+    
+    // Update coordination aggressiveness weight with intelligence
+    getCoordinationAggression(base = 0.25, max = 0.8) {
+        return this.getIntelligenceWeightedValue(base, max, 0.6);
     }
     
     // React to player action (scaled by intelligence)
@@ -403,6 +698,48 @@ class EnemyBase {
         });
         
         return nearbyAllies.length > 0 ? nearbyAllies : null;
+    }
+    
+    assignCoordinationRole(enemies) {
+        if (!this.coordinationEnabled) {
+            this.coordinationRole = null;
+            return null;
+        }
+        
+        const allies = this.coordinateWithAllies(enemies);
+        if (!allies) {
+            this.coordinationRole = null;
+            return null;
+        }
+        
+        // Determine highest threat player among allies for focal point
+        let highestThreat = 0;
+        let highestThreatEnemy = this;
+        allies.forEach(({ enemy }) => {
+            if (enemy.threatLevel > highestThreat) {
+                highestThreat = enemy.threatLevel;
+                highestThreatEnemy = enemy;
+            }
+        });
+        
+        const index = allies.findIndex(({ enemy }) => enemy === this);
+        const roleWeights = {
+            vanguard: 0.4,
+            flanker: 0.3,
+            support: 0.3
+        };
+        const aggression = this.getCoordinationAggression();
+        let role;
+        if (this === highestThreatEnemy || Math.random() < aggression) {
+            role = 'vanguard';
+        } else if (index % 2 === 0) {
+            role = 'flanker';
+        } else {
+            role = 'support';
+        }
+        
+        this.coordinationRole = role;
+        return role;
     }
     
     // Apply knockback force
@@ -1473,19 +1810,7 @@ class EnemyBase {
         }
         
         // Check if other enemies are nearby (coordination - don't abandon allies)
-        let nearbyAllies = 0;
-        if (enemies && enemies.length > 0) {
-            enemies.forEach(other => {
-                if (other !== this && other.alive) {
-                    const allyDx = other.x - this.x;
-                    const allyDy = other.y - this.y;
-                    const allyDist = Math.sqrt(allyDx * allyDx + allyDy * allyDy);
-                    if (allyDist < 120) {
-                        nearbyAllies++;
-                    }
-                }
-            });
-        }
+        const nearbyAllies = this.getNearbyAlliesCount(enemies, 160, false);
         
         // If multiple allies nearby, less likely to retreat (coordination)
         if (nearbyAllies >= 2) {
@@ -1886,6 +2211,17 @@ class EnemyBase {
         if (hostData.telegraphElapsed !== undefined) this.telegraphElapsed = hostData.telegraphElapsed;
         if (hostData.lungeElapsed !== undefined) this.lungeElapsed = hostData.lungeElapsed;
         if (hostData.dashElapsed !== undefined) this.dashElapsed = hostData.dashElapsed;
+        if (hostData.coordinationRole !== undefined) this.coordinationRole = hostData.coordinationRole;
+        
+        if (this.telegraphController) {
+            this.telegraphController.applyState({
+                telegraph: hostData.telegraph || null,
+                recoveryWindow: hostData.recoveryWindow || null
+            });
+        } else {
+            this.activeTelegraph = hostData.telegraph || null;
+            this.recoveryWindow = hostData.recoveryWindow || null;
+        }
         
         // Boss-specific state
         if (this.isBoss && hostData.phase !== undefined) {
@@ -2151,6 +2487,24 @@ class EnemyBase {
     
     // Serialize enemy state for multiplayer sync
     serialize() {
+        const telegraphState = this.telegraphController
+            ? this.telegraphController.serializeState()
+            : {
+                telegraph: this.activeTelegraph ? {
+                    type: this.activeTelegraph.type,
+                    progress: Math.min(1, Math.max(0, (this.activeTelegraph.elapsed || 0) / Math.max(0.05, this.activeTelegraph.duration || 1))),
+                    duration: this.activeTelegraph.duration,
+                    intensity: this.activeTelegraph.intensity || 1,
+                    projectRadius: this.activeTelegraph.projectRadius || null,
+                    color: this.activeTelegraph.color || null
+                } : null,
+                recoveryWindow: this.recoveryWindow ? {
+                    duration: this.recoveryWindow.duration,
+                    elapsed: this.recoveryWindow.elapsed,
+                    vulnerability: this.recoveryWindow.vulnerability,
+                    modifier: this.recoveryWindow.modifier
+                } : null
+            };
         return {
             id: this.id,
             x: this.x,
@@ -2172,7 +2526,10 @@ class EnemyBase {
             spinElapsed: this.spinElapsed,
             telegraphElapsed: this.telegraphElapsed,
             lungeElapsed: this.lungeElapsed,
-            dashElapsed: this.dashElapsed
+            dashElapsed: this.dashElapsed,
+            telegraph: telegraphState.telegraph,
+            recoveryWindow: telegraphState.recoveryWindow,
+            coordinationRole: this.coordinationRole || null
         };
     }
     
@@ -2181,6 +2538,12 @@ class EnemyBase {
         // Use existing updateFromHost method
         if (this.updateFromHost) {
             this.updateFromHost(state);
+        }
+        if (this.telegraphController && state) {
+            this.telegraphController.applyState({
+                telegraph: state.telegraph || null,
+                recoveryWindow: state.recoveryWindow || null
+            });
         }
     }
 }

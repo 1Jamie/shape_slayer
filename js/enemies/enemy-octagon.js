@@ -101,6 +101,46 @@ class OctagonEnemy extends EnemyBase {
         this.postAttackPause = 0; // Brief pause after attacks
         this.postAttackPauseTime = OCTAGON_CONFIG.postAttackPause;
         
+        this.telegraphProfile = {
+            spin: {
+                type: 'octagon-spin',
+                duration: 0.45,
+                color: '#a86bff',
+                intensity: 1.15,
+                projectRadius: this.size * 1.5
+            },
+            charge: {
+                type: 'octagon-charge',
+                duration: 0.4,
+                color: '#ff6b6b',
+                intensity: 1.2,
+                projectRadius: this.size * 1.6
+            },
+            shoot: {
+                type: 'octagon-shoot',
+                duration: 0.35,
+                color: '#66d9ff',
+                intensity: 1.05,
+                projectRadius: this.size * 1.4
+            },
+            stagger: {
+                type: 'octagon-stagger',
+                duration: 0.6,
+                color: '#ffadad',
+                intensity: 0.9,
+                projectRadius: this.size * 1.3
+            }
+        };
+        this.spinTelegraphDuration = 0.45;
+        this.spinTelegraphRemaining = 0;
+        this.chargeTelegraphDuration = 0.4;
+        this.chargeTelegraphRemaining = 0;
+        this.chargeTarget = null;
+        this.chargeHitSuccessful = false;
+        this.pendingShot = null;
+        this.staggerDuration = 0.65;
+        this.staggerElapsed = 0;
+
         // Track spawned minions
         this.minions = [];
         
@@ -159,6 +199,9 @@ class OctagonEnemy extends EnemyBase {
         
         // Process burn DoT
         this.processBurn(deltaTime);
+        
+        this.updateTelegraph(deltaTime);
+        this.updateRecoveryWindow(deltaTime);
         
         // Update target lock timer
         this.updateTargetLock(deltaTime);
@@ -274,8 +317,7 @@ class OctagonEnemy extends EnemyBase {
                 if (timeSinceHeavyAttack < 0.5 && this.lastPlayerHeavyAttack > 0 && 
                     this.state === 'chase' && distance < this.attackRange * 1.5 && this.attackCooldown <= 0) {
                     // Interrupt with spin
-                    this.state = 'spin';
-                    this.spinElapsed = 0;
+                    this.startSpinSequence();
                     return;
                 }
                 
@@ -321,12 +363,12 @@ class OctagonEnemy extends EnemyBase {
                     }
                 }
                 
-                this.x += moveX * this.moveSpeed * deltaTime;
-                this.y += moveY * this.moveSpeed * deltaTime;
+                const desiredX = this.x + moveX * this.moveSpeed * deltaTime;
+                const desiredY = this.y + moveY * this.moveSpeed * deltaTime;
+                this.smoothMoveTo(desiredX, desiredY);
                 
-                // Update rotation to face movement direction
                 if (moveX !== 0 || moveY !== 0) {
-                    this.rotation = Math.atan2(moveY, moveX);
+                    this.smoothRotateTo(Math.atan2(moveY, moveX));
                 }
                 return;
             }
@@ -419,13 +461,12 @@ class OctagonEnemy extends EnemyBase {
                 if (this.comboSequence.length > 0 && this.comboIndex < this.comboSequence.length) {
                     const nextAction = this.comboSequence[this.comboIndex];
                     if (nextAction === 'spin' && distance < this.attackRange && this.attackCooldown <= 0) {
-                        this.state = 'spin';
-                        this.spinElapsed = 0;
+                        this.startSpinSequence();
                         this.comboIndex++;
                         return;
                     } else if (nextAction === 'shoot' && this.shootCooldown <= 0) {
                         const shootTarget = this.predictedDodgeLocation || { x: targetX, y: targetY };
-                        this.shootRapidProjectiles(shootTarget.x, shootTarget.y);
+                        this.startShotSequence(shootTarget.x, shootTarget.y);
                         this.shootCooldown = this.shootCooldownTime;
                         this.postAttackPause = this.postAttackPauseTime;
                         this.comboIndex++;
@@ -459,7 +500,7 @@ class OctagonEnemy extends EnemyBase {
                 // Priority 2: Player attacking → prioritize shooting (safer) - adjusted by adaptive system
                 if (playerAttacking && this.shootCooldown <= 0 && adjustedPriorities.shoot >= 0.8) {
                     const shootTarget = this.predictedDodgeLocation || { x: targetX, y: targetY };
-                    this.shootRapidProjectiles(shootTarget.x, shootTarget.y);
+                    this.startShotSequence(shootTarget.x, shootTarget.y);
                     this.shootCooldown = this.shootCooldownTime;
                     this.postAttackPause = this.postAttackPauseTime;
                     this.predictedDodgeLocation = null;
@@ -469,15 +510,13 @@ class OctagonEnemy extends EnemyBase {
                 // Priority 3: Multiple nearby enemies → use spin attack (group coordination) - adjusted
                 if (nearbyEnemyCount >= 2 && distance < this.attackRange && this.attackCooldown <= 0 && 
                     adjustedPriorities.spin >= 0.8) {
-                    this.state = 'spin';
-                    this.spinElapsed = 0;
+                    this.startSpinSequence();
                     return;
                 }
                 
                 // Priority 4: Close range → spin attack - adjusted
                 if (distance < this.attackRange && this.attackCooldown <= 0 && adjustedPriorities.spin >= 0.8) {
-                    this.state = 'spin';
-                    this.spinElapsed = 0;
+                    this.startSpinSequence();
                     return;
                 }
                 
@@ -497,7 +536,7 @@ class OctagonEnemy extends EnemyBase {
                 // Priority 6: Can shoot → shoot - adjusted
                 if (this.shootCooldown <= 0 && adjustedPriorities.shoot >= 0.8) {
                     const shootTarget = this.predictedDodgeLocation || { x: targetX, y: targetY };
-                    this.shootRapidProjectiles(shootTarget.x, shootTarget.y);
+                    this.startShotSequence(shootTarget.x, shootTarget.y);
                     this.shootCooldown = this.shootCooldownTime;
                     this.postAttackPause = this.postAttackPauseTime;
                     this.predictedDodgeLocation = null;
@@ -530,41 +569,124 @@ class OctagonEnemy extends EnemyBase {
                 }
             }
             
-            this.x += moveX * this.moveSpeed * deltaTime;
-            this.y += moveY * this.moveSpeed * deltaTime;
+            const desiredX = this.x + moveX * this.moveSpeed * deltaTime;
+            const desiredY = this.y + moveY * this.moveSpeed * deltaTime;
+            this.smoothMoveTo(desiredX, desiredY);
             
-            // Update rotation to face movement direction
             if (moveX !== 0 || moveY !== 0) {
-                this.rotation = Math.atan2(moveY, moveX);
+                this.smoothRotateTo(Math.atan2(moveY, moveX));
             }
         } else if (this.state === 'spin') {
+            if (this.spinTelegraphRemaining > 0) {
+                this.spinTelegraphRemaining -= deltaTime;
+                if (this.spinTelegraphRemaining <= 0) {
+                    if (this.activeTelegraph) this.endTelegraph();
+                    this.spinElapsed = 0;
+                } else {
+                    return;
+                }
+            }
+            
             this.spinElapsed += deltaTime;
             
-            // Spin in place
-            this.x += Math.cos(this.spinElapsed * 10) * this.size * deltaTime * 2;
-            this.y += Math.sin(this.spinElapsed * 10) * this.size * deltaTime * 2;
+            const spinOffsetX = Math.cos(this.spinElapsed * 10) * this.size * deltaTime * 2;
+            const spinOffsetY = Math.sin(this.spinElapsed * 10) * this.size * deltaTime * 2;
+            this.smoothMoveBy(spinOffsetX, spinOffsetY, 0.4);
             
             if (this.spinElapsed >= this.spinDuration) {
-                this.state = 'charge';
-                this.chargeElapsed = 0;
+                this.startChargeSequence(targetX, targetY);
             }
         } else if (this.state === 'charge') {
+            if (this.chargeTelegraphRemaining > 0) {
+                this.chargeTelegraphRemaining -= deltaTime;
+                if (this.chargeTelegraphRemaining <= 0) {
+                    if (this.activeTelegraph) this.endTelegraph();
+                    this.chargeElapsed = 0;
+                } else {
+                    return;
+                }
+            }
+            
             this.chargeElapsed += deltaTime;
-            // Charge toward player
-            const dirX = dx / distance;
-            const dirY = dy / distance;
             
-            this.x += dirX * this.moveSpeed * 2 * deltaTime;
-            this.y += dirY * this.moveSpeed * 2 * deltaTime;
+            const targetPoint = this.chargeTarget || { x: targetX, y: targetY };
+            let dirX = targetPoint.x - this.x;
+            let dirY = targetPoint.y - this.y;
+            let dirDist = Math.sqrt(dirX * dirX + dirY * dirY);
+            if (dirDist === 0) {
+                dirX = dx;
+                dirY = dy;
+                dirDist = Math.sqrt(dirX * dirX + dirY * dirY) || 1;
+            }
+            const normX = dirX / dirDist;
+            const normY = dirY / dirDist;
             
-            // Update rotation to face charge direction
-            this.rotation = Math.atan2(dirY, dirX);
+            this.applySmoothedDirectionalMovement(normX, normY, this.moveSpeed * 2, deltaTime, 0.4);
+            
+            if (!this.chargeHitSuccessful) {
+                const allPlayers = this.getAllAlivePlayers();
+                for (const { player: p } of allPlayers) {
+                    if (!p || !p.alive || p.invulnerable) continue;
+                    const playerRadius = p.collisionRadius || p.size || 22;
+                    const dxToPlayer = this.x - p.x;
+                    const dyToPlayer = this.y - p.y;
+                    const distToPlayer = Math.sqrt(dxToPlayer * dxToPlayer + dyToPlayer * dyToPlayer);
+                    if (distToPlayer < playerRadius + this.size * 0.9) {
+                        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+                        if (!isClient && typeof p.takeDamage === 'function') {
+                            p.takeDamage(this.damage * 1.1, this);
+                        }
+                        if (typeof p.applyGuardBreak === 'function') {
+                            p.applyGuardBreak(0.9, { movementPenalty: 0.45, dodgeLockout: 0.6 });
+                        }
+                        this.chargeHitSuccessful = true;
+                        this.state = 'cooldown';
+                        this.attackCooldown = this.attackCooldownTime;
+                        this.spinElapsed = 0;
+                        this.chargeElapsed = 0;
+                        this.postAttackPause = this.postAttackPauseTime;
+                        this.enterRecoveryWindow(this.attackCooldownTime * 0.6, 'chargeHit', {
+                            modifier: 1.05
+                        });
+                        this.chargeTarget = null;
+                        return;
+                    }
+                }
+            }
             
             if (this.chargeElapsed >= this.chargeDuration) {
-                this.state = 'cooldown';
-                this.attackCooldown = this.attackCooldownTime;
+                if (!this.chargeHitSuccessful) {
+                    this.state = 'stagger';
+                    this.staggerElapsed = 0;
+                    const profile = this.telegraphProfile.stagger;
+                    this.beginTelegraph(profile.type, {
+                        duration: this.staggerDuration,
+                        intensity: profile.intensity,
+                        color: profile.color,
+                        projectRadius: profile.projectRadius
+                    });
+                    this.comboSequence = [];
+                    this.comboIndex = 0;
+                    this.chargeTarget = null;
+                    this.pendingShot = null;
+                    this.enterRecoveryWindow(this.staggerDuration, 'stagger', {
+                        modifier: 1.4
+                    });
+                } else {
+                    this.state = 'cooldown';
+                    this.attackCooldown = this.attackCooldownTime;
+                    this.postAttackPause = this.postAttackPauseTime;
+                    this.chargeTarget = null;
+                }
                 this.spinElapsed = 0;
                 this.chargeElapsed = 0;
+            }
+        } else if (this.state === 'stagger') {
+            this.staggerElapsed += deltaTime;
+            if (this.staggerElapsed >= this.staggerDuration) {
+                if (this.activeTelegraph) this.endTelegraph();
+                this.state = 'cooldown';
+                this.attackCooldown = this.attackCooldownTime;
                 this.postAttackPause = this.postAttackPauseTime;
             }
         } else if (this.state === 'cooldown') {
@@ -572,16 +694,20 @@ class OctagonEnemy extends EnemyBase {
             const dirX = dx / distance;
             const dirY = dy / distance;
             
-            this.x += dirX * this.moveSpeed * deltaTime;
-            this.y += dirY * this.moveSpeed * deltaTime;
-            
-            // Update rotation to face movement direction
-            if (dirX !== 0 || dirY !== 0) {
-                this.rotation = Math.atan2(dirY, dirX);
-            }
+            this.applySmoothedDirectionalMovement(dirX, dirY, this.moveSpeed, deltaTime, 0.35);
             
             if (this.attackCooldown <= 0) {
                 this.state = 'chase';
+            }
+        }
+        
+        if (this.pendingShot) {
+            this.pendingShot.timer -= deltaTime;
+            if (this.pendingShot.timer <= 0) {
+                if (this.activeTelegraph) this.endTelegraph();
+                const shot = this.pendingShot;
+                this.pendingShot = null;
+                this.shootRapidProjectiles(shot.x, shot.y, true);
             }
         }
         
@@ -763,8 +889,68 @@ class OctagonEnemy extends EnemyBase {
         }
     }
     
-    shootRapidProjectiles(targetX, targetY) {
+    getSpinTelegraphDuration() {
+        return Math.max(0.2, this.spinTelegraphDuration * (1 - this.intelligenceLevel * 0.2));
+    }
+    
+    getChargeTelegraphDuration() {
+        return Math.max(0.2, this.chargeTelegraphDuration * (1 - this.intelligenceLevel * 0.2));
+    }
+    
+    getShotTelegraphDuration() {
+        return Math.max(0.18, this.telegraphProfile.shoot.duration * (1 - this.intelligenceLevel * 0.25));
+    }
+    
+    startSpinSequence() {
+        this.state = 'spin';
+        this.spinElapsed = 0;
+        this.spinTelegraphRemaining = this.getSpinTelegraphDuration();
+        const profile = this.telegraphProfile.spin;
+        this.beginTelegraph(profile.type, {
+            duration: this.spinTelegraphRemaining,
+            intensity: profile.intensity,
+            color: profile.color,
+            projectRadius: profile.projectRadius
+        });
+    }
+    
+    startChargeSequence(targetX, targetY) {
+        this.state = 'charge';
+        this.chargeElapsed = 0;
+        this.chargeTelegraphRemaining = this.getChargeTelegraphDuration();
+        this.chargeTarget = { x: targetX, y: targetY };
+        this.chargeHitSuccessful = false;
+        const profile = this.telegraphProfile.charge;
+        this.beginTelegraph(profile.type, {
+            duration: this.chargeTelegraphRemaining,
+            intensity: profile.intensity,
+            color: profile.color,
+            projectRadius: profile.projectRadius
+        });
+    }
+    
+    startShotSequence(targetX, targetY) {
+        const duration = this.getShotTelegraphDuration();
+        const profile = this.telegraphProfile.shoot;
+        this.pendingShot = {
+            x: targetX,
+            y: targetY,
+            timer: duration
+        };
+        this.beginTelegraph(profile.type, {
+            duration,
+            intensity: profile.intensity,
+            color: profile.color,
+            projectRadius: profile.projectRadius
+        });
+    }
+    
+    shootRapidProjectiles(targetX, targetY, skipTelegraph = false) {
         if (typeof Game === 'undefined') return;
+        if (!skipTelegraph) {
+            this.startShotSequence(targetX, targetY);
+            return;
+        }
         
         // Get actual player for better prediction - ensure we have velocity properties
         let targetPlayer = this.getPlayerById(this.currentTarget);
@@ -866,9 +1052,16 @@ class OctagonEnemy extends EnemyBase {
     
     render(ctx) {
         let drawColor = this.color;
+        const telegraphData = this.activeTelegraph;
+        let scaleMultiplier = 1;
         
-        if (this.state === 'spin' || this.state === 'charge') {
-            drawColor = '#bb86fc'; // Light purple when attacking (still distinct from rangers)
+        if (telegraphData) {
+            const progress = telegraphData.progress !== undefined ? telegraphData.progress : 0.5;
+            const pulse = 0.6 + Math.sin(progress * Math.PI * 3) * 0.4;
+            drawColor = telegraphData.color || '#bb86fc';
+            scaleMultiplier = 1 + (telegraphData.intensity || 1) * 0.08 * pulse;
+        } else if (this.state === 'spin' || this.state === 'charge') {
+            drawColor = '#bb86fc';
         }
         
         // Draw octagon shape
@@ -883,8 +1076,8 @@ class OctagonEnemy extends EnemyBase {
         ctx.beginPath();
         for (let i = 0; i < 8; i++) {
             const angle = (Math.PI / 4) * i;
-            const px = Math.cos(angle) * this.size;
-            const py = Math.sin(angle) * this.size;
+            const px = Math.cos(angle) * this.size * scaleMultiplier;
+            const py = Math.sin(angle) * this.size * scaleMultiplier;
             if (i === 0) ctx.moveTo(px, py);
             else ctx.lineTo(px, py);
         }
@@ -922,6 +1115,18 @@ class OctagonEnemy extends EnemyBase {
             5, 0, Math.PI * 2
         );
         ctx.fill();
+        
+        if (telegraphData) {
+            ctx.save();
+            ctx.strokeStyle = telegraphData.color || '#bb86fc';
+            ctx.lineWidth = 3;
+            ctx.globalAlpha = 0.65;
+            const radius = telegraphData.projectRadius || this.size * 1.6;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, radius, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        }
     }
 }
 

@@ -104,6 +104,14 @@ class PlayerBase {
         this.fortifyShield = 0; // Temporary shield amount
         this.fortifyShieldDecay = 0; // Time until shield decay
         
+        // Enemy-inflicted status effects
+        this.statusEffects = {
+            bleed: null,
+            guardBreak: null
+        };
+        this.guardBreakLockout = 0;
+        this.guardBreakMovementScalar = 1;
+        
         // Heavy attack system
         this.heavyAttackCooldown = 0;
         this.heavyAttackCooldownTime = 1.5; // 1.5 seconds
@@ -196,6 +204,8 @@ class PlayerBase {
             return;
         }
         
+        this.updateEnemyDebuffs(deltaTime);
+        
         // Handle movement - skip if dodging or if subclass handles movement during special abilities
         if (!this.isDodging && !this.isInSpecialMovement()) {
             // Use unified movement input (works for both keyboard and touch)
@@ -207,6 +217,11 @@ class PlayerBase {
             // During dodge, use dodge velocity
             this.vx = this.dodgeVx;
             this.vy = this.dodgeVy;
+        }
+        
+        if (this.guardBreakMovementScalar !== 1) {
+            this.vx *= this.guardBreakMovementScalar;
+            this.vy *= this.guardBreakMovementScalar;
         }
         
         // Apply knockback from enemy hits before normal movement handling
@@ -564,6 +579,10 @@ class PlayerBase {
             canDodge = this.getReadyDodgeCharges() > 0;
         } else {
             canDodge = this.dodgeCooldown <= 0;
+        }
+        
+        if (this.guardBreakLockout > 0) {
+            canDodge = false;
         }
         
         // If dodge pressed/released and available
@@ -1270,6 +1289,98 @@ class PlayerBase {
             console.log('Player died!');
         } else {
             console.log(`Player took ${damage} damage! HP: ${this.hp}/${this.maxHp}`);
+        }
+    }
+    
+    applyBleed(dps, duration, sourceEnemy = null) {
+        if (!dps || dps <= 0 || !duration || duration <= 0) return;
+        if (!this.statusEffects) {
+            this.statusEffects = { bleed: null, guardBreak: null };
+        }
+        const existing = this.statusEffects.bleed;
+        if (existing) {
+            existing.dps = Math.max(existing.dps, dps);
+            existing.duration = Math.max(existing.duration, duration);
+            existing.elapsed = 0;
+            existing.sourceEnemy = sourceEnemy || existing.sourceEnemy || null;
+        } else {
+            this.statusEffects.bleed = {
+                dps,
+                duration,
+                elapsed: 0,
+                accumulator: 0,
+                tickRate: 0.5,
+                sourceEnemy: sourceEnemy || null
+            };
+        }
+    }
+    
+    clearBleed() {
+        if (this.statusEffects) {
+            this.statusEffects.bleed = null;
+        }
+    }
+    
+    applyGuardBreak(duration, options = {}) {
+        if (!duration || duration <= 0) return;
+        if (!this.statusEffects) {
+            this.statusEffects = { bleed: null, guardBreak: null };
+        }
+        const movementPenalty = clamp(options.movementPenalty !== undefined ? options.movementPenalty : 0.55, 0.2, 1);
+        const dodgeLockout = Math.max(0, options.dodgeLockout !== undefined ? options.dodgeLockout : duration);
+        this.statusEffects.guardBreak = {
+            duration,
+            elapsed: 0,
+            movementPenalty,
+            appliedAt: Date.now()
+        };
+        this.guardBreakLockout = Math.max(this.guardBreakLockout || 0, duration + dodgeLockout);
+        if (typeof createParticleBurst !== 'undefined') {
+            createParticleBurst(this.x, this.y, '#ffb347', 10);
+        }
+    }
+    
+    isGuardBroken() {
+        return !!(this.statusEffects && this.statusEffects.guardBreak) || (this.guardBreakLockout > 0);
+    }
+    
+    updateEnemyDebuffs(deltaTime) {
+        if (!this.statusEffects) {
+            this.statusEffects = { bleed: null, guardBreak: null };
+        }
+        
+        this.guardBreakMovementScalar = 1;
+        
+        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+        const bleed = this.statusEffects.bleed;
+        if (bleed) {
+            bleed.elapsed += deltaTime;
+            bleed.accumulator = (bleed.accumulator || 0) + deltaTime;
+            const tickRate = bleed.tickRate || 0.5;
+            if (!isClient && !this.dead) {
+                while (bleed.accumulator >= tickRate) {
+                    bleed.accumulator -= tickRate;
+                    const tickDamage = bleed.dps * tickRate;
+                    this.takeDamage(tickDamage, bleed.sourceEnemy || null);
+                }
+            }
+            if (bleed.elapsed >= bleed.duration || this.dead) {
+                this.statusEffects.bleed = null;
+            }
+        }
+        
+        const guardBreak = this.statusEffects.guardBreak;
+        if (guardBreak) {
+            guardBreak.elapsed += deltaTime;
+            this.guardBreakMovementScalar = guardBreak.movementPenalty;
+            if (guardBreak.elapsed >= guardBreak.duration || this.dead) {
+                this.statusEffects.guardBreak = null;
+                this.guardBreakMovementScalar = 1;
+            }
+        }
+        
+        if (this.guardBreakLockout > 0) {
+            this.guardBreakLockout = Math.max(0, this.guardBreakLockout - deltaTime);
         }
     }
     
