@@ -346,7 +346,7 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 *TL;DR:* Telemetry now exist in opt in and the pause menu looks much nicer*
 `,
         '0.5.3.1': `**🔴 CIRCLE OF TRUST ISSUES** (11/12/2025)
-*"Remember those red circles you bullied for being free XP? They called a meeting. You're the agenda."*
+*"Remember those red circles you bullied for being free XP? They called a meeting. You're the agenda and only thing they want is revenge!"*
 
 • **Honor Society Enrollment (All Enemies):** Intelligence scaling got reprinted and stapled to everyone's forehead. Feints, combo detection, surround formations, lateral spread, wall awareness, pattern reads—all unlocked earlier and smarter. Room 4's PTA meeting is now a tactical seminar and you're the powerpoint.
 • **Predictive Brainstem (All Melee):** They now track your speed, dodge cadence, and "oops I always roll left" habits. They lead your future position, pick approach angles that aren't your face, and only retreat when combo'd, cornered, or 5 HP from death. Translation: They actually use some strat.
@@ -356,6 +356,12 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 • **Sharpshooter Shapes (Triangle & Octagon):** Predictive aiming is mandatory with smoothed velocity history, iterative intercept math, and accuracy scaling from "hey nice try" to "95% of your future coordinates belong to us." Keep circle-strafing; they'll be over here solving for t.
 • **Diamond Dash Etiquette (Diamond):** Telegraphs lock aim vectors on start, combo follow-ups wait a dramatic 250ms, and charge paths stay perfectly linear. If you still get full-body autographed, maybe stop dodging into the arrow labeled "danger zone."
 • **Visual Aid, Now With Shade (All Enemies):** Telegraphs pulse harder, lunge trails linger, recovery backs off before re-engaging, and state colors scream what happens next. You begged for readability; they weaponized it and hit you right when the UI says "incoming."
+
+**Other Changes:**
+• **Multiplayer tweaks:** added player id to lobby tracking so if you reconnect you resume the same character instead of making a new one.
+• **Menu overhaul:** Completely redid all the styling as lets be fair... the old was bubkis. Oh and now you can join lobbies from mobile without having to fight with the ui, it now actually kinda works.
+• **Telemtry Fix:** Damage numbers were not being properly recorded and affixes were not being recorded either.... kinda makes the balancing a lot hard to do without those numbers.
+• **Blue Diamond fix:** The blue diamond was having issues with ending up inside players.... hoepfully this patch they will feel a little less like sexual harassment.
 
 *TL;DR:* Circles graduated from cannon fodder to coordinated nuisance, the ranged kids min-maxed physics homework, and every enemy now knows what "flank" means. Bring AoE, bring timing, bring therapy.`,
     },
