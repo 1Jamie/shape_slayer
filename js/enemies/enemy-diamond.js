@@ -27,6 +27,22 @@ const DIAMOND_CONFIG = {
     weaveSpeed: 3.0,               // Speed of weaving motion
     weaveAmplitude: 30,            // How far to weave perpendicular (pixels)
     avoidanceRadius: 80,           // Radius to avoid player attacks (pixels)
+    
+    // Intelligence scaling thresholds (lowered for faster ramp-up)
+    intelligenceThresholds: {
+        feintAttacks: 5,           // Room when feint attacks unlock (was 9)
+        comboDashes: 8,            // Room when combo dashes unlock (was 13)
+        dodgeTracking: 8,          // Room when dodge tracking unlocks (was 13)
+        backstabPositioning: 12    // Room when backstab positioning unlocks (was 19)
+    },
+    
+    // Feint attack behavior
+    feintChanceBase: 0.15,        // Base feint chance at room 5 (increased from 0.10)
+    feintChanceMax: 0.30,         // Max feint chance at room 9+ (increased from 0.25)
+    
+    // Combo dash behavior
+    comboDashChanceBase: 0.25,    // Base combo chance at room 8 (increased from 0.20)
+    comboDashChanceMax: 0.35,     // Max combo chance at room 11+ (increased from 0.30)
 };
 
 class DiamondEnemy extends EnemyBase {
@@ -67,7 +83,7 @@ class DiamondEnemy extends EnemyBase {
         this.lootChance = DIAMOND_CONFIG.lootChance;
         
         // Attack system
-        this.state = 'circle'; // 'circle', 'telegraph', 'dash', 'cooldown'
+        this.state = 'circle'; // 'circle', 'telegraph', 'dash', 'cooldown', 'feint'
         this.attackCooldown = 0;
         this.attackCooldownTime = DIAMOND_CONFIG.attackCooldown;
         this.telegraphDuration = DIAMOND_CONFIG.telegraphDuration;
@@ -81,6 +97,27 @@ class DiamondEnemy extends EnemyBase {
         this.weaveTimer = Math.random() * Math.PI * 2; // Random starting phase for weaving
         this.weaveSpeed = DIAMOND_CONFIG.weaveSpeed;
         this.weaveAmplitude = DIAMOND_CONFIG.weaveAmplitude;
+        
+        // Feint attack system (rooms 9+)
+        this.feintTimer = 0;
+        this.isFeinting = false;
+        
+        // Combo dash system (rooms 13+)
+        this.comboDashReady = false;
+        this.comboDashWaitTimer = 0; // Wait timer between combo dashes (250ms)
+        this.lastDashTarget = null;
+        this.playerDodgeTracked = false;
+        this.lastPlayerDodgeTime = 0;
+        
+        // Locked dash direction (set during telegraph, used during dash)
+        this.lockedDashDirX = 0;
+        this.lockedDashDirY = 0;
+        
+        // Backstab positioning (rooms 19+)
+        this.backstabAngle = null;
+        
+        // Dash hit tracking - prevents multiple hits per dash
+        this.dashHasHit = false;
     }
     
     update(deltaTime) {
@@ -134,20 +171,123 @@ class DiamondEnemy extends EnemyBase {
         // Get enemies array for AI behaviors
         const enemies = (typeof Game !== 'undefined' && Game.enemies) ? Game.enemies : [];
         
+        // Track player dodge (rooms 13+)
+        if (this.roomNumber >= DIAMOND_CONFIG.intelligenceThresholds.dodgeTracking) {
+            const allPlayers = this.getAllAlivePlayers();
+            allPlayers.forEach(({ player: p }) => {
+                if (p.isDodging) {
+                    this.lastPlayerDodgeTime = Date.now();
+                    this.reactToPlayerAction('dodge', p);
+                }
+            });
+        }
+        
         // AI behavior based on state
         if (this.state === 'circle') {
+            // Backstab positioning (rooms 19+)
+            if (this.roomNumber >= DIAMOND_CONFIG.intelligenceThresholds.backstabPositioning) {
+                const allPlayers = this.getAllAlivePlayers();
+                allPlayers.forEach(({ player: p }) => {
+                    if (p.attackHitboxes && p.attackHitboxes.length > 0) {
+                        // Player is attacking, try to position behind
+                        const playerAngle = Math.atan2(p.vy || 0, p.vx || 0);
+                        const toPlayerX = p.x - this.x;
+                        const toPlayerY = p.y - this.y;
+                        const toPlayerAngle = Math.atan2(toPlayerY, toPlayerX);
+                        
+                        // Desired angle is opposite of player's facing direction
+                        this.backstabAngle = playerAngle + Math.PI;
+                    }
+                });
+            }
+            
             // Check if close enough to attack
             if (distance < this.attackRange && this.attackCooldown <= 0) {
-                // Stop moving and start telegraph
-                this.state = 'telegraph';
-                this.telegraphElapsed = 0;
+                // Check for feint attack (rooms 5+)
+                let shouldFeint = false;
+                if (this.roomNumber >= DIAMOND_CONFIG.intelligenceThresholds.feintAttacks) {
+                    // Calculate feint chance based on room progression
+                    const roomsPastThreshold = Math.max(0, this.roomNumber - DIAMOND_CONFIG.intelligenceThresholds.feintAttacks);
+                    const feintScale = Math.min(1.0, roomsPastThreshold / 4); // Scales over 4 rooms (was 6)
+                    const feintChance = DIAMOND_CONFIG.feintChanceBase + 
+                                       (DIAMOND_CONFIG.feintChanceMax - DIAMOND_CONFIG.feintChanceBase) * feintScale;
+                    
+                    if (Math.random() < feintChance * this.intelligenceLevel) {
+                        shouldFeint = true;
+                        this.state = 'feint';
+                        this.feintTimer = this.telegraphDuration * 0.5; // Shorter feint telegraph
+                        this.isFeinting = true;
+                    }
+                }
+                
+                if (!shouldFeint) {
+                    // Check for combo dash opportunity (rooms 13+)
+                    if (this.roomNumber >= DIAMOND_CONFIG.intelligenceThresholds.comboDashes && this.comboDashReady && this.comboDashWaitTimer <= 0) {
+                        // Player dodged last dash, follow up after wait period
+                        this.comboDashReady = false;
+                        this.comboDashWaitTimer = 0;
+                        // Lock in dash direction immediately (no telegraph for combo)
+                        const comboDx = targetX - this.x;
+                        const comboDy = targetY - this.y;
+                        const comboDist = Math.sqrt(comboDx * comboDx + comboDy * comboDy);
+                        if (comboDist > 0) {
+                            this.lockedDashDirX = comboDx / comboDist;
+                            this.lockedDashDirY = comboDy / comboDist;
+                        } else {
+                            // Fallback to stored direction
+                            this.lockedDashDirX = this.lockedDashDirX || 1;
+                            this.lockedDashDirY = this.lockedDashDirY || 0;
+                        }
+                        this.state = 'dash';
+                        this.dashElapsed = 0;
+                        this.telegraphElapsed = 0;
+                        this.dashHasHit = false; // Reset hit flag for combo dash
+                    } else {
+                        // Normal telegraph - lock in aim direction NOW
+                        const telegraphDx = targetX - this.x;
+                        const telegraphDy = targetY - this.y;
+                        const telegraphDist = Math.sqrt(telegraphDx * telegraphDx + telegraphDy * telegraphDy);
+                        if (telegraphDist > 0) {
+                            // Lock in dash direction at telegraph start
+                            this.lockedDashDirX = telegraphDx / telegraphDist;
+                            this.lockedDashDirY = telegraphDy / telegraphDist;
+                        } else {
+                            // Fallback direction
+                            this.lockedDashDirX = 1;
+                            this.lockedDashDirY = 0;
+                        }
+                        this.state = 'telegraph';
+                        this.telegraphElapsed = 0;
+                    }
+                }
             } else {
                 // Circle around player with zigzag weaving and attack avoidance
                 this.circleAngle += deltaTime * DIAMOND_CONFIG.circleSpeed;
                 this.weaveTimer += deltaTime * this.weaveSpeed; // Update weaving timer
                 
-                const orbitDistance = DIAMOND_CONFIG.orbitDistance;
-                const angle = this.circleAngle;
+                // Improved orbit behavior: vary distance based on player actions (rooms 19+)
+                let orbitDistance = DIAMOND_CONFIG.orbitDistance;
+                if (this.roomNumber >= DIAMOND_CONFIG.intelligenceThresholds.backstabPositioning) {
+                    const allPlayers = this.getAllAlivePlayers();
+                    allPlayers.forEach(({ player: p }) => {
+                        if (p.attackHitboxes && p.attackHitboxes.length > 0) {
+                            // Player attacking: orbit closer for backstab opportunity
+                            orbitDistance *= 0.8;
+                        } else if (p.isDodging || (p.vx === 0 && p.vy === 0)) {
+                            // Player ready/dodging: orbit further for safety
+                            orbitDistance *= 1.2;
+                        }
+                    });
+                }
+                
+                // Use backstab angle if available (rooms 19+)
+                let angle = this.circleAngle;
+                if (this.backstabAngle !== null && this.roomNumber >= DIAMOND_CONFIG.intelligenceThresholds.backstabPositioning) {
+                    // Blend toward backstab angle
+                    const angleDiff = normalizeAngle(this.backstabAngle - this.circleAngle);
+                    angle = this.circleAngle + angleDiff * 0.3;
+                    this.backstabAngle = null; // Clear after use
+                }
                 
                 // Calculate desired orbit position
                 const desiredX = targetX + Math.cos(angle) * orbitDistance;
@@ -209,8 +349,20 @@ class DiamondEnemy extends EnemyBase {
                     }
                 }
             }
+        } else if (this.state === 'feint') {
+            // Feint state: start telegraph but cancel and reposition
+            this.feintTimer -= deltaTime;
+            if (this.feintTimer <= 0) {
+                // Cancel feint and reposition
+                this.isFeinting = false;
+                this.feintTimer = 0;
+                this.state = 'circle';
+                // Reposition by changing orbit angle
+                this.circleAngle += Math.PI / 2 + (Math.random() - 0.5) * Math.PI / 4;
+            }
         } else if (this.state === 'telegraph') {
             // Stay in place during telegraph (acts as visual telegraph)
+            // Dash direction is already locked in from when telegraph started
             this.telegraphElapsed += deltaTime;
             if (this.telegraphElapsed >= this.telegraphDuration) {
                 // Play dash sound
@@ -218,38 +370,97 @@ class DiamondEnemy extends EnemyBase {
                     AudioManager.sounds.enemyDash();
                 }
                 
+                // Store dash target for combo detection
+                this.lastDashTarget = { x: targetX, y: targetY };
+                
                 this.state = 'dash';
                 this.dashElapsed = 0;
+                this.dashHasHit = false; // Reset hit flag for new dash
             }
         } else if (this.state === 'dash') {
-            // Dash toward target position (player or clone/decoy)
+            // Dash in locked direction (linear, no curving/chasing)
+            // Direction was locked when telegraph started, so dash is predictable
             this.dashElapsed += deltaTime;
             
-            // Get current target position (handles clones/decoys)
-            const currentTarget = this.findTarget(null);
-            const dashTargetX = currentTarget.x;
-            const dashTargetY = currentTarget.y;
+            // Use locked direction (set during telegraph) - LINEAR, NO REAIMING
+            const dashDirX = this.lockedDashDirX;
+            const dashDirY = this.lockedDashDirY;
             
-            // Calculate direction to target
-            const predDx = dashTargetX - this.x;
-            const predDy = dashTargetY - this.y;
-            const predDist = Math.sqrt(predDx * predDx + predDy * predDy);
-            
-            // Use target direction, fallback to current direction if invalid
-            let dashDirX, dashDirY;
-            if (predDist > 0) {
-                dashDirX = predDx / predDist;
-                dashDirY = predDy / predDist;
-            } else {
-                dashDirX = dx / distance;
-                dashDirY = dy / distance;
-            }
-            
-            // Check if player has active shield blocking the dash
+            // Calculate intended new position
             let newX = this.x + dashDirX * this.dashSpeed * deltaTime;
             let newY = this.y + dashDirY * this.dashSpeed * deltaTime;
             
-            if (typeof Game !== 'undefined' && Game.player && Game.player.shieldActive) {
+            // Check for player collision before moving (if not already hit)
+            if (!this.dashHasHit) {
+                const allPlayers = this.getAllAlivePlayers();
+                for (const { player: p } of allPlayers) {
+                    if (!p || !p.alive || p.invulnerable) continue;
+                    
+                    const playerRadius = p.collisionRadius || p.size || 20;
+                    const enemyRadius = this.collisionRadius || this.size || 18;
+                    
+                    // Check if new position would collide with player
+                    const dx = newX - p.x;
+                    const dy = newY - p.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    const minSeparation = playerRadius + enemyRadius;
+                    
+                    if (dist < minSeparation) {
+                        // Impact detected - stop dash early
+                        // Calculate collision normal (direction from player to enemy)
+                        const normalX = dist > 0 ? dx / dist : 1;
+                        const normalY = dist > 0 ? dy / dist : 0;
+                        
+                        // Apply damage directly on impact (host/solo only)
+                        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+                        if (!isClient && !p.invulnerable) {
+                            // Get player ID for damage attribution
+                            const localPlayerId = typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local';
+                            const playerId = p.playerId || localPlayerId;
+                            
+                            if (playerId === localPlayerId) {
+                                // Local player: apply damage directly
+                                p.takeDamage(this.damage, this);
+                            } else {
+                                // Remote player: use damageRemotePlayer
+                                if (typeof Game !== 'undefined' && Game.damageRemotePlayer) {
+                                    Game.damageRemotePlayer(playerId, this.damage);
+                                }
+                            }
+                            
+                            // Apply knockback
+                            if (typeof p.applyDamageKnockback === 'function') {
+                                const knockbackStrength = this.contactKnockback || 120;
+                                p.applyDamageKnockback(normalX * knockbackStrength, normalY * knockbackStrength);
+                            }
+                        }
+                        
+                        // Mark that dash has hit to prevent continuous damage
+                        this.dashHasHit = true;
+                        
+                        // Position enemy at collision point (just touching player)
+                        newX = p.x + normalX * minSeparation;
+                        newY = p.y + normalY * minSeparation;
+                        
+                        // End dash early and transition to cooldown
+                        this.state = 'cooldown';
+                        this.attackCooldown = this.attackCooldownTime;
+                        this.telegraphElapsed = 0;
+                        this.dashElapsed = 0;
+                        this.comboDashReady = false;
+                        
+                        // Create impact particle effect
+                        if (typeof createParticleBurst !== 'undefined') {
+                            createParticleBurst(newX, newY, '#00ffff', 8);
+                        }
+                        
+                        break; // Only handle first collision
+                    }
+                }
+            }
+            
+            // Check if player has active shield blocking the dash
+            if (typeof Game !== 'undefined' && Game.player && Game.player.shieldActive && !this.dashHasHit) {
                 const shieldStart = Game.player.size + 5;
                 const shieldDepth = 20;
                 const shieldWidth = 60; // Half width
@@ -286,15 +497,78 @@ class DiamondEnemy extends EnemyBase {
             this.rotation = Math.atan2(dashDirY, dashDirX);
             
             if (this.dashElapsed >= this.dashDuration) {
+                // Check for combo dash opportunity (rooms 13+)
+                if (this.roomNumber >= DIAMOND_CONFIG.intelligenceThresholds.comboDashes) {
+                    const timeSinceDodge = (Date.now() - this.lastPlayerDodgeTime) / 1000;
+                    const dodgeCooldown = 2.0; // Standard dodge cooldown
+                    
+                    // If player dodged recently, check for combo chance
+                    if (timeSinceDodge < dodgeCooldown && this.lastPlayerDodgeTime > 0) {
+                        const roomsPastThreshold = Math.max(0, this.roomNumber - DIAMOND_CONFIG.intelligenceThresholds.comboDashes);
+                        const comboScale = Math.min(1.0, roomsPastThreshold / 3); // Scales over 3 rooms (was 5)
+                        const comboChance = DIAMOND_CONFIG.comboDashChanceBase + 
+                                          (DIAMOND_CONFIG.comboDashChanceMax - DIAMOND_CONFIG.comboDashChanceBase) * comboScale;
+                        
+                        if (Math.random() < comboChance * this.intelligenceLevel) {
+                            // Set up combo dash with 250ms wait timer
+                            this.comboDashReady = true;
+                            this.comboDashWaitTimer = 0.25; // 250ms wait before combo dash
+                            this.state = 'cooldown';
+                            this.attackCooldown = this.attackCooldownTime;
+                            this.telegraphElapsed = 0;
+                            this.dashElapsed = 0;
+                            this.dashHasHit = false; // Reset hit flag for combo dash
+                            
+                            // Push enemy out if still overlapping player after dash ends
+                            this.resolvePlayerOverlap(2); // Extra buffer to ensure separation
+                            return; // Skip rest of cooldown logic
+                        }
+                    }
+                }
+                
                 this.state = 'cooldown';
                 this.attackCooldown = this.attackCooldownTime;
                 this.telegraphElapsed = 0;
                 this.dashElapsed = 0;
+                this.comboDashReady = false;
+                this.comboDashWaitTimer = 0;
+                
+                // Push enemy out if still overlapping player after dash ends
+                this.resolvePlayerOverlap(2); // Extra buffer to ensure separation
             }
         } else if (this.state === 'cooldown') {
+            // Update combo dash wait timer
+            if (this.comboDashWaitTimer > 0) {
+                this.comboDashWaitTimer -= deltaTime;
+            }
+            
             // Move away from player during cooldown
             if (this.attackCooldown <= 0) {
-                this.state = 'circle';
+                // Check if combo dash is ready and wait timer expired
+                if (this.comboDashReady && this.comboDashWaitTimer <= 0) {
+                    // Combo dash ready - transition to dash (direction already locked in circle state)
+                    this.comboDashReady = false;
+                    this.comboDashWaitTimer = 0;
+                    // Lock in dash direction for combo
+                    const comboDx = targetX - this.x;
+                    const comboDy = targetY - this.y;
+                    const comboDist = Math.sqrt(comboDx * comboDx + comboDy * comboDy);
+                    if (comboDist > 0) {
+                        this.lockedDashDirX = comboDx / comboDist;
+                        this.lockedDashDirY = comboDy / comboDist;
+                    } else {
+                        // Fallback to stored direction
+                        this.lockedDashDirX = this.lockedDashDirX || 1;
+                        this.lockedDashDirY = this.lockedDashDirY || 0;
+                    }
+                    this.state = 'dash';
+                    this.dashElapsed = 0;
+                    this.telegraphElapsed = 0;
+                    this.dashHasHit = false;
+                } else {
+                    // Normal cooldown finished
+                    this.state = 'circle';
+                }
             } else {
                 // Move away from player during cooldown
                 const awayDirX = -dx / distance;

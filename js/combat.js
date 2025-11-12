@@ -534,10 +534,23 @@ function checkEnemiesVsPlayer(player, enemies) {
                                                          p.x, p.y, playerRadius);
             
             if (hasProjectedHit) {
+                // For diamond enemies, check if dash has already hit (prevents continuous damage)
+                // Check dashHasHit flag regardless of current state (dash or cooldown after dash)
+                if (enemy.shape === 'diamond' && enemy.dashHasHit === true) {
+                    // Dash already hit, skip damage to prevent continuous hits
+                    resolveEnemyPlayerOverlap(enemy, p);
+                    return; // Skip to next player
+                }
+                
                 const cooldownKey = `${enemy.id}-${id}`;
                 const lastDamageTime = checkEnemiesVsPlayer.damageCooldowns.get(cooldownKey) || 0;
                 
                 if (currentTime - lastDamageTime >= damageCooldownMs) {
+                    // For diamond enemies in dash state, mark that dash has hit
+                    // This prevents multiple hits from the same dash attack
+                    if (enemy.shape === 'diamond' && (enemy.state === 'dash' || enemy.state === 'cooldown')) {
+                        enemy.dashHasHit = true;
+                    }
                     // Get local player ID for comparison
                     const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local';
                     

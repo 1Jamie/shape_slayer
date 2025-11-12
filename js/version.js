@@ -2,7 +2,7 @@
 // Update this file when releasing new versions
 
 const GameVersion = {
-    VERSION: '0.5.3',
+    VERSION: '0.5.3.1',
     
     UPDATE_MESSAGES: {
         '0.2.1': 'Initial early access release! Please report any bugs you find at https://github.com/1jamie/shape_slayer/issues',
@@ -344,7 +344,20 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 • this thing needed some updates to stlying and i added a new button to the pause menu to opt in or out of telemetry and a modal to explain what it is and why i added it.
 
 *TL;DR:* Telemetry now exist in opt in and the pause menu looks much nicer*
-`
+`,
+        '0.5.3.1': `**🔴 CIRCLE OF TRUST ISSUES** (11/12/2025)
+*"Remember those red circles you bullied for being free XP? They called a meeting. You're the agenda."*
+
+• **Honor Society Enrollment (All Enemies):** Intelligence scaling got reprinted and stapled to everyone's forehead. Feints, combo detection, surround formations, lateral spread, wall awareness, pattern reads—all unlocked earlier and smarter. Room 4's PTA meeting is now a tactical seminar and you're the powerpoint.
+• **Predictive Brainstem (All Melee):** They now track your speed, dodge cadence, and "oops I always roll left" habits. They lead your future position, pick approach angles that aren't your face, and only retreat when combo'd, cornered, or 5 HP from death. Translation: They actually use some strat.
+• **Threat Board & Timing Tutors (Roster-Wide):** Every enemy now keeps a super petty threat ledger. Low HP? Dodging on cooldown? Swinging a lot? Congrats, you're on the menu. They wait out your iframes, dogpile when you're vulnerable, and stagger attacks like they're covering the lunch rush.
+• **Simultaneous Swarming (Circle Squad):** Up to five red buddies can lunge at once, wave attacks trigger off any ready goons, and "positioners" rotate into attacker the second there's a gap. Your orderly duel queue? Replaced with synchronized homicide featuring orbital drift, feints, and combo lunges from room 1 onward.
+• **Orbital Offense (Circles):** Predictive positioning, approach-angle variance, lateral spread, flanking bias, and environmental reads finally share a group chat. They'll slide to your blind spot, fake you out, orbit for surround coverage, and respect optimal spacing like they discovered geometry yesterday.
+• **Sharpshooter Shapes (Triangle & Octagon):** Predictive aiming is mandatory with smoothed velocity history, iterative intercept math, and accuracy scaling from "hey nice try" to "95% of your future coordinates belong to us." Keep circle-strafing; they'll be over here solving for t.
+• **Diamond Dash Etiquette (Diamond):** Telegraphs lock aim vectors on start, combo follow-ups wait a dramatic 250ms, and charge paths stay perfectly linear. If you still get full-body autographed, maybe stop dodging into the arrow labeled "danger zone."
+• **Visual Aid, Now With Shade (All Enemies):** Telegraphs pulse harder, lunge trails linger, recovery backs off before re-engaging, and state colors scream what happens next. You begged for readability; they weaponized it and hit you right when the UI says "incoming."
+
+*TL;DR:* Circles graduated from cannon fodder to coordinated nuisance, the ranged kids min-maxed physics homework, and every enemy now knows what "flank" means. Bring AoE, bring timing, bring therapy.`,
     },
     
     // Update type labels - can be: 'major', 'feature', 'minor', 'hotfix', 'bugfix', 'refactor', 'rebalance'
@@ -358,7 +371,8 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
         '0.5.0': ['major', 'feature'],
         '0.5.1': ['major', 'rebalance'],
         '0.5.2': ['minor', 'hotfix'],
-        '0.5.3': ['minor'] 
+        '0.5.3': ['minor'],
+        '0.5.3.1': ['minor', 'feature', 'rebalance'] 
     }
 };
 

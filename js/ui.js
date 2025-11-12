@@ -220,6 +220,211 @@ function renderHealthBar(ctx, player) {
     }
 }
 
+// Helper function to draw a small shape indicator
+function drawPlayerShapeIndicator(ctx, x, y, shape, color, size = 12) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.fillStyle = color;
+    
+    if (shape === 'triangle') {
+        ctx.beginPath();
+        ctx.moveTo(size, 0);
+        ctx.lineTo(-size * 0.5, -size * 0.866);
+        ctx.lineTo(-size * 0.5, size * 0.866);
+        ctx.closePath();
+        ctx.fill();
+    } else if (shape === 'hexagon') {
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+            const angle = (Math.PI / 3) * i;
+            const px = Math.cos(angle) * size;
+            const py = Math.sin(angle) * size;
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fill();
+    } else if (shape === 'pentagon') {
+        const rotationOffset = 18 * Math.PI / 180;
+        ctx.beginPath();
+        for (let i = 0; i < 5; i++) {
+            const angle = (Math.PI * 2 / 5) * i - Math.PI / 2 + rotationOffset;
+            const px = Math.cos(angle) * size;
+            const py = Math.sin(angle) * size;
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fill();
+    } else {
+        // Square (default)
+        ctx.beginPath();
+        ctx.rect(-size * 0.8, -size * 0.8, size * 1.6, size * 1.6);
+        ctx.fill();
+    }
+    
+    ctx.restore();
+}
+
+// Render health bars for other players in multiplayer
+function renderOtherPlayersHealthBars(ctx) {
+    // Check if in multiplayer mode
+    const inMultiplayer = Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+    if (!inMultiplayer) return;
+    
+    // Get local player ID
+    const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
+    if (!localPlayerId) return;
+    
+    // Scale down on mobile for better space usage
+    const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+    const mobileScale = isMobile ? 0.75 : 1.0;
+    
+    // Position below local health bar (local bar is at y=30, height=36, so start at y=80)
+    const startY = 80;
+    const barX = 30;
+    const barWidth = Math.floor(240 * mobileScale); // Smaller than local bar
+    const barHeight = Math.floor(28 * mobileScale); // Smaller than local bar
+    const barSpacing = Math.floor(40 * mobileScale); // Space between bars
+    const shapeSize = 12; // Size of shape indicator
+    
+    let currentY = startY;
+    let playerCount = 0;
+    
+    // Get remote players based on whether we're host or client
+    const isHost = multiplayerManager.isHost;
+    const remotePlayerMap = isHost ? Game.remotePlayerInstances : Game.remotePlayerShadowInstances;
+    
+    if (!remotePlayerMap || remotePlayerMap.size === 0) return;
+    
+    // Iterate through remote players
+    remotePlayerMap.forEach((playerInstance, playerId) => {
+        // Skip local player
+        if (playerId === localPlayerId) return;
+        
+        // Get player health from player instance (both host and client use instances)
+        if (!playerInstance) return;
+        
+        // Get HP values from the player instance (authoritative source)
+        let hp = playerInstance.hp;
+        let maxHp = playerInstance.maxHp;
+        let dead = playerInstance.dead || false;
+        
+        // Fallback to remotePlayerStates if instance doesn't have HP (shouldn't happen, but safety)
+        if ((hp === undefined || hp === null) && isHost && Game.remotePlayerStates) {
+            const state = Game.remotePlayerStates.get(playerId);
+            if (state) {
+                hp = state.hp;
+                maxHp = state.maxHp;
+                dead = state.dead || false;
+            }
+        }
+        
+        // Default values if still undefined
+        if (hp === undefined || hp === null) hp = 0;
+        if (maxHp === undefined || maxHp === null) maxHp = 100;
+        
+        // Skip if no valid health data
+        if (maxHp <= 0) return;
+        
+        // Get player class
+        const meta = typeof getRemotePlayerMeta !== 'undefined' ? getRemotePlayerMeta(playerId) : null;
+        const classKey = playerInstance.playerClass || (meta ? meta.class : null) || 'square';
+        
+        // Get class definition for shape and color
+        let playerShape = 'square';
+        let playerColor = '#888888';
+        if (typeof CLASS_DEFINITIONS !== 'undefined') {
+            const classDef = CLASS_DEFINITIONS[classKey] || CLASS_DEFINITIONS.square;
+            playerShape = classDef.shape || 'square';
+            playerColor = classDef.color || '#888888';
+        }
+        
+        // Calculate alpha for dead players
+        const alpha = dead ? 0.5 : 1.0;
+        
+        // Shape indicator position (left of health bar)
+        const shapeX = barX - shapeSize - 8;
+        const shapeY = currentY + barHeight / 2;
+        
+        // Panel background
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        
+        const panelGradient = ctx.createLinearGradient(barX - 8, currentY - 8, barX - 8, currentY + barHeight + 8);
+        panelGradient.addColorStop(0, 'rgba(20, 20, 30, 0.85)');
+        panelGradient.addColorStop(1, 'rgba(10, 10, 20, 0.85)');
+        ctx.fillStyle = panelGradient;
+        ctx.fillRect(barX - 8, currentY - 8, barWidth + 16, barHeight + 16);
+        
+        // Panel border
+        ctx.strokeStyle = 'rgba(100, 150, 255, 0.4)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(barX - 8, currentY - 8, barWidth + 16, barHeight + 16);
+        
+        // Background with gradient
+        const bgGradient = ctx.createLinearGradient(barX, currentY, barX, currentY + barHeight);
+        bgGradient.addColorStop(0, '#2a1a1a');
+        bgGradient.addColorStop(1, '#1a0a0a');
+        ctx.fillStyle = bgGradient;
+        ctx.fillRect(barX, currentY, barWidth, barHeight);
+        
+        // Draw foreground (green/orange/red) scaled by HP/maxHP with gradient
+        const hpPercent = Math.max(0, Math.min(1, hp / maxHp));
+        const hpGradient = ctx.createLinearGradient(barX, currentY, barX, currentY + barHeight);
+        
+        if (hpPercent > 0.5) {
+            hpGradient.addColorStop(0, '#66ff66');
+            hpGradient.addColorStop(1, '#00cc00');
+        } else if (hpPercent > 0.25) {
+            hpGradient.addColorStop(0, '#ffaa44');
+            hpGradient.addColorStop(1, '#cc6600');
+        } else {
+            hpGradient.addColorStop(0, '#ff6666');
+            hpGradient.addColorStop(1, '#cc0000');
+        }
+        
+        ctx.fillStyle = hpGradient;
+        ctx.fillRect(barX + 2, currentY + 2, (barWidth - 4) * hpPercent, barHeight - 4);
+        
+        // Inner highlight
+        if (hpPercent > 0) {
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.fillRect(barX + 2, currentY + 2, (barWidth - 4) * hpPercent, (barHeight - 4) * 0.4);
+        }
+        
+        // Draw border
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(barX, currentY, barWidth, barHeight);
+        
+        // Draw text centered on bar with shadow
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `bold ${Math.floor(14 * mobileScale)}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.shadowBlur = 3;
+        ctx.shadowColor = '#000000';
+        const healthText = `${Math.floor(hp)}/${Math.floor(maxHp)}`;
+        ctx.fillText(healthText, barX + barWidth / 2, currentY + barHeight / 2);
+        ctx.shadowBlur = 0;
+        ctx.textAlign = 'left'; // Reset alignment
+        ctx.textBaseline = 'alphabetic'; // Reset baseline
+        
+        ctx.restore();
+        
+        // Draw shape indicator (outside the alpha save/restore so it's always visible)
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        drawPlayerShapeIndicator(ctx, shapeX, shapeY, playerShape, playerColor, shapeSize);
+        ctx.restore();
+        
+        // Move to next position
+        currentY += barHeight + barSpacing;
+        playerCount++;
+    });
+}
+
 // Render XP bar
 function renderXPBar(ctx, player) {
     const canvasWidth = Game ? Game.config.width : 1280;
@@ -4345,6 +4550,11 @@ function renderUI(ctx, player) {
         // When dead but spectating (multiplayer), show spectator indicator
         if (player.dead && inMultiplayer && Game.spectateMode) {
             renderSpectatorIndicator(ctx);
+        }
+        
+        // Render other players' health bars in multiplayer (when alive or spectating)
+        if (inMultiplayer) {
+            renderOtherPlayersHealthBars(ctx);
         }
     } else {
         // Only show death screen in solo OR when all players dead in multiplayer

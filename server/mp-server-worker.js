@@ -168,6 +168,7 @@ class WorkerProcess {
     handleCreateLobby(ws, data) {
         const code = this.generateLobbyCode();
         const playerId = this.generatePlayerId();
+        const persistentPlayerId = data.persistentPlayerId || null;
         
         const lobby = {
             code,
@@ -175,6 +176,7 @@ class WorkerProcess {
             players: [{
                 ws,
                 id: playerId,
+                persistentPlayerId: persistentPlayerId, // Store persistent ID for future reconnections
                 name: data.playerName || 'Player 1',
                 class: data.class || 'square',
                 ready: false,
@@ -217,7 +219,7 @@ class WorkerProcess {
     }
     
     handleJoinLobby(ws, data) {
-        const { code, playerName, playerClass } = data;
+        const { code, playerName, playerClass, persistentPlayerId } = data;
         
         // Check if lobby exists locally
         let lobby = this.lobbies.get(code);
@@ -242,42 +244,83 @@ class WorkerProcess {
             return;
         }
         
-        if (lobby.players.length >= lobby.maxPlayers) {
-            ws.send(JSON.stringify({
-                type: 'lobby_error',
-                data: { message: 'Lobby is full' }
-            }));
-            return;
+        // Check if player with persistent ID already exists (reconnection)
+        let existingPlayerIndex = -1;
+        let playerId;
+        let isReconnection = false;
+        
+        if (persistentPlayerId) {
+            existingPlayerIndex = lobby.players.findIndex(p => p.persistentPlayerId === persistentPlayerId);
+            if (existingPlayerIndex !== -1) {
+                // Player reconnecting - reuse existing player entry
+                const existingPlayer = lobby.players[existingPlayerIndex];
+                playerId = existingPlayer.id;
+                isReconnection = true;
+                
+                // Remove old disconnected player entry (cleanup)
+                const oldWs = existingPlayer.ws;
+                if (oldWs && oldWs !== ws) {
+                    // Close old connection if still open
+                    if (oldWs.readyState === WebSocket.OPEN) {
+                        oldWs.close(1000, 'Reconnected from another session');
+                    }
+                    this.playerToLobby.delete(oldWs);
+                }
+                
+                // Update player entry with new WebSocket and data
+                existingPlayer.ws = ws;
+                existingPlayer.name = playerName || existingPlayer.name;
+                existingPlayer.class = playerClass || existingPlayer.class;
+                existingPlayer.currency = data.currency !== undefined ? data.currency : existingPlayer.currency;
+                existingPlayer.upgrades = data.upgrades || existingPlayer.upgrades;
+                // Keep ready state as-is (don't reset on reconnect)
+                
+                console.log(`[Worker ${this.getWorkerId()}] ${existingPlayer.name} reconnected to lobby ${code} (persistent ID: ${persistentPlayerId})`);
+            }
         }
         
-        const playerId = this.generatePlayerId();
-        const player = {
-            ws,
-            id: playerId,
-            name: playerName || `Player ${lobby.players.length + 1}`,
-            class: playerClass || 'square',
-            ready: false,
-            currency: data.currency || 0,
-            upgrades: data.upgrades || {
-                square: { damage: 0, defense: 0, speed: 0 },
-                triangle: { damage: 0, defense: 0, speed: 0 },
-                pentagon: { damage: 0, defense: 0, speed: 0 },
-                hexagon: { damage: 0, defense: 0, speed: 0 }
+        // If not a reconnection, create new player
+        if (!isReconnection) {
+            // Check lobby capacity (excluding reconnecting player)
+            if (lobby.players.length >= lobby.maxPlayers) {
+                ws.send(JSON.stringify({
+                    type: 'lobby_error',
+                    data: { message: 'Lobby is full' }
+                }));
+                return;
             }
-        };
+            
+            playerId = this.generatePlayerId();
+            const player = {
+                ws,
+                id: playerId,
+                persistentPlayerId: persistentPlayerId || null, // Store persistent ID for future reconnections
+                name: playerName || `Player ${lobby.players.length + 1}`,
+                class: playerClass || 'square',
+                ready: false,
+                currency: data.currency || 0,
+                upgrades: data.upgrades || {
+                    square: { damage: 0, defense: 0, speed: 0 },
+                    triangle: { damage: 0, defense: 0, speed: 0 },
+                    pentagon: { damage: 0, defense: 0, speed: 0 },
+                    hexagon: { damage: 0, defense: 0, speed: 0 }
+                }
+            };
+            
+            lobby.players.push(player);
+            console.log(`[Worker ${this.getWorkerId()}] ${player.name} joined lobby ${code} (${lobby.players.length}/${lobby.maxPlayers})`);
+        }
         
-        lobby.players.push(player);
         this.playerToLobby.set(ws, code);
         
-        console.log(`[Worker ${this.getWorkerId()}] ${player.name} joined lobby ${code} (${lobby.players.length}/${lobby.maxPlayers})`);
-        
-        // Send confirmation to joining player
+        // Send confirmation to joining/reconnecting player
         ws.send(JSON.stringify({
             type: 'lobby_joined',
             data: {
                 code,
                 playerId,
                 isHost: false,
+                isReconnection: isReconnection,
                 players: lobby.players.map(p => ({
                     id: p.id,
                     name: p.name,
@@ -289,28 +332,53 @@ class WorkerProcess {
             }
         }));
         
-        // Notify all other players in lobby
-        this.broadcastToLobby(lobby, {
-            type: 'player_joined',
-            data: {
-                player: {
-                    id: playerId,
-                    name: player.name,
-                    class: player.class,
-                    ready: player.ready,
-                    currency: player.currency,
-                    upgrades: player.upgrades
-                },
-                players: lobby.players.map(p => ({
-                    id: p.id,
-                    name: p.name,
-                    class: p.class,
-                    ready: p.ready,
-                    currency: p.currency,
-                    upgrades: p.upgrades
-                }))
-            }
-        }, ws);
+        // Only notify other players if this is a new join (not a reconnection)
+        // On reconnection, we don't want to trigger player_joined events
+        if (!isReconnection) {
+            // Notify all other players in lobby
+            this.broadcastToLobby(lobby, {
+                type: 'player_joined',
+                data: {
+                    player: {
+                        id: playerId,
+                        name: playerName || `Player ${lobby.players.length}`,
+                        class: playerClass || 'square',
+                        ready: false,
+                        currency: data.currency || 0,
+                        upgrades: data.upgrades || {
+                            square: { damage: 0, defense: 0, speed: 0 },
+                            triangle: { damage: 0, defense: 0, speed: 0 },
+                            pentagon: { damage: 0, defense: 0, speed: 0 },
+                            hexagon: { damage: 0, defense: 0, speed: 0 }
+                        }
+                    },
+                    players: lobby.players.map(p => ({
+                        id: p.id,
+                        name: p.name,
+                        class: p.class,
+                        ready: p.ready,
+                        currency: p.currency,
+                        upgrades: p.upgrades
+                    }))
+                }
+            }, ws);
+        } else {
+            // On reconnection, send updated player list to all players (including reconnecting player)
+            // This ensures everyone sees the reconnected player with updated info
+            this.broadcastToLobby(lobby, {
+                type: 'player_list_update',
+                data: {
+                    players: lobby.players.map(p => ({
+                        id: p.id,
+                        name: p.name,
+                        class: p.class,
+                        ready: p.ready,
+                        currency: p.currency,
+                        upgrades: p.upgrades
+                    }))
+                }
+            });
+        }
     }
     
     handleLeaveLobby(ws) {

@@ -15,16 +15,48 @@ const BASIC_ENEMY_CONFIG = {
     
     // Attack Behavior
     attackCooldown: 2.0,           // Time between attacks (seconds)
-    telegraphDuration: 0.5,        // Telegraph warning duration (seconds)
-    lungeDuration: 0.2,            // Duration of lunge attack (seconds)
-    lungeSpeed: 300,               // Speed during lunge (pixels/second)
-    attackRange: 50,               // Distance to initiate attack (pixels)
+    telegraphDuration: 0.6,        // Base telegraph warning duration (seconds, increased from 0.5)
+    quickTelegraphDuration: 0.4,   // Quick lunge telegraph (rooms 2+)
+    delayedTelegraphDuration: 0.8, // Delayed lunge telegraph (rooms 2+)
+    lungeDuration: 0.4,            // Duration of lunge attack (seconds, increased from 0.2)
+    lungeSpeed: 400,               // Speed during lunge (pixels/second, increased from 300)
+    lungeDistance: 120,            // Maximum distance lunge can travel (pixels)
+    attackRange: 80,               // Distance to initiate attack (pixels, increased from 50)
     attackRangeVariance: 10,       // Random variance for attack timing (±pixels)
+    attackRecoveryDuration: 0.3,    // Duration of recovery after lunge (seconds)
     
     // Movement Behavior
-    separationRadius: 40,          // Minimum distance from other enemies (pixels)
-    separationStrength: 150,       // Force strength for separation (pixels)
+    separationRadius: 50,          // Minimum distance from other enemies (pixels, increased)
+    separationStrength: 200,       // Force strength for separation (pixels, increased)
     groupRadius: 150,              // Radius to find group center (pixels)
+    pathAvoidanceRadius: 35,       // Radius to check for path obstacles (pixels)
+    pathLookAhead: 100,            // How far ahead to check for obstacles (pixels)
+    lateralSpreadRadius: 120,      // Radius for lateral spread detection (pixels)
+    lateralSpreadStrength: 80,     // Strength of lateral spread force (pixels, reduced for subtlety)
+    
+    // Intelligence scaling thresholds (basic features from room 1)
+    intelligenceThresholds: {
+        advancedPatterns: 1,       // Room when quick/delayed lunge patterns unlock (room 1)
+        feintAttacks: 2,           // Room when feint attacks unlock
+        playerReactions: 1,        // Room when player reaction system unlocks (room 1)
+        coordination: 1,           // Room when coordination unlocks (room 1)
+        comboLunge: 4,             // Room when combo lunge unlocks
+        waveAttacks: 3,            // Room when wave attacks unlock
+        surroundFormation: 5,      // Room when surround formation unlocks
+        retreatBehavior: 11        // Room when retreat behavior unlocks (was 16)
+    },
+    
+    // Feint attack behavior
+    feintChanceBase: 0.10,         // Base feint chance at room 2
+    feintChanceMax: 0.20,          // Max feint chance at room 5+
+    
+    // Combo lunge behavior
+    comboLungeChanceBase: 0.15,    // Base combo chance at room 4
+    comboLungeChanceMax: 0.30,     // Max combo chance at room 7+
+    
+    // Retreat behavior
+    retreatHpThreshold: 0.3,      // HP % below which enemy considers retreating
+    retreatChance: 0.3             // Chance to retreat when low HP (scales with intelligence)
 };
 
 class Enemy extends EnemyBase {
@@ -46,17 +78,64 @@ class Enemy extends EnemyBase {
         this.lootChance = BASIC_ENEMY_CONFIG.lootChance;
         
         // Attack system
-        this.state = 'chase'; // 'chase', 'telegraph', 'lunge', 'cooldown'
+        this.state = 'chase'; // 'chase', 'telegraph', 'lunge', 'cooldown', 'retreat', 'recovery'
         this.attackCooldown = 0;
         this.attackCooldownTime = BASIC_ENEMY_CONFIG.attackCooldown;
         this.telegraphDuration = BASIC_ENEMY_CONFIG.telegraphDuration;
         this.lungeDuration = BASIC_ENEMY_CONFIG.lungeDuration;
         this.telegraphElapsed = 0;
         this.lungeElapsed = 0;
+        this.recoveryElapsed = 0;
         this.originalSpeed = this.moveSpeed;
         this.lungeSpeed = BASIC_ENEMY_CONFIG.lungeSpeed;
+        this.lungeDistance = BASIC_ENEMY_CONFIG.lungeDistance;
         this.attackRange = BASIC_ENEMY_CONFIG.attackRange;
         this.attackRangeVariance = BASIC_ENEMY_CONFIG.attackRangeVariance;
+        this.attackRecoveryDuration = BASIC_ENEMY_CONFIG.attackRecoveryDuration;
+        
+        // Locked lunge direction (set during telegraph, used during lunge)
+        this.lockedLungeDirX = 0;
+        this.lockedLungeDirY = 0;
+        this.lungeStartX = 0;
+        this.lungeStartY = 0;
+        
+        // Attack pattern variation (scales with room)
+        this.attackPattern = 'simple'; // 'simple', 'quick', 'delayed'
+        this.currentTelegraphDuration = this.telegraphDuration;
+        
+        // Feint attack system (rooms 2+)
+        this.isFeinting = false;
+        this.feintTimer = 0;
+        
+        // Combo lunge system (rooms 4+)
+        this.comboLungeReady = false;
+        this.comboLungeWaitTimer = 0;
+        this.lastPlayerDodgeTime = 0;
+        this.lastPlayerDodgePosition = null;
+        
+        // Player reaction tracking
+        this.playerAttackReactionTimer = 0;
+        this.lastPlayerAttackTime = 0;
+        
+        // Group coordination (enabled from room 1)
+        this.coordinationEnabled = this.roomNumber >= BASIC_ENEMY_CONFIG.intelligenceThresholds.coordination;
+        this.coordinationRole = null; // 'attacker', 'positioner', null
+        this.coordinationTimer = 0;
+        this.waveAttackReady = false; // For coordinated wave attacks (room 3+)
+        
+        // Retreat behavior
+        this.retreatTimer = 0;
+        this.retreatTarget = null;
+        
+        // Intelligence systems (base features from room 1)
+        this.usePredictivePositioning = true; // Always enabled from room 1 (with lower weight)
+        this.optimalDistance = this.attackRange * 1.2; // Preferred engagement distance (increased from 0.9)
+        this.patternRecognitionEnabled = this.roomNumber >= 6; // Enable pattern recognition room 6+
+        this.environmentalAwarenessEnabled = this.roomNumber >= 8; // Enable environmental awareness room 8+
+        
+        // Orbital movement
+        this.orbitAngle = Math.random() * Math.PI * 2; // Random starting orbit angle
+        this.orbitSpeed = 0.5; // Rotation speed around player (radians/second)
         
         // Initialize attack range variance for this instance
         this.currentAttackRange = this.attackRange + (Math.random() - 0.5) * this.attackRangeVariance * 2;
@@ -104,15 +183,97 @@ class Enemy extends EnemyBase {
             this.attackCooldown -= cooldownDelta;
         }
         
+        // Get target player for pattern recognition and intelligence systems
+        const targetPlayer = this.getPlayerById(this.currentTarget) || this.getNearestPlayer();
+        
+        // Update player patterns (rooms 6+)
+        if (this.patternRecognitionEnabled && targetPlayer && targetPlayer.alive) {
+            this.updatePlayerPatterns(targetPlayer);
+        }
+        
         // Get target (handles decoy/clone logic, uses internal getAllAlivePlayers)
-        const target = this.findTarget(null);
-        const targetX = target.x;
-        const targetY = target.y;
+        let target = this.findTarget(null);
+        let targetX = target.x;
+        let targetY = target.y;
+        
+        // Use predictive positioning (always enabled from room 1, with lower weight)
+        if (this.usePredictivePositioning && targetPlayer && targetPlayer.alive) {
+            // Store original target for validation
+            const originalTargetX = targetX;
+            const originalTargetY = targetY;
+            
+            // Blend between current position and predicted position based on intelligence
+            // Lower weight for base intelligence (0.3 max) vs advanced (0.6 max)
+            const predicted = this.getPredictedTargetPosition(targetPlayer);
+            const baseWeight = 0.3; // Base weight from room 1
+            const advancedWeight = 0.6; // Advanced weight (room 3+)
+            const weightScale = Math.min(1.0, (this.roomNumber - 1) / 2); // Scale from room 1 to 3
+            const predictionWeight = (baseWeight + (advancedWeight - baseWeight) * weightScale) * this.intelligenceLevel;
+            targetX = targetX * (1 - predictionWeight) + predicted.x * predictionWeight;
+            targetY = targetY * (1 - predictionWeight) + predicted.y * predictionWeight;
+            
+            // Use pattern-based prediction if available (rooms 6+)
+            if (this.patternRecognitionEnabled && this.playerPatterns.movementHistory.length >= 3) {
+                const patternPredicted = this.predictFromPatterns(targetPlayer);
+                
+                // Validate pattern prediction doesn't cause backward movement
+                const patternDx = patternPredicted.x - this.x;
+                const patternDy = patternPredicted.y - this.y;
+                const patternDist = Math.sqrt(patternDx * patternDx + patternDy * patternDy);
+                
+                if (patternDist > 0) {
+                    const toOriginalX = originalTargetX - this.x;
+                    const toOriginalY = originalTargetY - this.y;
+                    const toOriginalDist = Math.sqrt(toOriginalX * toOriginalX + toOriginalY * toOriginalY);
+                    
+                    if (toOriginalDist > 0) {
+                        const toOriginalNormX = toOriginalX / toOriginalDist;
+                        const toOriginalNormY = toOriginalY / toOriginalDist;
+                        const patternNormX = patternDx / patternDist;
+                        const patternNormY = patternDy / patternDist;
+                        
+                        // Check if pattern prediction would cause backward movement
+                        const patternDot = toOriginalNormX * patternNormX + toOriginalNormY * patternNormY;
+                        if (patternDot >= 0) {
+                            // Safe to use pattern prediction
+                            const patternWeight = this.intelligenceLevel * 0.3; // Max 30% pattern prediction
+                            targetX = targetX * (1 - patternWeight) + patternPredicted.x * patternWeight;
+                            targetY = targetY * (1 - patternWeight) + patternPredicted.y * patternWeight;
+                        }
+                    }
+                }
+            }
+            
+            // Final validation: ensure target is not causing backward movement
+            const finalDx = targetX - this.x;
+            const finalDy = targetY - this.y;
+            const finalDist = Math.sqrt(finalDx * finalDx + finalDy * finalDy);
+            
+            if (finalDist > 0) {
+                const toOriginalX = originalTargetX - this.x;
+                const toOriginalY = originalTargetY - this.y;
+                const toOriginalDist = Math.sqrt(toOriginalX * toOriginalX + toOriginalY * toOriginalY);
+                
+                if (toOriginalDist > 0) {
+                    const toOriginalNormX = toOriginalX / toOriginalDist;
+                    const toOriginalNormY = toOriginalY / toOriginalDist;
+                    const finalNormX = finalDx / finalDist;
+                    const finalNormY = finalDy / finalDist;
+                    
+                    // If final target would cause backward movement, use original
+                    const finalDot = toOriginalNormX * finalNormX + toOriginalNormY * finalNormY;
+                    if (finalDot < 0) {
+                        targetX = originalTargetX;
+                        targetY = originalTargetY;
+                    }
+                }
+            }
+        }
         
         // Calculate direction from enemy to target
-        const dx = targetX - this.x;
-        const dy = targetY - this.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
+        let dx = targetX - this.x;
+        let dy = targetY - this.y;
+        let distance = Math.sqrt(dx * dx + dy * dy);
         
         // Avoid division by zero
         if (distance <= 0) return;
@@ -123,78 +284,505 @@ class Enemy extends EnemyBase {
         // Get enemies array for AI behaviors
         const enemies = (typeof Game !== 'undefined' && Game.enemies) ? Game.enemies : [];
         
-        // AI behavior based on state
-        if (this.state === 'chase') {
-            // Normal chase behavior with separation and swarming
-            if (distance < this.currentAttackRange && this.attackCooldown <= 0) {
-                // Check minimum telegraph range so enemies telegraph before relying on collision damage
-                if (distance > this.minTelegraphRange) {
-                    // Start telegraph
-                    this.state = 'telegraph';
-                    this.telegraphElapsed = 0;
-                } else {
-                    // Too close to properly telegraph: slide back slightly to reset and avoid phasing
-                    const pushDistance = (this.minTelegraphRange - distance) + 1;
-                    const pushX = (this.x - targetX) / distance * pushDistance;
-                    const pushY = (this.y - targetY) / distance * pushDistance;
-                    
-                    this.x += pushX;
-                    this.y += pushY;
-                    
-                    if (this.keepInBounds) {
-                        this.keepInBounds();
+        // Check for tactical retreat (situational and intelligent, room 10+)
+        if (this.state !== 'retreat' && targetPlayer && targetPlayer.alive && this.intelligenceLevel >= 0.7) {
+            if (this.shouldRetreat(targetPlayer, enemies)) {
+                // Short tactical reposition, not a long retreat
+                const retreatPos = this.getRetreatPosition(targetPlayer, 80 + Math.random() * 40); // 80-120px
+                this.state = 'retreat';
+                this.retreatTimer = 0.4 + Math.random() * 0.3; // 0.4-0.7 seconds (short reposition)
+                this.retreatTarget = retreatPos;
+            }
+        }
+        
+        // Check for player actions and react (enabled from room 1)
+        if (this.roomNumber >= BASIC_ENEMY_CONFIG.intelligenceThresholds.playerReactions) {
+            const allPlayers = this.getAllAlivePlayers();
+            allPlayers.forEach(({ player: p }) => {
+                if (p.attackHitboxes && p.attackHitboxes.length > 0) {
+                    this.reactToPlayerAction('attack', p);
+                    this.lastPlayerAttackTime = Date.now();
+                }
+                if (p.isDodging) {
+                    this.reactToPlayerAction('dodge', p);
+                    this.lastPlayerDodgeTime = Date.now();
+                    this.lastPlayerDodgePosition = { x: p.x, y: p.y };
+                }
+            });
+        }
+        
+        // Old HP-based retreat behavior removed - now handled by intelligent shouldRetreat() method
+        // This ensures retreat is situational and tactical, not just based on HP threshold
+        
+        // Group coordination (rooms 13+)
+        // Enhanced group coordination (rooms 8+)
+        if (this.coordinationEnabled && this.state === 'chase') {
+            this.coordinationTimer += deltaTime;
+            const allies = this.coordinateWithAllies(enemies);
+            if (allies && allies.length > 0) {
+                // Count allies in different states
+                let alliesAttacking = 0;
+                let alliesPositioning = 0;
+                let alliesReady = 0;
+                
+                allies.forEach(({ enemy: ally }) => {
+                    if (ally.state === 'telegraph' || ally.state === 'lunge') {
+                        alliesAttacking++;
+                    } else if (ally.coordinationRole === 'positioner') {
+                        alliesPositioning++;
+                    } else if (ally.state === 'chase' && ally.attackCooldown <= 0) {
+                        alliesReady++;
+                    }
+                });
+                
+                // Enhanced coordination logic - allow multiple simultaneous attacks
+                // Calculate max simultaneous attackers based on total enemy count
+                const totalEnemies = enemies.filter(e => e.alive && e.shape === 'circle').length;
+                const maxSimultaneousAttackers = Math.min(Math.max(2, Math.floor(totalEnemies / 5)), 5); // 2-5 attackers at once
+                
+                // Only restrict attacks if we're at the limit
+                if (alliesAttacking >= maxSimultaneousAttackers) {
+                    // Too many attacking - position to flank or distract
+                    if (this.coordinationRole !== 'attacker') {
+                        this.coordinationRole = 'positioner';
+                    }
+                } else if (alliesAttacking > 0 && alliesAttacking < maxSimultaneousAttackers) {
+                    // Some allies attacking but not at limit - can join attack
+                    // Higher chance to attack if fewer are attacking
+                    const attackChance = (1 - (alliesAttacking / maxSimultaneousAttackers)) * 0.7; // 70% chance when 0 attacking, decreases as more attack
+                    if (Math.random() < attackChance * this.intelligenceLevel) {
+                        this.coordinationRole = 'attacker';
+                    } else {
+                        this.coordinationRole = 'positioner';
+                    }
+                } else if (alliesPositioning >= 2 && alliesReady === 0) {
+                    // Multiple allies positioning, none ready - this one should attack
+                    if (Math.random() < 0.7 * this.intelligenceLevel) {
+                        this.coordinationRole = 'attacker';
+                    }
+                } else if (alliesReady > 0 && this.coordinationRole !== 'positioner') {
+                    // Other allies ready - allow simultaneous attacks (less restrictive)
+                    const attackChance = 0.6 * this.intelligenceLevel; // Increased from 0.4
+                    if (Math.random() < attackChance) {
+                        this.coordinationRole = 'attacker';
+                    } else {
+                        this.coordinationRole = 'positioner';
+                    }
+                } else if (!this.coordinationRole) {
+                    // No role assigned - favor attacker role (increased chance)
+                    if (Math.random() < 0.5 * this.intelligenceLevel) { // Increased from 0.3
+                        this.coordinationRole = 'attacker';
+                    } else {
+                        this.coordinationRole = 'positioner';
                     }
                 }
-            } else {
-                // Apply separation force to avoid crowding
-                const separation = this.getSeparationForce(enemies, BASIC_ENEMY_CONFIG.separationRadius, BASIC_ENEMY_CONFIG.separationStrength);
                 
-                // Optional: Get group center for swarming behavior
-                const groupCenter = this.getGroupCenter(enemies, BASIC_ENEMY_CONFIG.groupRadius, true); // Same type only
-                
-                // Calculate movement direction
-                let moveX = dx / distance;
-                let moveY = dy / distance;
-                
-                // Blend toward group center if in a swarm
-                if (groupCenter) {
-                    const toGroupX = groupCenter.x - this.x;
-                    const toGroupY = groupCenter.y - this.y;
-                    const toGroupDist = Math.sqrt(toGroupX * toGroupX + toGroupY * toGroupY);
-                    if (toGroupDist > 0) {
-                        // Blend 70% toward player, 30% toward group center
-                        moveX = moveX * 0.7 + (toGroupX / toGroupDist) * 0.3;
-                        moveY = moveY * 0.7 + (toGroupY / toGroupDist) * 0.3;
-                        const moveDist = Math.sqrt(moveX * moveX + moveY * moveY);
-                        if (moveDist > 0) {
-                            moveX /= moveDist;
-                            moveY /= moveDist;
+                // Wave attack coordination (room 3+) - more aggressive, easier to trigger
+                if (this.roomNumber >= BASIC_ENEMY_CONFIG.intelligenceThresholds.waveAttacks && 
+                    this.attackCooldown <= 0) {
+                    // Check if enough allies are ready for wave attack
+                    let readyAllies = 0;
+                    allies.forEach(({ enemy: ally }) => {
+                        if (ally.state === 'chase' && ally.attackCooldown <= 0) {
+                            // Count all ready allies, not just attackers
+                            readyAllies++;
+                        }
+                    });
+                    
+                    // Lower threshold for wave attacks - trigger with 2+ ready allies
+                    // Higher chance when more allies are ready
+                    if (readyAllies >= 2) {
+                        const waveChance = Math.min(0.8, 0.3 + (readyAllies - 2) * 0.1); // 30% with 2 allies, up to 80% with 7+
+                        if (Math.random() < waveChance * this.intelligenceLevel) {
+                            // Coordinate wave attack - commit to simultaneous attack
+                            this.waveAttackReady = true;
+                            this.coordinationRole = 'attacker'; // Ensure attacker role
+                        }
+                    }
+                }
+            }
+        }
+        
+        // AI behavior based on state
+        if (this.state === 'chase') {
+            // Check for player attack reaction (rooms 9+)
+            let shouldDelayAttack = false;
+            if (this.roomNumber >= BASIC_ENEMY_CONFIG.intelligenceThresholds.playerReactions) {
+                const timeSincePlayerAttack = (Date.now() - this.lastPlayerAttackTime) / 1000;
+                const reactionDelay = this.getReactionSpeed(0.3, 0.1, 0.5);
+                if (timeSincePlayerAttack < reactionDelay && this.lastPlayerAttackTime > 0) {
+                    shouldDelayAttack = true;
+                }
+            }
+            
+            // Normal chase behavior with separation and swarming
+            // Check attack timing (enabled from room 1)
+            let goodTiming = true;
+            if (this.roomNumber >= BASIC_ENEMY_CONFIG.intelligenceThresholds.playerReactions && targetPlayer) {
+                goodTiming = this.isGoodAttackTiming(targetPlayer);
+                if (!goodTiming) {
+                    shouldDelayAttack = true;
+                }
+            }
+            
+            if (distance < this.currentAttackRange && this.attackCooldown <= 0 && !shouldDelayAttack && goodTiming) {
+                // Check coordination role - only prevent attack if we're at simultaneous attacker limit
+                if (this.coordinationEnabled && this.coordinationRole === 'positioner') {
+                    // Check if we're at the simultaneous attacker limit
+                    const allies = this.coordinateWithAllies(enemies);
+                    if (allies && allies.length > 0) {
+                        let alliesAttacking = 0;
+                        allies.forEach(({ enemy: ally }) => {
+                            if (ally.state === 'telegraph' || ally.state === 'lunge') {
+                                alliesAttacking++;
+                            }
+                        });
+                        
+                        const totalEnemies = enemies.filter(e => e.alive && e.shape === 'circle').length;
+                        const maxSimultaneousAttackers = Math.min(Math.max(2, Math.floor(totalEnemies / 5)), 5);
+                        
+                        // Only prevent attack if we're at the limit
+                        if (alliesAttacking >= maxSimultaneousAttackers) {
+                            shouldDelayAttack = true;
+                        } else {
+                            // Not at limit - allow this enemy to attack even if role is positioner
+                            this.coordinationRole = 'attacker';
                         }
                     }
                 }
                 
-                // Apply separation force (normalized and blended)
+                if (!shouldDelayAttack) {
+                    // Check for combo lunge opportunity (rooms 4+)
+                    if (this.roomNumber >= BASIC_ENEMY_CONFIG.intelligenceThresholds.comboLunge && this.comboLungeReady && this.comboLungeWaitTimer <= 0) {
+                        // Player dodged last lunge, follow up after wait period
+                        this.comboLungeReady = false;
+                        this.comboLungeWaitTimer = 0;
+                        // Lock in lunge direction immediately (no telegraph for combo)
+                        const comboDx = targetX - this.x;
+                        const comboDy = targetY - this.y;
+                        const comboDist = Math.sqrt(comboDx * comboDx + comboDy * comboDy);
+                        if (comboDist > 0) {
+                            this.lockedLungeDirX = comboDx / comboDist;
+                            this.lockedLungeDirY = comboDy / comboDist;
+                        } else {
+                            // Fallback to stored direction
+                            this.lockedLungeDirX = this.lockedLungeDirX || 1;
+                            this.lockedLungeDirY = this.lockedLungeDirY || 0;
+                        }
+                        this.lungeStartX = this.x;
+                        this.lungeStartY = this.y;
+                        this.state = 'lunge';
+                        this.lungeElapsed = 0;
+                        this.telegraphElapsed = 0;
+                    } else {
+                        // Check for feint attack (rooms 2+)
+                        let shouldFeint = false;
+                        if (this.roomNumber >= BASIC_ENEMY_CONFIG.intelligenceThresholds.feintAttacks) {
+                            const roomsPastThreshold = Math.max(0, this.roomNumber - BASIC_ENEMY_CONFIG.intelligenceThresholds.feintAttacks);
+                            const feintScale = Math.min(1.0, roomsPastThreshold / 3); // Scales over 3 rooms
+                            const feintChance = BASIC_ENEMY_CONFIG.feintChanceBase + 
+                                               (BASIC_ENEMY_CONFIG.feintChanceMax - BASIC_ENEMY_CONFIG.feintChanceBase) * feintScale;
+                            
+                            if (Math.random() < feintChance * this.intelligenceLevel) {
+                                shouldFeint = true;
+                                this.isFeinting = true;
+                                this.feintTimer = this.telegraphDuration * 0.5; // Shorter feint telegraph
+                                this.state = 'telegraph';
+                                this.telegraphElapsed = 0;
+                            }
+                        }
+                        
+                        if (!shouldFeint) {
+                            // Choose attack pattern (enabled from room 1)
+                            if (this.roomNumber >= BASIC_ENEMY_CONFIG.intelligenceThresholds.advancedPatterns) {
+                                const quickWeight = this.getPatternWeight('advancedPatterns', BASIC_ENEMY_CONFIG.intelligenceThresholds, 0.6);
+                                const delayedWeight = this.getPatternWeight('advancedPatterns', BASIC_ENEMY_CONFIG.intelligenceThresholds, 0.6);
+                                const totalWeight = quickWeight + delayedWeight + 0.2; // 20% simple pattern
+                                
+                                const rand = Math.random() * totalWeight;
+                                if (rand < quickWeight) {
+                                    this.attackPattern = 'quick';
+                                    this.currentTelegraphDuration = BASIC_ENEMY_CONFIG.quickTelegraphDuration;
+                                } else if (rand < quickWeight + delayedWeight) {
+                                    this.attackPattern = 'delayed';
+                                    this.currentTelegraphDuration = BASIC_ENEMY_CONFIG.delayedTelegraphDuration;
+                                } else {
+                                    this.attackPattern = 'simple';
+                                    this.currentTelegraphDuration = BASIC_ENEMY_CONFIG.telegraphDuration;
+                                }
+                            } else {
+                                this.attackPattern = 'simple';
+                                this.currentTelegraphDuration = BASIC_ENEMY_CONFIG.telegraphDuration;
+                            }
+                            
+                            // Lock in lunge direction at telegraph start (like diamond enemy)
+                            const telegraphDx = targetX - this.x;
+                            const telegraphDy = targetY - this.y;
+                            const telegraphDist = Math.sqrt(telegraphDx * telegraphDx + telegraphDy * telegraphDy);
+                            if (telegraphDist > 0) {
+                                // Lock in lunge direction at telegraph start
+                                this.lockedLungeDirX = telegraphDx / telegraphDist;
+                                this.lockedLungeDirY = telegraphDy / telegraphDist;
+                            } else {
+                                // Fallback direction
+                                this.lockedLungeDirX = 1;
+                                this.lockedLungeDirY = 0;
+                            }
+                            
+                            // Check minimum telegraph range so enemies telegraph before relying on collision damage
+                            if (distance > this.minTelegraphRange) {
+                                // Start telegraph
+                                this.state = 'telegraph';
+                                this.telegraphElapsed = 0;
+                            } else {
+                                // Too close to properly telegraph: slide back slightly to reset and avoid phasing
+                                const pushDistance = (this.minTelegraphRange - distance) + 1;
+                                const pushX = (this.x - targetX) / distance * pushDistance;
+                                const pushY = (this.y - targetY) / distance * pushDistance;
+                                
+                                this.x += pushX;
+                                this.y += pushY;
+                                
+                                if (this.keepInBounds) {
+                                    this.keepInBounds();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Movement logic
+            if (shouldDelayAttack || distance >= this.currentAttackRange || this.attackCooldown > 0) {
+                // Calculate optimal/strategic target position
+                let moveTargetX = targetX;
+                let moveTargetY = targetY;
+                
+                // Use optimal engagement distance (always enabled from room 1)
+                if (this.usePredictivePositioning) {
+                    const optimalPos = this.getOptimalPosition(targetX, targetY, this.optimalDistance);
+                    moveTargetX = optimalPos.x;
+                    moveTargetY = optimalPos.y;
+                }
+                
+                // Add orbital movement when at engagement distance (room 1+)
+                const currentDist = Math.sqrt((targetX - this.x) * (targetX - this.x) + (targetY - this.y) * (targetY - this.y));
+                if (currentDist >= this.optimalDistance * 0.8 && currentDist <= this.optimalDistance * 1.2) {
+                    // At engagement distance - orbit player slightly
+                    this.orbitAngle += deltaTime * this.orbitSpeed;
+                    const orbitRadius = this.optimalDistance;
+                    const orbitX = targetX + Math.cos(this.orbitAngle) * orbitRadius;
+                    const orbitY = targetY + Math.sin(this.orbitAngle) * orbitRadius;
+                    
+                    // Blend orbital movement with direct approach
+                    const orbitWeight = 0.3; // 30% orbital, 70% direct
+                    moveTargetX = moveTargetX * (1 - orbitWeight) + orbitX * orbitWeight;
+                    moveTargetY = moveTargetY * (1 - orbitWeight) + orbitY * orbitWeight;
+                }
+                
+                // Add approach angle variation (room 1+)
+                // Vary approach angle slightly to prevent straight-line charges
+                if (currentDist > this.optimalDistance) {
+                    const approachAngle = Math.atan2(dy, dx);
+                    const angleVariation = (Math.random() - 0.5) * 0.3; // ±15 degrees variation
+                    const variedAngle = approachAngle + angleVariation;
+                    const variedX = targetX + Math.cos(variedAngle) * currentDist;
+                    const variedY = targetY + Math.sin(variedAngle) * currentDist;
+                    
+                    // Blend varied approach (subtle)
+                    const variationWeight = 0.2; // 20% variation
+                    moveTargetX = moveTargetX * (1 - variationWeight) + variedX * variationWeight;
+                    moveTargetY = moveTargetY * (1 - variationWeight) + variedY * variationWeight;
+                }
+                
+                // Use environmental awareness for strategic positioning (rooms 8+)
+                if (this.environmentalAwarenessEnabled && this.intelligenceLevel > 0.6) {
+                    const strategicPos = this.getStrategicPosition(targetX, targetY, this.optimalDistance);
+                    const strategicWeight = this.intelligenceLevel * 0.4; // Max 40% strategic
+                    moveTargetX = moveTargetX * (1 - strategicWeight) + strategicPos.x * strategicWeight;
+                    moveTargetY = moveTargetY * (1 - strategicWeight) + strategicPos.y * strategicWeight;
+                }
+                
+                // Recalculate direction to strategic target
+                dx = moveTargetX - this.x;
+                dy = moveTargetY - this.y;
+                distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance <= 0) distance = 1;
+                
+                // Apply separation force to avoid crowding (stronger)
+                const separation = this.getSeparationForce(enemies, BASIC_ENEMY_CONFIG.separationRadius, BASIC_ENEMY_CONFIG.separationStrength);
+                
+                // Check for obstacles in direct path and avoid them (subtle, only when needed)
+                const pathAvoidance = this.getPathAvoidance(moveTargetX, moveTargetY, enemies, 180);
+                
+                // Calculate lateral spread to break formations (subtle)
+                const lateralSpread = this.getLateralSpreadForce(moveTargetX, moveTargetY, enemies, 
+                    BASIC_ENEMY_CONFIG.lateralSpreadRadius, BASIC_ENEMY_CONFIG.lateralSpreadStrength);
+                
+                // Base movement direction toward strategic target
+                let moveX = dx / distance;
+                let moveY = dy / distance;
+                
+                // Blend all movement forces smoothly and naturally
+                // Base: 70% toward player (primary goal)
+                // Separation: 20% (when close to other enemies)
+                // Path avoidance: 8% (only when obstacle directly in path)
+                // Lateral spread: 2% (very subtle formation breaking)
+                
                 const sepDist = Math.sqrt(separation.x * separation.x + separation.y * separation.y);
+                const pathAvoidDist = Math.sqrt(pathAvoidance.x * pathAvoidance.x + pathAvoidance.y * pathAvoidance.y);
+                const lateralDist = Math.sqrt(lateralSpread.x * lateralSpread.x + lateralSpread.y * lateralSpread.y);
+                
+                let finalMoveX = moveX * 0.70;
+                let finalMoveY = moveY * 0.70;
+                
+                // Apply separation (stronger when enemies are close, but smooth)
                 if (sepDist > 0) {
                     const sepNormX = separation.x / sepDist;
                     const sepNormY = separation.y / sepDist;
-                    const sepStrength = Math.min(sepDist, 100) / 100; // Normalize to 0-1
+                    // Smooth strength curve - only significant when very close
+                    const sepStrength = Math.min(sepDist / 150, 1.0) * 0.5; // Max 50% influence
+                    finalMoveX += sepNormX * 0.20 * sepStrength;
+                    finalMoveY += sepNormY * 0.20 * sepStrength;
+                }
+                
+                // Apply path avoidance (only when obstacle is directly blocking, subtle)
+                if (pathAvoidDist > 0) {
+                    const pathNormX = pathAvoidance.x / pathAvoidDist;
+                    const pathNormY = pathAvoidance.y / pathAvoidDist;
+                    // Only apply when obstacle is close and directly in path
+                    const pathStrength = Math.min(pathAvoidDist / 300, 1.0) * 0.3; // Max 30% influence, scaled down
+                    finalMoveX += pathNormX * 0.08 * pathStrength;
+                    finalMoveY += pathNormY * 0.08 * pathStrength;
+                }
+                
+                // Apply lateral spread (very subtle, only when formation is tight)
+                if (lateralDist > 0) {
+                    const lateralNormX = lateralSpread.x / lateralDist;
+                    const lateralNormY = lateralSpread.y / lateralDist;
+                    // Only apply when there's a clear imbalance
+                    const lateralStrength = Math.min(lateralDist / 150, 1.0) * 0.2; // Max 20% influence
+                    finalMoveX += lateralNormX * 0.02 * lateralStrength;
+                    finalMoveY += lateralNormY * 0.02 * lateralStrength;
+                }
+                
+                // Normalize final direction
+                const finalDist = Math.sqrt(finalMoveX * finalMoveX + finalMoveY * finalMoveY);
+                if (finalDist > 0) {
+                    finalMoveX /= finalDist;
+                    finalMoveY /= finalDist;
+                }
+                
+                // Flanking behavior (room 2+)
+                if (this.roomNumber >= BASIC_ENEMY_CONFIG.intelligenceThresholds.feintAttacks && this.coordinationEnabled) {
+                    const allies = this.coordinateWithAllies(enemies);
+                    if (allies && allies.length > 0) {
+                        // Try to position on side/behind player
+                        const allPlayers = this.getAllAlivePlayers();
+                        allPlayers.forEach(({ player: p }) => {
+                            if (p && p.alive) {
+                                const playerAngle = Math.atan2(p.vy || 0, p.vx || 0);
+                                const toPlayerX = p.x - this.x;
+                                const toPlayerY = p.y - this.y;
+                                const toPlayerAngle = Math.atan2(toPlayerY, toPlayerX);
+                                
+                                // Try to position at 90 degrees to player's facing direction
+                                const flankAngle = playerAngle + Math.PI / 2 + (Math.random() - 0.5) * Math.PI / 2;
+                                const flankX = p.x + Math.cos(flankAngle) * this.optimalDistance;
+                                const flankY = p.y + Math.sin(flankAngle) * this.optimalDistance;
+                                
+                                // Blend flanking position
+                                const flankWeight = 0.25 * this.intelligenceLevel;
+                                moveTargetX = moveTargetX * (1 - flankWeight) + flankX * flankWeight;
+                                moveTargetY = moveTargetY * (1 - flankWeight) + flankY * flankWeight;
+                            }
+                        });
+                    }
+                }
+                
+                // Improved swarming: try to surround player from multiple angles (rooms 5+)
+                if (this.roomNumber >= BASIC_ENEMY_CONFIG.intelligenceThresholds.surroundFormation) {
+                    // Find nearby allies of same type
+                    const nearbyAllies = [];
+                    enemies.forEach(other => {
+                        if (other !== this && other.alive && other.shape === 'circle') {
+                            const otherDx = other.x - this.x;
+                            const otherDy = other.y - this.y;
+                            const otherDist = Math.sqrt(otherDx * otherDx + otherDy * otherDy);
+                            if (otherDist < BASIC_ENEMY_CONFIG.groupRadius) {
+                                nearbyAllies.push({ enemy: other, distance: otherDist });
+                            }
+                        }
+                    });
                     
-                    // Blend movement with separation (80% movement, 20% separation)
-                    moveX = moveX * 0.8 + sepNormX * 0.2 * sepStrength;
-                    moveY = moveY * 0.8 + sepNormY * 0.2 * sepStrength;
-                    
-                    // Renormalize
-                    const finalDist = Math.sqrt(moveX * moveX + moveY * moveY);
+                    if (nearbyAllies.length > 0) {
+                        // Calculate average angle of allies relative to player
+                        let avgAngle = 0;
+                        nearbyAllies.forEach(({ enemy: ally }) => {
+                            const allyDx = ally.x - targetX;
+                            const allyDy = ally.y - targetY;
+                            avgAngle += Math.atan2(allyDy, allyDx);
+                        });
+                        avgAngle /= nearbyAllies.length;
+                        
+                        // Try to position at different angle (90 degrees offset)
+                        const desiredAngle = avgAngle + Math.PI / 2;
+                        const desiredX = targetX + Math.cos(desiredAngle) * (this.attackRange * 0.8);
+                        const desiredY = targetY + Math.sin(desiredAngle) * (this.attackRange * 0.8);
+                        
+                        const toDesiredX = desiredX - this.x;
+                        const toDesiredY = desiredY - this.y;
+                        const toDesiredDist = Math.sqrt(toDesiredX * toDesiredX + toDesiredY * toDesiredY);
+                        
+                        if (toDesiredDist > 10) {
+                            // Blend surround positioning into final movement
+                            const surroundX = toDesiredX / toDesiredDist;
+                            const surroundY = toDesiredY / toDesiredDist;
+                            finalMoveX = finalMoveX * 0.7 + surroundX * 0.3;
+                            finalMoveY = finalMoveY * 0.7 + surroundY * 0.3;
+                            const finalDist = Math.sqrt(finalMoveX * finalMoveX + finalMoveY * finalMoveY);
+                            if (finalDist > 0) {
+                                finalMoveX /= finalDist;
+                                finalMoveY /= finalDist;
+                            }
+                        }
+                    }
+                }
+                
+                // If reacting to player attack, move slightly away (enabled from room 1)
+                if (shouldDelayAttack && this.roomNumber >= BASIC_ENEMY_CONFIG.intelligenceThresholds.playerReactions) {
+                    const awayX = -dx / distance;
+                    const awayY = -dy / distance;
+                    finalMoveX = finalMoveX * 0.5 + awayX * 0.5;
+                    finalMoveY = finalMoveY * 0.5 + awayY * 0.5;
+                    const finalDist = Math.sqrt(finalMoveX * finalMoveX + finalMoveY * finalMoveY);
                     if (finalDist > 0) {
-                        moveX /= finalDist;
-                        moveY /= finalDist;
+                        finalMoveX /= finalDist;
+                        finalMoveY /= finalDist;
+                    }
+                }
+                
+                // Wave attack coordination (room 3+)
+                if (this.roomNumber >= BASIC_ENEMY_CONFIG.intelligenceThresholds.waveAttacks && this.coordinationEnabled && this.waveAttackReady) {
+                    // Ready for coordinated wave attack - commit to attack
+                    if (distance < this.currentAttackRange && this.attackCooldown <= 0) {
+                        // Lock direction and start telegraph for wave attack
+                        const waveDx = targetX - this.x;
+                        const waveDy = targetY - this.y;
+                        const waveDist = Math.sqrt(waveDx * waveDx + waveDy * waveDy);
+                        if (waveDist > 0) {
+                            this.lockedLungeDirX = waveDx / waveDist;
+                            this.lockedLungeDirY = waveDy / waveDist;
+                        }
+                        this.state = 'telegraph';
+                        this.telegraphElapsed = 0;
+                        this.waveAttackReady = false;
                     }
                 }
                 
                 // Move with calculated direction
-                this.vx = moveX * this.moveSpeed;
-                this.vy = moveY * this.moveSpeed;
+                this.vx = finalMoveX * this.moveSpeed;
+                this.vy = finalMoveY * this.moveSpeed;
                 this.x += this.vx * deltaTime;
                 this.y += this.vy * deltaTime;
                 
@@ -203,73 +791,252 @@ class Enemy extends EnemyBase {
                     this.rotation = Math.atan2(this.vy, this.vx);
                 }
             }
+        } else if (this.state === 'retreat') {
+            // Tactical reposition state - short, smart reposition
+            this.retreatTimer -= deltaTime;
+            
+            // Check if we should cancel retreat early (player stopped attacking, allies arrived, etc.)
+            let shouldCancelRetreat = false;
+            if (targetPlayer && targetPlayer.alive) {
+                // Cancel if player stopped attacking
+                if (!targetPlayer.attackHitboxes || targetPlayer.attackHitboxes.length === 0) {
+                    if (this.retreatTimer < 0.2) { // Only cancel if we've retreated a bit
+                        shouldCancelRetreat = true;
+                    }
+                }
+                
+                // Cancel if we've moved far enough from player
+                const dx = targetPlayer.x - this.x;
+                const dy = targetPlayer.y - this.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist > 100) {
+                    shouldCancelRetreat = true; // Far enough, resume normal behavior
+                }
+            }
+            
+            if (this.retreatTimer <= 0 || !this.retreatTarget || shouldCancelRetreat) {
+                this.state = 'chase';
+                this.retreatTimer = 0;
+                this.retreatTarget = null;
+            } else {
+                const retreatDx = this.retreatTarget.x - this.x;
+                const retreatDy = this.retreatTarget.y - this.y;
+                const retreatDist = Math.sqrt(retreatDx * retreatDx + retreatDy * retreatDy);
+                
+                if (retreatDist > 5) {
+                    // Move toward retreat position
+                    const retreatX = retreatDx / retreatDist;
+                    const retreatY = retreatDy / retreatDist;
+                    this.x += retreatX * this.moveSpeed * 1.1 * deltaTime; // Slightly faster retreat
+                    this.y += retreatY * this.moveSpeed * 1.1 * deltaTime;
+                    this.rotation = Math.atan2(retreatY, retreatX);
+                } else {
+                    // Reached retreat position, cancel early
+                    this.state = 'chase';
+                    this.retreatTimer = 0;
+                    this.retreatTarget = null;
+                }
+            }
         } else if (this.state === 'telegraph') {
             // Telegraph state - flash red
+            // Lunge direction is already locked from when telegraph started
             this.telegraphElapsed += deltaTime;
-            if (this.telegraphElapsed >= this.telegraphDuration) {
+            
+            // Check for feint cancellation (rooms 2+)
+            if (this.isFeinting) {
+                this.feintTimer -= deltaTime;
+                if (this.feintTimer <= 0) {
+                    // Cancel feint and reposition
+                    this.isFeinting = false;
+                    this.feintTimer = 0;
+                    this.state = 'chase';
+                    // Reposition by changing orbit angle
+                    this.orbitAngle += Math.PI / 2 + (Math.random() - 0.5) * Math.PI / 4;
+                    return; // Skip rest of telegraph logic
+                }
+            }
+            
+            if (this.telegraphElapsed >= this.currentTelegraphDuration) {
                 // Play lunge sound
                 if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
                     AudioManager.sounds.enemyLunge();
                 }
                 
+                // Store lunge start position for distance tracking
+                this.lungeStartX = this.x;
+                this.lungeStartY = this.y;
+                
                 // Enter lunge state
                 this.state = 'lunge';
                 this.lungeElapsed = 0;
+                this.isFeinting = false; // Clear feint flag if it was set
             }
         } else if (this.state === 'lunge') {
-            // Lunge toward player
+            // Lunge in locked direction (linear, no reaiming)
+            // Direction was locked when telegraph started, so lunge is predictable
             this.lungeElapsed += deltaTime;
-            const normX = dx / distance;
-            const normY = dy / distance;
-            const moveDistance = this.lungeSpeed * deltaTime;
-            const desiredSpacing = this.size + 24;
-            const maxAllowedMove = Math.max(0, distance - desiredSpacing);
-            const actualMove = Math.min(moveDistance, maxAllowedMove);
             
-            this.x += normX * actualMove;
-            this.y += normY * actualMove;
+            // Use locked direction (set during telegraph) - LINEAR, NO REAIMING
+            const lungeDirX = this.lockedLungeDirX;
+            const lungeDirY = this.lockedLungeDirY;
+            
+            // Calculate distance traveled from lunge start
+            const lungeTravelX = this.x - this.lungeStartX;
+            const lungeTravelY = this.y - this.lungeStartY;
+            const lungeTravelDist = Math.sqrt(lungeTravelX * lungeTravelX + lungeTravelY * lungeTravelY);
+            
+            // Move in locked direction, but cap at maximum lunge distance
+            const moveDistance = this.lungeSpeed * deltaTime;
+            const remainingDistance = Math.max(0, this.lungeDistance - lungeTravelDist);
+            const actualMove = Math.min(moveDistance, remainingDistance);
+            
+            this.x += lungeDirX * actualMove;
+            this.y += lungeDirY * actualMove;
             
             // Update rotation to face lunge direction
-            this.rotation = Math.atan2(normY, normX);
+            this.rotation = Math.atan2(lungeDirY, lungeDirX);
             
-            if (this.lungeElapsed >= this.lungeDuration) {
-                // End lunge
-                this.state = 'cooldown';
-                this.attackCooldown = this.attackCooldownTime;
-                this.telegraphElapsed = 0;
-                this.lungeElapsed = 0;
-            }
-        } else if (this.state === 'cooldown') {
-            // Cooldown state - resume normal chase
-            if (this.attackCooldown <= 0) {
-                this.state = 'chase';
-            } else {
-                // Apply separation during cooldown too
-                const separation = this.getSeparationForce(enemies, BASIC_ENEMY_CONFIG.separationRadius, BASIC_ENEMY_CONFIG.separationStrength);
-                const sepDist = Math.sqrt(separation.x * separation.x + separation.y * separation.y);
-                
-                let moveX = dx / distance;
-                let moveY = dy / distance;
-                
-                if (sepDist > 0) {
-                    const sepNormX = separation.x / sepDist;
-                    const sepNormY = separation.y / sepDist;
-                    const sepStrength = Math.min(sepDist, 100) / 100;
+            // Check if lunge duration expired or max distance reached
+            if (this.lungeElapsed >= this.lungeDuration || lungeTravelDist >= this.lungeDistance) {
+                // Check for combo lunge opportunity (rooms 4+)
+                if (this.roomNumber >= BASIC_ENEMY_CONFIG.intelligenceThresholds.comboLunge) {
+                    const timeSinceDodge = (Date.now() - this.lastPlayerDodgeTime) / 1000;
+                    const dodgeCooldown = 2.0; // Standard dodge cooldown
                     
-                    moveX = moveX * 0.8 + sepNormX * 0.2 * sepStrength;
-                    moveY = moveY * 0.8 + sepNormY * 0.2 * sepStrength;
-                    
-                    const finalDist = Math.sqrt(moveX * moveX + moveY * moveY);
-                    if (finalDist > 0) {
-                        moveX /= finalDist;
-                        moveY /= finalDist;
+                    // If player dodged recently, check for combo chance
+                    if (timeSinceDodge < dodgeCooldown && this.lastPlayerDodgeTime > 0) {
+                        const roomsPastThreshold = Math.max(0, this.roomNumber - BASIC_ENEMY_CONFIG.intelligenceThresholds.comboLunge);
+                        const comboScale = Math.min(1.0, roomsPastThreshold / 3); // Scales over 3 rooms
+                        const comboChance = BASIC_ENEMY_CONFIG.comboLungeChanceBase + 
+                                          (BASIC_ENEMY_CONFIG.comboLungeChanceMax - BASIC_ENEMY_CONFIG.comboLungeChanceBase) * comboScale;
+                        
+                        if (Math.random() < comboChance * this.intelligenceLevel) {
+                            // Set up combo lunge with wait timer
+                            this.comboLungeReady = true;
+                            this.comboLungeWaitTimer = 0.25; // 250ms wait before combo lunge
+                            this.state = 'recovery';
+                            this.recoveryElapsed = 0;
+                            this.attackCooldown = this.attackCooldownTime;
+                            this.telegraphElapsed = 0;
+                            this.lungeElapsed = 0;
+                            this.coordinationRole = null; // Reset coordination role
+                            return; // Skip rest of lunge logic
+                        }
                     }
                 }
                 
-                this.vx = moveX * this.moveSpeed;
-                this.vy = moveY * this.moveSpeed;
-                this.x += this.vx * deltaTime;
-                this.y += this.vy * deltaTime;
+                // End lunge - enter recovery state
+                this.state = 'recovery';
+                this.recoveryElapsed = 0;
+                this.attackCooldown = this.attackCooldownTime;
+                this.telegraphElapsed = 0;
+                this.lungeElapsed = 0;
+                this.coordinationRole = null; // Reset coordination role
+            }
+        } else if (this.state === 'recovery') {
+            // Recovery state - brief backoff after lunge
+            this.recoveryElapsed += deltaTime;
+            
+            // Update combo lunge wait timer
+            if (this.comboLungeWaitTimer > 0) {
+                this.comboLungeWaitTimer -= deltaTime;
+            }
+            
+            // Move away from player slightly during recovery
+            const recoveryDx = this.x - targetX;
+            const recoveryDy = this.y - targetY;
+            const recoveryDist = Math.sqrt(recoveryDx * recoveryDx + recoveryDy * recoveryDy);
+            
+            if (recoveryDist > 0) {
+                const recoveryDirX = recoveryDx / recoveryDist;
+                const recoveryDirY = recoveryDy / recoveryDist;
+                // Move away at reduced speed
+                this.x += recoveryDirX * this.moveSpeed * 0.3 * deltaTime;
+                this.y += recoveryDirY * this.moveSpeed * 0.3 * deltaTime;
+                this.rotation = Math.atan2(recoveryDirY, recoveryDirX);
+            }
+            
+            if (this.recoveryElapsed >= this.attackRecoveryDuration) {
+                // Check if combo lunge is ready and wait timer expired
+                if (this.comboLungeReady && this.comboLungeWaitTimer <= 0) {
+                    // Combo lunge ready - transition to lunge (direction already locked in chase state)
+                    this.comboLungeReady = false;
+                    this.comboLungeWaitTimer = 0;
+                    this.lungeStartX = this.x;
+                    this.lungeStartY = this.y;
+                    this.state = 'lunge';
+                    this.lungeElapsed = 0;
+                    this.telegraphElapsed = 0;
+                } else {
+                    // Normal recovery finished
+                    this.state = 'cooldown';
+                }
+            }
+        } else if (this.state === 'cooldown') {
+            // Cooldown state - maintain distance and resume normal chase
+            // Update combo lunge wait timer
+            if (this.comboLungeWaitTimer > 0) {
+                this.comboLungeWaitTimer -= deltaTime;
+            }
+            
+            if (this.attackCooldown <= 0) {
+                // Check if combo lunge is ready and wait timer expired
+                if (this.comboLungeReady && this.comboLungeWaitTimer <= 0) {
+                    // Combo lunge ready - transition to lunge (direction already locked in chase state)
+                    this.comboLungeReady = false;
+                    this.comboLungeWaitTimer = 0;
+                    this.lungeStartX = this.x;
+                    this.lungeStartY = this.y;
+                    this.state = 'lunge';
+                    this.lungeElapsed = 0;
+                    this.telegraphElapsed = 0;
+                } else {
+                    // Normal cooldown finished
+                    this.state = 'chase';
+                    this.coordinationRole = null; // Reset coordination role
+                }
+            } else {
+                // Maintain distance during cooldown (back off slightly)
+                const cooldownDx = this.x - targetX;
+                const cooldownDy = this.y - targetY;
+                const cooldownDist = Math.sqrt(cooldownDx * cooldownDx + cooldownDy * cooldownDy);
+                
+                // Try to maintain optimal distance during cooldown
+                if (cooldownDist < this.optimalDistance) {
+                    // Too close - back off
+                    const backoffX = cooldownDx / cooldownDist;
+                    const backoffY = cooldownDy / cooldownDist;
+                    this.x += backoffX * this.moveSpeed * 0.5 * deltaTime;
+                    this.y += backoffY * this.moveSpeed * 0.5 * deltaTime;
+                    this.rotation = Math.atan2(backoffY, backoffX);
+                } else {
+                    // Apply separation during cooldown
+                    const separation = this.getSeparationForce(enemies, BASIC_ENEMY_CONFIG.separationRadius, BASIC_ENEMY_CONFIG.separationStrength);
+                    const sepDist = Math.sqrt(separation.x * separation.x + separation.y * separation.y);
+                    
+                    let moveX = dx / distance;
+                    let moveY = dy / distance;
+                    
+                    if (sepDist > 0) {
+                        const sepNormX = separation.x / sepDist;
+                        const sepNormY = separation.y / sepDist;
+                        const sepStrength = Math.min(sepDist, 100) / 100;
+                        
+                        moveX = moveX * 0.8 + sepNormX * 0.2 * sepStrength;
+                        moveY = moveY * 0.8 + sepNormY * 0.2 * sepStrength;
+                        
+                        const finalDist = Math.sqrt(moveX * moveX + moveY * moveY);
+                        if (finalDist > 0) {
+                            moveX /= finalDist;
+                            moveY /= finalDist;
+                        }
+                    }
+                    
+                    this.vx = moveX * this.moveSpeed;
+                    this.vy = moveY * this.moveSpeed;
+                    this.x += this.vx * deltaTime;
+                    this.y += this.vy * deltaTime;
+                }
             }
         }
         
@@ -293,20 +1060,41 @@ class Enemy extends EnemyBase {
     }
     
     render(ctx) {
-        // Draw enemy with different colors based on state
+        // Draw enemy with different colors and effects based on state
         let drawColor = this.color;
+        let drawSize = this.size;
         
         if (this.state === 'telegraph') {
-            // Flash red during telegraph
-            const flash = Math.sin(this.telegraphElapsed * 20) > 0;
-            drawColor = flash ? '#ff0000' : '#ff6b6b';
+            // Enhanced telegraph visuals - pulsing red with size change
+            const pulseSpeed = 15; // Faster pulse
+            const pulsePhase = Math.sin(this.telegraphElapsed * pulseSpeed);
+            const pulseIntensity = (pulsePhase + 1) / 2; // 0 to 1
+            drawColor = `rgb(${255}, ${107 + pulseIntensity * 148}, ${107 + pulseIntensity * 148})`; // Fade from #ff6b6b to #ff0000
+            drawSize = this.size * (1 + pulseIntensity * 0.15); // Slightly larger when pulsing
         } else if (this.state === 'lunge') {
             drawColor = '#ff3333'; // Bright red during lunge
+            drawSize = this.size * 1.1; // Slightly larger during lunge
+        } else if (this.state === 'recovery') {
+            drawColor = '#ff9999'; // Lighter red during recovery
+        } else if (this.state === 'cooldown') {
+            drawColor = '#ff8888'; // Medium red during cooldown
+        }
+        
+        // Draw lunge trail effect during lunge
+        if (this.state === 'lunge') {
+            // Draw trail behind enemy
+            ctx.save();
+            ctx.globalAlpha = 0.3;
+            ctx.fillStyle = '#ff0000';
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size * 0.8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
         }
         
         ctx.fillStyle = drawColor;
         ctx.beginPath();
-        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.arc(this.x, this.y, drawSize, 0, Math.PI * 2);
         ctx.fill();
         
         // Draw status effects (burn, freeze)
@@ -324,11 +1112,23 @@ class Enemy extends EnemyBase {
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();
         ctx.arc(
-            this.x + Math.cos(this.rotation) * (this.size + 5),
-            this.y + Math.sin(this.rotation) * (this.size + 5),
+            this.x + Math.cos(this.rotation) * (drawSize + 5),
+            this.y + Math.sin(this.rotation) * (drawSize + 5),
             5, 0, Math.PI * 2
         );
         ctx.fill();
+        
+        // Draw telegraph warning indicator (room 1+)
+        if (this.state === 'telegraph') {
+            ctx.save();
+            ctx.strokeStyle = '#ff0000';
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = 0.5;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, drawSize + 5, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        }
     }
 }
 

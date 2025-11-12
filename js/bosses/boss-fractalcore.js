@@ -10,7 +10,7 @@ class BossFractalCore extends BossBase {
         this.maxHp = 750; // BossBase will multiply by 12
         this.hp = this.maxHp;
         this.damage = 14;
-        this.moveSpeed = 128.4; // Increased from 100 for better mobility
+        this.moveSpeed = 141.24; // Increased by 10% from 128.4 for faster movement
         this.color = '#9b59b6';
         
         this.fragmented = false;
@@ -80,7 +80,7 @@ class BossFractalCore extends BossBase {
         this.burstCooldown -= deltaTime;
         this.fragmentDashTimer += deltaTime;
         this.stateTimer += deltaTime;
-        this.fragmentOrbitAngle += deltaTime * 2;
+        this.fragmentOrbitAngle += deltaTime * 2.2; // Increased by 10% from 2.0
         
         // Update weak point visibility (only when fragments separated)
         this.weakPoints.forEach(wp => wp.visible = this.fragmented);
@@ -401,8 +401,8 @@ class BossFractalCore extends BossBase {
                 Game.projectiles.push({
                     x: this.x,
                     y: this.y,
-                    vx: Math.cos(projAngle) * 250, // Increased from 200
-                    vy: Math.sin(projAngle) * 250,
+                    vx: Math.cos(projAngle) * 275, // Increased by 10% from 250
+                    vy: Math.sin(projAngle) * 275,
                     damage: this.damage * 0.7,
                     size: 7,
                     lifetime: 2.5,
@@ -444,7 +444,7 @@ class BossFractalCore extends BossBase {
     rotationBlast() {
         if (typeof Game === 'undefined') return;
         
-        const projectileSpeed = 299.6; // Increased from 220
+        const projectileSpeed = 329.56; // Increased by 10% from 299.6
         for (let i = 0; i < 8; i++) {
             const angle = (Math.PI * 2 / 8) * i;
             Game.projectiles.push({
@@ -472,8 +472,8 @@ class BossFractalCore extends BossBase {
                 Game.projectiles.push({
                     x: frag.x,
                     y: frag.y,
-                    vx: (dx / dist) * 300, // Increased from 250
-                    vy: (dy / dist) * 300,
+                    vx: (dx / dist) * 330, // Increased by 10% from 300
+                    vy: (dy / dist) * 330,
                     damage: this.damage * 0.6,
                     size: 6,
                     lifetime: 2.5,
@@ -497,7 +497,7 @@ class BossFractalCore extends BossBase {
                 const dist = Math.sqrt(dx * dx + dy * dy);
                 if (dist > 0) {
                     // Move fragment toward player (faster in Phase 3)
-                    const chaseSpeed = this.phase === 3 ? 428 : 321;
+                    const chaseSpeed = this.phase === 3 ? 470.8 : 353.1; // Increased by 10% from 428 and 321
                     frag.x += (dx / dist) * chaseSpeed * deltaTime;
                     frag.y += (dy / dist) * chaseSpeed * deltaTime;
                     
@@ -530,7 +530,7 @@ class BossFractalCore extends BossBase {
             const dist = Math.sqrt(dx * dx + dy * dy);
             if (dist > 0) {
                 // Dash forward
-                const dashSpeed = 535;
+                const dashSpeed = 588.5; // Increased by 10% from 535
                 frag.x += (dx / dist) * dashSpeed * 0.15;
                 frag.y += (dy / dist) * dashSpeed * 0.15;
                 
@@ -550,8 +550,8 @@ class BossFractalCore extends BossBase {
                 Game.projectiles.push({
                     x: this.x,
                     y: this.y,
-                    vx: Math.cos(angle) * 300, // Increased from 250
-                    vy: Math.sin(angle) * 300,
+                    vx: Math.cos(angle) * 330, // Increased by 10% from 300
+                    vy: Math.sin(angle) * 330,
                     damage: this.damage * 1.1,
                     size: 10,
                     lifetime: 2.5,

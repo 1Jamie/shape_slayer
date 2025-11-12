@@ -87,6 +87,153 @@ class EnemyBase {
         // Detection/activation system
         this.detectionRange = 400; // Range to detect and activate on player proximity (pixels)
         this.activated = false; // Whether enemy has been activated (detected a player)
+        
+        // Intelligence scaling system (room-based difficulty)
+        this.roomNumber = typeof Game !== 'undefined' ? (Game.roomNumber || 1) : 1;
+        this.intelligenceLevel = this.getIntelligenceLevel(this.roomNumber);
+        this.coordinationEnabled = false; // Set by subclasses based on room thresholds
+        this.lastPlayerAction = null; // Track last player action for reactions
+        this.coordinationTimer = 0; // Timer for coordinated attacks
+        this.threatLevel = 0; // Perceived threat level of player
+        
+        // Predictive positioning system
+        this.usePredictivePositioning = false; // Enabled by subclasses
+        this.predictionLookAhead = 0.5; // How far ahead to predict (seconds)
+        
+        // Optimal engagement distance
+        this.optimalDistance = null; // Preferred distance (set by subclasses)
+        this.optimalDistanceTolerance = 20; // Tolerance around optimal distance
+        
+        // Attack timing system
+        this.lastDamageTime = 0; // Track when last damage was taken
+        this.damageHistory = []; // Recent damage events for combo detection
+        this.comboThreshold = 3; // Number of hits in short time to trigger combo awareness
+        
+        // Player pattern recognition
+        this.playerPatterns = {
+            dodgeFrequency: 0,
+            attackFrequency: 0,
+            preferredDirection: { x: 0, y: 0 },
+            movementHistory: []
+        };
+        this.patternSampleCount = 0;
+        
+        // Environmental awareness
+        this.wallProximity = 0; // 0-1, how close to walls
+        this.cornerProximity = 0; // 0-1, how close to corners
+    }
+    
+    // Calculate intelligence level from room number (0.0 to 1.0)
+    getIntelligenceLevel(roomNumber) {
+        if (roomNumber <= 3) {
+            // Early rooms: 0.5-0.65 (smarter base, faster ramp)
+            return 0.5 + (roomNumber / 3) * 0.15;
+        } else if (roomNumber <= 10) {
+            // Mid rooms: 0.65-0.85 (faster progression)
+            return 0.65 + ((roomNumber - 3) / 7) * 0.2;
+        } else {
+            // Late rooms: 0.85-1.0 (quickly reach max)
+            return 0.85 + Math.min((roomNumber - 10) / 10, 0.15);
+        }
+    }
+    
+    // Get reaction speed based on intelligence (slower early, faster late)
+    getReactionSpeed(baseDelay = 0.3, minDelay = 0.1, maxDelay = 0.6) {
+        // Lower intelligence = slower reaction (higher delay)
+        // Higher intelligence = faster reaction (lower delay)
+        // Base delay reduced and range tightened for more challenging base behavior
+        const delay = baseDelay + (maxDelay - baseDelay) * (1 - this.intelligenceLevel);
+        return Math.max(minDelay, Math.min(maxDelay, delay));
+    }
+    
+    // Check if a pattern is unlocked for current room
+    canUsePattern(patternName, thresholds) {
+        if (!thresholds || !thresholds[patternName]) return true; // Default to available
+        
+        const thresholdRoom = thresholds[patternName];
+        return this.roomNumber >= thresholdRoom;
+    }
+    
+    // Get pattern weight based on intelligence and room thresholds
+    getPatternWeight(patternName, thresholds, baseWeight = 1.0) {
+        if (!this.canUsePattern(patternName, thresholds)) return 0.0;
+        
+        const thresholdRoom = thresholds[patternName] || 1;
+        if (this.roomNumber < thresholdRoom) return 0.0;
+        
+        // Scale weight from 0 to baseWeight based on how far past threshold we are
+        // Faster scaling (3 rooms instead of 5) for quicker ramp-up
+        const roomsPastThreshold = Math.max(0, this.roomNumber - thresholdRoom);
+        const scalingRooms = 3; // Takes 3 rooms to fully unlock (was 5)
+        const weightScale = Math.min(1.0, roomsPastThreshold / scalingRooms);
+        
+        // Higher base weight multiplier for more challenging base behavior
+        return baseWeight * weightScale * (0.7 + this.intelligenceLevel * 0.3);
+    }
+    
+    // React to player action (scaled by intelligence)
+    reactToPlayerAction(action, player) {
+        if (!player) return;
+        
+        // Store last action for pattern selection
+        this.lastPlayerAction = {
+            type: action,
+            timestamp: Date.now(),
+            player: player
+        };
+    }
+    
+    // Assess threat level of player
+    assessThreat(player) {
+        if (!player) return 0;
+        
+        let threat = 0;
+        
+        // Factor 1: Player HP (lower HP = higher threat priority)
+        const hpPercent = player.hp / (player.maxHp || 100);
+        threat += (1 - hpPercent) * 0.3;
+        
+        // Factor 2: Player is attacking
+        if (player.attackHitboxes && player.attackHitboxes.length > 0) {
+            threat += 0.4;
+        }
+        
+        // Factor 3: Player is dodging (vulnerable after)
+        if (player.isDodging) {
+            threat += 0.2;
+        }
+        
+        // Factor 4: Distance (closer = more threatening)
+        const dx = player.x - this.x;
+        const dy = player.y - this.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const maxDistance = 300;
+        threat += (1 - Math.min(distance / maxDistance, 1)) * 0.1;
+        
+        this.threatLevel = Math.min(1.0, threat);
+        return this.threatLevel;
+    }
+    
+    // Coordinate with nearby enemies (if coordination enabled)
+    coordinateWithAllies(enemies) {
+        if (!this.coordinationEnabled || !enemies) return null;
+        
+        const coordinationRange = 200;
+        const nearbyAllies = [];
+        
+        enemies.forEach(other => {
+            if (other === this || !other.alive) return;
+            
+            const dx = other.x - this.x;
+            const dy = other.y - this.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            if (dist < coordinationRange) {
+                nearbyAllies.push({ enemy: other, distance: dist });
+            }
+        });
+        
+        return nearbyAllies.length > 0 ? nearbyAllies : null;
     }
     
     // Apply knockback force
@@ -521,6 +668,9 @@ class EnemyBase {
     takeDamage(damage, attackerId = null) {
         this.hp -= damage;
         
+        // Record damage for combo detection
+        this.recordDamage(damage);
+        
         // Track who dealt the damage (for kill attribution and aggro)
         if (attackerId) {
             this.lastAttacker = attackerId;
@@ -635,6 +785,141 @@ class EnemyBase {
         return { x: 0, y: 0 };
     }
     
+    // Check for obstacles (enemies) directly in path to target
+    checkPathObstacles(targetX, targetY, enemies, checkRadius = 30, lookAheadDistance = 80) {
+        if (!enemies || enemies.length === 0) return null;
+        
+        const dx = targetX - this.x;
+        const dy = targetY - this.y;
+        const distToTarget = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distToTarget <= 0) return null;
+        
+        const dirX = dx / distToTarget;
+        const dirY = dy / distToTarget;
+        
+        // Check along path for obstacles
+        let closestObstacle = null;
+        let closestDist = Infinity;
+        
+        enemies.forEach(other => {
+            if (other === this || !other.alive) return;
+            
+            // Vector from this enemy to other enemy
+            const toOtherX = other.x - this.x;
+            const toOtherY = other.y - this.y;
+            const distToOther = Math.sqrt(toOtherX * toOtherX + toOtherY * toOtherY);
+            
+            // Project other enemy onto path direction
+            const projection = toOtherX * dirX + toOtherY * dirY;
+            
+            // Only consider enemies in front (positive projection) and within look-ahead distance
+            if (projection > 0 && projection < lookAheadDistance) {
+                // Calculate perpendicular distance from path
+                const perpX = toOtherX - dirX * projection;
+                const perpY = toOtherY - dirY * projection;
+                const perpDist = Math.sqrt(perpX * perpX + perpY * perpY);
+                
+                // Check if enemy is blocking the path
+                const combinedRadius = this.size + other.size + checkRadius;
+                if (perpDist < combinedRadius && distToOther < closestDist) {
+                    closestObstacle = {
+                        enemy: other,
+                        distance: distToOther,
+                        projection: projection,
+                        perpDist: perpDist,
+                        perpX: perpX,
+                        perpY: perpY
+                    };
+                    closestDist = distToOther;
+                }
+            }
+        });
+        
+        return closestObstacle;
+    }
+    
+    // Calculate avoidance force for obstacles in path (smooth and natural)
+    getPathAvoidance(targetX, targetY, enemies, avoidanceStrength = 200) {
+        const obstacle = this.checkPathObstacles(targetX, targetY, enemies);
+        if (!obstacle) return { x: 0, y: 0 };
+        
+        // Avoid by moving perpendicular to path
+        const perpDist = Math.sqrt(obstacle.perpX * obstacle.perpX + obstacle.perpY * obstacle.perpY);
+        if (perpDist <= 0) return { x: 0, y: 0 };
+        
+        // Smooth avoidance curve - only significant when very close
+        // Use smoothstep-like function for natural feel
+        const normalizedDist = Math.max(0, Math.min(1, obstacle.distance / 80));
+        const smoothFactor = normalizedDist * normalizedDist * (3 - 2 * normalizedDist); // Smoothstep
+        const strength = avoidanceStrength * (1 - smoothFactor) * 0.6; // Reduced max strength for subtlety
+        const avoidX = (obstacle.perpX / perpDist) * strength;
+        const avoidY = (obstacle.perpY / perpDist) * strength;
+        
+        return { x: avoidX, y: avoidY };
+    }
+    
+    // Calculate lateral spread force to break formations (subtle and natural)
+    getLateralSpreadForce(targetX, targetY, enemies, spreadRadius = 120, spreadStrength = 100) {
+        if (!enemies || enemies.length === 0) return { x: 0, y: 0 };
+        
+        const dx = targetX - this.x;
+        const dy = targetY - this.y;
+        const distToTarget = Math.sqrt(dx * dx + dy * dy);
+        if (distToTarget <= 0) return { x: 0, y: 0 };
+        
+        const dirX = dx / distToTarget;
+        const dirY = dy / distToTarget;
+        
+        // Perpendicular vectors (left and right of path)
+        const perpLeftX = -dirY;
+        const perpLeftY = dirX;
+        const perpRightX = dirY;
+        const perpRightY = -dirX;
+        
+        // Count enemies on each side with distance weighting
+        let leftWeight = 0;
+        let rightWeight = 0;
+        
+        enemies.forEach(other => {
+            if (other === this || !other.alive) return;
+            
+            const toOtherX = other.x - this.x;
+            const toOtherY = other.y - this.y;
+            const distToOther = Math.sqrt(toOtherX * toOtherX + toOtherY * toOtherY);
+            
+            // Only consider nearby enemies, with stronger weight for closer ones
+            if (distToOther < spreadRadius && distToOther > 0) {
+                // Project onto perpendicular
+                const perpProj = toOtherX * perpLeftX + toOtherY * perpLeftY;
+                // Inverse square weighting for natural falloff
+                const weight = 1 / (distToOther * distToOther + 10);
+                
+                if (perpProj > 0) {
+                    leftWeight += weight;
+                } else {
+                    rightWeight += weight;
+                }
+            }
+        });
+        
+        // Only apply spread if there's a significant imbalance (threshold increased for subtlety)
+        const imbalance = Math.abs(leftWeight - rightWeight);
+        const threshold = 0.15; // Higher threshold = less sensitive
+        
+        if (imbalance > threshold) {
+            // Smooth strength based on imbalance
+            const strengthScale = Math.min(imbalance / threshold, 2.0) * 0.4; // Max 40% of base strength
+            if (leftWeight > rightWeight) {
+                return { x: perpRightX * spreadStrength * strengthScale, y: perpRightY * spreadStrength * strengthScale };
+            } else {
+                return { x: perpLeftX * spreadStrength * strengthScale, y: perpLeftY * spreadStrength * strengthScale };
+            }
+        }
+        
+        return { x: 0, y: 0 };
+    }
+    
     // Calculate avoidance force to dodge player attacks
     avoidPlayerAttacks(player, avoidanceRadius = 60) {
         if (!player || !player.attackHitboxes || player.attackHitboxes.length === 0) {
@@ -673,6 +958,399 @@ class EnemyBase {
         const predictedY = player.y + player.vy * timeToReach * 0.7;
         
         return { x: predictedX, y: predictedY };
+    }
+    
+    // Get predicted target position for intercepting player movement
+    getPredictedTargetPosition(player, lookAheadTime = null) {
+        if (!player || !player.alive) return { x: player.x, y: player.y };
+        
+        if (lookAheadTime === null) {
+            lookAheadTime = this.predictionLookAhead;
+        }
+        
+        // Calculate direction to player
+        const dx = player.x - this.x;
+        const dy = player.y - this.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance <= 0) return { x: player.x, y: player.y };
+        
+        // Calculate player's movement direction relative to enemy
+        const playerSpeed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
+        if (playerSpeed <= 0) {
+            // Player not moving, use current position
+            return { x: player.x, y: player.y };
+        }
+        
+        // Normalize direction to player
+        const toPlayerX = dx / distance;
+        const toPlayerY = dy / distance;
+        
+        // Normalize player velocity
+        const playerDirX = player.vx / playerSpeed;
+        const playerDirY = player.vy / playerSpeed;
+        
+        // Calculate dot product: positive = moving toward enemy, negative = moving away
+        const dotProduct = toPlayerX * playerDirX + toPlayerY * playerDirY;
+        
+        // If player is moving directly toward enemy (dot product > 0.7), don't use prediction
+        // This prevents enemies from trying to move backward when player charges them
+        if (dotProduct > 0.7) {
+            // Player moving directly toward enemy - use current position
+            return { x: player.x, y: player.y };
+        }
+        
+        // Calculate time to reach player
+        const timeToReach = distance / (this.moveSpeed || 100);
+        
+        // Use prediction if player is moving laterally or away
+        if (player.vx !== 0 || player.vy !== 0) {
+            const predictionFactor = Math.min(this.intelligenceLevel, 0.8); // Cap at 80% for realism
+            const predicted = this.predictPlayerPosition(player, timeToReach * predictionFactor);
+            
+            // Validate prediction: ensure it doesn't cause enemy to move away from player
+            const predDx = predicted.x - this.x;
+            const predDy = predicted.y - this.y;
+            const predDist = Math.sqrt(predDx * predDx + predDy * predDy);
+            
+            if (predDist > 0) {
+                const predDirX = predDx / predDist;
+                const predDirY = predDy / predDist;
+                
+                // Check if predicted direction is still toward player (or at least not away)
+                const predDotProduct = toPlayerX * predDirX + toPlayerY * predDirY;
+                
+                // If prediction would cause backward movement (dot product < 0), use current position instead
+                if (predDotProduct < 0) {
+                    return { x: player.x, y: player.y };
+                }
+            }
+            
+            return predicted;
+        }
+        
+        return { x: player.x, y: player.y };
+    }
+    
+    // Calculate optimal position based on engagement distance
+    getOptimalPosition(targetX, targetY, preferredDistance, minDistance = null, maxDistance = null) {
+        if (!preferredDistance) return { x: targetX, y: targetY };
+        
+        const dx = targetX - this.x;
+        const dy = targetY - this.y;
+        const currentDistance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (currentDistance <= 0) return { x: targetX + preferredDistance, y: targetY };
+        
+        // Check if we're in optimal range
+        const tolerance = this.optimalDistanceTolerance || 20;
+        const minDist = minDistance || (preferredDistance - tolerance);
+        const maxDist = maxDistance || (preferredDistance + tolerance);
+        
+        if (currentDistance >= minDist && currentDistance <= maxDist) {
+            // Already in optimal range, maintain position
+            return { x: targetX, y: targetY };
+        }
+        
+        // Calculate desired position at optimal distance
+        const angle = Math.atan2(dy, dx);
+        const desiredX = targetX - Math.cos(angle) * preferredDistance;
+        const desiredY = targetY - Math.sin(angle) * preferredDistance;
+        
+        return { x: desiredX, y: desiredY };
+    }
+    
+    // Check if attack timing is good (player not attacking/dodging)
+    isGoodAttackTiming(player, reactionDelay = 0.3) {
+        if (!player) return true;
+        
+        // Check if player is attacking
+        if (player.attackHitboxes && player.attackHitboxes.length > 0) {
+            return false; // Bad timing - player is attacking
+        }
+        
+        // Check if player just dodged (vulnerable window)
+        if (this.lastPlayerAction && this.lastPlayerAction.type === 'dodge') {
+            const timeSinceDodge = (Date.now() - this.lastPlayerAction.timestamp) / 1000;
+            const dodgeRecovery = 0.2; // Recovery time after dodge
+            if (timeSinceDodge < dodgeRecovery) {
+                return true; // Good timing - player just finished dodging
+            }
+        }
+        
+        // Check if player is dodging
+        if (player.isDodging) {
+            return false; // Bad timing - player is dodging
+        }
+        
+        // Check if player is moving away (good time to attack)
+        if (player.vx !== 0 || player.vy !== 0) {
+            const toPlayerX = player.x - this.x;
+            const toPlayerY = player.y - this.y;
+            const playerVelDot = (toPlayerX * player.vx + toPlayerY * player.vy) / 
+                                (Math.sqrt(toPlayerX * toPlayerX + toPlayerY * toPlayerY) + 1);
+            if (playerVelDot < 0) {
+                return true; // Player moving away - good time to attack
+            }
+        }
+        
+        return true; // Default to allowing attack
+    }
+    
+    // Record damage for combo detection
+    recordDamage(damage) {
+        const now = Date.now();
+        this.lastDamageTime = now;
+        this.damageHistory.push({ timestamp: now, damage: damage });
+        
+        // Keep only recent damage (last 1 second)
+        this.damageHistory = this.damageHistory.filter(e => now - e.timestamp < 1000);
+    }
+    
+    // Check if enemy is being combo'd
+    isBeingComboed() {
+        if (this.damageHistory.length < this.comboThreshold) return false;
+        
+        // Check if multiple hits in short time
+        const recentHits = this.damageHistory.length;
+        const timeSpan = this.damageHistory.length > 0 ? 
+            Date.now() - this.damageHistory[0].timestamp : 0;
+        
+        return recentHits >= this.comboThreshold && timeSpan < 800; // 3+ hits in < 0.8s
+    }
+    
+    // Update player movement patterns
+    updatePlayerPatterns(player) {
+        if (!player) return;
+        
+        // Track dodge frequency
+        if (player.isDodging) {
+            this.playerPatterns.dodgeFrequency = 
+                (this.playerPatterns.dodgeFrequency * this.patternSampleCount + 1) / 
+                (this.patternSampleCount + 1);
+        }
+        
+        // Track attack frequency
+        if (player.attackHitboxes && player.attackHitboxes.length > 0) {
+            this.playerPatterns.attackFrequency = 
+                (this.playerPatterns.attackFrequency * this.patternSampleCount + 1) / 
+                (this.patternSampleCount + 1);
+        }
+        
+        // Track movement direction
+        if (player.vx !== 0 || player.vy !== 0) {
+            const speed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
+            if (speed > 0) {
+                const dirX = player.vx / speed;
+                const dirY = player.vy / speed;
+                this.playerPatterns.preferredDirection.x = 
+                    (this.playerPatterns.preferredDirection.x * this.patternSampleCount + dirX) / 
+                    (this.patternSampleCount + 1);
+                this.playerPatterns.preferredDirection.y = 
+                    (this.playerPatterns.preferredDirection.y * this.patternSampleCount + dirY) / 
+                    (this.patternSampleCount + 1);
+            }
+        }
+        
+        // Store movement history (last 10 samples)
+        if (player.vx !== 0 || player.vy !== 0) {
+            this.playerPatterns.movementHistory.push({
+                x: player.x,
+                y: player.y,
+                vx: player.vx,
+                vy: player.vy,
+                timestamp: Date.now()
+            });
+            if (this.playerPatterns.movementHistory.length > 10) {
+                this.playerPatterns.movementHistory.shift();
+            }
+        }
+        
+        this.patternSampleCount++;
+    }
+    
+    // Predict player movement based on patterns
+    predictFromPatterns(player) {
+        if (!player || this.playerPatterns.movementHistory.length < 3) {
+            return { x: player.x, y: player.y };
+        }
+        
+        // Use recent movement history to predict
+        const history = this.playerPatterns.movementHistory;
+        const recent = history.slice(-3);
+        
+        // Calculate average velocity from recent history
+        let avgVx = 0;
+        let avgVy = 0;
+        let timeSpan = 0;
+        
+        if (recent.length > 1) {
+            const first = recent[0];
+            const last = recent[recent.length - 1];
+            timeSpan = (last.timestamp - first.timestamp) / 1000;
+            
+            if (timeSpan > 0) {
+                avgVx = (last.x - first.x) / timeSpan;
+                avgVy = (last.y - first.y) / timeSpan;
+            }
+        }
+        
+        // Predict future position
+        const predictionTime = 0.3;
+        const predictedX = player.x + avgVx * predictionTime * this.intelligenceLevel;
+        const predictedY = player.y + avgVy * predictionTime * this.intelligenceLevel;
+        
+        return { x: predictedX, y: predictedY };
+    }
+    
+    // Calculate environmental awareness (wall/corner proximity)
+    updateEnvironmentalAwareness() {
+        if (typeof currentRoom === 'undefined' || !currentRoom) {
+            this.wallProximity = 0;
+            this.cornerProximity = 0;
+            return;
+        }
+        
+        const margin = 80; // Distance from wall to consider "near"
+        const cornerMargin = 60; // Distance from corner to consider "near corner"
+        
+        // Check distance to each wall
+        const distToLeft = this.x;
+        const distToRight = currentRoom.width - this.x;
+        const distToTop = this.y;
+        const distToBottom = currentRoom.height - this.y;
+        
+        const minWallDist = Math.min(distToLeft, distToRight, distToTop, distToBottom);
+        this.wallProximity = Math.max(0, 1 - (minWallDist / margin));
+        
+        // Check corner proximity (within cornerMargin of both walls)
+        const nearLeftWall = distToLeft < cornerMargin;
+        const nearRightWall = distToRight < cornerMargin;
+        const nearTopWall = distToTop < cornerMargin;
+        const nearBottomWall = distToBottom < cornerMargin;
+        
+        const inCorner = (nearLeftWall || nearRightWall) && (nearTopWall || nearBottomWall);
+        this.cornerProximity = inCorner ? 1.0 : 0.0;
+    }
+    
+    // Get strategic position considering environment
+    getStrategicPosition(targetX, targetY, preferredDistance) {
+        this.updateEnvironmentalAwareness();
+        
+        // If near corner and low HP, try to escape corner
+        if (this.cornerProximity > 0.5 && (this.hp / this.maxHp) < 0.5) {
+            // Move toward center
+            const centerX = typeof currentRoom !== 'undefined' && currentRoom ? 
+                currentRoom.width / 2 : targetX;
+            const centerY = typeof currentRoom !== 'undefined' && currentRoom ? 
+                currentRoom.height / 2 : targetY;
+            return { x: centerX, y: centerY };
+        }
+        
+        // If near wall, can use it to limit player escape routes
+        if (this.wallProximity > 0.3 && this.intelligenceLevel > 0.6) {
+            // Position to cut off escape route
+            const dx = targetX - this.x;
+            const dy = targetY - this.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            if (dist > 0) {
+                // Position between player and nearest wall
+                const angle = Math.atan2(dy, dx);
+                const strategicX = targetX - Math.cos(angle) * preferredDistance * 0.8;
+                const strategicY = targetY - Math.sin(angle) * preferredDistance * 0.8;
+                return { x: strategicX, y: strategicY };
+            }
+        }
+        
+        // Default to optimal position
+        return this.getOptimalPosition(targetX, targetY, preferredDistance);
+    }
+    
+    // Check if should retreat tactically (situational and intelligent)
+    shouldRetreat(player, enemies = []) {
+        if (!player) return false;
+        
+        // Only smarter enemies retreat (room 10+)
+        if (this.intelligenceLevel < 0.7) {
+            return false; // Dumber enemies fight to the death
+        }
+        
+        const hpPercent = this.hp / this.maxHp;
+        const dx = player.x - this.x;
+        const dy = player.y - this.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        
+        // Check if we're in a corner (bad retreat position)
+        this.updateEnvironmentalAwareness();
+        if (this.cornerProximity > 0.7) {
+            return false; // Don't retreat if cornered - fight instead
+        }
+        
+        // Check if other enemies are nearby (coordination - don't abandon allies)
+        let nearbyAllies = 0;
+        if (enemies && enemies.length > 0) {
+            enemies.forEach(other => {
+                if (other !== this && other.alive) {
+                    const allyDx = other.x - this.x;
+                    const allyDy = other.y - this.y;
+                    const allyDist = Math.sqrt(allyDx * allyDx + allyDy * allyDy);
+                    if (allyDist < 120) {
+                        nearbyAllies++;
+                    }
+                }
+            });
+        }
+        
+        // If multiple allies nearby, less likely to retreat (coordination)
+        if (nearbyAllies >= 2) {
+            return false; // Stay and fight with allies
+        }
+        
+        // Only retreat if being actively combo'd AND low HP (not just low HP)
+        if (this.isBeingComboed() && hpPercent < 0.4) {
+            // Check if player is actively attacking (not just low HP)
+            if (player.attackHitboxes && player.attackHitboxes.length > 0 && dist < 100) {
+                return true; // Being combo'd while player is attacking - tactical retreat
+            }
+        }
+        
+        // Only retreat if player is actively attacking AND we're very close AND low HP
+        if (player.attackHitboxes && player.attackHitboxes.length > 0) {
+            if (dist < 60 && hpPercent < 0.25) {
+                // Very close to attacking player, very low HP - quick reposition
+                return true;
+            }
+        }
+        
+        // Don't retreat just because of low HP - that's not fun
+        // Only retreat when there's a clear tactical advantage
+        
+        return false;
+    }
+    
+    // Get retreat position
+    getRetreatPosition(player, retreatDistance = 150) {
+        if (!player) return { x: this.x, y: this.y };
+        
+        const dx = this.x - player.x;
+        const dy = this.y - player.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        
+        if (dist <= 0) {
+            // If on top of player, retreat in random direction
+            const angle = Math.random() * Math.PI * 2;
+            return {
+                x: this.x + Math.cos(angle) * retreatDistance,
+                y: this.y + Math.sin(angle) * retreatDistance
+            };
+        }
+        
+        // Retreat away from player
+        const retreatX = this.x + (dx / dist) * retreatDistance;
+        const retreatY = this.y + (dy / dist) * retreatDistance;
+        
+        return { x: retreatX, y: retreatY };
     }
     
     // Find center of nearby group of enemies (for swarming behavior)

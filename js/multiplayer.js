@@ -8,6 +8,7 @@ class MultiplayerManager {
         this.connecting = false;
         this.lobbyCode = null;
         this.playerId = null;
+        this.persistentPlayerId = this.getOrCreatePersistentPlayerId(); // Persistent ID for reconnection
         this.isHost = false;
         this.players = []; // All players in lobby
         this.remotePlayers = []; // Other players (excluding local)
@@ -201,6 +202,9 @@ class MultiplayerManager {
                 case 'player_leveled_up':
                     this.handlePlayerLeveledUp(msg.data);
                     break;
+                case 'player_list_update':
+                    this.handlePlayerListUpdate(msg.data);
+                    break;
                 case 'heartbeat_ack':
                     // Heartbeat acknowledged
                     break;
@@ -249,6 +253,27 @@ class MultiplayerManager {
             };
         }
         return clone;
+    }
+    
+    // Get or create persistent player ID from localStorage
+    getOrCreatePersistentPlayerId() {
+        const STORAGE_KEY = 'shape_slayer_persistent_player_id';
+        try {
+            let persistentId = localStorage.getItem(STORAGE_KEY);
+            if (!persistentId) {
+                // Generate a new persistent ID
+                persistentId = `persistent-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                localStorage.setItem(STORAGE_KEY, persistentId);
+                console.log('[Multiplayer] Generated new persistent player ID:', persistentId);
+            } else {
+                console.log('[Multiplayer] Using existing persistent player ID:', persistentId);
+            }
+            return persistentId;
+        } catch (e) {
+            // Fallback if localStorage is not available
+            console.warn('[Multiplayer] localStorage not available, generating temporary persistent ID');
+            return `persistent-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        }
     }
     
     // Apply upgrade values to a player instance (host-side simulation)
@@ -329,13 +354,19 @@ class MultiplayerManager {
         const currency = this.getCurrency();
         const upgrades = this.getAllUpgrades();
         
+        // Ensure persistent ID is set
+        if (!this.persistentPlayerId) {
+            this.persistentPlayerId = this.getOrCreatePersistentPlayerId();
+        }
+        
         this.send({
             type: 'create_lobby',
             data: {
                 playerName: playerName || 'Player 1',
                 class: playerClass || Game.selectedClass || 'square',
                 currency: currency,
-                upgrades: upgrades
+                upgrades: upgrades,
+                persistentPlayerId: this.persistentPlayerId // Send persistent ID for reconnection
             }
         });
     }
@@ -349,6 +380,11 @@ class MultiplayerManager {
         const currency = this.getCurrency();
         const upgrades = this.getAllUpgrades();
         
+        // Ensure persistent ID is set
+        if (!this.persistentPlayerId) {
+            this.persistentPlayerId = this.getOrCreatePersistentPlayerId();
+        }
+        
         this.send({
             type: 'join_lobby',
             data: {
@@ -356,7 +392,8 @@ class MultiplayerManager {
                 playerName: playerName || 'Player',
                 playerClass: playerClass || Game.selectedClass || 'square',
                 currency: currency,
-                upgrades: upgrades
+                upgrades: upgrades,
+                persistentPlayerId: this.persistentPlayerId // Send persistent ID for reconnection
             }
         });
     }
@@ -1159,7 +1196,12 @@ class MultiplayerManager {
             Game.multiplayerEnabled = true;
         }
         
-        console.log(`[Multiplayer] Joined lobby: ${this.lobbyCode}`);
+        // If this is a reconnection, log it
+        if (data.isReconnection) {
+            console.log(`[Multiplayer] Reconnected to lobby ${this.lobbyCode} with player ID ${this.playerId}`);
+        } else {
+            console.log(`[Multiplayer] Joined lobby: ${this.lobbyCode}`);
+        }
         
         // Initialize host-side currency and upgrade tracking
         if (typeof Game !== 'undefined' && this.isHost && data.players) {
@@ -1300,6 +1342,22 @@ class MultiplayerManager {
         // Notify game
         if (typeof onPlayerJoined === 'function') {
             onPlayerJoined(data);
+        }
+    }
+    
+    // Handle player list update (for reconnections)
+    handlePlayerListUpdate(data) {
+        if (!data.players) return;
+        
+        // Update players list
+        this.players = data.players;
+        this.updateRemotePlayers();
+        
+        console.log('[Multiplayer] Player list updated:', this.players.map(p => `${p.name} (${p.id})`));
+        
+        // Update Game.remotePlayers for rendering
+        if (typeof Game !== 'undefined') {
+            Game.remotePlayers = this.remotePlayers;
         }
     }
     
@@ -1898,6 +1956,24 @@ class MultiplayerManager {
                     stats.addStat('kills', 1);
                 }
             }
+        }
+        
+        // Track telemetry for remote player damage (host only, same as local player tracking)
+        if (typeof Telemetry !== 'undefined' && attackerId) {
+            const enemyId = enemy.enemyId || enemy.id || enemy.bossName || enemy.type || null;
+            const enemyType = enemy.isBoss ? 'boss' : (enemy.type || (enemy.constructor && enemy.constructor.name) || 'enemy');
+            const roomNumber = typeof Game !== 'undefined' && typeof Game.roomNumber === 'number'
+                ? Game.roomNumber
+                : null;
+            
+            Telemetry.recordDamage({
+                playerId: attackerId,
+                amount: damageDealt,
+                enemyId,
+                enemyType,
+                roomNumber,
+                isBoss: !!enemy.isBoss
+            });
         }
         
         // Check if enemy died

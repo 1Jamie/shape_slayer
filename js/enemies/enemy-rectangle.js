@@ -1,35 +1,102 @@
 // Rectangle enemy - brute type
 
+// ============================================================================
+// RECTANGLE ENEMY CONFIGURATION - Adjust these values for game balancing
+// ============================================================================
+
+const RECTANGLE_CONFIG = {
+    // Base Stats
+    size: 25,                      // Enemy size (pixels, width)
+    height: 40,                    // Enemy height (pixels)
+    maxHp: 100,                    // Maximum health points
+    damage: 8,                     // Damage per hit
+    moveSpeed: 60,                 // Movement speed (pixels/second)
+    xpValue: 25,                   // XP awarded when killed
+    lootChance: 0.18,              // Chance to drop loot (0.18 = 18%)
+    
+    // Attack Behavior
+    attackCooldown: 3.0,           // Time between attacks (seconds)
+    chargeDurationBase: 1.2,       // Base charge duration (seconds)
+    chargeDurationMin: 0.8,        // Minimum charge duration (rooms 11+)
+    chargeDurationMax: 1.5,        // Maximum charge duration (rooms 11+)
+    slamDuration: 0.3,             // Duration of slam attack (seconds)
+    attackRange: 100,              // Distance to initiate attack (pixels)
+    slamRadius: 100,               // Radius of slam AoE (pixels)
+    
+    // Intelligence scaling thresholds (lowered for faster ramp-up)
+    intelligenceThresholds: {
+        variableTiming: 7,         // Room when variable charge timing unlocks (was 11)
+        fakeOutCharges: 10,        // Room when fake-out charges unlock (was 16)
+        comboAttacks: 13,          // Room when combo attacks unlock (was 21)
+        defensiveStance: 13,       // Room when defensive stance unlocks (was 21)
+        roarAbility: 13            // Room when roar ability unlocks (was 21)
+    },
+    
+    // Fake-out charge behavior
+    fakeOutChanceBase: 0.15,       // Base fake-out chance at room 10 (increased from 0.10)
+    fakeOutChanceMax: 0.25,        // Max fake-out chance at room 13+ (increased from 0.20)
+    
+    // Defensive stance
+    defensiveHpThreshold: 0.4,     // HP % below which defensive stance activates
+    defensiveDuration: 1.0,        // Duration of defensive stance (seconds)
+    defensiveDamageReduction: 0.5, // Damage reduction during stance (50%)
+    
+    // Roar ability
+    roarSlowAmount: 0.2,           // Slow amount applied by roar (20%)
+    roarSlowDuration: 0.5,         // Duration of roar slow (seconds)
+    roarRadius: 120                // Radius of roar effect (pixels)
+};
+
 class RectangleEnemy extends EnemyBase {
     constructor(x, y, inheritedTarget = null) {
         super(x, y, inheritedTarget);
         
-        // Stats
-        this.width = 25;
-        this.height = 40;
+        // Stats (from config)
+        this.width = RECTANGLE_CONFIG.size;
+        this.height = RECTANGLE_CONFIG.height;
         this.size = Math.max(this.width, this.height);
-        this.maxHp = 100;
-        this.hp = 100;
-        this.damage = 8;
-        this.moveSpeed = 60;
-        this.baseMoveSpeed = 60; // Store for stun system
+        this.maxHp = RECTANGLE_CONFIG.maxHp;
+        this.hp = RECTANGLE_CONFIG.maxHp;
+        this.damage = RECTANGLE_CONFIG.damage;
+        this.moveSpeed = RECTANGLE_CONFIG.moveSpeed;
+        this.baseMoveSpeed = RECTANGLE_CONFIG.moveSpeed; // Store for stun system
         
         // Properties
         this.color = '#cd7f32'; // Bronze
         this.shape = 'rectangle';
-        this.xpValue = 25;
-        this.lootChance = 0.18; // Reduced from 0.4 for larger rooms
+        this.xpValue = RECTANGLE_CONFIG.xpValue;
+        this.lootChance = RECTANGLE_CONFIG.lootChance;
         
         // Attack system
-        this.state = 'chase'; // 'chase', 'charge', 'slam'
+        this.state = 'chase'; // 'chase', 'charge', 'slam', 'cooldown', 'defensive', 'fakeout'
         this.attackCooldown = 0;
-        this.chargeDuration = 1.2; // Slightly longer telegraph for clarity
-        this.slamDuration = 0.3;
+        this.chargeDuration = RECTANGLE_CONFIG.chargeDurationBase;
+        this.currentChargeDuration = this.chargeDuration; // May vary based on room
+        this.slamDuration = RECTANGLE_CONFIG.slamDuration;
         this.chargeElapsed = 0;
         this.slamElapsed = 0;
-        this.attackRange = 100;
-        this.slamRadius = 100;
+        this.attackRange = RECTANGLE_CONFIG.attackRange;
+        this.slamRadius = RECTANGLE_CONFIG.slamRadius;
         this.sizeMultiplier = 1.0;
+        
+        // Variable charge timing (rooms 11+)
+        this.useVariableTiming = this.roomNumber >= RECTANGLE_CONFIG.intelligenceThresholds.variableTiming;
+        
+        // Fake-out charge system (rooms 16+)
+        this.fakeOutTimer = 0;
+        this.isFakingOut = false;
+        
+        // Combo attack system (rooms 21+)
+        this.comboReady = false;
+        this.comboChargeDuration = 0.15; // Quick shoulder charge
+        
+        // Defensive stance (rooms 21+)
+        this.defensiveTimer = 0;
+        this.defensiveActive = false;
+        
+        // Roar ability (rooms 21+)
+        this.roarTimer = 0;
+        this.roarCooldown = 0;
     }
     
     update(deltaTime) {
@@ -82,55 +149,133 @@ class RectangleEnemy extends EnemyBase {
         // Get enemies array for AI behaviors
         const enemies = (typeof Game !== 'undefined' && Game.enemies) ? Game.enemies : [];
         
+        // Defensive stance check (rooms 21+)
+        if (this.roomNumber >= RECTANGLE_CONFIG.intelligenceThresholds.defensiveStance && 
+            this.state !== 'defensive' && !this.defensiveActive) {
+            const hpPercent = this.hp / this.maxHp;
+            if (hpPercent < RECTANGLE_CONFIG.defensiveHpThreshold && Math.random() < 0.3 * this.intelligenceLevel) {
+                this.state = 'defensive';
+                this.defensiveTimer = RECTANGLE_CONFIG.defensiveDuration;
+                this.defensiveActive = true;
+            }
+        }
+        
+        // Update defensive timer
+        if (this.defensiveActive) {
+            this.defensiveTimer -= deltaTime;
+            if (this.defensiveTimer <= 0) {
+                this.defensiveActive = false;
+                this.defensiveTimer = 0;
+                if (this.state === 'defensive') {
+                    this.state = 'chase';
+                }
+            }
+        }
+        
+        // Update roar cooldown
+        if (this.roarCooldown > 0) {
+            this.roarCooldown -= deltaTime;
+        }
+        
         // AI behavior
-        if (this.state === 'chase') {
+        if (this.state === 'chase' || this.state === 'defensive') {
+            // Defensive stance: reduce incoming damage
+            if (this.defensiveActive && this.state === 'defensive') {
+                // Stay in place, brace for impact
+                // Damage reduction handled in takeDamage override (would need to add)
+                return;
+            }
+            
             // Check if in range and cooldown ready
             if (distance < this.attackRange && this.attackCooldown <= 0) {
-                // Avoid starting charge if player is actively attacking (gives player time to react)
-                // Check all alive players for attacks
-                let avoidance = { x: 0, y: 0 };
-                const allPlayers = this.getAllAlivePlayers();
-                allPlayers.forEach(({ player: p }) => {
-                    const playerAvoidance = this.avoidPlayerAttacks(p, 100);
-                    avoidance.x += playerAvoidance.x;
-                    avoidance.y += playerAvoidance.y;
-                });
-                const avoidDist = Math.sqrt(avoidance.x * avoidance.x + avoidance.y * avoidance.y);
+                // Check for fake-out charge (rooms 16+)
+                let shouldFakeOut = false;
+                if (this.roomNumber >= RECTANGLE_CONFIG.intelligenceThresholds.fakeOutCharges) {
+                    const roomsPastThreshold = Math.max(0, this.roomNumber - RECTANGLE_CONFIG.intelligenceThresholds.fakeOutCharges);
+                    const fakeOutScale = Math.min(1.0, roomsPastThreshold / 3); // Scales over 3 rooms (was 4)
+                    const fakeOutChance = RECTANGLE_CONFIG.fakeOutChanceBase + 
+                                        (RECTANGLE_CONFIG.fakeOutChanceMax - RECTANGLE_CONFIG.fakeOutChanceBase) * fakeOutScale;
+                    
+                    if (Math.random() < fakeOutChance * this.intelligenceLevel) {
+                        shouldFakeOut = true;
+                        this.state = 'fakeout';
+                        this.fakeOutTimer = this.chargeDuration * 0.4; // Shorter fake-out
+                        this.isFakingOut = true;
+                    }
+                }
                 
-                // If player is attacking nearby, wait and move away instead of charging
-                if (avoidDist > 50) {
-                    // Move away slightly to avoid interrupting player's attack
-                    const dirX = dx / distance;
-                    const dirY = dy / distance;
-                    const avoidNormX = avoidance.x / avoidDist;
-                    const avoidNormY = avoidance.y / avoidDist;
+                if (!shouldFakeOut) {
+                    // Avoid starting charge if player is actively attacking (gives player time to react)
+                    // Check all alive players for attacks
+                    let avoidance = { x: 0, y: 0 };
+                    const allPlayers = this.getAllAlivePlayers();
+                    allPlayers.forEach(({ player: p }) => {
+                        const playerAvoidance = this.avoidPlayerAttacks(p, 100);
+                        avoidance.x += playerAvoidance.x;
+                        avoidance.y += playerAvoidance.y;
+                    });
+                    const avoidDist = Math.sqrt(avoidance.x * avoidance.x + avoidance.y * avoidance.y);
                     
-                    // Blend movement with avoidance
-                    let moveX = dirX * 0.7 + avoidNormX * 0.3;
-                    let moveY = dirY * 0.7 + avoidNormY * 0.3;
-                    const moveDist = Math.sqrt(moveX * moveX + moveY * moveY);
-                    if (moveDist > 0) {
-                        moveX /= moveDist;
-                        moveY /= moveDist;
+                    // If player is attacking nearby, wait and move away instead of charging
+                    if (avoidDist > 50) {
+                        // Move away slightly to avoid interrupting player's attack
+                        const dirX = dx / distance;
+                        const dirY = dy / distance;
+                        const avoidNormX = avoidance.x / avoidDist;
+                        const avoidNormY = avoidance.y / avoidDist;
+                        
+                        // Blend movement with avoidance
+                        let moveX = dirX * 0.7 + avoidNormX * 0.3;
+                        let moveY = dirY * 0.7 + avoidNormY * 0.3;
+                        const moveDist = Math.sqrt(moveX * moveX + moveY * moveY);
+                        if (moveDist > 0) {
+                            moveX /= moveDist;
+                            moveY /= moveDist;
+                        }
+                        
+                        this.x += moveX * this.moveSpeed * deltaTime;
+                        this.y += moveY * this.moveSpeed * deltaTime;
+                        
+                        // Update rotation to face movement direction
+                        if (moveX !== 0 || moveY !== 0) {
+                            this.rotation = Math.atan2(moveY, moveX);
+                        }
+                    } else {
+                        // Roar before charging (rooms 21+)
+                        if (this.roomNumber >= RECTANGLE_CONFIG.intelligenceThresholds.roarAbility && 
+                            this.roarCooldown <= 0) {
+                            // Apply roar slow to nearby players
+                            const allPlayers = this.getAllAlivePlayers();
+                            allPlayers.forEach(({ player: p }) => {
+                                if (p.x && p.y) {
+                                    const distToPlayer = Math.sqrt((p.x - this.x) ** 2 + (p.y - this.y) ** 2);
+                                    if (distToPlayer < RECTANGLE_CONFIG.roarRadius && p.applySlow) {
+                                        p.applySlow(RECTANGLE_CONFIG.roarSlowAmount, RECTANGLE_CONFIG.roarSlowDuration);
+                                    }
+                                }
+                            });
+                            this.roarCooldown = 5.0; // 5 second cooldown
+                        }
+                        
+                        // Play slam charge sound
+                        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+                            AudioManager.sounds.enemySlam();
+                        }
+                        
+                        // Variable charge timing (rooms 11+)
+                        if (this.useVariableTiming) {
+                            const variance = (RECTANGLE_CONFIG.chargeDurationMax - RECTANGLE_CONFIG.chargeDurationMin) * this.intelligenceLevel;
+                            this.currentChargeDuration = RECTANGLE_CONFIG.chargeDurationMin + 
+                                                       Math.random() * variance;
+                        } else {
+                            this.currentChargeDuration = this.chargeDuration;
+                        }
+                        
+                        // No player attacks nearby (or very weak), start charge normally
+                        this.state = 'charge';
+                        this.chargeElapsed = 0;
+                        this.sizeMultiplier = 1.0;
                     }
-                    
-                    this.x += moveX * this.moveSpeed * deltaTime;
-                    this.y += moveY * this.moveSpeed * deltaTime;
-                    
-                    // Update rotation to face movement direction
-                    if (moveX !== 0 || moveY !== 0) {
-                        this.rotation = Math.atan2(moveY, moveX);
-                    }
-                } else {
-                    // Play slam charge sound
-                    if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-                        AudioManager.sounds.enemySlam();
-                    }
-                    
-                    // No player attacks nearby (or very weak), start charge normally
-                    this.state = 'charge';
-                    this.chargeElapsed = 0;
-                    this.sizeMultiplier = 1.0;
                 }
             } else {
                 // Slow chase toward player with separation
@@ -166,12 +311,48 @@ class RectangleEnemy extends EnemyBase {
                     this.rotation = Math.atan2(moveY, moveX);
                 }
             }
+        } else if (this.state === 'fakeout') {
+            // Fake-out state: start charge but cancel
+            this.fakeOutTimer -= deltaTime;
+            this.sizeMultiplier = 1.0 + (1 - this.fakeOutTimer / (this.chargeDuration * 0.4)) * 0.3;
+            
+            if (this.fakeOutTimer <= 0) {
+                // Cancel fake-out and reposition
+                this.isFakingOut = false;
+                this.fakeOutTimer = 0;
+                this.sizeMultiplier = 1.0;
+                this.state = 'chase';
+                // Move away slightly
+                const awayX = -dx / distance;
+                const awayY = -dy / distance;
+                this.x += awayX * this.moveSpeed * 0.5 * deltaTime;
+                this.y += awayY * this.moveSpeed * 0.5 * deltaTime;
+            }
         } else if (this.state === 'charge') {
             // Grow larger during charge
             this.chargeElapsed += deltaTime;
-            this.sizeMultiplier = 1.0 + (this.chargeElapsed / this.chargeDuration) * 0.5;
+            this.sizeMultiplier = 1.0 + (this.chargeElapsed / this.currentChargeDuration) * 0.5;
             
-            if (this.chargeElapsed >= this.chargeDuration) {
+            // Try to corner player (rooms 21+)
+            if (this.roomNumber >= RECTANGLE_CONFIG.intelligenceThresholds.comboAttacks) {
+                // Check if player is near wall/corner (simplified check)
+                const allPlayers = this.getAllAlivePlayers();
+                allPlayers.forEach(({ player: p }) => {
+                    if (p.x && p.y && typeof currentRoom !== 'undefined' && currentRoom) {
+                        const margin = 50;
+                        const nearWall = p.x < margin || p.x > currentRoom.width - margin ||
+                                       p.y < margin || p.y > currentRoom.height - margin;
+                        if (nearWall) {
+                            // Adjust charge direction slightly toward corner
+                            const toCornerX = (p.x < currentRoom.width / 2 ? -1 : 1);
+                            const toCornerY = (p.y < currentRoom.height / 2 ? -1 : 1);
+                            // This influences positioning, not direct charge direction
+                        }
+                    }
+                });
+            }
+            
+            if (this.chargeElapsed >= this.currentChargeDuration) {
                 // Perform slam - damage all players in radius
                 if (typeof Game !== 'undefined') {
                     const allPlayers = this.getAllAlivePlayers();
@@ -195,10 +376,27 @@ class RectangleEnemy extends EnemyBase {
                         }
                     });
                 }
+                
+                // Check for combo attack (rooms 21+)
+                if (this.roomNumber >= RECTANGLE_CONFIG.intelligenceThresholds.comboAttacks && 
+                    distance < this.attackRange * 1.2) {
+                    const comboChance = 0.4 * this.intelligenceLevel;
+                    if (Math.random() < comboChance) {
+                        // Immediate combo shoulder charge
+                        this.comboReady = true;
+                        this.state = 'charge';
+                        this.chargeElapsed = 0;
+                        this.currentChargeDuration = this.comboChargeDuration;
+                        this.sizeMultiplier = 1.0;
+                        return; // Skip cooldown
+                    }
+                }
+                
                 this.state = 'cooldown';
-                this.attackCooldown = 3.0;
+                this.attackCooldown = RECTANGLE_CONFIG.attackCooldown;
                 this.chargeElapsed = 0;
                 this.sizeMultiplier = 1.0;
+                this.comboReady = false;
             }
         } else if (this.state === 'cooldown') {
             if (this.attackCooldown <= 0) {

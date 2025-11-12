@@ -174,6 +174,18 @@
             const summary = state.activeRun.playerSummaries.get(snapshot.playerId);
             if (summary) {
                 summary.gear = snapshot.gear;
+                // Update affixes from gear snapshot
+                const allAffixes = [];
+                if (snapshot.gear?.weapon?.affixes) {
+                    allAffixes.push(...snapshot.gear.weapon.affixes);
+                }
+                if (snapshot.gear?.armor?.affixes) {
+                    allAffixes.push(...snapshot.gear.armor.affixes);
+                }
+                if (snapshot.gear?.accessory?.affixes) {
+                    allAffixes.push(...snapshot.gear.accessory.affixes);
+                }
+                summary.affixes = allAffixes;
             }
         });
     }
@@ -272,12 +284,23 @@
 
     function isHostOrSolo() {
         if (typeof Game === 'undefined') return false;
-        if (typeof SaveSystem !== 'undefined' && SaveSystem.getTelemetryOptIn) {
-            const optIn = SaveSystem.getTelemetryOptIn();
-            if (optIn !== true) {
-                return false;
+
+        // Prefer the live in-memory flag so mid-run toggles take effect immediately.
+        let optIn = typeof Game.telemetryOptIn === 'boolean' ? Game.telemetryOptIn : null;
+
+        // Fall back to the save system if the Game flag is unset (e.g., early during boot).
+        if (optIn === null && typeof SaveSystem !== 'undefined' && SaveSystem.getTelemetryOptIn) {
+            const storedOptIn = SaveSystem.getTelemetryOptIn();
+            if (typeof storedOptIn === 'boolean') {
+                optIn = storedOptIn;
             }
         }
+
+        // If still null (no decision yet), treat as opted-out.
+        if (optIn !== true) {
+            return false;
+        }
+
         if (!Game.multiplayerEnabled) return true;
         if (typeof Game.isHost === 'function') {
             return Game.isHost();
@@ -500,9 +523,27 @@
                     const summary = state.activeRun.playerSummaries.get(snapshot.playerId);
                     if (summary) {
                         summary.gear = snapshot.gear;
+                        // Update affixes from final gear snapshot
+                        // The gear snapshot has processed gear pieces with affixes already extracted
+                        const allAffixes = [];
+                        if (snapshot.gear?.weapon?.affixes) {
+                            allAffixes.push(...snapshot.gear.weapon.affixes);
+                        }
+                        if (snapshot.gear?.armor?.affixes) {
+                            allAffixes.push(...snapshot.gear.armor.affixes);
+                        }
+                        if (snapshot.gear?.accessory?.affixes) {
+                            allAffixes.push(...snapshot.gear.accessory.affixes);
+                        }
+                        summary.affixes = allAffixes;
                     }
                 });
             }
+            
+            // Recalculate affix pool from final player summaries (includes all gear changes during run)
+            const finalPlayerSummaries = Array.from(state.activeRun.playerSummaries.values());
+            state.activeRun.affixPool = summarizeAffixPool(finalPlayerSummaries);
+            
             state.activeRun.metadata = mergedMetadata;
 
             this.recordRoomsCleared(roomsClearedByPlayer);

@@ -30,6 +30,30 @@ const STAR_CONFIG = {
     projectileSize: 5,             // Size of projectile (pixels)
     projectileLifetime: 3.0,       // How long projectiles live (seconds)
     projectileSpreadAngle: 0.175,  // Random spread angle in radians (±5 degrees)
+    
+    // Intelligence scaling thresholds (lowered for faster ramp-up)
+    intelligenceThresholds: {
+        burstFire: 4,              // Room when burst fire mode unlocks (was 7)
+        predictiveAiming: 8,        // Room when predictive aiming unlocks (was 13)
+        pressureBehavior: 12,       // Room when pressure behavior unlocks (was 19)
+        volleyAttacks: 12           // Room when volley attacks unlock (was 19)
+    },
+    
+    // Burst fire behavior
+    burstFireChanceBase: 0.15,     // Base burst fire chance at room 4 (increased from 0.10)
+    burstFireChanceMax: 0.30,      // Max burst fire chance at room 7+ (increased from 0.25)
+    burstFireCount: 3,              // Number of projectiles in burst
+    burstFireDelay: 0.2,           // Delay between burst shots (seconds)
+    
+    // Predictive aiming
+    predictiveAccuracyBase: 0.8,   // Base accuracy at room 8 (80% - was 50%, too low!)
+    predictiveAccuracyMax: 0.95,     // Max accuracy at room 11+ (95% - was 90%)
+    predictiveLeadTime: 0.3,       // How far ahead to aim (seconds)
+    
+    // Volley attack
+    volleyCount: 5,                 // Number of projectiles in volley
+    volleySpread: 0.4,              // Spread angle for volley (radians)
+    volleyChance: 0.3               // Chance to use volley (scales with intelligence)
 };
 
 class StarEnemy extends EnemyBase {
@@ -59,6 +83,24 @@ class StarEnemy extends EnemyBase {
         this.strafeTimer = Math.random() * Math.PI * 2; // Random starting phase for strafing
         this.strafeSpeed = STAR_CONFIG.strafeSpeed;
         this.strafeAmplitude = STAR_CONFIG.strafeAmplitude;
+        
+        // Burst fire system (rooms 7+)
+        this.burstFireActive = false;
+        this.burstFireCount = 0;
+        this.burstFireTimer = 0;
+        
+        // Predictive aiming (ALWAYS enabled from room 1)
+        this.usePredictiveAiming = true; // Always use predictive aiming
+        this.lastPlayerVelocity = { x: 0, y: 0 };
+        this.lastPlayerPosition = null; // Initialize as null to detect first frame
+        this.velocityHistory = []; // Track velocity over time for better prediction
+        
+        // Pressure behavior (rooms 19+)
+        this.pressureMode = false;
+        
+        // Complex retreat (rooms 19+)
+        this.retreatPattern = 'straight'; // 'straight', 'zigzag'
+        this.zigzagTimer = 0;
     }
     
     update(deltaTime) {
@@ -117,11 +159,106 @@ class StarEnemy extends EnemyBase {
         // Update strafe timer
         this.strafeTimer += deltaTime * this.strafeSpeed;
         
+        // Pressure behavior: check if player is low HP (rooms 19+)
+        if (this.roomNumber >= STAR_CONFIG.intelligenceThresholds.pressureBehavior) {
+            const allPlayers = this.getAllAlivePlayers();
+            let playerLowHp = false;
+            allPlayers.forEach(({ player: p }) => {
+                if (p.hp && p.maxHp) {
+                    const hpPercent = p.hp / p.maxHp;
+                    if (hpPercent < 0.3) {
+                        playerLowHp = true;
+                    }
+                }
+            });
+            
+            // Reset to base values first
+            this.minRange = STAR_CONFIG.minRange;
+            this.attackCooldownTime = STAR_CONFIG.attackCooldown;
+            
+            if (playerLowHp) {
+                this.pressureMode = true;
+                // Move closer and fire more aggressively
+                this.minRange *= 0.7;
+                this.attackCooldownTime *= 0.8;
+            } else {
+                this.pressureMode = false;
+            }
+        }
+        
+        // Track player velocity for predictive aiming (ALWAYS track, use when enabled)
+        const allPlayers = this.getAllAlivePlayers();
+        allPlayers.forEach(({ player: p }) => {
+            if (p && p.x !== undefined && p.y !== undefined) {
+                // Calculate velocity - prefer direct velocity, fall back to position change
+                let currentVx = 0;
+                let currentVy = 0;
+                
+                // Try to get direct velocity first
+                if (p.vx !== undefined && p.vy !== undefined) {
+                    currentVx = p.vx;
+                    currentVy = p.vy;
+                } else if (this.lastPlayerPosition !== null) {
+                    // Estimate velocity from position change
+                    const dt = deltaTime || 0.016; // Default to ~60fps
+                    if (dt > 0 && dt < 1.0) { // Sanity check: dt should be reasonable
+                        const dx = p.x - this.lastPlayerPosition.x;
+                        const dy = p.y - this.lastPlayerPosition.y;
+                        currentVx = dx / dt;
+                        currentVy = dy / dt;
+                    }
+                }
+                
+                // Update velocity (always update, even if zero)
+                this.lastPlayerVelocity = { x: currentVx, y: currentVy };
+                
+                // Store position for next frame
+                this.lastPlayerPosition = { x: p.x, y: p.y };
+                
+                // Store velocity history for smoothing (always track - predictive aiming always enabled)
+                this.velocityHistory.push({
+                    vx: currentVx,
+                    vy: currentVy,
+                    timestamp: Date.now()
+                });
+                // Keep only recent history (last 0.2 seconds)
+                const now = Date.now();
+                this.velocityHistory = this.velocityHistory.filter(v => now - v.timestamp < 200);
+            }
+        });
+        
+        // Update burst fire timer
+        if (this.burstFireActive) {
+            this.burstFireTimer += deltaTime;
+            if (this.burstFireTimer >= STAR_CONFIG.burstFireDelay) {
+                this.burstFireTimer = 0;
+                this.burstFireCount--;
+                if (this.burstFireCount <= 0) {
+                    this.burstFireActive = false;
+                }
+            }
+        }
+        
         // Distance-based AI with strafing and separation
         if (distance < this.minRange) {
             // Too close - move away with strafing
-            const awayDirX = -dx / distance;
-            const awayDirY = -dy / distance;
+            let awayDirX = -dx / distance;
+            let awayDirY = -dy / distance;
+            
+            // Complex retreat patterns (rooms 19+)
+            if (this.roomNumber >= STAR_CONFIG.intelligenceThresholds.pressureBehavior) {
+                this.zigzagTimer += deltaTime * 3.0;
+                const zigzagOffset = Math.sin(this.zigzagTimer) * 30;
+                const zigzagPerpX = -awayDirY;
+                const zigzagPerpY = awayDirX;
+                awayDirX += zigzagPerpX * zigzagOffset * 0.3;
+                awayDirY += zigzagPerpY * zigzagOffset * 0.3;
+                const awayDist = Math.sqrt(awayDirX * awayDirX + awayDirY * awayDirY);
+                if (awayDist > 0) {
+                    awayDirX /= awayDist;
+                    awayDirY /= awayDist;
+                }
+            }
             
             // Add perpendicular strafing
             const perpX = -awayDirY;
@@ -241,9 +378,32 @@ class StarEnemy extends EnemyBase {
                 this.y += adjustDirY * this.moveSpeed * deltaTime;
             }
             
-            // Try to shoot (use target position, not player position, to account for clones/decoys)
+            // Try to shoot (pass raw target position - shoot method will handle all prediction)
             if (this.attackCooldown <= 0) {
-                this.shoot(targetX, targetY);
+                // Check for volley attack (rooms 12+)
+                if (this.roomNumber >= STAR_CONFIG.intelligenceThresholds.volleyAttacks && 
+                    Math.random() < STAR_CONFIG.volleyChance * this.intelligenceLevel) {
+                    this.shootVolley(targetX, targetY);
+                } else if (this.burstFireActive && this.burstFireCount > 0) {
+                    // Continue burst fire
+                    this.shoot(targetX, targetY, true);
+                } else {
+                    // Check for burst fire (rooms 4+)
+                    if (this.roomNumber >= STAR_CONFIG.intelligenceThresholds.burstFire) {
+                        const roomsPastThreshold = Math.max(0, this.roomNumber - STAR_CONFIG.intelligenceThresholds.burstFire);
+                        const burstScale = Math.min(1.0, roomsPastThreshold / 3); // Scales over 3 rooms (was 5)
+                        const burstChance = STAR_CONFIG.burstFireChanceBase + 
+                                          (STAR_CONFIG.burstFireChanceMax - STAR_CONFIG.burstFireChanceBase) * burstScale;
+                        
+                        if (Math.random() < burstChance * this.intelligenceLevel) {
+                            this.burstFireActive = true;
+                            this.burstFireCount = STAR_CONFIG.burstFireCount;
+                            this.burstFireTimer = 0;
+                        }
+                    }
+                    // Regular shots - shoot method handles all prediction
+                    this.shoot(targetX, targetY);
+                }
                 this.attackCooldown = this.attackCooldownTime;
             }
         }
@@ -289,23 +449,108 @@ class StarEnemy extends EnemyBase {
         }
     }
     
-    shoot(targetX, targetY) {
+    shoot(targetX, targetY, isBurstFire = false) {
         if (typeof Game === 'undefined') return;
         
-        // Calculate direction to target (which may be clone/decoy position from findTarget)
+        // Get actual player for better prediction (not clone/decoy)
+        // Try to get the actual player object with velocity properties
+        let targetPlayer = this.getPlayerById(this.currentTarget);
+        if (!targetPlayer || !targetPlayer.vx) {
+            // Fallback: get from getAllAlivePlayers to ensure we have velocity
+            const allPlayers = this.getAllAlivePlayers();
+            if (allPlayers.length > 0) {
+                // Find the player matching currentTarget, or use nearest
+                const matching = allPlayers.find(({ id }) => id === this.currentTarget);
+                targetPlayer = matching ? matching.player : allPlayers[0].player;
+            }
+        }
+        
+        // Calculate direction to target (targetX/targetY may already include prediction from update method)
         const projectileSpeed = STAR_CONFIG.projectileSpeed;
-        const dx = targetX - this.x;
-        const dy = targetY - this.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
+        let dx = targetX - this.x;
+        let dy = targetY - this.y;
+        let distance = Math.sqrt(dx * dx + dy * dy);
         
         if (distance <= 0) return;
+        
+        // Enhanced predictive aiming - ALWAYS enabled from room 1
+        // Use actual player position and velocity for accurate prediction
+        if (this.usePredictiveAiming && targetPlayer && targetPlayer.x !== undefined && targetPlayer.y !== undefined) {
+            // Accuracy scales with room number: starts at 70% in room 1, reaches 95% by room 11+
+            const accuracyScale = Math.min(1.0, (this.roomNumber - 1) / 10); // Scales over 10 rooms (room 1-11)
+            const accuracy = 0.7 + (STAR_CONFIG.predictiveAccuracyMax - 0.7) * accuracyScale; // 70% to 95%
+            
+            // Use smoothed velocity from history if available
+            let avgVx = this.lastPlayerVelocity.x;
+            let avgVy = this.lastPlayerVelocity.y;
+            if (this.velocityHistory.length > 0) {
+                // Average velocity over history for smoother prediction
+                let totalVx = 0;
+                let totalVy = 0;
+                let count = 0;
+                this.velocityHistory.forEach(v => {
+                    totalVx += v.vx;
+                    totalVy += v.vy;
+                    count++;
+                });
+                if (count > 0) {
+                    avgVx = totalVx / count;
+                    avgVy = totalVy / count;
+                }
+            }
+            
+            // Use actual player position for accurate intercept calculation
+            const playerX = targetPlayer.x;
+            const playerY = targetPlayer.y;
+            const playerDx = playerX - this.x;
+            const playerDy = playerY - this.y;
+            const playerDist = Math.sqrt(playerDx * playerDx + playerDy * playerDy);
+            
+            if (playerDist > 0) {
+                // ALWAYS apply prediction when enabled - calculate intercept time
+                let timeToIntercept = playerDist / projectileSpeed;
+                
+                // Use iterative prediction if player has meaningful velocity
+                if (Math.abs(avgVx) > 1 || Math.abs(avgVy) > 1) {
+                    // Iterate to find better intercept point (3 iterations for accuracy)
+                    for (let i = 0; i < 3; i++) {
+                        // Predict where player will be at this time
+                        const predictedX = playerX + avgVx * timeToIntercept;
+                        const predictedY = playerY + avgVy * timeToIntercept;
+                        
+                        // Calculate distance to predicted position
+                        const predDx = predictedX - this.x;
+                        const predDy = predictedY - this.y;
+                        const predDist = Math.sqrt(predDx * predDx + predDy * predDy);
+                        
+                        // Update time based on distance to predicted position
+                        if (predDist > 0) {
+                            timeToIntercept = predDist / projectileSpeed;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                
+                // ALWAYS apply prediction with accuracy scaling
+                const predictedX = playerX + avgVx * timeToIntercept * accuracy;
+                const predictedY = playerY + avgVy * timeToIntercept * accuracy;
+                
+                // Use predicted position for aiming (override targetX/targetY with accurate prediction)
+                dx = predictedX - this.x;
+                dy = predictedY - this.y;
+                distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance <= 0) return;
+            }
+        }
         
         // Base direction
         let dirX = dx / distance;
         let dirY = dy / distance;
         
-        // Add slight spread variation
-        const spreadAngle = (Math.random() - 0.5) * STAR_CONFIG.projectileSpreadAngle;
+        // Add slight spread variation (reduced for predictive aiming)
+        const spreadMultiplier = this.usePredictiveAiming ? (1 - this.intelligenceLevel * 0.5) : 1.0;
+        const spreadAngle = (Math.random() - 0.5) * STAR_CONFIG.projectileSpreadAngle * spreadMultiplier;
         const cos = Math.cos(spreadAngle);
         const sin = Math.sin(spreadAngle);
         const newDirX = dirX * cos - dirY * sin;
@@ -329,6 +574,113 @@ class StarEnemy extends EnemyBase {
             lifetime: STAR_CONFIG.projectileLifetime,
             elapsed: 0
         });
+    }
+    
+    shootVolley(targetX, targetY) {
+        if (typeof Game === 'undefined') return;
+        
+        // Get actual player for better prediction - ensure we have velocity properties
+        let targetPlayer = this.getPlayerById(this.currentTarget);
+        if (!targetPlayer || !targetPlayer.vx) {
+            const allPlayers = this.getAllAlivePlayers();
+            if (allPlayers.length > 0) {
+                const matching = allPlayers.find(({ id }) => id === this.currentTarget);
+                targetPlayer = matching ? matching.player : allPlayers[0].player;
+            }
+        }
+        
+        const projectileSpeed = STAR_CONFIG.projectileSpeed;
+        let dx = targetX - this.x;
+        let dy = targetY - this.y;
+        let distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance <= 0) return;
+        
+        // Use predictive aiming for volley - ALWAYS enabled from room 1
+        if (this.usePredictiveAiming && targetPlayer && targetPlayer.x !== undefined && targetPlayer.y !== undefined) {
+            // Accuracy scales with room number: starts at 70% in room 1, reaches 95% by room 11+
+            const accuracyScale = Math.min(1.0, (this.roomNumber - 1) / 10); // Scales over 10 rooms (room 1-11)
+            const accuracy = 0.7 + (STAR_CONFIG.predictiveAccuracyMax - 0.7) * accuracyScale; // 70% to 95%
+            
+            // Use smoothed velocity
+            let avgVx = this.lastPlayerVelocity.x;
+            let avgVy = this.lastPlayerVelocity.y;
+            if (this.velocityHistory.length > 0) {
+                let totalVx = 0;
+                let totalVy = 0;
+                let count = 0;
+                this.velocityHistory.forEach(v => {
+                    totalVx += v.vx;
+                    totalVy += v.vy;
+                    count++;
+                });
+                if (count > 0) {
+                    avgVx = totalVx / count;
+                    avgVy = totalVy / count;
+                }
+            }
+            
+            // Calculate intercept time using actual player position
+            const playerX = targetPlayer.x;
+            const playerY = targetPlayer.y;
+            const playerDx = playerX - this.x;
+            const playerDy = playerY - this.y;
+            const playerDist = Math.sqrt(playerDx * playerDx + playerDy * playerDy);
+            
+            // ALWAYS apply prediction when enabled
+            let timeToIntercept = playerDist / projectileSpeed;
+            
+            // Use iterative prediction if player has meaningful velocity
+            if (Math.abs(avgVx) > 1 || Math.abs(avgVy) > 1) {
+                for (let i = 0; i < 3; i++) {
+                    const predictedX = playerX + avgVx * timeToIntercept;
+                    const predictedY = playerY + avgVy * timeToIntercept;
+                    const predDx = predictedX - this.x;
+                    const predDy = predictedY - this.y;
+                    const predDist = Math.sqrt(predDx * predDx + predDy * predDy);
+                    if (predDist > 0) {
+                        timeToIntercept = predDist / projectileSpeed;
+                    } else {
+                        break;
+                    }
+                }
+            }
+            
+            // ALWAYS apply prediction with accuracy scaling
+            const predictedX = playerX + avgVx * timeToIntercept * accuracy;
+            const predictedY = playerY + avgVy * timeToIntercept * accuracy;
+            
+            // Use predicted position for aiming (override targetX/targetY)
+            dx = predictedX - this.x;
+            dy = predictedY - this.y;
+            distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance <= 0) return;
+        }
+        
+        const baseAngle = Math.atan2(dy, dx);
+        const spread = STAR_CONFIG.volleySpread;
+        
+        // Play projectile shoot sound
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+            AudioManager.sounds.enemyShoot();
+        }
+        
+        // Fire multiple projectiles in spread pattern
+        for (let i = 0; i < STAR_CONFIG.volleyCount; i++) {
+            const offsetAngle = (i / (STAR_CONFIG.volleyCount - 1) - 0.5) * spread;
+            const angle = baseAngle + offsetAngle;
+            
+            Game.projectiles.push({
+                x: this.x,
+                y: this.y,
+                vx: Math.cos(angle) * projectileSpeed,
+                vy: Math.sin(angle) * projectileSpeed,
+                damage: this.damage,
+                size: STAR_CONFIG.projectileSize,
+                lifetime: STAR_CONFIG.projectileLifetime,
+                elapsed: 0
+            });
+        }
     }
     
     render(ctx) {
