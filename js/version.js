@@ -349,7 +349,7 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 *"Remember those red circles you mercy-farmed in Room 1? They compared notes, formed a study group, and now you're the pop quiz."*
 
 • **Honor Society Enrollment (All Enemies):** IQ got scaled harder than exponential growth. Feints, combo detection, surround formations, wall checks, pattern recognition—all unlocked earlier. Room 4 stopped being recess and turned into Euclid’s nightmare.
-• **Predictive Brainstem (All Melee):** Every triangle and circle tracks your dodge cadence like it’s a metronome, solves for your future vector, and only retreats when the inequality says “certain death.” Translation: fewer whiffs, more proofs.
+• **Predictive Brainstem (All Melee):** Every triangle and circle tracks your dodge cadence like it’s a metronome, solves for your future vector, and only retreats when the inequality says “certain death.” Translation: fewer whiffs, more proofs, basically Spock with a spreadsheet.
 • **Threat Board & Timing Tutors (Roster-Wide):** Each enemy now keeps a threat ledger pettier than your algebra teacher. Low HP, cooldowns burning, button mashing? Congratulations, you just became priority variable x.
 • **Simultaneous Swarming (Circle Squad):** Up to five circles now lunge in phase, wave attacks externalize across whoever’s ready, and idle units rotate in like we’re running polar coordinates on your face. Your single-file duels were deprecated.
 • **Orbital Offense (Circles):** Predictive positioning, lateral spread, flanking bias, wall awareness—the red bois stole your playbook, highlighted the margins, and drew diagrams.
@@ -358,13 +358,13 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 • **Visual Aid, Now With Shade (All Enemies):** Telegraphs pulse harder, lunge trails linger longer, recovery states glow neon. You demanded readability; they added captions that say “incoming pain.”
 
 **Other Changes (Because Apparently AI Overhauls Weren’t Enough):**
-• **Multiplayer Tweaks:** Lobby slots now remember your player ID, so reconnecting doesn’t spawn Evil Twin You with zero gear and negative vibes.
-• **Menu Overhaul:** Old UI got yeeted into a black hole. New UI actually works on mobile without requiring a ritual sacrifice to join a lobby.
-• **Telemetry Fix:** Damage numbers and affixes now report in. Balancing graphs look less like missing-data art installations.
-• **Blue Diamond Boundaries:** Those azure stabbers finally learned Euclidean personal space. Less accidental spooning, more intentional skewering.
-• **Flinch Etiquette:** Melee creeps roll a d20 before panic jogging. Sometimes they stand their ground, sometimes they scurry. Either way, the comedy is now RNG-driven.
+• **Multiplayer Tweaks:** Lobby slots now remember your player ID, so reconnecting you get to still be you! No more you with zero gear and negative vibes. They’re loyal to you , so no accidental Order 66 mid-fight. That and you can actually get into the next room since there is a bump on a log with you now.
+• **Menu Overhaul:** Old UI got yeeted into a black hole. New UI actually works on mobile without requiring a ritual sacrifice to join a lobby—looking at you, Diablo II lobby circa 2000.
+• **Telemetry Fix:** Damage numbers and affixes now report in. Balancing graphs look less like missing-data art installations and more like something your spreadsheet professor would grade.
+• **Blue Diamond Boundaries:** Those azure stabbers finally learned Euclidean personal space. Less accidental spooning, more intentional skewering with protractor-level precision.
+• **Flinch Etiquette:** Melee creeps roll a d20 before panic jogging. Sometimes they stand their ground, sometimes they scurry. Either way, the comedy is now RNG-driven like your favorite Critical Role fail.
 • **Bosses Finally Read the Threat Table:** Big bads stopped orbiting the host like it’s homecoming. Tanks tank, glass cannons sweat, everyone’s VO2 max gets tested.
-• **Clone & Decoy Witness Protection:** Rogue shadow clones and Mage blink decoys now count as legit disposable interns—health bars, damage reactions, everything except dental insurance. They’re loyal to you this time, so no accidental Order 66 mid-fight.
+• **Clone & Decoy Witness Protection:** Rogue shadow clones and Mage blink decoys now count as legit disposable interns: health bars, damage reactions, everything except dental insurance. 
 • **Illusion Damage Control:** Enemy hits and projectiles run through the same math on illusions as real players. No more immortal cardboard cutouts or threat-table singularities—just geometry earning minimum wage.
 • **Client Level-Ups Actually Level:** Remote players finally receive actual stat bumps instead of placebo sparkles. Yes, Karen, your HP now scales even when you’re not the host. Try not to sprain your newfound survivability.
 
