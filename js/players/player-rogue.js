@@ -8,7 +8,7 @@ const ROGUE_CONFIG = {
     // Base Stats (from CLASS_DEFINITIONS)
     baseHp: 75,                    // Starting health points
     baseDamage: 12,                // Base damage per attack
-    baseSpeed: 287.5,              // Movement speed (pixels/second)
+    baseSpeed: 267.5,              // Movement speed (pixels/second)
     baseDefense: 0,                // Damage reduction (0-1 range)
     critChance: 0.15,              // Critical hit chance (0.15 = 15%)
     
