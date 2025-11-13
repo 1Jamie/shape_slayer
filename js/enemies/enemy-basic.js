@@ -9,19 +9,19 @@ const BASIC_ENEMY_CONFIG = {
     size: 20,                      // Enemy size (pixels)
     maxHp: 40,                     // Maximum health points
     damage: 5,                     // Damage per hit
-    moveSpeed: 100,                // Movement speed (pixels/second)
+    moveSpeed: 115,                // Movement speed (pixels/second)
     xpValue: 10,                   // XP awarded when killed
     lootChance: 0.10,              // Chance to drop loot (0.10 = 10%, reduced for larger rooms)
     
     // Attack Behavior
     attackCooldown: 2.0,           // Time between attacks (seconds)
-    telegraphDuration: 0.6,        // Base telegraph warning duration (seconds, increased from 0.5)
-    quickTelegraphDuration: 0.4,   // Quick lunge telegraph (rooms 2+)
-    delayedTelegraphDuration: 0.8, // Delayed lunge telegraph (rooms 2+)
+    telegraphDuration: 0.5,        // Base telegraph warning duration (seconds)
+    quickTelegraphDuration: 0.3,   // Quick lunge telegraph (rooms 2+)
+    delayedTelegraphDuration: 0.65, // Delayed lunge telegraph (rooms 2+)
     lungeDuration: 0.4,            // Duration of lunge attack (seconds, increased from 0.2)
     lungeSpeed: 400,               // Speed during lunge (pixels/second, increased from 300)
-    lungeDistance: 120,            // Maximum distance lunge can travel (pixels)
-    attackRange: 80,               // Distance to initiate attack (pixels, increased from 50)
+    lungeDistance: 130,            // Maximum distance lunge can travel (pixels)
+    attackRange: 95,               // Distance to initiate attack (pixels, increased from 50)
     attackRangeVariance: 10,       // Random variance for attack timing (±pixels)
     attackRecoveryDuration: 0.3,    // Duration of recovery after lunge (seconds)
     
@@ -140,6 +140,9 @@ class Enemy extends EnemyBase {
         // Orbital movement
         this.orbitAngle = Math.random() * Math.PI * 2; // Random starting orbit angle
         this.orbitSpeed = 0.5; // Rotation speed around player (radians/second)
+        this.approachAngleOffset = 0;
+        this.approachAngleTarget = 0;
+        this.approachAngleTimer = 0;
         
         // Shared telegraph descriptors
         this.telegraphProfile = {
@@ -174,7 +177,7 @@ class Enemy extends EnemyBase {
         this.minTelegraphRange = Math.max(60, this.currentAttackRange * 0.9);
         
         // Contact knockback tuning
-        this.contactKnockback = 100;
+        this.contactKnockback = 60;
         this.damageProjectionMultiplier = 1.05;
         this.damageProjectionRadius = this.size * 0.9;
     }
@@ -640,18 +643,29 @@ class Enemy extends EnemyBase {
                 
                 // Add approach angle variation (room 1+)
                 // Vary approach angle slightly to prevent straight-line charges
+                const approachAngle = Math.atan2(dy, dx);
                 if (currentDist > this.optimalDistance) {
-                    const approachAngle = Math.atan2(dy, dx);
-                    const angleVariation = (Math.random() - 0.5) * 0.3; // ±15 degrees variation
-                    const variedAngle = approachAngle + angleVariation;
-                    const variedX = targetX + Math.cos(variedAngle) * currentDist;
-                    const variedY = targetY + Math.sin(variedAngle) * currentDist;
-                    
-                    // Blend varied approach (subtle)
-                    const variationWeight = 0.2; // 20% variation
-                    moveTargetX = moveTargetX * (1 - variationWeight) + variedX * variationWeight;
-                    moveTargetY = moveTargetY * (1 - variationWeight) + variedY * variationWeight;
+                    if (this.approachAngleTimer <= 0) {
+                        this.approachAngleTarget = (Math.random() - 0.5) * 0.28; // ~±16 degrees
+                        this.approachAngleTimer = 0.65 + Math.random() * 0.75;
+                    } else {
+                        this.approachAngleTimer -= deltaTime;
+                    }
+                    const approachLerp = Math.min(1, deltaTime * 4);
+                    this.approachAngleOffset += (this.approachAngleTarget - this.approachAngleOffset) * approachLerp;
+                } else {
+                    this.approachAngleTarget = 0;
+                    const settleLerp = Math.min(1, deltaTime * 5);
+                    this.approachAngleOffset += (0 - this.approachAngleOffset) * settleLerp;
                 }
+                const variedAngle = approachAngle + this.approachAngleOffset;
+                const variedX = targetX + Math.cos(variedAngle) * currentDist;
+                const variedY = targetY + Math.sin(variedAngle) * currentDist;
+                
+                // Blend varied approach (subtle, smoothed)
+                const variationWeight = 0.2; // 20% variation
+                moveTargetX = moveTargetX * (1 - variationWeight) + variedX * variationWeight;
+                moveTargetY = moveTargetY * (1 - variationWeight) + variedY * variationWeight;
                 
                 // Use environmental awareness for strategic positioning (rooms 8+)
                 if (this.environmentalAwarenessEnabled && this.intelligenceLevel > 0.6) {
@@ -1042,9 +1056,9 @@ class Enemy extends EnemyBase {
             if (recoveryDist > 0) {
                 const recoveryDirX = recoveryDx / recoveryDist;
                 const recoveryDirY = recoveryDy / recoveryDist;
-                const targetX = this.x + recoveryDirX * this.moveSpeed * 0.3 * deltaTime;
-                const targetY = this.y + recoveryDirY * this.moveSpeed * 0.3 * deltaTime;
-                this.smoothMoveTo(targetX, targetY, 0.35);
+                const offsetX = recoveryDirX * this.moveSpeed * 0.3 * deltaTime;
+                const offsetY = recoveryDirY * this.moveSpeed * 0.3 * deltaTime;
+                this.applySmoothedOffset(offsetX, offsetY, { smoothing: 0.35 });
                 this.smoothRotateTo(Math.atan2(recoveryDirY, recoveryDirX));
             }
             
@@ -1098,9 +1112,9 @@ class Enemy extends EnemyBase {
                     // Too close - back off
                     const backoffX = cooldownDx / cooldownDist;
                     const backoffY = cooldownDy / cooldownDist;
-                    const desiredX = this.x + backoffX * this.moveSpeed * 0.5 * deltaTime;
-                    const desiredY = this.y + backoffY * this.moveSpeed * 0.5 * deltaTime;
-                    this.smoothMoveTo(desiredX, desiredY, 0.3);
+                    const offsetX = backoffX * this.moveSpeed * 0.5 * deltaTime;
+                    const offsetY = backoffY * this.moveSpeed * 0.5 * deltaTime;
+                    this.applySmoothedOffset(offsetX, offsetY, { smoothing: 0.3 });
                     this.smoothRotateTo(Math.atan2(backoffY, backoffX));
                 } else {
                     // Apply separation during cooldown

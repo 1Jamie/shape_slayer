@@ -21,7 +21,7 @@ const RECTANGLE_CONFIG = {
     chargeDurationMax: 1.5,        // Maximum charge duration (rooms 11+)
     slamDuration: 0.3,             // Duration of slam attack (seconds)
     attackRange: 100,              // Distance to initiate attack (pixels)
-    slamRadius: 100,               // Radius of slam AoE (pixels)
+    slamRadius: 120,               // Radius of slam AoE (pixels)
     
     // Intelligence scaling thresholds (lowered for faster ramp-up)
     intelligenceThresholds: {
@@ -273,9 +273,9 @@ class RectangleEnemy extends EnemyBase {
                         moveY /= moveDist;
                     }
                     
-                    const desiredX = this.x + moveX * this.moveSpeed * deltaTime;
-                    const desiredY = this.y + moveY * this.moveSpeed * deltaTime;
-                    this.smoothMoveTo(desiredX, desiredY);
+                    const offsetX = moveX * this.moveSpeed * deltaTime;
+                    const offsetY = moveY * this.moveSpeed * deltaTime;
+                    this.applySmoothedOffset(offsetX, offsetY);
                     
                     if (moveX !== 0 || moveY !== 0) {
                         this.smoothRotateTo(Math.atan2(moveY, moveX));
@@ -342,9 +342,9 @@ class RectangleEnemy extends EnemyBase {
                     }
                 }
                 
-                const desiredX = this.x + moveX * this.moveSpeed * deltaTime;
-                const desiredY = this.y + moveY * this.moveSpeed * deltaTime;
-                this.smoothMoveTo(desiredX, desiredY);
+                const offsetX = moveX * this.moveSpeed * deltaTime;
+                const offsetY = moveY * this.moveSpeed * deltaTime;
+                this.applySmoothedOffset(offsetX, offsetY);
                 
                 if (moveX !== 0 || moveY !== 0) {
                     this.smoothRotateTo(Math.atan2(moveY, moveX));
@@ -365,9 +365,9 @@ class RectangleEnemy extends EnemyBase {
                 // Move away slightly
                 const awayX = -dx / distance;
                 const awayY = -dy / distance;
-                const desiredX = this.x + awayX * this.moveSpeed * 0.5 * deltaTime;
-                const desiredY = this.y + awayY * this.moveSpeed * 0.5 * deltaTime;
-                this.smoothMoveTo(desiredX, desiredY, 0.4);
+                const offsetX = awayX * this.moveSpeed * 0.5 * deltaTime;
+                const offsetY = awayY * this.moveSpeed * 0.5 * deltaTime;
+                this.applySmoothedOffset(offsetX, offsetY, { smoothing: 0.4 });
             }
         } else if (this.state === 'charge') {
             if (this.chargeTelegraphRemaining > 0) {

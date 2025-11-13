@@ -2453,6 +2453,17 @@ let pauseMenuButtons = {
 
 // Multiplayer menu state
 let multiplayerMenuVisible = false;
+let audioMenuVisible = false;
+const audioMenuButtons = {
+    back: { x: 0, y: 0, width: 0, height: 0, pressed: false }
+};
+const audioSliders = {
+    master: { value: 0.5, track: null, hitbox: null },
+    music: { value: 1.0, track: null, hitbox: null },
+    sfx: { value: 1.0, track: null, hitbox: null }
+};
+let activeAudioSliderKey = null;
+let activeAudioSliderPointerId = null;
 let multiplayerMenuButtons = {
     createLobby: { x: 0, y: 0, width: 0, height: 0, pressed: false },
     joinLobby: { x: 0, y: 0, width: 0, height: 0, pressed: false },
@@ -2944,8 +2955,10 @@ function renderPauseMenu(ctx) {
     // Handle button clicks/touches
     handlePauseMenuInput();
     
-    // Render multiplayer submenu if visible
-    if (multiplayerMenuVisible) {
+    // Render submenus if visible
+    if (audioMenuVisible) {
+        renderAudioMenu(ctx);
+    } else if (multiplayerMenuVisible) {
         renderMultiplayerMenu(ctx);
     }
 }
@@ -3197,6 +3210,329 @@ function renderMultiplayerMenu(ctx) {
     multiplayerMenuButtons.back.height = backButtonHeight;
     renderPauseMenuButton(ctx, multiplayerMenuButtons.back, 'Back', false);
 }
+
+// Render audio settings submenu
+function commitAudioSliderValue(key, value) {
+    const sliderState = audioSliders[key];
+    if (!sliderState) return;
+    
+    const clamped = Math.max(0, Math.min(1, value));
+    sliderState.value = clamped;
+    
+    if (typeof AudioManager === 'undefined') return;
+    AudioManager.init();
+    
+    if (key === 'master') {
+        AudioManager.setVolume(clamped);
+        if (AudioManager.muted && clamped > 0) {
+            AudioManager.setMute(false);
+        }
+    } else if (key === 'music' && AudioManager.setMusicVolume) {
+        AudioManager.setMusicVolume(clamped);
+    } else if (key === 'sfx' && AudioManager.setSfxVolume) {
+        AudioManager.setSfxVolume(clamped);
+    }
+}
+
+function audioSliderAtPosition(x, y) {
+    if (!audioMenuVisible) return null;
+    for (const key of Object.keys(audioSliders)) {
+        const sliderState = audioSliders[key];
+        if (!sliderState || !sliderState.hitbox) continue;
+        const hit = sliderState.hitbox;
+        if (x >= hit.x && x <= hit.x + hit.width && y >= hit.y && y <= hit.y + hit.height) {
+            return { key, sliderState };
+        }
+    }
+    return null;
+}
+
+function updateAudioSliderFromPosition(key, sliderState, x) {
+    if (!sliderState || !sliderState.track) return;
+    const ratio = (x - sliderState.track.x) / sliderState.track.width;
+    commitAudioSliderValue(key, ratio);
+}
+
+function renderAudioMenu(ctx) {
+    const canvasWidth = Game ? Game.config.width : 1280;
+    const canvasHeight = Game ? Game.config.height : 720;
+    const centerX = canvasWidth / 2;
+    const centerY = canvasHeight / 2;
+    
+    const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+    
+    // Overlay
+    ctx.fillStyle = 'rgba(15, 15, 26, 0.95)';
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    
+    // Grid pattern (reuse multiplayer styling)
+    ctx.strokeStyle = 'rgba(100, 100, 150, 0.15)';
+    ctx.lineWidth = 1;
+    const gridSize = 50;
+    for (let x = 0; x < canvasWidth; x += gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvasHeight);
+        ctx.stroke();
+    }
+    for (let y = 0; y < canvasHeight; y += gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvasWidth, y);
+        ctx.stroke();
+    }
+    
+    // Panel
+    const panelWidth = isMobile
+        ? Math.min(canvasWidth * 0.94, canvasWidth - 12)
+        : Math.min(Math.max(canvasWidth * 0.48, 560), canvasWidth - 160);
+    const panelHeight = isMobile
+        ? Math.min(canvasHeight * 0.88, canvasHeight - 12)
+        : Math.min(Math.max(canvasHeight * 0.52, 420), canvasHeight - 140);
+    const panelX = (canvasWidth - panelWidth) / 2;
+    const panelY = (canvasHeight - panelHeight) / 2;
+    
+    ctx.fillStyle = 'rgba(20, 20, 40, 0.95)';
+    ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
+    
+    const cornerSize = isMobile ? 8 : 10;
+    ctx.fillStyle = '#4a90e2';
+    drawTriangle(ctx, panelX + cornerSize, panelY + cornerSize, cornerSize, Math.PI * 0.25);
+    ctx.fill();
+    drawTriangle(ctx, panelX + panelWidth - cornerSize, panelY + cornerSize, cornerSize, Math.PI * 0.75);
+    ctx.fill();
+    drawTriangle(ctx, panelX + cornerSize, panelY + panelHeight - cornerSize, cornerSize, -Math.PI * 0.25);
+    ctx.fill();
+    drawTriangle(ctx, panelX + panelWidth - cornerSize, panelY + panelHeight - cornerSize, cornerSize, Math.PI * 1.25);
+    ctx.fill();
+    
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(panelX, panelY, panelWidth, panelHeight);
+    
+    ctx.strokeStyle = '#673ab7';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(panelX + 3, panelY + 3, panelWidth - 6, panelHeight - 6);
+    
+    // Title
+    ctx.fillStyle = '#ffff00';
+    const titleSize = isMobile ? Math.min(28, panelWidth * 0.07) : Math.min(34, panelWidth * 0.075);
+    ctx.font = `bold ${titleSize}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    const titleY = panelY + (isMobile ? 24 : 32);
+    ctx.fillText('AUDIO SETTINGS', centerX, titleY);
+    
+    const masterVolume = (typeof AudioManager !== 'undefined' ? AudioManager.masterVolume : audioSliders.master.value) || 0;
+    const musicVolume = (typeof AudioManager !== 'undefined' ? AudioManager.musicVolume : audioSliders.music.value) || 0;
+    const sfxVolume = (typeof AudioManager !== 'undefined' ? AudioManager.sfxVolume : audioSliders.sfx.value) || 0;
+    const masterMuted = typeof AudioManager !== 'undefined' ? AudioManager.muted === true : false;
+    
+    audioSliders.master.value = Math.max(0, Math.min(1, masterVolume));
+    audioSliders.music.value = Math.max(0, Math.min(1, musicVolume));
+    audioSliders.sfx.value = Math.max(0, Math.min(1, sfxVolume));
+    
+    const sliderConfigs = [
+        {
+            key: 'master',
+            label: masterMuted ? 'Master Volume (Muted)' : 'Master Volume',
+            description: 'Controls the overall output level.',
+            value: audioSliders.master.value
+        },
+        {
+            key: 'music',
+            label: 'Music Volume',
+            description: 'Adjusts soundtrack intensity.',
+            value: audioSliders.music.value
+        },
+        {
+            key: 'sfx',
+            label: 'Effects Volume',
+            description: 'Toggles ability, hit, and UI sounds.',
+            value: audioSliders.sfx.value
+        }
+    ];
+    
+    // Slider layout configuration
+    const sidePadding = isMobile ? Math.min(panelWidth * 0.07, 30) : Math.min(panelWidth * 0.09, 48);
+    const sliderWidth = panelWidth - sidePadding * 2;
+    const sliderHeight = Math.max(8, panelHeight * (isMobile ? 0.038 : 0.045));
+    const topMargin = titleY + (isMobile ? titleSize * 0.7 : titleSize + 24);
+    const bottomMargin = isMobile ? Math.min(panelHeight * 0.16, 90) : Math.min(panelHeight * 0.22, 110);
+    const sliderAreaTop = topMargin;
+    const sliderAreaBottom = panelY + panelHeight - bottomMargin;
+    const sliderAreaHeight = Math.max(1, sliderAreaBottom - sliderAreaTop);
+    const sliderSlotHeight = sliderAreaHeight / sliderConfigs.length;
+    
+    sliderConfigs.forEach((config, index) => {
+        const sliderState = audioSliders[config.key];
+        const percent = Math.round(config.value * 100);
+        const slotTop = sliderAreaTop + sliderSlotHeight * index;
+        const sliderX = panelX + sidePadding;
+        
+        // Label
+        const labelFont = isMobile ? Math.min(24, panelWidth * 0.06) : Math.min(20, panelWidth * 0.045);
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+        ctx.font = `bold ${labelFont}px Arial`;
+        ctx.fillStyle = '#ffffff';
+        const labelY = slotTop + labelFont;
+        ctx.fillText(config.label, sliderX, labelY);
+        
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#a6b1ff';
+        ctx.fillText(`${percent}%`, sliderX + sliderWidth, labelY);
+        
+        const trackY = labelY + Math.max(12, labelFont * 0.4);
+        sliderState.track = { x: sliderX, y: trackY, width: sliderWidth, height: sliderHeight };
+        sliderState.hitbox = {
+            x: sliderX,
+            y: trackY - sliderHeight * 1.5,
+            width: sliderWidth,
+            height: sliderHeight * 3
+        };
+        
+        // Track background
+        ctx.fillStyle = 'rgba(30, 34, 64, 0.95)';
+        ctx.fillRect(sliderState.track.x, sliderState.track.y, sliderState.track.width, sliderState.track.height);
+        
+        // Fill
+        const fillWidth = sliderState.track.width * sliderState.value;
+        ctx.fillStyle = '#4a90e2';
+        ctx.fillRect(sliderState.track.x, sliderState.track.y, fillWidth, sliderState.track.height);
+        
+        // Knob
+        const knobRadius = Math.max(sliderHeight * 0.9, 6);
+        const knobX = sliderState.track.x + fillWidth;
+        const knobY = sliderState.track.y + sliderState.track.height / 2;
+        ctx.beginPath();
+        ctx.arc(knobX, knobY, knobRadius, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffff00';
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#ffffff';
+        ctx.stroke();
+        
+        // Description
+        const descriptionFont = isMobile ? Math.min(16, panelWidth * 0.04) : Math.min(15, panelWidth * 0.036);
+        ctx.font = `${descriptionFont}px Arial`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillStyle = '#b0b4d8';
+        const descriptionY = sliderState.track.y + sliderState.track.height + 8;
+        ctx.fillText(config.description, sliderX, descriptionY);
+    });
+    
+    // Back button
+    const buttonWidth = sliderWidth;
+    const buttonHeight = isMobile ? Math.min(60, bottomMargin - 14) : Math.min(50, bottomMargin - 16);
+    audioMenuButtons.back.x = centerX - buttonWidth / 2;
+    audioMenuButtons.back.y = panelY + panelHeight - buttonHeight - (isMobile ? 16 : 12);
+    audioMenuButtons.back.width = buttonWidth;
+    audioMenuButtons.back.height = buttonHeight;
+    renderPauseMenuButton(ctx, audioMenuButtons.back, 'Back', false);
+}
+
+function handleAudioMenuClick(x, y) {
+    // Back button
+    if (x >= audioMenuButtons.back.x && x <= audioMenuButtons.back.x + audioMenuButtons.back.width &&
+        y >= audioMenuButtons.back.y && y <= audioMenuButtons.back.y + audioMenuButtons.back.height) {
+        audioMenuButtons.back.pressed = true;
+        setTimeout(() => { audioMenuButtons.back.pressed = false; }, 120);
+        audioMenuVisible = false;
+        activeAudioSliderKey = null;
+        activeAudioSliderPointerId = null;
+        if (typeof AudioManager !== 'undefined') {
+            AudioManager.saveSettings();
+        }
+        return true;
+    }
+    
+    const sliderInfo = audioSliderAtPosition(x, y);
+    if (sliderInfo) {
+        updateAudioSliderFromPosition(sliderInfo.key, sliderInfo.sliderState, x);
+        activeAudioSliderKey = sliderInfo.key;
+        activeAudioSliderPointerId = null;
+        return true;
+    }
+    
+    return false;
+}
+
+function getGameCoordsFromClient(clientX, clientY) {
+    if (!Game || typeof Game.screenToGame !== 'function') return null;
+    return Game.screenToGame(clientX, clientY);
+}
+
+function handleAudioSliderPointerDown(event) {
+    if (!audioMenuVisible) return;
+    const coords = getGameCoordsFromClient(event.clientX, event.clientY);
+    if (!coords) return;
+    const sliderInfo = audioSliderAtPosition(coords.x, coords.y);
+    if (!sliderInfo) return;
+    
+    event.preventDefault();
+    event.stopPropagation();
+    
+    activeAudioSliderKey = sliderInfo.key;
+    activeAudioSliderPointerId = event.pointerId !== undefined ? event.pointerId : null;
+    updateAudioSliderFromPosition(sliderInfo.key, sliderInfo.sliderState, coords.x);
+    
+    if (event.target && event.target.setPointerCapture && event.pointerId !== undefined) {
+        try { event.target.setPointerCapture(event.pointerId); } catch (err) { /* ignore */ }
+    }
+}
+
+function handleAudioSliderPointerMove(event) {
+    if (!audioMenuVisible || !activeAudioSliderKey) return;
+    if (activeAudioSliderPointerId !== null && event.pointerId !== activeAudioSliderPointerId) return;
+    
+    if (event.buttons !== undefined && event.buttons === 0) {
+        handleAudioSliderPointerUp(event);
+        return;
+    }
+    
+    const coords = getGameCoordsFromClient(event.clientX, event.clientY);
+    if (!coords) return;
+    
+    const sliderState = audioSliders[activeAudioSliderKey];
+    if (!sliderState || !sliderState.track) return;
+    
+    event.preventDefault();
+    event.stopPropagation();
+    updateAudioSliderFromPosition(activeAudioSliderKey, sliderState, coords.x);
+}
+
+function handleAudioSliderPointerUp(event) {
+    if (!activeAudioSliderKey) return;
+    if (activeAudioSliderPointerId !== null && event.pointerId !== activeAudioSliderPointerId) return;
+    
+    if (event && event.preventDefault) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    
+    if (event.target && event.target.releasePointerCapture && event.pointerId !== undefined) {
+        try { event.target.releasePointerCapture(event.pointerId); } catch (err) { /* ignore */ }
+    }
+    
+    activeAudioSliderKey = null;
+    activeAudioSliderPointerId = null;
+}
+
+function clearActiveAudioSlider() {
+    activeAudioSliderKey = null;
+    activeAudioSliderPointerId = null;
+}
+
+window.addEventListener('pointerdown', handleAudioSliderPointerDown, { capture: true });
+window.addEventListener('pointermove', handleAudioSliderPointerMove, { capture: true, passive: false });
+window.addEventListener('pointerup', handleAudioSliderPointerUp, { capture: true });
+window.addEventListener('pointercancel', handleAudioSliderPointerUp, { capture: true });
+window.addEventListener('mouseup', clearActiveAudioSlider, { capture: true });
+window.addEventListener('touchend', clearActiveAudioSlider, { capture: true });
+window.addEventListener('touchcancel', clearActiveAudioSlider, { capture: true });
+
 // Handle pause menu input (mouse and touch)
 function handlePauseMenuInput() {
     if (!Input || !Game) return;
@@ -3242,6 +3578,14 @@ function checkPauseMenuButtonClick(x, y) {
     }
     
     console.log('[PAUSE MENU] Checking buttons - multiplayerMenuVisible:', multiplayerMenuVisible, 'pausedFromState:', Game ? Game.pausedFromState : 'no Game');
+    
+    // Audio menu takes highest priority when visible
+    if (audioMenuVisible) {
+        if (handleAudioMenuClick(x, y)) {
+            return true;
+        }
+        return false;
+    }
     
     // CHECK MULTIPLAYER SUBMENU FIRST (highest priority when visible)
     if (multiplayerMenuVisible) {
@@ -3329,6 +3673,9 @@ function checkPauseMenuButtonClick(x, y) {
             y >= pauseMenuButtons.multiplayer.y && y <= pauseMenuButtons.multiplayer.y + pauseMenuButtons.multiplayer.height) {
             console.log('[PAUSE MENU] ✓ Multiplayer button region HIT! Setting multiplayerMenuVisible = true');
             multiplayerMenuVisible = true;
+        audioMenuVisible = false;
+        activeAudioSliderKey = null;
+        activeAudioSliderPointerId = null;
             multiplayerError = '';
             return true;
         }
@@ -3409,29 +3756,13 @@ function checkPauseMenuButtonClick(x, y) {
     // Check volume button
     if (x >= pauseMenuButtons.volume.x && x <= pauseMenuButtons.volume.x + pauseMenuButtons.volume.width &&
         y >= pauseMenuButtons.volume.y && y <= pauseMenuButtons.volume.y + pauseMenuButtons.volume.height) {
+        audioMenuVisible = true;
+        multiplayerMenuVisible = false;
+        audioMenuButtons.back.pressed = false;
         if (typeof AudioManager !== 'undefined') {
-            // Initialize audio if not initialized
-            if (!AudioManager.initialized) {
-                AudioManager.init();
-            }
-            
-            // Cycle volume: 100% -> 75% -> 50% -> 25% -> 0% (muted) -> 100%
-            if (AudioManager.muted || AudioManager.masterVolume === 0) {
-                AudioManager.setMute(false);
-                AudioManager.setVolume(1.0);
-            } else if (AudioManager.masterVolume > 0.75) {
-                AudioManager.setVolume(0.75);
-            } else if (AudioManager.masterVolume > 0.50) {
-                AudioManager.setVolume(0.50);
-            } else if (AudioManager.masterVolume > 0.25) {
-                AudioManager.setVolume(0.25);
-            } else {
-                AudioManager.setMute(true);
-            }
-            
-            console.log(`Volume: ${AudioManager.muted ? 'Muted' : Math.round(AudioManager.masterVolume * 100) + '%'}`);
-            return true;
+            AudioManager.init();
         }
+        return true;
     }
     
     // Check how to play button
@@ -4518,7 +4849,7 @@ function renderSpectatorIndicator(ctx) {
     // Revival hint
     ctx.fillStyle = '#aaaaaa';
     ctx.font = 'italic 16px Arial';
-    ctx.fillText('You will be revived when the team reaches the next room', centerX, canvasHeight - 20);
+    ctx.fillText('You will be revived when the room is cleared', centerX, canvasHeight - 20);
 }
 
 // Main UI render function

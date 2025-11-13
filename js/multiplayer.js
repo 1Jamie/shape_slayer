@@ -172,6 +172,9 @@ class MultiplayerManager {
                 case 'enemy_state_update':
                     this.handleEnemyStateUpdate(msg.data);
                     break;
+                case 'revive_players':
+                    this.handleRevivePlayers(msg.data);
+                    break;
                 case 'player_damaged':
                     this.handlePlayerDamaged(msg.data);
                     break;
@@ -746,9 +749,15 @@ class MultiplayerManager {
         return Math.round(value * factor) / factor;
     }
     
-    roundDeep(value, decimals = 2) {
+    roundDeep(value, decimals = 2, seen = new WeakSet()) {
+        if (value && typeof value === 'object') {
+            if (seen.has(value)) {
+                return value;
+            }
+            seen.add(value);
+        }
         if (Array.isArray(value)) {
-            return value.map(item => this.roundDeep(item, decimals));
+            return value.map(item => this.roundDeep(item, decimals, seen));
         }
         if (value && typeof value === 'object') {
             const clone = {};
@@ -757,7 +766,7 @@ class MultiplayerManager {
                 if (typeof child === 'number') {
                     clone[key] = this.roundNumber(child, decimals);
                 } else {
-                    clone[key] = this.roundDeep(child, decimals);
+                    clone[key] = this.roundDeep(child, decimals, seen);
                 }
             });
             return clone;
@@ -839,9 +848,28 @@ class MultiplayerManager {
         return hasChanges ? diff : null;
     }
     
-    deepClone(value) {
-        if (value === null || value === undefined) return value;
-        return JSON.parse(JSON.stringify(value));
+    deepClone(value, seen = new WeakMap()) {
+        if (value === null || typeof value !== 'object') {
+            return value;
+        }
+        if (seen.has(value)) {
+            return null;
+        }
+        let clone;
+        if (Array.isArray(value)) {
+            clone = [];
+            seen.set(value, clone);
+            value.forEach((item, index) => {
+                clone[index] = this.deepClone(item, seen);
+            });
+            return clone;
+        }
+        clone = {};
+        seen.set(value, clone);
+        Object.keys(value).forEach(key => {
+            clone[key] = this.deepClone(value[key], seen);
+        });
+        return clone;
     }
     
     valuesEqual(a, b, tolerance = 0) {
@@ -1086,10 +1114,10 @@ class MultiplayerManager {
         
         return {
             // Movement keys
-            up: Input.getKeyState('w') || Input.getKeyState('ArrowUp'),
-            down: Input.getKeyState('s') || Input.getKeyState('ArrowDown'),
-            left: Input.getKeyState('a') || Input.getKeyState('ArrowLeft'),
-            right: Input.getKeyState('d') || Input.getKeyState('ArrowRight'),
+            up: Input.getKeyState('w'),
+            down: Input.getKeyState('s'),
+            left: Input.getKeyState('a'),
+            right: Input.getKeyState('d'),
             
             // Mouse/aim - send WORLD coordinates (accounting for camera)
             mouse: Input.getWorldMousePos ? Input.getWorldMousePos() : { x: 0, y: 0 },
@@ -1857,27 +1885,45 @@ class MultiplayerManager {
     // Handle room transition
     handleRoomTransition(data) {
         // Handle revival if signaled by host
-        if (data.reviveePlayers && typeof Game !== 'undefined') {
-            const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
-            
-            // Revive local player if dead
-            if (Game.player && Game.player.dead && localPlayerId && Game.deadPlayers && Game.deadPlayers.has(localPlayerId)) {
-                Game.player.dead = false;
-                Game.player.alive = true;
-                Game.player.hp = Game.player.maxHp * 0.5; // Revive at 50% HP
-                
-                // Update stats - restart alive timer
-                if (Game.getPlayerStats) {
-                    const stats = Game.getPlayerStats(localPlayerId);
-                    stats.onRevive();
+        if (typeof Game !== 'undefined') {
+            let reviveTargets = [];
+            if (Array.isArray(data.reviveePlayers)) {
+                reviveTargets = data.reviveePlayers;
+            } else if (data.reviveePlayers) {
+                const localIdFallback = Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
+                if (localIdFallback) {
+                    reviveTargets = [localIdFallback];
                 }
-                
-                // Remove from dead players
-                Game.deadPlayers.delete(localPlayerId);
-                Game.allPlayersDead = false;
-                Game.spectateMode = false;
-                
-                console.log(`[Multiplayer Revival] Player revived at 50% HP (${Math.floor(Game.player.hp)}/${Math.floor(Game.player.maxHp)})`);
+            }
+            
+            if (reviveTargets.length > 0) {
+                if (typeof Game.reviveDeadPlayers === 'function') {
+                    Game.reviveDeadPlayers({
+                        reason: 'room_transition',
+                        broadcast: false,
+                        targetPlayerIds: reviveTargets,
+                        respawnStrategy: 'safe'
+                    });
+                } else {
+                    const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
+                    if (localPlayerId && reviveTargets.includes(localPlayerId) && Game.player && Game.player.dead && Game.deadPlayers && Game.deadPlayers.has(localPlayerId)) {
+                        Game.player.dead = false;
+                        Game.player.alive = true;
+                        Game.player.hp = Game.player.maxHp * 0.5;
+                        Game.deadPlayers.delete(localPlayerId);
+                        Game.allPlayersDead = false;
+                        Game.spectateMode = false;
+                        
+                        if (Game.getPlayerStats) {
+                            const stats = Game.getPlayerStats(localPlayerId);
+                            if (stats && typeof stats.onRevive === 'function') {
+                                stats.onRevive();
+                            }
+                        }
+                        
+                        console.log(`[Multiplayer Revival] Player revived at 50% HP (${Math.floor(Game.player.hp)}/${Math.floor(Game.player.maxHp)})`);
+                    }
+                }
             }
         }
         
@@ -1901,6 +1947,49 @@ class MultiplayerManager {
         // Notify game
         if (typeof onRoomTransition === 'function') {
             onRoomTransition(data);
+        }
+    }
+    
+    handleRevivePlayers(data) {
+        if (this.isHost) {
+            // Host already applied the revival locally
+            return;
+        }
+        
+        if (!data || !Array.isArray(data.playerIds) || data.playerIds.length === 0) {
+            return;
+        }
+        
+        if (typeof Game === 'undefined' || !Game) {
+            return;
+        }
+        
+        const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
+        if (!localPlayerId || !data.playerIds.includes(localPlayerId)) {
+            return;
+        }
+        
+        if (typeof Game.reviveDeadPlayers === 'function') {
+            Game.reviveDeadPlayers({
+                reason: data.reason || 'network',
+                broadcast: false,
+                targetPlayerIds: data.playerIds,
+                respawnStrategy: 'safe'
+            });
+        } else if (Game.player && Game.player.dead && Game.deadPlayers && Game.deadPlayers.has(localPlayerId)) {
+            Game.player.dead = false;
+            Game.player.alive = true;
+            Game.player.hp = Game.player.maxHp * 0.5;
+            Game.deadPlayers.delete(localPlayerId);
+            Game.allPlayersDead = false;
+            Game.spectateMode = false;
+            
+            if (Game.getPlayerStats) {
+                const stats = Game.getPlayerStats(localPlayerId);
+                if (stats && typeof stats.onRevive === 'function') {
+                    stats.onRevive();
+                }
+            }
         }
     }
     
@@ -2616,7 +2705,11 @@ class MultiplayerManager {
         
         // Update room number
         if (state.roomNumber) {
+            const previousRoomNumber = Game.roomNumber;
             Game.roomNumber = state.roomNumber;
+            if (previousRoomNumber !== state.roomNumber && typeof Game.updateMusicForCurrentRoom === 'function') {
+                Game.updateMusicForCurrentRoom();
+            }
         }
         
         // Sync player stats from host (authoritative for all stats)
@@ -2656,7 +2749,11 @@ class MultiplayerManager {
         
         // Update death state synchronization
         if (state.allPlayersDead !== undefined) {
+            const prevAllDead = Game.allPlayersDead;
             Game.allPlayersDead = state.allPlayersDead;
+            if (!prevAllDead && Game.allPlayersDead && typeof Game.triggerGameOverMusic === 'function') {
+                Game.triggerGameOverMusic();
+            }
         }
         if (state.deadPlayers !== undefined) {
             // Rebuild deadPlayers Set from array
@@ -2793,24 +2890,24 @@ class MultiplayerManager {
                 });
                 
                 // Update or create enemies by ID
-                state.enemies.forEach(enemyData => {
-                    let enemy = Game.enemies.find(e => e.id === enemyData.id);
+                state.enemies.forEach(enemyUpdate => {
+                    let enemy = Game.enemies.find(e => e.id === enemyUpdate.id);
                     
                     // Add timestamp from game state to enemy data for proper interpolation
-                    if (!enemyData.timestamp && state.timestamp) {
-                        enemyData.timestamp = state.timestamp;
+                    if (!enemyUpdate.timestamp && state.timestamp) {
+                        enemyUpdate.timestamp = state.timestamp;
                     }
-                    if (!enemyData.serverSendTime && state.serverSendTime) {
-                        enemyData.serverSendTime = state.serverSendTime;
+                    if (!enemyUpdate.serverSendTime && state.serverSendTime) {
+                        enemyUpdate.serverSendTime = state.serverSendTime;
                     }
                     
                     if (!enemy) {
                         // New enemy from host - create it from data
                         if (typeof createEnemyFromData !== 'undefined') {
-                            enemy = createEnemyFromData(enemyData);
+                            enemy = createEnemyFromData(enemyUpdate);
                             if (enemy) {
                                 Game.enemies.push(enemy);
-                                console.log(`[Client] Created enemy ${enemyData.id} (${enemyData.shape}) from host data`);
+                                console.log(`[Client] Created enemy ${enemyUpdate.id} (${enemyUpdate.shape}) from host data`);
                             }
                         }
                         return; // Enemy is already fully initialized from data
@@ -2818,7 +2915,7 @@ class MultiplayerManager {
                     
                     // Let the enemy apply its own state! (clean architecture)
                     if (enemy.applyState) {
-                        enemy.applyState(enemyData);
+                        enemy.applyState(enemyUpdate);
                     }
                 });
             }
@@ -3007,6 +3104,10 @@ class MultiplayerManager {
                     }
                 });
             }
+        }
+
+        if (typeof Game !== 'undefined' && typeof Game.updateMusicForCurrentRoom === 'function') {
+            Game.updateMusicForCurrentRoom();
         }
     }
     

@@ -393,3 +393,6 @@ shape_slayer/
 
 For additional help, inspect the browser console (`F12`) and the multiplayer server logs. Bug reports and feedback are welcome through GitHub issues.
 
+
+As a note all music so far has been sourced from Pixabay that provides copyright free audio. [https://pixabay.com](https://pixabay.com)
+

@@ -46,7 +46,7 @@ const TANK_CONFIG = {
     shieldWaveRange: 200,          // Maximum range of shield wave (pixels)
     shieldWaveWidth: 150,          // Width of shield wave (pixels)
     shieldWaveKnockback: 300,      // Knockback force of shield wave (pixels)
-    shieldDistance: 5,             // Distance shield starts from player (pixels)
+    shieldDistance: 25,             // Distance shield starts from player (pixels)
     shieldDepth: 20,               // Forward extent of shield (pixels)
     shieldWidth: 120,              // Lateral width of shield (pixels)
     shieldKnockbackDistance: 15,   // Knockback distance per frame (pixels)
@@ -470,6 +470,7 @@ class Tank extends PlayerBase {
                 const shieldDistance = this.size + TANK_CONFIG.shieldDistance;
                 const shieldDepth = TANK_CONFIG.shieldDepth;
                 const shieldWidth = TANK_CONFIG.shieldWidth;
+                const shieldVisualStart = this.size + TANK_CONFIG.shieldDistance - (shieldDepth / 2);
                 
                 Game.enemies.forEach(enemy => {
                     if (enemy.alive) {
@@ -572,7 +573,7 @@ class Tank extends PlayerBase {
                                 
                                 // Check if enemy is at the current wave front (± a small margin for hit detection)
                                 const forwardDistance = distance * dot;
-                                const shieldStart = this.size + 5;
+                                const shieldStart = shieldVisualStart;
                                 const waveFrontPosition = shieldStart + currentWaveDistance;
                                 const waveFrontTolerance = 15; // Small margin for hit detection
                                 
@@ -629,6 +630,10 @@ class Tank extends PlayerBase {
     
     // Override renderClassVisuals for Tank-specific visuals
     renderClassVisuals(ctx) {
+        const shieldVisualStart = this.size + TANK_CONFIG.shieldDistance - (TANK_CONFIG.shieldDepth / 2);
+        const shieldVisualDepth = TANK_CONFIG.shieldDepth;
+        const shieldVisualHalfWidth = TANK_CONFIG.shieldWidth / 2;
+        
         // Draw hammer attack hitboxes with trail
         this.attackHitboxes.forEach(hitbox => {
             if (hitbox.type === 'hammer') {
@@ -698,12 +703,12 @@ class Tank extends PlayerBase {
             // Draw wide thin shield (thin in depth, wide laterally)
             ctx.fillStyle = 'rgba(150, 200, 255, 0.3)';
             ctx.beginPath();
-            ctx.rect(this.size + 5, -60, 20, 120);
+            ctx.rect(shieldVisualStart, -shieldVisualHalfWidth, shieldVisualDepth, TANK_CONFIG.shieldWidth);
             ctx.fill();
             
             ctx.strokeStyle = 'rgba(150, 200, 255, 0.8)';
             ctx.lineWidth = 4;
-            ctx.strokeRect(this.size + 5, -60, 20, 120);
+            ctx.strokeRect(shieldVisualStart, -shieldVisualHalfWidth, shieldVisualDepth, TANK_CONFIG.shieldWidth);
             
             ctx.restore();
         }
@@ -736,7 +741,7 @@ class Tank extends PlayerBase {
                     const alpha = Math.max(0, 1 - fadeProgress);
                     
                     // Draw segment
-                    const x = this.size + 5 + segmentDistance;
+                    const x = shieldVisualStart + segmentDistance;
                     const y1 = -waveWidth / 2;
                     const y2 = waveWidth / 2;
                     

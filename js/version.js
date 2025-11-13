@@ -345,7 +345,7 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 
 *TL;DR:* Telemetry now exist in opt in and the pause menu looks much nicer*
 `,
-        '0.5.3.1': `**🔴 CIRCLE OF TRUST ISSUES** (11/12/2025)
+        '0.5.3.1': `**🔴 CIRCLE OF TRUST ISSUES - AND SOME MUSIC!** (11/12/2025)
 *"Remember those red circles you mercy-farmed in Room 1? They compared notes, formed a study group, and now you're the pop quiz."*
 
 • **Honor Society Enrollment (All Enemies):** IQ got scaled harder than exponential growth. Feints, combo detection, surround formations, wall checks, pattern recognition—all unlocked earlier. Room 4 stopped being recess and turned into Euclid’s nightmare.
@@ -368,7 +368,13 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 • **Status Spice:** Bleed and guard break now stick to players properly, feeding right into that smug threat table so the AI knows exactly which spicy garnish to sprinkle on your next mistake.
 • **Spawn Dietician:** Early rooms cut the enemy carb count so you fight smarter shapes instead of bigger piles. Later rooms still bring the buffet—just with added protein in the form of better brains.
 
-**Other Changes (Because Apparently AI Overhauls Weren’t Enough):**
+*"What about that existential silence whenever you weren't actively vaporizing something? I duct-taped a boombox to the engine. Is the playlist amazing? Absolutely not. Got better royalty-free bangers? Slide them my way before I start humming MIDI elevator loops."*
+**🎧 Audio Mood Swings (Now with Actual Noise):**
+• **Nexus Lounge Act:** The home base finally hums instead of sitting in existential silence. If you’ve got better royalty-free vibez, you know where to send them.
+• **Room Rotation & Boss Bangers:** Each biome and boss now spins up its own tracks, phase shifts included. Smooth fades, zero needle scratches, router survives.
+• **Pause Menu Mixer:** Sliders for master/music/SFX now adjust in real time, so you can mute the explosions while keeping the elevator chiptunes that I definitely didn’t steal from a dentist’s lobby that thought it had personality.
+
+**Other Changes (Because Apparently AI Overhauls and Audio Mood Swings Weren’t Enough):**
 • **Multiplayer Tweaks:** Lobby slots now remember your player ID, so reconnecting you get to still be you! No more you with zero gear and negative vibes. They’re loyal to you, so no accidental Order 66 mid-fight. That and you can actually get into the next room since there is a bump on a log with you now.
 • **Menu Overhaul:** Old UI got yeeted into a black hole. New UI actually works on mobile without requiring a ritual sacrifice to join a lobby—looking at you, Diablo II lobby circa 2000.
 • **Telemetry Fix:** Damage numbers and affixes now report in. Balancing graphs look less like missing-data art installations and more like something your spreadsheet professor would grade.

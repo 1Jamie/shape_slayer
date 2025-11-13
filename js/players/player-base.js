@@ -162,7 +162,7 @@ class PlayerBase {
         // Damage knockback system (receiving knockback from enemies)
         this.damageKnockbackVx = 0;
         this.damageKnockbackVy = 0;
-        this.damageKnockbackDecay = 0.25; // Faster decay (was 0.35, now decays ~75% per second instead of ~65%)
+        this.damageKnockbackDecay = 0.2125; // 15% faster decay than previous 0.25 (~78.75% reduction per second)
         this.knockbackResistance = 1.0; // Higher = less displacement from hits
         this.damageKnockbackMaxVelocity = 800; // Maximum knockback velocity (pixels per second)
         this.damageKnockbackMaxDuration = 2.0; // Maximum duration in seconds before forced stop
@@ -1276,6 +1276,10 @@ class PlayerBase {
                             Game.sendFinalStats();
                         }
                     }
+                    
+                    if ((!Game.multiplayerEnabled || Game.allPlayersDead) && typeof Game.triggerGameOverMusic === 'function') {
+                        Game.triggerGameOverMusic();
+                    }
                 }
             }
             
@@ -1965,7 +1969,7 @@ class PlayerBase {
             this.damageKnockbackVy *= decayFactor;
             
             // Stop if knockback is below threshold (higher threshold prevents drift)
-            const cutoffThreshold = 8.0; // Increased from 0.1 to prevent weird drift
+            const cutoffThreshold = 12.0; // Increased to reduce low-speed drift before stopping
             if (Math.abs(this.damageKnockbackVx) < cutoffThreshold) this.damageKnockbackVx = 0;
             if (Math.abs(this.damageKnockbackVy) < cutoffThreshold) this.damageKnockbackVy = 0;
             
@@ -3380,6 +3384,54 @@ class PlayerBase {
                 }
                 
                 console.log('[Client] Death confirmed by host');
+        } else if ((state.dead === false && this.dead) ||
+                   (state.hp !== undefined && state.hp > 0 && this.dead)) {
+            // Host signalled that we're alive again (revived or otherwise)
+            this.dead = false;
+            this.alive = true;
+            if (state.hp !== undefined) {
+                this.hp = state.hp;
+            } else if (this.hp <= 0) {
+                this.hp = Math.max(1, this.maxHp * 0.5);
+            }
+            this.invulnerable = state.invulnerable !== undefined ? state.invulnerable : this.invulnerable;
+            this.invulnerabilityTime = state.invulnerabilityTime !== undefined ? state.invulnerabilityTime : this.invulnerabilityTime;
+            
+            if (typeof Game !== 'undefined') {
+                const playerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
+                if (playerId && Game.deadPlayers && Game.deadPlayers.has(playerId)) {
+                    Game.deadPlayers.delete(playerId);
+                }
+                Game.allPlayersDead = false;
+                Game.spectateMode = false;
+                Game.spectatedPlayerId = null;
+                Game.deathScreenStartTime = 0;
+                Game.endTime = 0;
+                
+                if (Game.getPlayerStats && playerId) {
+                    const stats = Game.getPlayerStats(playerId);
+                    if (stats && typeof stats.onRevive === 'function') {
+                        stats.onRevive();
+                    }
+                }
+            }
+            
+            if (typeof this.resetDashAnimation === 'function') {
+                this.resetDashAnimation();
+            }
+            if (typeof this.resetHeavyCharge === 'function') {
+                this.resetHeavyCharge();
+            }
+            this.attackCooldown = Math.min(this.attackCooldown, 0);
+            this.heavyAttackCooldown = Math.min(this.heavyAttackCooldown, 0);
+            this.specialCooldown = Math.max(this.specialCooldown || 0, 0);
+            this.isDodging = false;
+            this.isChargingHeavy = false;
+            this.isAttacking = false;
+            this.vx = 0;
+            this.vy = 0;
+            
+            console.log('[Client] Revival confirmed by host');
             }
         }
         

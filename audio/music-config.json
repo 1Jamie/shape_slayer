@@ -1,0 +1,285 @@
+{
+  "version": 1,
+  "settings": {
+    "basePath": "audio/",
+    "crossfadeSeconds": 1.8,
+    "introFadeSeconds": 0.8,
+    "outroFadeSeconds": 0.8,
+    "resumeFadeSeconds": 1.0,
+    "ducking": {
+      "attenuatedGain": 0.35,
+      "lowpassFrequency": 900,
+      "attackSeconds": 0.25,
+      "releaseSeconds": 0.7
+    }
+  },
+  "roomSets": [
+    {
+      "id": "build-up-a",
+      "label": "Opening Rooms 1-4",
+      "kind": "normal",
+      "ranges": [
+        { "start": 1, "end": 4 }
+      ],
+      "tracks": [
+        "enchanted-waveform-287282.mp3",
+        "neon-rising-336846.mp3"
+      ],
+      "selection": {
+        "mode": "shuffle",
+        "avoidImmediateRepeat": true
+      }
+    },
+    {
+      "id": "build-up-b",
+      "label": "Pre-Boss Rooms 5-9",
+      "kind": "normal",
+      "ranges": [
+        { "start": 5, "end": 9 }
+      ],
+      "tracks": [
+        "starstream-circuit-370586.mp3",
+        "darkstream-runner-301774.mp3"
+      ],
+      "selection": {
+        "mode": "shuffle",
+        "avoidImmediateRepeat": true
+      }
+    },
+    {
+      "id": "cycle-alpha",
+      "label": "Cycle A Rooms 11-14",
+      "kind": "normal",
+      "ranges": [
+        { "start": 11, "end": 14 }
+      ],
+      "tracks": [
+        "chiptune-medium-boss-218095.mp3",
+        "chiptune-nu-metal-216243.mp3"
+      ],
+      "selection": {
+        "mode": "shuffle",
+        "avoidImmediateRepeat": true
+      }
+    },
+    {
+      "id": "cycle-beta",
+      "label": "Cycle B Rooms 16-19",
+      "kind": "normal",
+      "ranges": [
+        { "start": 16, "end": 19 }
+      ],
+      "tracks": [
+        "chiptune-nu-metal-216243.mp3",
+        "digital-progress-370585.mp3"
+      ],
+      "selection": {
+        "mode": "shuffle",
+        "avoidImmediateRepeat": true
+      }
+    },
+    {
+      "id": "cycle-gamma",
+      "label": "Cycle C Rooms 21-24",
+      "kind": "normal",
+      "ranges": [
+        { "start": 21, "end": 24 }
+      ],
+      "tracks": [
+        "digital-progress-370585.mp3",
+        "against-villainous-robot-148967.mp3"
+      ],
+      "selection": {
+        "mode": "shuffle",
+        "avoidImmediateRepeat": true
+      }
+    },
+    {
+      "id": "cycle-delta",
+      "label": "Cycle D Rooms 26-29",
+      "kind": "normal",
+      "ranges": [
+        { "start": 26, "end": 29 }
+      ],
+      "tracks": [
+        "against-villainous-robot-148967.mp3",
+        "fight-for-the-future-336841.mp3"
+      ],
+      "selection": {
+        "mode": "shuffle",
+        "avoidImmediateRepeat": true
+      }
+    }
+  ],
+  "bosses": [
+    {
+      "id": "boss-10",
+      "rooms": [10],
+      "name": "Swarm King",
+      "phases": {
+        "1": {
+          "tracks": [
+            "neon-rising-336846.mp3"
+          ],
+          "selection": { "mode": "loop" }
+        },
+        "2": {
+          "tracks": [
+            "starstream-circuit-370586.mp3"
+          ],
+          "selection": { "mode": "loop" }
+        },
+        "3": {
+          "tracks": [
+            "darkstream-runner-301774.mp3"
+          ],
+          "selection": { "mode": "loop" }
+        }
+      }
+    },
+    {
+      "id": "boss-15",
+      "rooms": [15],
+      "name": "Twin Prism",
+      "phases": {
+        "1": {
+          "tracks": [
+            "starstream-circuit-370586.mp3"
+          ],
+          "selection": { "mode": "loop" }
+        },
+        "2": {
+          "tracks": [
+            "chiptune-medium-boss-218095.mp3"
+          ],
+          "selection": { "mode": "loop" }
+        },
+        "3": {
+          "tracks": [
+            "chiptune-nu-metal-216243.mp3"
+          ],
+          "selection": { "mode": "loop" }
+        }
+      }
+    },
+    {
+      "id": "boss-20",
+      "rooms": [20],
+      "name": "Fortress",
+      "phases": {
+        "1": {
+          "tracks": [
+            "chiptune-medium-boss-218095.mp3"
+          ],
+          "selection": { "mode": "loop" }
+        },
+        "2": {
+          "tracks": [
+            "digital-progress-370585.mp3"
+          ],
+          "selection": { "mode": "loop" }
+        },
+        "3": {
+          "tracks": [
+            "against-villainous-robot-148967.mp3"
+          ],
+          "selection": { "mode": "loop" }
+        }
+      }
+    },
+    {
+      "id": "boss-25",
+      "rooms": [25],
+      "name": "Fractal Core",
+      "phases": {
+        "1": {
+          "tracks": [
+            "chiptune-nu-metal-216243.mp3"
+          ],
+          "selection": { "mode": "loop" }
+        },
+        "2": {
+          "tracks": [
+            "digital-progress-370585.mp3"
+          ],
+          "selection": { "mode": "loop" }
+        },
+        "3": {
+          "tracks": [
+            "against-villainous-robot-148967.mp3"
+          ],
+          "selection": { "mode": "loop" }
+        }
+      }
+    },
+    {
+      "id": "boss-30",
+      "rooms": [30],
+      "name": "Vortex",
+      "phases": {
+        "1": {
+          "tracks": [
+            "digital-progress-370585.mp3"
+          ],
+          "selection": { "mode": "loop" }
+        },
+        "2": {
+          "tracks": [
+            "against-villainous-robot-148967.mp3"
+          ],
+          "selection": { "mode": "loop" }
+        },
+        "3": {
+          "tracks": [
+            "fight-for-the-future-336841.mp3"
+          ],
+          "selection": { "mode": "loop" }
+        }
+      }
+    }
+  ],
+  "pauseMenu": {
+    "tracks": [
+      "waiting-time-175800.mp3"
+    ],
+    "selection": {
+      "mode": "loop"
+    }
+  },
+  "special": {
+    "nexus": {
+      "tracks": [
+        "waiting-time-175800.mp3"
+      ],
+      "selection": {
+        "mode": "loop"
+      }
+    },
+    "gameOver": {
+      "tracks": [
+        "game-over-8-bit-chiptune-164330.mp3"
+      ],
+      "selection": {
+        "mode": "loop"
+      }
+    }
+  },
+  "fallbackPools": {
+    "normal": [
+      "build-up-a",
+      "build-up-b",
+      "cycle-alpha",
+      "cycle-beta",
+      "cycle-gamma",
+      "cycle-delta"
+    ],
+    "boss": [
+      "boss-10",
+      "boss-15",
+      "boss-20",
+      "boss-25",
+      "boss-30"
+    ]
+  }
+}
+

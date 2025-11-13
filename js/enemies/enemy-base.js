@@ -344,7 +344,20 @@ class EnemyBase {
     }
 
     smoothMoveBy(offsetX, offsetY, smoothing = this.positionSmoothing) {
-        this.smoothMoveTo(this.x + offsetX, this.y + offsetY, smoothing);
+        this.applySmoothedOffset(offsetX, offsetY, { smoothing });
+    }
+
+    applySmoothedOffset(offsetX, offsetY, options = {}) {
+        const smoothing = options.smoothing !== undefined ? options.smoothing : this.positionSmoothing;
+        const maintainMagnitude = options.maintainMagnitude !== undefined ? options.maintainMagnitude : true;
+        let targetOffsetX = offsetX;
+        let targetOffsetY = offsetY;
+        if (maintainMagnitude && smoothing > 0) {
+            const factor = Math.max(0.0001, smoothing);
+            targetOffsetX = offsetX / factor;
+            targetOffsetY = offsetY / factor;
+        }
+        this.smoothMoveTo(this.x + targetOffsetX, this.y + targetOffsetY, smoothing);
     }
 
     smoothRotateTo(targetAngle, smoothing = this.rotationSmoothing) {

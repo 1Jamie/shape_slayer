@@ -36,9 +36,9 @@ const OCTAGON_CONFIG = {
     
     // Projectile Attack
     projectileCount: 3,            // Number of projectiles per volley
-    projectileSpeed: 250,          // Speed of projectiles (pixels/second)
+    projectileSpeed: 260,          // Speed of projectiles (pixels/second)
     projectileSize: 6,             // Size of projectiles (pixels)
-    projectileLifetime: 2.0,       // How long projectiles live (seconds)
+    projectileLifetime: 2.2,       // How long projectiles live (seconds)
     projectileSpread: 0.2,         // Spread angle between projectiles (radians)
     projectileDamageMultiplier: 0.7, // Damage multiplier for projectiles
     
@@ -64,7 +64,7 @@ const OCTAGON_CONFIG = {
     
     // Tactical summoning
     tacticalSummonFlankAngle: Math.PI / 3, // Angle for flanking minions (60 degrees)
-    tacticalSummonDistance: 150,   // Distance to spawn flanking minions
+    tacticalSummonDistance: 180,   // Distance to spawn flanking minions
 };
 
 class OctagonEnemy extends EnemyBase {
@@ -363,9 +363,9 @@ class OctagonEnemy extends EnemyBase {
                     }
                 }
                 
-                const desiredX = this.x + moveX * this.moveSpeed * deltaTime;
-                const desiredY = this.y + moveY * this.moveSpeed * deltaTime;
-                this.smoothMoveTo(desiredX, desiredY);
+                const offsetX = moveX * this.moveSpeed * deltaTime;
+                const offsetY = moveY * this.moveSpeed * deltaTime;
+                this.applySmoothedOffset(offsetX, offsetY);
                 
                 if (moveX !== 0 || moveY !== 0) {
                     this.smoothRotateTo(Math.atan2(moveY, moveX));
@@ -569,9 +569,9 @@ class OctagonEnemy extends EnemyBase {
                 }
             }
             
-            const desiredX = this.x + moveX * this.moveSpeed * deltaTime;
-            const desiredY = this.y + moveY * this.moveSpeed * deltaTime;
-            this.smoothMoveTo(desiredX, desiredY);
+            const offsetX = moveX * this.moveSpeed * deltaTime;
+            const offsetY = moveY * this.moveSpeed * deltaTime;
+            this.applySmoothedOffset(offsetX, offsetY);
             
             if (moveX !== 0 || moveY !== 0) {
                 this.smoothRotateTo(Math.atan2(moveY, moveX));

@@ -17,7 +17,9 @@ const SaveSystem = {
             selectedClass: null,
             controlMode: 'auto', // 'auto', 'mobile', 'desktop'
             fullscreenEnabled: false,
-            audioVolume: 0.5, // 0.0 to 1.0
+            audioVolume: 0.5, // 0.0 to 1.0 (master)
+            musicVolume: 1.0, // 0.0 to 1.0 (music bus)
+            sfxVolume: 1.0,   // 0.0 to 1.0 (sfx bus)
             audioMuted: false,
             lastRunVersion: null,
             hasSeenLaunchModal: false,
@@ -46,6 +48,8 @@ const SaveSystem = {
                     controlMode: parsed.controlMode || defaults.controlMode,
                     fullscreenEnabled: parsed.fullscreenEnabled !== undefined ? parsed.fullscreenEnabled : defaults.fullscreenEnabled,
                     audioVolume: parsed.audioVolume !== undefined ? parsed.audioVolume : defaults.audioVolume,
+                    musicVolume: parsed.musicVolume !== undefined ? parsed.musicVolume : (parsed.audioVolume !== undefined ? 1.0 : defaults.musicVolume),
+                    sfxVolume: parsed.sfxVolume !== undefined ? parsed.sfxVolume : (parsed.audioVolume !== undefined ? 1.0 : defaults.sfxVolume),
                     audioMuted: parsed.audioMuted !== undefined ? parsed.audioMuted : defaults.audioMuted,
                     lastRunVersion: parsed.lastRunVersion !== undefined ? parsed.lastRunVersion : defaults.lastRunVersion,
                     hasSeenLaunchModal: parsed.hasSeenLaunchModal !== undefined ? parsed.hasSeenLaunchModal : defaults.hasSeenLaunchModal,
@@ -245,6 +249,12 @@ const SaveSystem = {
     setAudioVolume(volume) {
         const save = this.load();
         save.audioVolume = Math.max(0, Math.min(1, volume));
+        if (save.musicVolume === undefined || save.musicVolume === null) {
+            save.musicVolume = 1.0;
+        }
+        if (save.sfxVolume === undefined || save.sfxVolume === null) {
+            save.sfxVolume = 1.0;
+        }
         this.save(save);
         return true;
     },
@@ -259,6 +269,40 @@ const SaveSystem = {
     setAudioMuted(muted) {
         const save = this.load();
         save.audioMuted = muted === true;
+        this.save(save);
+        return true;
+    },
+    
+    // Get music volume
+    getMusicVolume() {
+        const save = this.load();
+        if (save.musicVolume !== undefined && save.musicVolume !== null) {
+            return save.musicVolume;
+        }
+        return 1.0;
+    },
+    
+    // Set music volume
+    setMusicVolume(volume) {
+        const save = this.load();
+        save.musicVolume = Math.max(0, Math.min(1, volume));
+        this.save(save);
+        return true;
+    },
+    
+    // Get SFX volume
+    getSfxVolume() {
+        const save = this.load();
+        if (save.sfxVolume !== undefined && save.sfxVolume !== null) {
+            return save.sfxVolume;
+        }
+        return 1.0;
+    },
+    
+    // Set SFX volume
+    setSfxVolume(volume) {
+        const save = this.load();
+        save.sfxVolume = Math.max(0, Math.min(1, volume));
         this.save(save);
         return true;
     },

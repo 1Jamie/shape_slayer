@@ -60,6 +60,12 @@ class BossBase extends EnemyBase {
             }
         }
         console.log(`${this.bossName} entering Phase ${newPhase}!`);
+        
+        if (typeof MusicManager !== 'undefined' && typeof Game !== 'undefined' && Game && typeof Game.roomNumber === 'number') {
+            MusicManager.setBossPhase(Game.roomNumber, newPhase).catch(err => {
+                console.error('[Music] Failed to update boss phase music:', err);
+            });
+        }
     }
     
     // Check if a weak point was hit
@@ -291,6 +297,12 @@ class BossBase extends EnemyBase {
                 const gear = generateGear(this.x + offsetX, this.y + offsetY, roomNum, 'boss');
                 groundLoot.push(gear);
             }
+        }
+        
+        if (typeof MusicManager !== 'undefined' && MusicManager.currentCategory === 'boss') {
+            MusicManager.fadeOutCurrent().catch(err => {
+                console.error('[Music] Failed to fade out boss music:', err);
+            });
         }
     }
     

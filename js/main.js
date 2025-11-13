@@ -116,6 +116,7 @@ const Game = {
     pausedFromState: null, // Track where we paused from ('PLAYING' or 'NEXUS')
     showPauseMenu: false, // Visual pause menu flag (for multiplayer - doesn't pause game)
     lastTime: 0,
+    gameOverMusicPlaying: false,
     
     // Modal states
     launchModalVisible: false,
@@ -184,6 +185,7 @@ const Game = {
     allPlayersDead: false, // Flag for when all players are dead
     spectateMode: false, // Local player is spectating after death
     spectatedPlayerId: null, // ID of player being spectated (when dead in multiplayer)
+    lastRoomClearReviveRoomNumber: null, // Track last room number where clear revive triggered
     
     // Remote player state tracking (host authority for HP, invulnerability)
     remotePlayerStates: new Map(), // Map<playerId, {hp, maxHp, invulnerable, invulnerabilityTime, size, dead}>
@@ -206,6 +208,11 @@ const Game = {
     screenShakeIntensity: 0,
     screenShakeDuration: 0,
     hitPauseTime: 0, // For brief freezes on big hits
+    
+    // Background pause flags
+    backgroundPauseActive: false,
+    autoPausedForBackground: false,
+    isMobileDevice: false,
     
     // Level up message
     levelUpMessageActive: false,
@@ -625,7 +632,26 @@ const Game = {
                     return;
                 }
                 
-                // Close multiplayer menu first if visible
+                // Close audio settings menu first if visible
+                if (typeof audioMenuVisible !== 'undefined' && audioMenuVisible) {
+                    audioMenuVisible = false;
+                    if (typeof activeAudioSliderKey !== 'undefined') {
+                        activeAudioSliderKey = null;
+                    }
+                    if (typeof activeAudioSliderPointerId !== 'undefined') {
+                        activeAudioSliderPointerId = null;
+                    }
+                    if (typeof AudioManager !== 'undefined') {
+                        AudioManager.saveSettings();
+                    }
+                    
+                    if (typeof this.showPauseMenu !== 'undefined') {
+                        this.showPauseMenu = true;
+                    }
+                    return;
+                }
+                
+                // Close multiplayer menu next if visible
                 if (typeof multiplayerMenuVisible !== 'undefined' && multiplayerMenuVisible) {
                     // Just close the multiplayer submenu, keep the pause menu open
                     multiplayerMenuVisible = false;
@@ -697,6 +723,7 @@ const Game = {
         });
         
         console.log('Game initialized successfully');
+        this.updateMusicForCurrentRoom();
         this.start();
     },
     
@@ -737,6 +764,7 @@ const Game = {
         const isMobileDevice = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(
             (navigator.userAgent || navigator.vendor || window.opera).toLowerCase()
         );
+        this.isMobileDevice = isMobileDevice;
         
         if (!isMobileDevice) {
             // Desktop: enforce minimum size for playability
@@ -987,13 +1015,31 @@ const Game = {
         const isHidden = document.hidden;
         
         if (this.multiplayerEnabled && isHidden) {
-            // Tab not visible + multiplayer = use setTimeout to keep running
             this.useSetTimeoutLoop = true;
             console.log('[Game] Switched to setTimeout loop (background)');
         } else {
-            // Tab visible OR solo mode = use RAF for better performance
             this.useSetTimeoutLoop = false;
             console.log('[Game] Switched to RAF loop (foreground)');
+        }
+        
+        const isMobile = this.isMobileDevice;
+        if (isMobile && isHidden) {
+            this.backgroundPauseActive = true;
+            if (typeof MusicManager !== 'undefined' && MusicManager && typeof MusicManager.pauseForBackground === 'function') {
+                MusicManager.pauseForBackground().catch(err => {
+                    console.warn('[Music] Failed to pause background playback:', err);
+                });
+            }
+            if (this.state === 'PLAYING' && !this.paused) {
+                this.autoPausedForBackground = true;
+                this.togglePause();
+            }
+        }
+        
+        if (!isHidden && isMobile) {
+            if (typeof MusicManager !== 'undefined' && MusicManager && typeof MusicManager.pauseForBackground === 'function') {
+                // No auto resume; just clear flag so manual resume works normally
+            }
         }
     },
     
@@ -1482,6 +1528,7 @@ const Game = {
         this.deadPlayers.clear();
         this.allPlayersDead = false;
         this.spectateMode = false;
+        this.lastRoomClearReviveRoomNumber = null;
         
         // Create stats for local player
         const localId = this.getLocalPlayerId();
@@ -1636,14 +1683,14 @@ const Game = {
                 const keyLower = key.toLowerCase();
                 
                 // Check special keys first
-                if (keyLower === 'w' || keyLower === 'arrowup') return rawInput.up || false;
-                if (keyLower === 's' || keyLower === 'arrowdown') return rawInput.down || false;
-                if (keyLower === 'a' || keyLower === 'arrowleft') return rawInput.left || false;
-                if (keyLower === 'd' || keyLower === 'arrowright') return rawInput.right || false;
+                if (keyLower === 'w') return rawInput.up || false;
+                if (keyLower === 's') return rawInput.down || false;
+                if (keyLower === 'a') return rawInput.left || false;
+                if (keyLower === 'd') return rawInput.right || false;
                 if (keyLower === ' ' || keyLower === 'space') return rawInput.space || false;
                 if (keyLower === 'shift') return rawInput.shift || false;
                 
-                // Check keys object
+                // Check keys object (supports arrow keys and any other bindings)
                 return rawInput.keys ? (rawInput.keys[keyLower] || false) : false;
             },
             
@@ -1918,6 +1965,128 @@ const Game = {
         return this.deadPlayers.size >= totalPlayers;
     },
     
+    isBossRoom(roomNumber) {
+        if (typeof roomNumber !== 'number') return false;
+        if (roomNumber < 10) return false;
+        return roomNumber % 5 === 0;
+    },
+    
+    getActiveBossPhase() {
+        if (!this.enemies || !Array.isArray(this.enemies)) {
+            return 1;
+        }
+        const boss = this.enemies.find(enemy => enemy && enemy.isBoss);
+        if (boss && typeof boss.phase === 'number') {
+            return boss.phase;
+        }
+        return 1;
+    },
+    
+    updateMusicForCurrentRoom() {
+        if (typeof MusicManager === 'undefined' || !MusicManager) {
+            return;
+        }
+        if (this.gameOverMusicPlaying) {
+            return;
+        }
+        if (this.state === 'NEXUS') {
+            MusicManager.setNexus().catch(err => {
+                console.error('[Music] Failed to set nexus music:', err);
+            });
+            return;
+        }
+        if (!this.roomNumber || this.state === 'PAUSED') {
+            return;
+        }
+        if (this.isBossRoom(this.roomNumber)) {
+            const phase = this.getActiveBossPhase();
+            MusicManager.setBossPhase(this.roomNumber, phase).catch(err => {
+                console.error('[Music] Failed to set boss music:', err);
+            });
+        } else {
+            MusicManager.setRoom(this.roomNumber).catch(err => {
+                console.error('[Music] Failed to set room music:', err);
+            });
+        }
+    },
+    
+    triggerGameOverMusic() {
+        if (this.gameOverMusicPlaying) {
+            return;
+        }
+        this.gameOverMusicPlaying = true;
+        if (typeof MusicManager === 'undefined' || !MusicManager || typeof MusicManager.playGameOver !== 'function') {
+            return;
+        }
+        MusicManager.playGameOver().catch(err => {
+            console.error('[Music] Failed to start game over music:', err);
+        });
+    },
+    
+    playPauseMusic() {
+        if (typeof MusicManager === 'undefined' || !MusicManager || typeof MusicManager.playPauseMenu !== 'function') {
+            return;
+        }
+        if (this.backgroundPauseActive) {
+            return;
+        }
+        const nexusContext = this.state === 'NEXUS' || this.pausedFromState === 'NEXUS';
+        if (nexusContext) {
+            if (typeof MusicManager.setNexus === 'function') {
+                MusicManager.setNexus().catch(err => {
+                    console.error('[Music] Failed to reaffirm nexus music during pause:', err);
+                });
+            }
+            return;
+        }
+        MusicManager.playPauseMenu().catch(err => {
+            console.error('[Music] Failed to start pause music:', err);
+        });
+    },
+    
+    resumeFromPauseMusic() {
+        if (typeof MusicManager === 'undefined' || !MusicManager) {
+            this.updateMusicForCurrentRoom();
+            return;
+        }
+        const nexusContext = this.state === 'NEXUS' || this.pausedFromState === 'NEXUS';
+        if (nexusContext) {
+            if (typeof MusicManager.setNexus === 'function') {
+                MusicManager.setNexus().then(() => {
+                    this.updateMusicForCurrentRoom();
+                }).catch(err => {
+                    console.error('[Music] Failed to resume nexus music after pause:', err);
+                    this.updateMusicForCurrentRoom();
+                });
+            } else {
+                this.updateMusicForCurrentRoom();
+            }
+            this.backgroundPauseActive = false;
+            this.autoPausedForBackground = false;
+            return;
+        }
+        if (typeof MusicManager.resumeFromPause !== 'function') {
+            this.updateMusicForCurrentRoom();
+            this.backgroundPauseActive = false;
+            this.autoPausedForBackground = false;
+            return;
+        }
+        MusicManager.resumeFromPause()
+            .then((resumed) => {
+                if (!resumed) {
+                    this.updateMusicForCurrentRoom();
+                }
+                this.backgroundPauseActive = false;
+                this.autoPausedForBackground = false;
+            })
+            .catch(err => {
+                console.error('[Music] Failed to resume music from pause:', err);
+                this.updateMusicForCurrentRoom();
+                this.backgroundPauseActive = false;
+                this.autoPausedForBackground = false;
+            });
+    },
+    
     // Check if current instance is the host
     isHost() {
         return this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.isHost;
@@ -2064,6 +2233,10 @@ const Game = {
             // If all players just died, send final stats to clients
             if (this.allPlayersDead && this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
                 this.sendFinalStats();
+            }
+            
+            if (this.allPlayersDead && typeof this.triggerGameOverMusic === 'function') {
+                this.triggerGameOverMusic();
             }
             
             console.log(`[Host] Remote player ${playerId} died!`);
@@ -2789,9 +2962,191 @@ const Game = {
         }
     },
     
+    reviveDeadPlayers(options = {}) {
+        const {
+            reason = 'unknown',
+            broadcast = true,
+            targetPlayerIds = null,
+            respawnStrategy = 'auto'
+        } = options;
+        
+        const manager = (typeof multiplayerManager !== 'undefined') ? multiplayerManager : null;
+        const inMultiplayer = !!(this.multiplayerEnabled && manager);
+        const revived = new Set();
+        const targetSet = Array.isArray(targetPlayerIds) ? new Set(targetPlayerIds) : null;
+        const shouldProcess = (playerId) => {
+            if (!playerId) return false;
+            return !targetSet || targetSet.has(playerId);
+        };
+        
+        const doorRect = (typeof getDoorPosition === 'function') ? getDoorPosition() : null;
+        const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.width) ? currentRoom.width : this.config.width;
+        const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.height) ? currentRoom.height : this.config.height;
+        const spawnBaseX = 140;
+        const spawnBaseY = roomHeight / 2;
+        const spawnSpread = 70;
+        const safeRespawnNeeded = (reason === 'room_clear' || reason === 'room_transition' || respawnStrategy === 'safe');
+        
+        const resetActionState = (playerObj) => {
+            if (!playerObj) return;
+            playerObj.isDodging = false;
+            playerObj.dodgeElapsed = 0;
+            playerObj.isChargingHeavy = false;
+            playerObj.heavyChargeElapsed = 0;
+            playerObj.isAttacking = false;
+            playerObj.attackCooldown = 0;
+            playerObj.heavyAttackCooldown = 0;
+            playerObj.specialCooldown = playerObj.specialCooldown || 0;
+            playerObj.vx = 0;
+            playerObj.vy = 0;
+            playerObj.dodgeVx = 0;
+            playerObj.dodgeVy = 0;
+        };
+        
+        const repositionPlayer = (playerObj, index = 0) => {
+            if (!playerObj) return;
+            
+            const needsDoorEscape = doorRect && (
+                playerObj.x >= (doorRect.x - playerObj.size * 0.5) &&
+                playerObj.x <= (doorRect.x + doorRect.width + playerObj.size * 0.5) &&
+                playerObj.y >= (doorRect.y - playerObj.size) &&
+                playerObj.y <= (doorRect.y + doorRect.height + playerObj.size)
+            );
+            
+            if (!safeRespawnNeeded && !needsDoorEscape) {
+                return;
+            }
+            
+            const column = index % 3;
+            const row = Math.floor(index / 3);
+            const offsetX = column * spawnSpread;
+            const offsetY = (row % 2 === 0 ? 1 : -1) * Math.ceil(row / 2) * spawnSpread * 0.75;
+            
+            playerObj.x = Math.min(spawnBaseX + offsetX, roomWidth - playerObj.size * 2);
+            playerObj.y = Math.min(Math.max(spawnBaseY + offsetY, playerObj.size * 2), roomHeight - playerObj.size * 2);
+        };
+        
+        const applyRevival = (playerObj, playerId, index = 0, isLocal = false) => {
+            if (!playerObj) return false;
+            if (!this.deadPlayers.has(playerId)) return false;
+            if (!shouldProcess(playerId)) return false;
+            
+            resetActionState(playerObj);
+            
+            playerObj.dead = false;
+            playerObj.alive = true;
+            playerObj.hp = playerObj.maxHp * 0.5;
+            playerObj.invulnerable = true;
+            playerObj.invulnerabilityTime = Math.max(playerObj.invulnerabilityTime || 0, 1.5);
+            
+            if (typeof playerObj.clearStatusEffects === 'function') {
+                playerObj.clearStatusEffects();
+            } else if (playerObj.statusEffects) {
+                Object.keys(playerObj.statusEffects).forEach(key => {
+                    playerObj.statusEffects[key] = null;
+                });
+            }
+            
+            if (typeof playerObj.resetDashAnimation === 'function') {
+                playerObj.resetDashAnimation();
+            }
+            
+            if (typeof playerObj.resetHeavyCharge === 'function') {
+                playerObj.resetHeavyCharge();
+            }
+            
+            if (typeof playerObj.updateEffectiveStats === 'function') {
+                playerObj.updateEffectiveStats();
+            }
+            
+            repositionPlayer(playerObj, index);
+            
+            this.deadPlayers.delete(playerId);
+            revived.add(playerId);
+            
+            if (typeof this.getPlayerStats === 'function') {
+                const stats = this.getPlayerStats(playerId);
+                if (stats && typeof stats.onRevive === 'function') {
+                    stats.onRevive();
+                }
+            }
+            
+            if (isLocal) {
+                this.allPlayersDead = false;
+                this.spectateMode = false;
+                this.spectatedPlayerId = null;
+                this.deathScreenStartTime = 0;
+                this.endTime = 0;
+            }
+            
+            return true;
+        };
+        
+        const localPlayerId = this.getLocalPlayerId ? this.getLocalPlayerId() : null;
+        if (localPlayerId && this.player && this.player.dead) {
+            const revivedLocal = applyRevival(this.player, localPlayerId, revived.size, true);
+            if (revivedLocal) {
+                console.log(`[Revival] Player revived at 50% HP (${Math.floor(this.player.hp)}/${Math.floor(this.player.maxHp)}) [reason=${reason}]`);
+            }
+        }
+        
+        if (this.isHost() && this.remotePlayerInstances && this.remotePlayerInstances.size > 0) {
+            let remoteIndex = revived.size;
+            this.remotePlayerInstances.forEach((playerInstance, playerId) => {
+                if (!playerInstance || !playerInstance.dead) return;
+                const revivedRemote = applyRevival(playerInstance, playerId, remoteIndex);
+                if (revivedRemote) {
+                    if (this.remotePlayerStates && this.remotePlayerStates.has(playerId)) {
+                        const state = this.remotePlayerStates.get(playerId);
+                        state.dead = false;
+                        state.hp = playerInstance.hp;
+                        state.invulnerable = true;
+                        state.invulnerabilityTime = Math.max(state.invulnerabilityTime || 0, 1.5);
+                    }
+                    console.log(`[Host Revival] Remote player ${playerId} revived at 50% HP (${Math.floor(playerInstance.hp)}/${Math.floor(playerInstance.maxHp)}) [reason=${reason}]`);
+                    remoteIndex++;
+                }
+            });
+        }
+        
+        if (revived.size > 0) {
+            this.allPlayersDead = false;
+            
+            if (this.playersOnDoor && this.playersOnDoor.length > 0) {
+                this.playersOnDoor = this.playersOnDoor.filter(id => !revived.has(id));
+            }
+            
+            if (this.isHost() && inMultiplayer && broadcast) {
+                try {
+                    manager.send({
+                        type: 'revive_players',
+                        data: {
+                            playerIds: Array.from(revived),
+                            reason,
+                            roomNumber: this.roomNumber,
+                            timestamp: Date.now()
+                        }
+                    });
+                } catch (err) {
+                    console.error('[Revival] Failed to broadcast revive_players message:', err);
+                }
+            }
+            
+            if (this.isHost() && inMultiplayer) {
+                manager.sendGameState();
+            }
+        }
+        
+        return Array.from(revived);
+    },
+    
     // Advance to next room
     advanceToNextRoom() {
         this.roomNumber++;
+        this.gameOverMusicPlaying = false;
+        if (typeof audioMenuVisible !== 'undefined') {
+            audioMenuVisible = false;
+        }
         
         // Reset door waiting state
         this.playersOnDoor = [];
@@ -2801,60 +3156,13 @@ const Game = {
         // Charges persist across rooms and are recharged by dealing damage
         
         // Multiplayer: Revive dead players at 50% HP
+        let transitionRevivedIds = [];
         if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
-            const localPlayerId = this.getLocalPlayerId();
-            
-            // Revive local player if dead
-            if (this.player && this.player.dead && this.deadPlayers.has(localPlayerId)) {
-                this.player.dead = false;
-                this.player.alive = true;
-                this.player.hp = this.player.maxHp * 0.5; // Revive at 50% HP
-                
-                // Update stats - restart alive timer
-                const stats = this.getPlayerStats(localPlayerId);
-                stats.onRevive();
-                
-                // Remove from dead players
-                this.deadPlayers.delete(localPlayerId);
-                this.allPlayersDead = false;
-                this.spectateMode = false;
-                
-                console.log(`[Revival] Player revived at 50% HP (${Math.floor(this.player.hp)}/${Math.floor(this.player.maxHp)})`);
-            }
-            
-            // Host: Revive remote players if dead
-            if (this.isHost()) {
-                // Revive remote player instances (for simulation)
-                this.remotePlayerInstances.forEach((playerInstance, playerId) => {
-                    if (playerInstance.dead && this.deadPlayers.has(playerId)) {
-                        playerInstance.dead = false;
-                        playerInstance.alive = true;
-                        playerInstance.hp = playerInstance.maxHp * 0.5; // Revive at 50% HP
-                        
-                        // Update remote player state tracking
-                        const state = this.remotePlayerStates.get(playerId);
-                        if (state) {
-                            state.dead = false;
-                            state.hp = playerInstance.hp;
-                            state.invulnerable = false;
-                            state.invulnerabilityTime = 0;
-                        }
-                        
-                        // Update stats - restart alive timer
-                        const stats = this.getPlayerStats(playerId);
-                        if (stats) {
-                            stats.onRevive();
-                        }
-                        
-                        // Remove from dead players
-                        this.deadPlayers.delete(playerId);
-                        
-                        console.log(`[Host Revival] Remote player ${playerId} revived at 50% HP (${Math.floor(playerInstance.hp)}/${Math.floor(playerInstance.maxHp)})`);
-                    }
-                });
-                
-                this.allPlayersDead = false;
-            }
+            transitionRevivedIds = this.reviveDeadPlayers({
+                reason: 'room_transition',
+                broadcast: false,
+                respawnStrategy: 'safe'
+            });
             
             // Update rooms cleared for all players
             this.playerStats.forEach((stats, playerId) => {
@@ -2889,6 +3197,7 @@ const Game = {
                 this.initializeCamera();
                 
                 console.log(`[Client] Waiting for room ${this.roomNumber} from host...`);
+                this.updateMusicForCurrentRoom();
             } else {
                 // Host or solo: Generate room normally
                 const newRoom = generateRoom(this.roomNumber);
@@ -2932,6 +3241,7 @@ const Game = {
                 this.initializeCamera();
                 
                 console.log(`Advanced to Room ${this.roomNumber}${newRoom.type === 'boss' ? ' (BOSS ROOM)' : ''}`);
+                this.updateMusicForCurrentRoom();
                 
                 if (typeof Telemetry !== 'undefined') {
                     const participants = this.collectTelemetryParticipants(true);
@@ -2946,7 +3256,9 @@ const Game = {
                             type: 'room_transition',
                             data: {
                                 roomNumber: this.roomNumber,
-                                reviveePlayers: true, // Signal to revive dead players
+                                reviveePlayers: transitionRevivedIds && transitionRevivedIds.length
+                                    ? transitionRevivedIds
+                                    : (transitionRevivedIds === undefined ? undefined : []),
                                 timestamp: Date.now()
                             }
                         });
@@ -3314,11 +3626,19 @@ const Game = {
                     this.showPauseMenu = true;
                     this.paused = false;
                     console.log('Converted single-player nexus pause to multiplayer pause menu');
+                    if (typeof audioMenuVisible !== 'undefined') {
+                        audioMenuVisible = false;
+                    }
+                    this.playPauseMusic();
                 } else if (this.pausedFromState === 'PLAYING') {
                     this.state = 'PLAYING';
                     this.showPauseMenu = true;
                     this.paused = false;
                     console.log('Converted single-player game pause to multiplayer pause menu');
+                    if (typeof audioMenuVisible !== 'undefined') {
+                        audioMenuVisible = false;
+                    }
+                    this.playPauseMusic();
                 }
                 return;
             }
@@ -3327,10 +3647,18 @@ const Game = {
             if (this.showPauseMenu) {
                 this.showPauseMenu = false;
                 console.log('[TOGGLE PAUSE] Multiplayer pause menu closed');
+                if (typeof audioMenuVisible !== 'undefined') {
+                    audioMenuVisible = false;
+                }
+                this.resumeFromPauseMusic();
             } else {
                 this.showPauseMenu = true;
                 this.pausedFromState = this.state; // Remember where we paused from
                 console.log('[TOGGLE PAUSE] Multiplayer pause menu opened - pausedFromState set to:', this.state);
+                if (typeof audioMenuVisible !== 'undefined') {
+                    audioMenuVisible = false;
+                }
+                this.playPauseMusic();
             }
         } else {
             // Single player: Normal pause behavior
@@ -3339,17 +3667,23 @@ const Game = {
                 this.paused = true;
                 this.pausedFromState = 'PLAYING'; // Remember where we paused from
                 console.log('[TOGGLE PAUSE] Game paused - pausedFromState set to: PLAYING');
+                this.playPauseMusic();
             } else if (this.state === 'NEXUS') {
                 this.state = 'PAUSED';
                 this.paused = true;
                 this.pausedFromState = 'NEXUS'; // Remember where we paused from
                 console.log('[TOGGLE PAUSE] Nexus paused - pausedFromState set to: NEXUS');
+                this.playPauseMusic();
             } else if (this.state === 'PAUSED') {
                 // Resume to the state we paused from
                 this.state = this.pausedFromState || 'PLAYING';
                 this.paused = false;
                 this.pausedFromState = null;
                 console.log('[TOGGLE PAUSE] Game resumed - pausedFromState cleared');
+                if (typeof audioMenuVisible !== 'undefined') {
+                    audioMenuVisible = false;
+                }
+                this.resumeFromPauseMusic();
             }
         }
     },
@@ -3483,6 +3817,8 @@ const Game = {
         this.state = 'NEXUS';
         this.enemies = [];
         this.projectiles = [];
+        this.gameOverMusicPlaying = false;
+        this.updateMusicForCurrentRoom();
 
         // Reset pause state completely
         this.paused = false;
@@ -3492,6 +3828,9 @@ const Game = {
         // Reset multiplayer menu visibility (ensure clean state)
         if (typeof multiplayerMenuVisible !== 'undefined') {
             multiplayerMenuVisible = false;
+        }
+        if (typeof audioMenuVisible !== 'undefined') {
+            audioMenuVisible = false;
         }
 
         // Reset multiplayer state if not in a lobby
@@ -3670,6 +4009,8 @@ const Game = {
             return;
         }
         
+        this.gameOverMusicPlaying = false;
+        
         console.log('[GAME START] ========================================');
         console.log('[GAME START] Called with class:', this.selectedClass);
         console.log('[GAME START] Current state:', this.state, 'pausedFrom:', this.pausedFromState);
@@ -3685,8 +4026,15 @@ const Game = {
             initializeRoom(1);
         }
         
+        // Enter playing state before spawning enemies so music starts immediately
+        this.state = 'PLAYING';
+        this.paused = false;
+        this.showPauseMenu = false;
+        this.pausedFromState = null;
+        
         // Spawn enemies
         this.spawnEnemies();
+        this.updateMusicForCurrentRoom();
         
         if (typeof Telemetry !== 'undefined') {
             const localPlayerId = this.getLocalPlayerId ? this.getLocalPlayerId() : 'local';
@@ -3708,10 +4056,6 @@ const Game = {
             const firstRoomType = (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type) ? currentRoom.type : 'normal';
             Telemetry.recordRoomEnter(this.roomNumber, firstRoomType, runPlayers);
         }
-        
-        // Switch to playing state
-        this.state = 'PLAYING';
-        this.showPauseMenu = false;
         
         // Reset tracking
         this.enemiesKilled = 0;
@@ -3757,6 +4101,10 @@ const Game = {
     
     // Restart game
     restart() {
+        this.gameOverMusicPlaying = false;
+        if (typeof audioMenuVisible !== 'undefined') {
+            audioMenuVisible = false;
+        }
         // Create new player with same class (start at left edge of new larger room)
         const roomHeight = 1350; // New room height
         this.player = createPlayer(this.selectedClass, 100, roomHeight / 2); // Spawn at left edge, vertically centered
@@ -3797,8 +4145,17 @@ const Game = {
             currentRoom = null;
         }
         
+        // Enter playing state before spawning
+        this.state = 'PLAYING';
+        this.paused = false;
+        this.showPauseMenu = false;
+        this.pausedFromState = null;
+        this.lastGKeyState = false;
+        this.clickHandled = false;
+        
         // Spawn enemies
         this.spawnEnemies();
+        this.updateMusicForCurrentRoom();
         
         if (typeof Telemetry !== 'undefined') {
             const localPlayerId = this.getLocalPlayerId ? this.getLocalPlayerId() : 'local';
@@ -3823,14 +4180,6 @@ const Game = {
         
         // Initialize camera position to follow player
         this.initializeCamera();
-        
-        // Reset state
-        this.state = 'PLAYING';
-        this.showPauseMenu = false;
-        this.paused = false;
-        this.showPauseMenu = false;
-        this.lastGKeyState = false;
-        this.clickHandled = false;
         
         console.log('Game restarted with class:', this.selectedClass);
     },
@@ -3859,6 +4208,8 @@ const Game = {
                 this.startBossIntro(boss);
             }
         }
+        
+        this.updateMusicForCurrentRoom();
         
         console.log(`Room ${this.roomNumber} initialized with ${this.enemies.length} enemies`);
     },

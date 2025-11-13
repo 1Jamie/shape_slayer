@@ -5,10 +5,20 @@ const AudioManager = {
     // Core audio context
     context: null,
     masterGain: null,
+    musicGain: null,
+    musicDuckGain: null,
+    musicFilter: null,
+    sfxGain: null,
+    musicBus: null,
     
     // Settings
     masterVolume: 0.5,
+    musicVolume: 0.5,
+    sfxVolume: 1.0,
     muted: false,
+    targetMasterVolume: 0.5,
+    pendingMasterFade: false,
+    fadeInDuration: 1.5,
     
     // Sound pool tracking
     activeSounds: [],
@@ -29,13 +39,48 @@ const AudioManager = {
             // Create master gain node for volume control
             this.masterGain = this.context.createGain();
             this.masterGain.connect(this.context.destination);
-            this.masterGain.gain.value = this.masterVolume;
+            this.masterGain.gain.value = 0;
+            this.targetMasterVolume = this.masterVolume;
+            this.pendingMasterFade = !this.muted;
+            
+            // Create channel gain nodes
+            this.sfxGain = this.context.createGain();
+            this.sfxGain.gain.value = this.sfxVolume;
+            this.sfxGain.connect(this.masterGain);
+            
+            this.musicGain = this.context.createGain();
+            this.musicGain.gain.value = this.musicVolume;
+            
+            this.musicDuckGain = this.context.createGain();
+            this.musicDuckGain.gain.value = 1.0;
+            
+            this.musicFilter = this.context.createBiquadFilter();
+            this.musicFilter.type = 'lowpass';
+            this.musicFilter.frequency.value = 20000;
+            this.musicFilter.Q.value = 0.7;
+            
+            this.musicGain.connect(this.musicDuckGain);
+            this.musicDuckGain.connect(this.musicFilter);
+            this.musicFilter.connect(this.masterGain);
+            
+            this.musicBus = {
+                input: this.musicGain,
+                duckGain: this.musicDuckGain,
+                filter: this.musicFilter
+            };
             
             // Load saved volume settings
             this.loadSettings();
+            this.prepareMasterGain();
             
             this.initialized = true;
             console.log('AudioManager initialized');
+            
+            this.tryResumeContext();
+            
+            if (typeof Game !== 'undefined' && Game && typeof Game.updateMusicForCurrentRoom === 'function') {
+                Game.updateMusicForCurrentRoom();
+            }
         } catch (error) {
             console.error('Failed to initialize AudioManager:', error);
         }
@@ -44,7 +89,67 @@ const AudioManager = {
     // Ensure audio context is running (required for autoplay policies)
     resume() {
         if (this.context && this.context.state === 'suspended') {
-            this.context.resume();
+            this.context.resume().then(() => {
+                this.onContextUnlocked();
+                if (typeof Game !== 'undefined' && Game && typeof Game.updateMusicForCurrentRoom === 'function') {
+                    Game.updateMusicForCurrentRoom();
+                }
+            }).catch(error => {
+                console.warn('AudioManager resume failed:', error);
+            });
+        } else if (this.context && this.context.state === 'running') {
+            this.onContextUnlocked();
+        }
+    },
+    
+    tryResumeContext() {
+        if (!this.context) return;
+        this.context.resume().then(() => {
+            this.onContextUnlocked();
+        }).catch(() => {
+            // Autoplay policy prevented unlock; wait for explicit gesture
+        });
+    },
+    
+    prepareMasterGain() {
+        if (!this.masterGain) return;
+        this.targetMasterVolume = this.masterVolume;
+        if (this.muted) {
+            this.masterGain.gain.value = 0;
+            this.pendingMasterFade = false;
+        } else if (this.context && this.context.state === 'running') {
+            this.masterGain.gain.value = this.masterVolume;
+            this.pendingMasterFade = false;
+        } else {
+            this.masterGain.gain.value = 0;
+            this.pendingMasterFade = true;
+        }
+    },
+    
+    scheduleMasterFade() {
+        if (!this.masterGain || !this.context) return;
+        const now = this.context.currentTime;
+        this.masterGain.gain.cancelScheduledValues(now);
+        this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, now);
+        this.masterGain.gain.linearRampToValueAtTime(
+            this.targetMasterVolume,
+            now + Math.max(0.1, this.fadeInDuration)
+        );
+    },
+    
+    onContextUnlocked() {
+        if (!this.masterGain || !this.context) return;
+        if (this.muted) {
+            this.pendingMasterFade = false;
+            this.masterGain.gain.setValueAtTime(0, this.context.currentTime);
+            return;
+        }
+        
+        if (this.pendingMasterFade) {
+            this.scheduleMasterFade();
+            this.pendingMasterFade = false;
+        } else {
+            this.masterGain.gain.setValueAtTime(this.targetMasterVolume, this.context.currentTime);
         }
     },
     
@@ -56,10 +161,29 @@ const AudioManager = {
             
             if (savedVolume !== null && savedVolume !== undefined) {
                 this.masterVolume = savedVolume;
-                if (this.masterGain && !this.muted) {
-                    this.masterGain.gain.value = savedVolume;
+                this.targetMasterVolume = this.masterVolume;
+            }
+            
+            if (SaveSystem.getMusicVolume) {
+                const savedMusic = SaveSystem.getMusicVolume();
+                if (savedMusic !== null && savedMusic !== undefined) {
+                    this.musicVolume = savedMusic;
+                    if (this.musicGain) {
+                        this.musicGain.gain.value = this.musicVolume;
+                    }
                 }
             }
+            
+            if (SaveSystem.getSfxVolume) {
+                const savedSfx = SaveSystem.getSfxVolume();
+                if (savedSfx !== null && savedSfx !== undefined) {
+                    this.sfxVolume = savedSfx;
+                    if (this.sfxGain) {
+                        this.sfxGain.gain.value = this.sfxVolume;
+                    }
+                }
+            }
+            
             if (savedMuted !== null && savedMuted !== undefined) {
                 this.muted = savedMuted;
                 if (this.masterGain && this.muted) {
@@ -74,14 +198,43 @@ const AudioManager = {
         if (typeof SaveSystem !== 'undefined') {
             SaveSystem.setAudioVolume(this.masterVolume);
             SaveSystem.setAudioMuted(this.muted);
+            if (SaveSystem.setMusicVolume) {
+                SaveSystem.setMusicVolume(this.musicVolume);
+            }
+            if (SaveSystem.setSfxVolume) {
+                SaveSystem.setSfxVolume(this.sfxVolume);
+            }
         }
     },
     
     // Set master volume (0-1)
     setVolume(volume) {
         this.masterVolume = Math.max(0, Math.min(1, volume));
+        this.targetMasterVolume = this.masterVolume;
         if (this.masterGain && !this.muted) {
-            this.masterGain.gain.value = this.masterVolume;
+            if (this.context && this.context.state === 'running' && !this.pendingMasterFade) {
+                const now = this.context.currentTime;
+                this.masterGain.gain.cancelScheduledValues(now);
+                this.masterGain.gain.setValueAtTime(this.masterVolume, now);
+            }
+        }
+        this.saveSettings();
+    },
+    
+    // Set music volume (0-1)
+    setMusicVolume(volume) {
+        this.musicVolume = Math.max(0, Math.min(1, volume));
+        if (this.musicGain) {
+            this.musicGain.gain.value = this.musicVolume;
+        }
+        this.saveSettings();
+    },
+    
+    // Set SFX volume (0-1)
+    setSfxVolume(volume) {
+        this.sfxVolume = Math.max(0, Math.min(1, volume));
+        if (this.sfxGain) {
+            this.sfxGain.gain.value = this.sfxVolume;
         }
         this.saveSettings();
     },
@@ -100,9 +253,42 @@ const AudioManager = {
     setMute(muted) {
         this.muted = muted;
         if (this.masterGain) {
-            this.masterGain.gain.value = this.muted ? 0 : this.masterVolume;
+            if (this.muted) {
+                this.pendingMasterFade = false;
+                if (this.context) {
+                    const now = this.context.currentTime;
+                    this.masterGain.gain.cancelScheduledValues(now);
+                    this.masterGain.gain.setValueAtTime(0, now);
+                } else {
+                    this.masterGain.gain.value = 0;
+                }
+            } else {
+                this.targetMasterVolume = this.masterVolume;
+                if (this.context && this.context.state === 'running') {
+                    this.scheduleMasterFade();
+                    this.pendingMasterFade = false;
+                } else {
+                    this.masterGain.gain.value = 0;
+                    this.pendingMasterFade = true;
+                }
+            }
         }
         this.saveSettings();
+    },
+    
+    getMusicBus() {
+        if (!this.initialized) {
+            this.init();
+        }
+        return this.musicBus;
+    },
+    
+    connectToSfx(node) {
+        if (this.sfxGain) {
+            node.connect(this.sfxGain);
+        } else if (this.masterGain) {
+            node.connect(this.masterGain);
+        }
     },
     
     // Clean up finished sounds from active pool
@@ -149,7 +335,7 @@ const AudioManager = {
         
         // Connect nodes
         oscillator.connect(gainNode);
-        gainNode.connect(this.masterGain);
+        this.connectToSfx(gainNode);
         
         // Start and stop
         oscillator.start(now);
@@ -178,7 +364,7 @@ const AudioManager = {
         
         // Connect nodes
         oscillator.connect(gainNode);
-        gainNode.connect(this.masterGain);
+        this.connectToSfx(gainNode);
         
         // Start and stop
         oscillator.start(now);
@@ -214,7 +400,7 @@ const AudioManager = {
             gainNode.gain.exponentialRampToValueAtTime(0.01, now + duration);
             
             oscillator.connect(gainNode);
-            gainNode.connect(this.masterGain);
+            this.connectToSfx(gainNode);
             
             oscillator.start(now);
             oscillator.stop(now + duration);
@@ -263,8 +449,8 @@ const AudioManager = {
         oscillator2.connect(gainNode);
         clickOsc.connect(clickGain);
         
-        gainNode.connect(this.masterGain);
-        clickGain.connect(this.masterGain);
+        this.connectToSfx(gainNode);
+        this.connectToSfx(clickGain);
         
         oscillator1.start(now);
         oscillator2.start(now);
@@ -304,7 +490,7 @@ const AudioManager = {
         
         oscillator.connect(filter);
         filter.connect(gainNode);
-        gainNode.connect(this.masterGain);
+        this.connectToSfx(gainNode);
         
         oscillator.start(now);
         oscillator.stop(now + duration);
@@ -339,7 +525,7 @@ const AudioManager = {
             gainNode.gain.exponentialRampToValueAtTime(0.01, now + duration);
             
             oscillator.connect(gainNode);
-            gainNode.connect(this.masterGain);
+            this.connectToSfx(gainNode);
             
             oscillator.start(now);
             oscillator.stop(now + duration);
@@ -366,7 +552,7 @@ const AudioManager = {
         gainNode.gain.exponentialRampToValueAtTime(0.01, now + duration);
         
         oscillator.connect(gainNode);
-        gainNode.connect(this.masterGain);
+        this.connectToSfx(gainNode);
         
         oscillator.start(now);
         oscillator.stop(now + duration);
@@ -396,7 +582,7 @@ const AudioManager = {
             gainNode.gain.linearRampToValueAtTime(0, startTime + pulseDuration);
             
             oscillator.connect(gainNode);
-            gainNode.connect(this.masterGain);
+            this.connectToSfx(gainNode);
             
             oscillator.start(startTime);
             oscillator.stop(startTime + pulseDuration);
@@ -426,7 +612,7 @@ const AudioManager = {
             gainNode.gain.exponentialRampToValueAtTime(0.01, now + duration);
             
             oscillator.connect(gainNode);
-            gainNode.connect(this.masterGain);
+            this.connectToSfx(gainNode);
             
             oscillator.start(now + index * 0.05);
             oscillator.stop(now + duration + index * 0.05);
@@ -606,17 +792,21 @@ const AudioManager = {
     }
 };
 
-// Initialize on first user interaction (required for autoplay policies)
-document.addEventListener('click', () => {
+// Initialize / unlock on first user interaction (required for autoplay policies)
+function unlockAudioContext() {
     if (!AudioManager.initialized) {
         AudioManager.init();
+    } else {
+        AudioManager.resume();
     }
-}, { once: true });
+}
 
-document.addEventListener('keydown', () => {
-    if (!AudioManager.initialized) {
-        AudioManager.init();
-    }
+['pointerdown', 'touchstart', 'mousedown', 'click'].forEach(eventType => {
+    window.addEventListener(eventType, unlockAudioContext, { once: true });
+});
+
+window.addEventListener('keydown', () => {
+    unlockAudioContext();
 }, { once: true });
 
 // Also try to initialize immediately (will work if autoplay is allowed)

@@ -10,16 +10,16 @@ const DIAMOND_CONFIG = {
     maxHp: 35,                     // Maximum health points
     damage: 6,                     // Damage per hit
     damageScalingMultiplier: 0.65, // Additional reduction applied after global scaling
-    moveSpeed: 100,                // Movement speed (pixels/second)
+    moveSpeed: 120,                // Movement speed (pixels/second)
     xpValue: 15,                   // XP awarded when killed
     lootChance: 0.12,              // Chance to drop loot (0.12 = 12%, reduced for larger rooms)
     
     // Attack Behavior
     attackCooldown: 2.0,           // Time between attacks (seconds)
-    telegraphDuration: 0.15,       // Telegraph warning duration (seconds)
+    telegraphDuration: 0.1,       // Telegraph warning duration (seconds)
     dashDuration: 0.35,            // Duration of dash attack (seconds)
     dashSpeed: 600,                // Speed during dash (pixels/second)
-    attackRange: 180,              // Distance to initiate attack (pixels)
+    attackRange: 190,              // Distance to initiate attack (pixels)
     
     // Movement Behavior  
     orbitDistance: 150,            // Distance to orbit around player (pixels)
@@ -367,9 +367,9 @@ class DiamondEnemy extends EnemyBase {
                     }
                     
                     // Apply movement with weaving
-                    const desiredX = this.x + moveX * this.moveSpeed * deltaTime + perpX * weaveOffset * deltaTime * 0.3;
-                    const desiredY = this.y + moveY * this.moveSpeed * deltaTime + perpY * weaveOffset * deltaTime * 0.3;
-                    this.smoothMoveTo(desiredX, desiredY);
+                    const offsetX = moveX * this.moveSpeed * deltaTime + perpX * weaveOffset * deltaTime * 0.3;
+                    const offsetY = moveY * this.moveSpeed * deltaTime + perpY * weaveOffset * deltaTime * 0.3;
+                    this.applySmoothedOffset(offsetX, offsetY);
                     
                     if (moveX !== 0 || moveY !== 0) {
                         this.smoothRotateTo(Math.atan2(moveY, moveX));
@@ -637,9 +637,9 @@ class DiamondEnemy extends EnemyBase {
                 // Move away from player during cooldown
                 const awayDirX = -dx / distance;
                 const awayDirY = -dy / distance;
-                const desiredX = this.x + awayDirX * this.moveSpeed * 0.5 * deltaTime;
-                const desiredY = this.y + awayDirY * this.moveSpeed * 0.5 * deltaTime;
-                this.smoothMoveTo(desiredX, desiredY);
+                const offsetX = awayDirX * this.moveSpeed * 0.5 * deltaTime;
+                const offsetY = awayDirY * this.moveSpeed * 0.5 * deltaTime;
+                this.applySmoothedOffset(offsetX, offsetY);
                 
                 this.smoothRotateTo(Math.atan2(awayDirY, awayDirX));
             }

@@ -317,11 +317,33 @@ function checkRoomCleared() {
         
         currentRoom.doorOpen = true;
         
+        if (currentRoom.type === 'boss' && typeof MusicManager !== 'undefined' && MusicManager.currentCategory === 'boss') {
+            MusicManager.fadeOutCurrent().catch(err => {
+                console.error('[Music] Failed to fade out boss music after room clear:', err);
+            });
+        }
+        
         if (typeof Telemetry !== 'undefined') {
             const participants = typeof Game !== 'undefined' && Game && Game.collectTelemetryParticipants
                 ? Game.collectTelemetryParticipants(true)
                 : [];
             Telemetry.recordRoomCleared(currentRoom.number, participants);
+        }
+        
+        if (typeof Game !== 'undefined' &&
+            Game &&
+            typeof Game.reviveDeadPlayers === 'function' &&
+            typeof Game.isHost === 'function' &&
+            Game.multiplayerEnabled &&
+            Game.isHost()) {
+            if (Game.lastRoomClearReviveRoomNumber !== currentRoom.number) {
+                Game.reviveDeadPlayers({
+                    reason: 'room_clear',
+                    broadcast: true,
+                    respawnStrategy: 'safe'
+                });
+                Game.lastRoomClearReviveRoomNumber = currentRoom.number;
+            }
         }
     }
     

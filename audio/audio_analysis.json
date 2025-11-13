@@ -1,0 +1,90 @@
+{
+    "enchanted-waveform-287282.mp3": {
+        "tempo_bpm": 83.96,
+        "avg_rms_energy": 0.13169999420642853,
+        "avg_spectral_centroid_hz": 4654.46,
+        "avg_spectral_bandwidth_hz": 4756.11,
+        "avg_zero_crossing_rate": 0.0836,
+        "estimated_feel": "Mid-tempo / Neutral"
+    },
+    "neon-rising-336846.mp3": {
+        "tempo_bpm": 92.21,
+        "avg_rms_energy": 0.1128000020980835,
+        "avg_spectral_centroid_hz": 2302.03,
+        "avg_spectral_bandwidth_hz": 2892.16,
+        "avg_zero_crossing_rate": 0.0381,
+        "estimated_feel": "Mid-tempo / Neutral"
+    },
+    "digital-progress-370585.mp3": {
+        "tempo_bpm": 156.25,
+        "avg_rms_energy": 0.13249999284744263,
+        "avg_spectral_centroid_hz": 1883.0,
+        "avg_spectral_bandwidth_hz": 2790.8,
+        "avg_zero_crossing_rate": 0.0241,
+        "estimated_feel": "Upbeat / Driving"
+    },
+    "starstream-circuit-370586.mp3": {
+        "tempo_bpm": 100.45,
+        "avg_rms_energy": 0.13930000364780426,
+        "avg_spectral_centroid_hz": 1837.9,
+        "avg_spectral_bandwidth_hz": 2681.28,
+        "avg_zero_crossing_rate": 0.0249,
+        "estimated_feel": "Mid-tempo / Neutral"
+    },
+    "game-over-8-bit-chiptune-164330.mp3": {
+        "tempo_bpm": 95.34,
+        "avg_rms_energy": 0.14169999957084656,
+        "avg_spectral_centroid_hz": 2327.44,
+        "avg_spectral_bandwidth_hz": 3264.4,
+        "avg_zero_crossing_rate": 0.03,
+        "estimated_feel": "Mid-tempo / Neutral"
+    },
+    "darkstream-runner-301774.mp3": {
+        "tempo_bpm": 96.98,
+        "avg_rms_energy": 0.14820000529289246,
+        "avg_spectral_centroid_hz": 3037.3,
+        "avg_spectral_bandwidth_hz": 3594.16,
+        "avg_zero_crossing_rate": 0.0486,
+        "estimated_feel": "Mid-tempo / Neutral"
+    },
+    "chiptune-nu-metal-216243.mp3": {
+        "tempo_bpm": 119.68,
+        "avg_rms_energy": 0.13410000503063202,
+        "avg_spectral_centroid_hz": 3841.68,
+        "avg_spectral_bandwidth_hz": 4089.6,
+        "avg_zero_crossing_rate": 0.0546,
+        "estimated_feel": "Mid-tempo / Neutral"
+    },
+    "waiting-time-175800.mp3": {
+        "tempo_bpm": 52.57,
+        "avg_rms_energy": 0.11550000309944153,
+        "avg_spectral_centroid_hz": 1740.15,
+        "avg_spectral_bandwidth_hz": 2024.52,
+        "avg_zero_crossing_rate": 0.037,
+        "estimated_feel": "Calm / Ambient"
+    },
+    "chiptune-medium-boss-218095.mp3": {
+        "tempo_bpm": 100.45,
+        "avg_rms_energy": 0.1265999972820282,
+        "avg_spectral_centroid_hz": 3511.14,
+        "avg_spectral_bandwidth_hz": 3843.71,
+        "avg_zero_crossing_rate": 0.0449,
+        "estimated_feel": "Mid-tempo / Neutral"
+    },
+    "against-villainous-robot-148967.mp3": {
+        "tempo_bpm": 100.45,
+        "avg_rms_energy": 0.1509999930858612,
+        "avg_spectral_centroid_hz": 3644.52,
+        "avg_spectral_bandwidth_hz": 3765.82,
+        "avg_zero_crossing_rate": 0.0687,
+        "estimated_feel": "Mid-tempo / Neutral"
+    },
+    "fight-for-the-future-336841.mp3": {
+        "tempo_bpm": 170.45,
+        "avg_rms_energy": 0.12189999967813492,
+        "avg_spectral_centroid_hz": 3012.73,
+        "avg_spectral_bandwidth_hz": 3603.21,
+        "avg_zero_crossing_rate": 0.0486,
+        "estimated_feel": "Energetic / Intense"
+    }
+}

@@ -1,4 +1,4 @@
-// Star enemy - ranged enemy type
+// Star enemy - ranged enemy type (actually a triangle but i havent renamed it yet)
 
 // ============================================================================
 // STAR ENEMY CONFIGURATION - Adjust these values for game balancing
@@ -9,7 +9,7 @@ const STAR_CONFIG = {
     size: 22,                      // Enemy size (pixels)
     maxHp: 55,                     // Maximum health points
     damage: 8,                     // Damage per hit
-    moveSpeed: 80,                 // Movement speed (pixels/second)
+    moveSpeed: 105,                 // Movement speed (pixels/second)
     xpValue: 20,                   // XP awarded when killed
     lootChance: 0.12,              // Chance to drop loot (0.12 = 12%, reduced for larger rooms)
     
