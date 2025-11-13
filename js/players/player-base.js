@@ -2789,7 +2789,9 @@ class PlayerBase {
         
         let scale = 1.0;
         if (this.isChargingHeavy) {
-            scale = 1.0 + (this.heavyChargeElapsed / this.heavyAttackWindup) * 0.3;
+            const windup = Math.max(this.heavyAttackWindup, 0.0001);
+            const chargeProgress = Math.min(this.heavyChargeElapsed / windup, 1);
+            scale = 1.0 + chargeProgress * 0.3;
         }
         
         const time = Date.now() * 0.0003;
