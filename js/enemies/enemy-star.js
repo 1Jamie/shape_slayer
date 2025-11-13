@@ -9,7 +9,7 @@ const STAR_CONFIG = {
     size: 22,                      // Enemy size (pixels)
     maxHp: 55,                     // Maximum health points
     damage: 8,                     // Damage per hit
-    moveSpeed: 105,                 // Movement speed (pixels/second)
+    moveSpeed: 110,                 // Movement speed (pixels/second)
     xpValue: 20,                   // XP awarded when killed
     lootChance: 0.12,              // Chance to drop loot (0.12 = 12%, reduced for larger rooms)
     

@@ -10,7 +10,7 @@ const DIAMOND_CONFIG = {
     maxHp: 35,                     // Maximum health points
     damage: 6,                     // Damage per hit
     damageScalingMultiplier: 0.65, // Additional reduction applied after global scaling
-    moveSpeed: 120,                // Movement speed (pixels/second)
+    moveSpeed: 130,                // Movement speed (pixels/second)
     xpValue: 15,                   // XP awarded when killed
     lootChance: 0.12,              // Chance to drop loot (0.12 = 12%, reduced for larger rooms)
     

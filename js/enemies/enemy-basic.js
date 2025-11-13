@@ -9,7 +9,7 @@ const BASIC_ENEMY_CONFIG = {
     size: 20,                      // Enemy size (pixels)
     maxHp: 40,                     // Maximum health points
     damage: 5,                     // Damage per hit
-    moveSpeed: 115,                // Movement speed (pixels/second)
+    moveSpeed: 125,                // Movement speed (pixels/second)
     xpValue: 10,                   // XP awarded when killed
     lootChance: 0.10,              // Chance to drop loot (0.10 = 10%, reduced for larger rooms)
     

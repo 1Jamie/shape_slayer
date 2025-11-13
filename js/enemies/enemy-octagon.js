@@ -9,7 +9,7 @@ const OCTAGON_CONFIG = {
     size: 22,                      // Enemy size (pixels)
     maxHp: 110,                    // Maximum health points
     damage: 12,                    // Damage per hit
-    moveSpeed: 110,                // Movement speed (pixels/second)
+    moveSpeed: 115,                // Movement speed (pixels/second)
     xpValue: 50,                   // XP awarded when killed
     lootChance: 0.20,              // Chance to drop loot (0.20 = 20%, reduced for larger rooms)
     
