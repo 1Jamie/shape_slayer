@@ -568,35 +568,36 @@ class DiamondEnemy extends EnemyBase {
             
             if (this.dashElapsed >= this.dashDuration) {
                 // Check for combo dash opportunity (rooms 13+)
-                if (this.roomNumber >= DIAMOND_CONFIG.intelligenceThresholds.comboDashes) {
+                if (this.roomNumber >= DIAMOND_CONFIG.intelligenceThresholds.comboDashes && !this.dashHasHit) {
+                    const roomsPastThreshold = Math.max(0, this.roomNumber - DIAMOND_CONFIG.intelligenceThresholds.comboDashes);
+                    const comboScale = Math.min(1.0, roomsPastThreshold / 3); // Scales over 3 rooms (was 5)
+                    let comboChance = DIAMOND_CONFIG.comboDashChanceBase + 
+                                      (DIAMOND_CONFIG.comboDashChanceMax - DIAMOND_CONFIG.comboDashChanceBase) * comboScale;
+
+                    // Slightly reward reacting to a recent dodge, but still allow misses to chain
                     const timeSinceDodge = (Date.now() - this.lastPlayerDodgeTime) / 1000;
                     const dodgeCooldown = 2.0; // Standard dodge cooldown
-                    
-                    // If player dodged recently, check for combo chance
-                    if (timeSinceDodge < dodgeCooldown && this.lastPlayerDodgeTime > 0) {
-                        const roomsPastThreshold = Math.max(0, this.roomNumber - DIAMOND_CONFIG.intelligenceThresholds.comboDashes);
-                        const comboScale = Math.min(1.0, roomsPastThreshold / 3); // Scales over 3 rooms (was 5)
-                        const comboChance = DIAMOND_CONFIG.comboDashChanceBase + 
-                                          (DIAMOND_CONFIG.comboDashChanceMax - DIAMOND_CONFIG.comboDashChanceBase) * comboScale;
+                    if (this.lastPlayerDodgeTime > 0 && timeSinceDodge < dodgeCooldown) {
+                        comboChance = Math.min(1, comboChance + 0.05);
+                    }
+
+                    if (Math.random() < comboChance * this.intelligenceLevel) {
+                        // Set up combo dash with 250ms wait timer
+                        this.comboDashReady = true;
+                        this.comboDashWaitTimer = 0.25; // 250ms wait before combo dash
+                        this.state = 'cooldown';
+                        this.attackCooldown = this.attackCooldownTime;
+                        this.telegraphElapsed = 0;
+                        this.dashElapsed = 0;
+                        this.enterRecoveryWindow(this.attackCooldownTime * 0.5, 'comboPrime', {
+                            modifier: 1.05
+                        });
+                        this.attackBranch = 'dash';
+                        this.dashHasHit = false; // Reset hit flag for combo dash
                         
-                        if (Math.random() < comboChance * this.intelligenceLevel) {
-                            // Set up combo dash with 250ms wait timer
-                            this.comboDashReady = true;
-                            this.comboDashWaitTimer = 0.25; // 250ms wait before combo dash
-                            this.state = 'cooldown';
-                            this.attackCooldown = this.attackCooldownTime;
-                            this.telegraphElapsed = 0;
-                            this.dashElapsed = 0;
-                            this.enterRecoveryWindow(this.attackCooldownTime * 0.5, 'comboPrime', {
-                                modifier: 1.05
-                            });
-                            this.attackBranch = 'dash';
-                            this.dashHasHit = false; // Reset hit flag for combo dash
-                            
-                            // Push enemy out if still overlapping player after dash ends
-                            this.resolvePlayerOverlap(2); // Extra buffer to ensure separation
-                            return; // Skip rest of cooldown logic
-                        }
+                        // Push enemy out if still overlapping player after dash ends
+                        this.resolvePlayerOverlap(2); // Extra buffer to ensure separation
+                        return; // Skip rest of cooldown logic
                     }
                 }
                 
