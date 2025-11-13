@@ -7,7 +7,7 @@
 const MAGE_CONFIG = {
     // Base Stats (from CLASS_DEFINITIONS)
     baseHp: 80,                    // Starting health points
-    baseDamage: 12,                // Base damage per attack
+    baseDamage: 11,                // Base damage per attack
     baseSpeed: 185,                // Movement speed (pixels/second)
     baseDefense: 0,                // Damage reduction (0-1 range)
     critChance: 0,                 // Critical hit chance (0 = 0%)
@@ -26,7 +26,7 @@ const MAGE_CONFIG = {
     multishotRangeMultiplier: 0.75, // Range multiplier for multishot projectiles (75% range - shotgun-like)
     
     // Heavy Attack (Energy Beam)
-    heavyAttackCooldown: 2.415,    // Cooldown for heavy attack (seconds) - increased by 5%
+    heavyAttackCooldown: 2.7,    // Cooldown for heavy attack (seconds) - increased by 5%
     beamDuration: 1.5,             // Total beam fire time (seconds)
     beamTickRate: 0.2,             // Time between damage ticks (seconds)
     beamDamagePerTick: 0.4,        // Damage multiplier per tick (reduced from 0.5)

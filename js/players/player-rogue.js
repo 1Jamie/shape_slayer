@@ -30,7 +30,7 @@ const ROGUE_CONFIG = {
     knifeSize: 8,                  // Knife projectile size (pixels)
     
     // Heavy Attack (Fan of Knives)
-    heavyAttackCooldown: 3.0,      // Cooldown for heavy attack (seconds)
+    heavyAttackCooldown: 3.2,      // Cooldown for heavy attack (seconds)
     fanKnifeCount: 7,              // Number of knives in fan
     fanSpreadAngle: Math.PI / 3,   // Spread angle in radians (60 degrees)
     fanKnifeSpeed: 400,            // Fan knife speed (pixels/second)

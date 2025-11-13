@@ -22,20 +22,20 @@ const WARRIOR_CONFIG = {
     cleaveBaseDistance: 10,        // Distance from player to first hitbox (pixels)
     cleaveSpacing: 45,             // Spacing between hitboxes (pixels)
     cleaveHitboxRadius: 20,        // Radius of each hitbox (pixels)
-    cleaveDamage: 1.2,             // Damage multiplier for cleave
+    cleaveDamage: 1,             // Damage multiplier for cleave
     
     // Heavy Attack (Forward Thrust)
-    heavyAttackCooldown: 2.5,      // Cooldown for heavy attack (seconds)
-    thrustDistance: 300,           // Distance of forward thrust (pixels)
+    heavyAttackCooldown: 3.5,      // Cooldown for heavy attack (seconds)
+    thrustDistance: 275,           // Distance of forward thrust (pixels)
     thrustDuration: 0.12,          // How long the thrust takes (seconds)
-    thrustDamage: 1.6,             // Damage multiplier for thrust
+    thrustDamage: 1.3,             // Damage multiplier for thrust
     thrustHitRadius: 13,           // Hit detection radius around thrust path (pixels)
     thrustKnockback: 120,          // Knockback force applied to hit enemies
     
     // Special Ability (Whirlwind)
     specialCooldown: 5.5,          // Special ability cooldown (seconds)
     whirlwindDuration: 2.1,        // How long whirlwind lasts (seconds)
-    whirlwindDamage: 2.0,          // Damage multiplier per hit
+    whirlwindDamage: 1.8,          // Damage multiplier per hit
     whirlwindRadius: 90,           // Radius from player edge (pixels)
     whirlwindHitInterval: 0.2,     // Time between damage ticks (seconds)
     whirlwindRotationSpeed: Math.PI * 0.5, // Visual rotation speed (radians/second)
@@ -43,7 +43,7 @@ const WARRIOR_CONFIG = {
     
     // Block Stance (Passive)
     blockActivationTime: 0.25,     // Time standing still to activate block (seconds)
-    blockDamageReduction: 0.5,     // Damage reduction when blocking (0.5 = 50%)
+    blockDamageReduction: 0.35,     // Damage reduction when blocking (0.5 = 50%)
     blockMinVelocity: 10,          // Velocity threshold for standing still (pixels/second)
     
     // Descriptions for UI (tooltips, character sheet)
