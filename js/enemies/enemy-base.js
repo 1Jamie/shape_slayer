@@ -1754,8 +1754,19 @@ class EnemyBase {
 
         const baseChance = options.baseChance !== undefined
             ? options.baseChance
-            : (0.12 + this.intelligenceLevel * 0.22);
-        const chance = Math.min(0.55, Math.max(0.08, baseChance + threat.score * 0.25));
+            : (0.10 + this.intelligenceLevel * 0.20);
+        const minChance = options.minChance !== undefined
+            ? options.minChance
+            : (0.06 + this.intelligenceLevel * 0.05);
+        const maxChance = options.maxChance !== undefined
+            ? options.maxChance
+            : Math.min(0.6, 0.25 + this.intelligenceLevel * 0.35);
+        const threatScaling = options.threatScaling !== undefined
+            ? options.threatScaling
+            : (0.18 + this.intelligenceLevel * 0.20);
+
+        let chance = baseChance + this.intelligenceLevel * 0.08 + threat.score * threatScaling;
+        chance = Math.max(minChance, Math.min(maxChance, chance));
 
         if (Math.random() >= chance) {
             this.projectileDodgeCooldown = 0.12 + Math.random() * 0.22;

@@ -365,6 +365,7 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 • **Squad Cohesion, Not Stampedes:** Retreat decisions are moderated by a global coordinator that notices when three shapes try to nope out simultaneously. Small skirmish? Expect bravery. Eight-enemy dogpile? Expect staggered “nope nope nope” choreography worthy of a synchronized swimming medal.
 • **Local Crowd Control:** Retreat distance, hesitation, and probability all scale with how many friends are within yelling distance. You can isolate stragglers again; you just can’t expect the whole team to face-tank you in a conga line.
 • **LAN Party Gossip:** Telegraphs, recovery windows, and retreat states are serialized and broadcast across multiplayer so remote clients see every flinch, fake-out, and panic step in real time. Your co-op buddy can finally call out “it’s a feint” without lying.
+• **Sidestep Probability Theory:** Projectile-dodge chance now scales with intelligence, so the gifted shapes roll higher on their “nope” checks. No, you can’t sue us for intellectual discrimination.
 • **Status Spice:** Bleed and guard break now stick to players properly, feeding right into that smug threat table so the AI knows exactly which spicy garnish to sprinkle on your next mistake.
 • **Spawn Dietician:** Early rooms cut the enemy carb count so you fight smarter shapes instead of bigger piles. Later rooms still bring the buffet—just with added protein in the form of better brains.
 
@@ -378,6 +379,7 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 • **Multiplayer Tweaks:** Lobby slots now remember your player ID, so reconnecting you get to still be you! No more you with zero gear and negative vibes. They’re loyal to you, so no accidental Order 66 mid-fight. That and you can actually get into the next room since there is a bump on a log with you now.
 • **Menu Overhaul:** Old UI got yeeted into a black hole. New UI actually works on mobile without requiring a ritual sacrifice to join a lobby—looking at you, Diablo II lobby circa 2000.
 • **Telemetry Fix:** Damage numbers and affixes now report in. Balancing graphs look less like missing-data art installations and more like something your spreadsheet professor would grade.
+• **Sequential Cooldowns:** Multi-charge abilities (dodge, heavy attacks, specials) now refill one at a time instead of sprinting back together, so timing matters and UI bars stay honest.
 • **Blue Diamond Boundaries:** Those azure stabbers finally learned Euclidean personal space. Less accidental spooning, more intentional skewering with protractor-level precision.
 • **Flinch Etiquette:** Melee creeps roll a d20 before panic jogging. Sometimes they stand their ground, sometimes they scurry. Either way, the comedy is now RNG-driven like your favorite Critical Role fail.
 • **Bosses Finally Read the Threat Table:** Big bads stopped orbiting the host like it’s homecoming. Tanks tank, glass cannons sweat, everyone’s doing wind sprints like the gym class you tried to skip.
