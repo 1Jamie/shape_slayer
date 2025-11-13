@@ -2352,6 +2352,9 @@ function renderCooldownIndicators(ctx, player) {
     
     // Helper function to render a cooldown bar
     const renderCooldownBar = (x, y, width, height, cooldown, maxCooldown, label) => {
+        const safeMaxCooldown = maxCooldown > 0 ? maxCooldown : 1;
+        const clampedCooldown = Math.min(Math.max(cooldown, 0), safeMaxCooldown);
+        const isReady = cooldown <= 0;
         // Background with gradient
         const bgGradient = ctx.createLinearGradient(x, y, x, y + height);
         bgGradient.addColorStop(0, '#2a2a2a');
@@ -2360,8 +2363,8 @@ function renderCooldownIndicators(ctx, player) {
         ctx.fillRect(x, y, width, height);
         
         // Cooldown fill with gradient
-        if (cooldown > 0) {
-            const cooldownPercent = cooldown / maxCooldown;
+        if (!isReady) {
+            const cooldownPercent = clampedCooldown / safeMaxCooldown;
             const fillGradient = ctx.createLinearGradient(x, y, x, y + height);
             fillGradient.addColorStop(0, '#ff4444');
             fillGradient.addColorStop(1, '#cc0000');
@@ -2376,7 +2379,7 @@ function renderCooldownIndicators(ctx, player) {
         }
         
         // Inner highlight
-        if (cooldown <= 0) {
+        if (isReady) {
             ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
             ctx.fillRect(x, y, width, height * 0.4);
         }
@@ -4663,10 +4666,11 @@ function renderTouchControls(ctx) {
             // For Mage, show charge count instead of cooldown
             if (player.playerClass === 'hexagon' && player.maxBeamCharges > 1) {
                 // Pass charges instead of cooldown for touch button display
-                const longestCooldown = Math.max(...player.beamChargeCooldowns);
+                const heavyMaxCooldown = player.heavyAttackCooldownTime || 1.5;
+                const heavyCooldown = Math.min(Math.max(player.heavyAttackCooldown || 0, 0), heavyMaxCooldown);
                 Input.touchButtons.heavyAttack.render(ctx, 
-                    longestCooldown,
-                    player.heavyAttackCooldownTime || 1.5,
+                    heavyCooldown,
+                    heavyMaxCooldown,
                     player.beamCharges); // Pass current charges
             } else {
                 Input.touchButtons.heavyAttack.render(ctx, 
@@ -4689,9 +4693,9 @@ function renderTouchControls(ctx) {
             
             if (hasMultipleDodgeCharges && player.dodgeChargeCooldowns) {
                 const chargeCooldowns = player.dodgeChargeCooldowns;
-                const longestCooldown = chargeCooldowns.length ? Math.max(...chargeCooldowns) : 0;
+                const nextCooldown = Math.min(Math.max(player.dodgeCooldown || 0, 0), dodgeMaxCooldown);
                 const readyCharges = chargeCooldowns.filter(c => c <= 0).length;
-                Input.touchButtons.dodge.render(ctx, longestCooldown, dodgeMaxCooldown, readyCharges);
+                Input.touchButtons.dodge.render(ctx, nextCooldown, dodgeMaxCooldown, readyCharges);
             } else {
                 const dodgeCooldown = player.dodgeCooldown || 0;
                 Input.touchButtons.dodge.render(ctx, dodgeCooldown, dodgeMaxCooldown);
@@ -4717,7 +4721,9 @@ function renderTouchControls(ctx) {
             
             for (let i = 0; i < charges; i++) {
                 const cooldown = player.dodgeChargeCooldowns[i];
-                const maxCooldown = player.dodgeCooldownTime;
+                const maxCooldown = player.dodgeCooldownTime || 1;
+                const safeMaxCooldown = Math.max(maxCooldown, 0.0001);
+                const clampedCooldown = Math.min(Math.max(cooldown, 0), safeMaxCooldown);
                 const startAngle = -Math.PI / 2 + (anglePerCharge * i);
                 const endAngle = startAngle + anglePerCharge;
                 
@@ -4727,7 +4733,7 @@ function renderTouchControls(ctx) {
                 ctx.beginPath();
                 if (cooldown > 0) {
                     // Show progress
-                    const progress = 1 - (cooldown / maxCooldown);
+                    const progress = Math.max(0, Math.min(1, 1 - (clampedCooldown / safeMaxCooldown)));
                     ctx.arc(joystick.centerX, joystick.centerY, radius, startAngle, startAngle + anglePerCharge * progress);
                 } else {
                     // Full charge
@@ -4752,16 +4758,16 @@ function renderTouchControls(ctx) {
             const joystick = Input.touchJoysticks.heavyAttack;
             if (joystick.centerX && joystick.centerY) {
                 const radius = joystick.radius + 6;
-                // For Mage with charges, use longest cooldown
-                const cooldown = (player.playerClass === 'hexagon' && player.maxBeamCharges > 1) 
-                    ? Math.max(...player.beamChargeCooldowns) 
-                    : player.heavyAttackCooldown;
+                // For Mage with charges, use time until next charge is ready
+                const rawCooldown = player.heavyAttackCooldown;
                 const maxCooldown = player.heavyAttackCooldownTime || 1.5;
+                const safeMaxCooldown = Math.max(maxCooldown, 0.0001);
+                const clampedCooldown = Math.min(Math.max(rawCooldown || 0, 0), safeMaxCooldown);
                 
                 // Draw cooldown arc (full circle)
                 ctx.lineWidth = 4;
-                if (cooldown > 0) {
-                    const progress = 1 - (cooldown / maxCooldown);
+                if (clampedCooldown > 0) {
+                    const progress = Math.max(0, Math.min(1, 1 - (clampedCooldown / safeMaxCooldown)));
                     ctx.strokeStyle = '#ff4444';
                     ctx.beginPath();
                     ctx.arc(joystick.centerX, joystick.centerY, radius, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * progress));

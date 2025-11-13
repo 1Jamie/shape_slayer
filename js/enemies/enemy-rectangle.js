@@ -66,6 +66,7 @@ class RectangleEnemy extends EnemyBase {
         this.shape = 'rectangle';
         this.xpValue = RECTANGLE_CONFIG.xpValue;
         this.lootChance = RECTANGLE_CONFIG.lootChance;
+        this.projectileDodgeEnabled = false;
         
         // Attack system
         this.state = 'chase'; // 'chase', 'charge', 'slam', 'cooldown', 'defensive', 'fakeout'

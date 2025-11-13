@@ -10,7 +10,7 @@ const DIAMOND_CONFIG = {
     maxHp: 35,                     // Maximum health points
     damage: 6,                     // Damage per hit
     damageScalingMultiplier: 0.65, // Additional reduction applied after global scaling
-    moveSpeed: 130,                // Movement speed (pixels/second)
+    moveSpeed: 145,                // Movement speed (pixels/second)
     xpValue: 15,                   // XP awarded when killed
     lootChance: 0.12,              // Chance to drop loot (0.12 = 12%, reduced for larger rooms)
     
@@ -203,6 +203,10 @@ class DiamondEnemy extends EnemyBase {
         
         // Get enemies array for AI behaviors
         const enemies = (typeof Game !== 'undefined' && Game.enemies) ? Game.enemies : [];
+        const projectileAvoidance = this.projectileDodgeEnabled ? this.getProjectileAvoidanceForce(deltaTime) : null;
+        const dodgeSpeedMultiplier = projectileAvoidance && projectileAvoidance.speedMultiplier
+            ? projectileAvoidance.speedMultiplier
+            : 1.0;
         
         // Track player dodge (rooms 13+)
         if (this.roomNumber >= DIAMOND_CONFIG.intelligenceThresholds.dodgeTracking) {
@@ -367,8 +371,18 @@ class DiamondEnemy extends EnemyBase {
                     }
                     
                     // Apply movement with weaving
-                    const offsetX = moveX * this.moveSpeed * deltaTime + perpX * weaveOffset * deltaTime * 0.3;
-                    const offsetY = moveY * this.moveSpeed * deltaTime + perpY * weaveOffset * deltaTime * 0.3;
+                    if (projectileAvoidance) {
+                        moveX += projectileAvoidance.x;
+                        moveY += projectileAvoidance.y;
+                        const moveLen = Math.sqrt(moveX * moveX + moveY * moveY);
+                        if (moveLen > 0.0001) {
+                            moveX /= moveLen;
+                            moveY /= moveLen;
+                        }
+                    }
+
+                    const offsetX = moveX * this.moveSpeed * dodgeSpeedMultiplier * deltaTime + perpX * weaveOffset * deltaTime * 0.3;
+                    const offsetY = moveY * this.moveSpeed * dodgeSpeedMultiplier * deltaTime + perpY * weaveOffset * deltaTime * 0.3;
                     this.applySmoothedOffset(offsetX, offsetY);
                     
                     if (moveX !== 0 || moveY !== 0) {

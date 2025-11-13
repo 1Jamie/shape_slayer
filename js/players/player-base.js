@@ -290,14 +290,20 @@ class PlayerBase {
         if (usesChargeDodge) {
             let readyCharges = 0;
             for (let i = 0; i < this.dodgeChargeCooldowns.length; i++) {
-                if (this.dodgeChargeCooldowns[i] > 0) {
-                    this.dodgeChargeCooldowns[i] = Math.max(0, this.dodgeChargeCooldowns[i] - deltaTime);
+                const rawValue = this.dodgeChargeCooldowns[i];
+                let cooldown = Number.isFinite(rawValue) ? rawValue : 0;
+                if (cooldown > 0) {
+                    cooldown = Math.max(0, cooldown - deltaTime);
+                    this.dodgeChargeCooldowns[i] = cooldown;
+                } else {
+                    this.dodgeChargeCooldowns[i] = 0;
                 }
-                if (this.dodgeChargeCooldowns[i] <= 0) {
+                if (cooldown <= 0) {
                     readyCharges++;
                 }
             }
             this.dodgeCharges = readyCharges;
+            this.dodgeCooldown = this.getNextChargeReadyTime(this.dodgeChargeCooldowns);
         } else {
             if (this.dodgeCooldown > 0) {
                 this.dodgeCooldown = Math.max(0, this.dodgeCooldown - deltaTime);
@@ -604,23 +610,56 @@ class PlayerBase {
         if (!this.dodgeChargeCooldowns || this.dodgeChargeCooldowns.length === 0) return 0;
         let ready = 0;
         for (let i = 0; i < this.dodgeChargeCooldowns.length; i++) {
-            if (this.dodgeChargeCooldowns[i] <= 0) {
+            const cooldown = Number.isFinite(this.dodgeChargeCooldowns[i]) ? this.dodgeChargeCooldowns[i] : 0;
+            if (cooldown <= 0) {
                 ready++;
             }
         }
         return ready;
     }
     
+    getLongestActiveCooldown(cooldownArray) {
+        if (!cooldownArray || cooldownArray.length === 0) return 0;
+        let longest = 0;
+        for (let i = 0; i < cooldownArray.length; i++) {
+            const rawValue = cooldownArray[i];
+            const value = Number.isFinite(rawValue) ? rawValue : 0;
+            if (value > longest) {
+                longest = value;
+            }
+        }
+        return longest;
+    }
+    
+    getNextChargeReadyTime(cooldownArray) {
+        if (!cooldownArray || cooldownArray.length === 0) return 0;
+        let next = Infinity;
+        for (let i = 0; i < cooldownArray.length; i++) {
+            const rawValue = cooldownArray[i];
+            const value = Number.isFinite(rawValue) ? rawValue : 0;
+            if (value <= 0) {
+                return 0;
+            }
+            if (value < next) {
+                next = value;
+            }
+        }
+        return next === Infinity ? 0 : next;
+    }
+    
     consumeDodgeCharge() {
         if (this.usesChargeBasedDodge()) {
-            this.dodgeCooldown = 0;
+            const longestActive = this.getLongestActiveCooldown(this.dodgeChargeCooldowns);
+            const effectiveDodgeCooldown = this.dodgeCooldownTime;
             for (let i = 0; i < this.dodgeChargeCooldowns.length; i++) {
-                if (this.dodgeChargeCooldowns[i] <= 0) {
-                    this.dodgeChargeCooldowns[i] = this.dodgeCooldownTime;
+                const cooldown = Number.isFinite(this.dodgeChargeCooldowns[i]) ? this.dodgeChargeCooldowns[i] : 0;
+                if (cooldown <= 0) {
+                    this.dodgeChargeCooldowns[i] = effectiveDodgeCooldown + longestActive;
                     break;
                 }
             }
             this.dodgeCharges = this.getReadyDodgeCharges();
+            this.dodgeCooldown = this.getNextChargeReadyTime(this.dodgeChargeCooldowns);
         } else {
             this.dodgeCooldown = this.dodgeCooldownTime;
             if (this.dodgeChargeCooldowns && this.dodgeChargeCooldowns.length > 0) {

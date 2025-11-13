@@ -8,7 +8,7 @@ const ROGUE_CONFIG = {
     // Base Stats (from CLASS_DEFINITIONS)
     baseHp: 75,                    // Starting health points
     baseDamage: 12,                // Base damage per attack
-    baseSpeed: 267.5,              // Movement speed (pixels/second)
+    baseSpeed: 217.5,              // Movement speed (pixels/second)
     baseDefense: 0,                // Damage reduction (0-1 range)
     critChance: 0.15,              // Critical hit chance (0.15 = 15%)
     
@@ -25,18 +25,18 @@ const ROGUE_CONFIG = {
     dodgeDamage: 0.775,            // Damage multiplier during dodge collision
     
     // Basic Attack (Knife Throw)
-    knifeSpeed: 350,               // Projectile speed (pixels/second)
-    knifeLifetime: 1.5,            // How long knife travels (seconds)
+    knifeSpeed: 365,               // Projectile speed (pixels/second)
+    knifeLifetime: 1.15,            // How long knife travels (seconds)
     knifeSize: 8,                  // Knife projectile size (pixels)
     
     // Heavy Attack (Fan of Knives)
     heavyAttackCooldown: 3.2,      // Cooldown for heavy attack (seconds)
     fanKnifeCount: 7,              // Number of knives in fan
     fanSpreadAngle: Math.PI / 3,   // Spread angle in radians (60 degrees)
-    fanKnifeSpeed: 400,            // Fan knife speed (pixels/second)
+    fanKnifeSpeed: 320,            // Fan knife speed (pixels/second)
     fanKnifeDamage: 1.8,           // Damage multiplier for fan knives
     fanKnifeSize: 10,              // Fan knife size (pixels)
-    fanKnifeLifetime: 1.5,         // Fan knife lifetime (seconds)
+    fanKnifeLifetime: 1,         // Fan knife lifetime (seconds)
     
     // Special Ability (Shadow Clones)
     specialCooldown: 5.0,          // Special ability cooldown (seconds)

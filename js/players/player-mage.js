@@ -7,8 +7,8 @@
 const MAGE_CONFIG = {
     // Base Stats (from CLASS_DEFINITIONS)
     baseHp: 80,                    // Starting health points
-    baseDamage: 11,                // Base damage per attack
-    baseSpeed: 185,                // Movement speed (pixels/second)
+    baseDamage: 10,                // Base damage per attack
+    baseSpeed: 155,                // Movement speed (pixels/second)
     baseDefense: 0,                // Damage reduction (0-1 range)
     critChance: 0,                 // Critical hit chance (0 = 0%)
     
@@ -19,14 +19,14 @@ const MAGE_CONFIG = {
     
     // Basic Attack (Magic Bolt)
     boltSpeed: 400,                // Projectile speed (pixels/second)
-    boltLifetime: 1.28,            // How long bolt travels (seconds) - reduced by 20% from 1.6
+    boltLifetime: 1.14,            // How long bolt travels (seconds) - reduced by 20% from 1.6
     boltSize: 10,                  // Bolt projectile size (pixels)
     boltSpreadAngle: Math.PI / 24, // Spread angle for multiple projectiles (7.5 degrees) - reduced for better accuracy
     multishotDamageMultiplier: 0.5, // Damage multiplier for multishot projectiles (50% damage per projectile)
     multishotRangeMultiplier: 0.75, // Range multiplier for multishot projectiles (75% range - shotgun-like)
     
     // Heavy Attack (Energy Beam)
-    heavyAttackCooldown: 2.7,    // Cooldown for heavy attack (seconds) - increased by 5%
+    heavyAttackCooldown: 2,    // Cooldown for heavy attack (seconds) - increased by 5%
     beamDuration: 1.5,             // Total beam fire time (seconds)
     beamTickRate: 0.2,             // Time between damage ticks (seconds)
     beamDamagePerTick: 0.4,        // Damage multiplier per tick (reduced from 0.5)
@@ -231,10 +231,12 @@ class Mage extends PlayerBase {
         // Don't use base cooldown, use our charge system instead
         // Consume a charge
         this.beamCharges--;
+        const longestActive = this.getLongestActiveCooldown(this.beamChargeCooldowns);
         
         // Find the first available charge slot and start its cooldown
         for (let i = 0; i < this.maxBeamCharges; i++) {
-            if (this.beamChargeCooldowns[i] <= 0) {
+            const cooldown = Number.isFinite(this.beamChargeCooldowns[i]) ? this.beamChargeCooldowns[i] : 0;
+            if (cooldown <= 0) {
                 // Apply attack speed and weapon type to heavy attack cooldown
                 const weaponCooldownMult = this.weaponCooldownMultiplier || 1.0;
                 const effectiveHeavyCooldown = this.heavyAttackCooldownTime * weaponCooldownMult / (1 + (this.attackSpeedMultiplier - 1));
@@ -245,11 +247,15 @@ class Mage extends PlayerBase {
                     this.beamChargeCooldowns[i] = 0;
                     this.beamCharges++; // Refund the charge
                 } else {
-                    this.beamChargeCooldowns[i] = effectiveHeavyCooldown;
+                    this.beamChargeCooldowns[i] = effectiveHeavyCooldown + longestActive;
                 }
                 break;
             }
         }
+        
+        this.heavyAttackCooldown = this.beamCharges > 0
+            ? 0
+            : this.getNextChargeReadyTime(this.beamChargeCooldowns);
     }
     
     // Override executeAttack for Mage projectile
@@ -790,27 +796,23 @@ class Mage extends PlayerBase {
     updateClassAbilities(deltaTime, input) {
         // Update beam charge cooldowns
         for (let i = 0; i < this.maxBeamCharges; i++) {
-            if (this.beamChargeCooldowns[i] > 0) {
-                this.beamChargeCooldowns[i] -= deltaTime;
-                
-                // Regenerate charge when cooldown expires
-                if (this.beamChargeCooldowns[i] <= 0) {
-                    this.beamChargeCooldowns[i] = 0;
-                    if (this.beamCharges < this.maxBeamCharges) {
-                        this.beamCharges++;
-                    }
+            let cooldown = Number.isFinite(this.beamChargeCooldowns[i]) ? this.beamChargeCooldowns[i] : 0;
+            if (cooldown > 0) {
+                cooldown = Math.max(0, cooldown - deltaTime);
+                if (cooldown <= 0 && this.beamCharges < this.maxBeamCharges) {
+                    this.beamCharges++;
                 }
+                this.beamChargeCooldowns[i] = cooldown;
+            } else {
+                this.beamChargeCooldowns[i] = 0;
             }
         }
         
         // Sync heavyAttackCooldown with charge system for UI and base class checks
-        // Set to 0 if we have charges, otherwise use the longest active cooldown
-        if (this.beamCharges > 0) {
-            this.heavyAttackCooldown = 0;
-        } else {
-            // Find longest cooldown for UI display
-            this.heavyAttackCooldown = Math.max(...this.beamChargeCooldowns);
-        }
+        // Set to 0 if we have charges, otherwise use time until the next charge is ready
+        this.heavyAttackCooldown = this.beamCharges > 0
+            ? 0
+            : this.getNextChargeReadyTime(this.beamChargeCooldowns);
         
         // Update blink decoy - health decay system
         if (this.blinkDecoyActive) {

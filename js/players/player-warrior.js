@@ -8,7 +8,7 @@ const WARRIOR_CONFIG = {
     // Base Stats (from CLASS_DEFINITIONS)
     baseHp: 100,                   // Starting health points
     baseDamage: 12,                // Base damage per attack
-    baseSpeed: 195,                // Movement speed (pixels/second)
+    baseSpeed: 175,                // Movement speed (pixels/second)
     baseDefense: 0.1,              // Damage reduction (0.1 = 10%)
     critChance: 0,                 // Critical hit chance (0 = 0%)
     

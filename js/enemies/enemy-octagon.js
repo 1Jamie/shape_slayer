@@ -244,6 +244,10 @@ class OctagonEnemy extends EnemyBase {
         
         // Get enemies array for AI behaviors
         const enemies = (typeof Game !== 'undefined' && Game.enemies) ? Game.enemies : [];
+        const projectileAvoidance = this.projectileDodgeEnabled ? this.getProjectileAvoidanceForce(deltaTime) : null;
+        const dodgeSpeedMultiplier = projectileAvoidance && projectileAvoidance.speedMultiplier
+            ? projectileAvoidance.speedMultiplier
+            : 1.0;
         
         // Track player velocity for predictive aiming (ALWAYS track, use when enabled)
         const allPlayers = this.getAllAlivePlayers();
@@ -363,8 +367,18 @@ class OctagonEnemy extends EnemyBase {
                     }
                 }
                 
-                const offsetX = moveX * this.moveSpeed * deltaTime;
-                const offsetY = moveY * this.moveSpeed * deltaTime;
+                if (projectileAvoidance) {
+                    moveX += projectileAvoidance.x;
+                    moveY += projectileAvoidance.y;
+                    const moveLen = Math.sqrt(moveX * moveX + moveY * moveY);
+                    if (moveLen > 0.0001) {
+                        moveX /= moveLen;
+                        moveY /= moveLen;
+                    }
+                }
+                
+                const offsetX = moveX * this.moveSpeed * dodgeSpeedMultiplier * deltaTime;
+                const offsetY = moveY * this.moveSpeed * dodgeSpeedMultiplier * deltaTime;
                 this.applySmoothedOffset(offsetX, offsetY);
                 
                 if (moveX !== 0 || moveY !== 0) {
@@ -566,6 +580,16 @@ class OctagonEnemy extends EnemyBase {
                 if (finalDist > 0) {
                     moveX /= finalDist;
                     moveY /= finalDist;
+                }
+            }
+            
+            if (projectileAvoidance) {
+                moveX += projectileAvoidance.x;
+                moveY += projectileAvoidance.y;
+                const moveLen = Math.sqrt(moveX * moveX + moveY * moveY);
+                if (moveLen > 0.0001) {
+                    moveX /= moveLen;
+                    moveY /= moveLen;
                 }
             }
             

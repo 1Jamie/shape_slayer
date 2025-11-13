@@ -8,8 +8,8 @@ const BASIC_ENEMY_CONFIG = {
     // Base Stats
     size: 20,                      // Enemy size (pixels)
     maxHp: 40,                     // Maximum health points
-    damage: 5,                     // Damage per hit
-    moveSpeed: 125,                // Movement speed (pixels/second)
+    damage: 7,                     // Damage per hit
+    moveSpeed: 135,                // Movement speed (pixels/second)
     xpValue: 10,                   // XP awarded when killed
     lootChance: 0.10,              // Chance to drop loot (0.10 = 10%, reduced for larger rooms)
     
@@ -319,6 +319,10 @@ class Enemy extends EnemyBase {
         
         // Get enemies array for AI behaviors
         const enemies = (typeof Game !== 'undefined' && Game.enemies) ? Game.enemies : [];
+        const projectileAvoidance = this.projectileDodgeEnabled ? this.getProjectileAvoidanceForce(deltaTime) : null;
+        const dodgeSpeedMultiplier = projectileAvoidance && projectileAvoidance.speedMultiplier
+            ? projectileAvoidance.speedMultiplier
+            : 1.0;
         
         // Check for tactical retreat (situational and intelligent, room 10+)
         if (this.state !== 'retreat' && targetPlayer && targetPlayer.alive && this.intelligenceLevel >= 0.7) {
@@ -737,6 +741,11 @@ class Enemy extends EnemyBase {
                     finalMoveX += lateralNormX * 0.02 * lateralStrength;
                     finalMoveY += lateralNormY * 0.02 * lateralStrength;
                 }
+
+                if (projectileAvoidance) {
+                    finalMoveX += projectileAvoidance.x;
+                    finalMoveY += projectileAvoidance.y;
+                }
                 
                 // Normalize final direction
                 const finalDist = Math.sqrt(finalMoveX * finalMoveX + finalMoveY * finalMoveY);
@@ -859,7 +868,7 @@ class Enemy extends EnemyBase {
                 }
                 
                 // Move with calculated direction
-                this.applySmoothedDirectionalMovement(finalMoveX, finalMoveY, this.moveSpeed, deltaTime, 0.3);
+                this.applySmoothedDirectionalMovement(finalMoveX, finalMoveY, this.moveSpeed * dodgeSpeedMultiplier, deltaTime, 0.3);
             }
         } else if (this.state === 'retreat') {
             // Tactical reposition state - short, smart reposition
@@ -895,9 +904,18 @@ class Enemy extends EnemyBase {
                 
                 if (retreatDist > 5) {
                     // Move toward retreat position
-                    const retreatX = retreatDx / retreatDist;
-                    const retreatY = retreatDy / retreatDist;
-                    this.applySmoothedDirectionalMovement(retreatX, retreatY, this.moveSpeed * 1.1, deltaTime, 0.35);
+                    let retreatX = retreatDx / retreatDist;
+                    let retreatY = retreatDy / retreatDist;
+                    if (projectileAvoidance) {
+                        retreatX += projectileAvoidance.x * 0.8;
+                        retreatY += projectileAvoidance.y * 0.8;
+                        const retreatMoveDist = Math.sqrt(retreatX * retreatX + retreatY * retreatY);
+                        if (retreatMoveDist > 0.0001) {
+                            retreatX /= retreatMoveDist;
+                            retreatY /= retreatMoveDist;
+                        }
+                    }
+                    this.applySmoothedDirectionalMovement(retreatX, retreatY, this.moveSpeed * 1.1 * dodgeSpeedMultiplier, deltaTime, 0.35);
                 } else {
                     // Reached retreat position, cancel early
                     this.state = 'chase';
@@ -1138,8 +1156,19 @@ class Enemy extends EnemyBase {
                             moveY /= finalDist;
                         }
                     }
+
+                    if (projectileAvoidance) {
+                        moveX += projectileAvoidance.x;
+                        moveY += projectileAvoidance.y;
+                    }
+
+                    const cooldownMoveDist = Math.sqrt(moveX * moveX + moveY * moveY);
+                    if (cooldownMoveDist > 0.0001) {
+                        moveX /= cooldownMoveDist;
+                        moveY /= cooldownMoveDist;
+                    }
                     
-                    this.applySmoothedDirectionalMovement(moveX, moveY, this.moveSpeed, deltaTime, 0.3);
+                    this.applySmoothedDirectionalMovement(moveX, moveY, this.moveSpeed * dodgeSpeedMultiplier, deltaTime, 0.3);
                 }
             }
         }

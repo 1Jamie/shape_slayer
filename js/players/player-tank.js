@@ -8,7 +8,7 @@ const TANK_CONFIG = {
     // Base Stats (from CLASS_DEFINITIONS)
     baseHp: 150,                   // Starting health points
     baseDamage: 12,                 // Base damage per attack
-    baseSpeed: 177.5,              // Movement speed (pixels/second)
+    baseSpeed: 167.5,              // Movement speed (pixels/second)
     baseDefense: 0.15,              // Damage reduction (0.15 = 15%)
     critChance: 0,                 // Critical hit chance (0 = 0%)
     

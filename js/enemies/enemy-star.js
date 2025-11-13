@@ -181,6 +181,10 @@ class StarEnemy extends EnemyBase {
         
         // Get enemies array for AI behaviors
         const enemies = (typeof Game !== 'undefined' && Game.enemies) ? Game.enemies : [];
+        const projectileAvoidance = this.projectileDodgeEnabled ? this.getProjectileAvoidanceForce(deltaTime) : null;
+        const dodgeSpeedMultiplier = projectileAvoidance && projectileAvoidance.speedMultiplier
+            ? projectileAvoidance.speedMultiplier
+            : 1.0;
         
         // Update strafe timer
         this.strafeTimer += deltaTime * this.strafeSpeed;
@@ -314,8 +318,18 @@ class StarEnemy extends EnemyBase {
                 }
             }
             
-            const desiredVelX = moveX * this.moveSpeed + perpX * strafeOffset * 0.4;
-            const desiredVelY = moveY * this.moveSpeed + perpY * strafeOffset * 0.4;
+            if (projectileAvoidance) {
+                moveX += projectileAvoidance.x;
+                moveY += projectileAvoidance.y;
+                const moveLen = Math.sqrt(moveX * moveX + moveY * moveY);
+                if (moveLen > 0.0001) {
+                    moveX /= moveLen;
+                    moveY /= moveLen;
+                }
+            }
+            
+            let desiredVelX = moveX * this.moveSpeed * dodgeSpeedMultiplier + perpX * strafeOffset * 0.4;
+            let desiredVelY = moveY * this.moveSpeed * dodgeSpeedMultiplier + perpY * strafeOffset * 0.4;
             const desiredSpeed = Math.sqrt(desiredVelX * desiredVelX + desiredVelY * desiredVelY);
             if (desiredSpeed > 0) {
                 this.applySmoothedDirectionalMovement(desiredVelX, desiredVelY, desiredSpeed, deltaTime, 0.4, false);
@@ -348,7 +362,17 @@ class StarEnemy extends EnemyBase {
                 }
             }
             
-            this.applySmoothedDirectionalMovement(moveX, moveY, this.moveSpeed, deltaTime, 0.35);
+            if (projectileAvoidance) {
+                moveX += projectileAvoidance.x;
+                moveY += projectileAvoidance.y;
+                const moveLen = Math.sqrt(moveX * moveX + moveY * moveY);
+                if (moveLen > 0.0001) {
+                    moveX /= moveLen;
+                    moveY /= moveLen;
+                }
+            }
+            
+            this.applySmoothedDirectionalMovement(moveX, moveY, this.moveSpeed * dodgeSpeedMultiplier, deltaTime, 0.35);
         } else {
             // Right distance - strafe and shoot
             // Strafing movement (perpendicular to player)
@@ -381,7 +405,17 @@ class StarEnemy extends EnemyBase {
                 }
             }
             
-            this.applySmoothedDirectionalMovement(moveX, moveY, this.moveSpeed * 0.6, deltaTime, 0.4, false);
+            if (projectileAvoidance) {
+                moveX += projectileAvoidance.x;
+                moveY += projectileAvoidance.y;
+                const moveLen = Math.sqrt(moveX * moveX + moveY * moveY);
+                if (moveLen > 0.0001) {
+                    moveX /= moveLen;
+                    moveY /= moveLen;
+                }
+            }
+            
+            this.applySmoothedDirectionalMovement(moveX, moveY, this.moveSpeed * 0.6 * dodgeSpeedMultiplier, deltaTime, 0.4, false);
             this.smoothRotateTo(Math.atan2(dy, dx));
             
             if (targetPlayerRef && targetPlayerRef.isDodging && this.suppressionCooldown <= 0 && !this.pendingShot) {
@@ -395,7 +429,7 @@ class StarEnemy extends EnemyBase {
             if (Math.abs(rangeDiff) > 10) {
                 const adjustDirX = (rangeDiff > 0 ? -towardDirX : towardDirX);
                 const adjustDirY = (rangeDiff > 0 ? -towardDirY : towardDirY);
-                this.applySmoothedDirectionalMovement(adjustDirX, adjustDirY, this.moveSpeed * 0.3, deltaTime, 0.4, false);
+                this.applySmoothedDirectionalMovement(adjustDirX, adjustDirY, this.moveSpeed * 0.3 * dodgeSpeedMultiplier, deltaTime, 0.4, false);
                 this.smoothRotateTo(Math.atan2(dy, dx));
             }
             

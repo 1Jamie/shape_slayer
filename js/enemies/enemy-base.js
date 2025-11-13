@@ -198,6 +198,17 @@ class EnemyBase {
             movementHistory: []
         };
         this.patternSampleCount = 0;
+
+        // Projectile avoidance system
+        this.projectileDodgeEnabled = true;
+        this.projectileDodgeCooldown = 0;
+        this.projectileDodgeDuration = 0;
+        this.projectileDodgeElapsed = 0;
+        this.projectileDodgeVector = { x: 0, y: 0 };
+        this.projectileDodgeIntensity = 0;
+        this.projectileDodgeActive = false;
+        this.projectileDodgeType = null;
+        this.projectileDodgeSpeedBoost = 1.0;
         this.lastAttackReactionTime = 0;
         this.lastRetreatDecisionTime = 0;
         this.attackAvoidanceBias = 0.75 + Math.random() * 0.5; // 0.75 - 1.25 variation
@@ -1477,6 +1488,305 @@ class EnemyBase {
         });
         
         return { x: avoidanceX, y: avoidanceY };
+    }
+
+    updateProjectileDodgeState(deltaTime = 0.016) {
+        if (!isFinite(deltaTime) || deltaTime < 0) {
+            deltaTime = 0;
+        }
+        if (this.projectileDodgeCooldown > 0) {
+            this.projectileDodgeCooldown = Math.max(0, this.projectileDodgeCooldown - deltaTime);
+        }
+        if (this.projectileDodgeActive) {
+            this.projectileDodgeElapsed += deltaTime;
+            if (this.projectileDodgeElapsed >= this.projectileDodgeDuration) {
+                this.projectileDodgeActive = false;
+                this.projectileDodgeElapsed = 0;
+                this.projectileDodgeIntensity = 0;
+                this.projectileDodgeType = null;
+                this.projectileDodgeSpeedBoost = 1.0;
+            }
+        } else if (this.projectileDodgeElapsed !== 0) {
+            this.projectileDodgeElapsed = 0;
+        }
+    }
+
+    getProjectileDodgeSkill() {
+        // Scale from ~0.9 at low intelligence to ~1.6 at max intelligence
+        return Math.min(1.6, 0.9 + this.intelligenceLevel * 0.7);
+    }
+
+    isProjectileFromPlayer(projectile) {
+        if (!projectile) return false;
+        if (projectile.playerId !== undefined && projectile.playerId !== null) return true;
+        if (projectile.ownerType === 'player') return true;
+        if (projectile.source === 'player') return true;
+        const type = projectile.type;
+        if (!type) return false;
+        return type === 'magic' ||
+               type === 'knife' ||
+               type === 'player' ||
+               type === 'arrow' ||
+               type === 'bolt' ||
+               type === 'shard';
+    }
+
+    evaluateProjectileThreat(options = {}) {
+        if (typeof Game === 'undefined' || !Game.projectiles || Game.projectiles.length === 0) {
+            return null;
+        }
+
+        const maxLookAhead = options.maxLookAhead !== undefined ? options.maxLookAhead : 0.9;
+        const baseThreatRadius = options.baseThreatRadius !== undefined
+            ? options.baseThreatRadius
+            : (this.size * 0.9 + 18);
+
+        let best = null;
+
+        for (let i = 0; i < Game.projectiles.length; i++) {
+            const projectile = Game.projectiles[i];
+            if (!this.isProjectileFromPlayer(projectile)) {
+                continue;
+            }
+
+            const vx = projectile.vx || 0;
+            const vy = projectile.vy || 0;
+            const speedSq = vx * vx + vy * vy;
+            if (speedSq < 25) {
+                continue; // Ignore very slow projectiles
+            }
+
+            const speed = Math.sqrt(speedSq);
+            const dirX = vx / speed;
+            const dirY = vy / speed;
+
+            const relX = this.x - projectile.x;
+            const relY = this.y - projectile.y;
+
+            const approach = relX * dirX + relY * dirY;
+            if (approach < 0) {
+                continue; // Projectile already past or moving away
+            }
+
+            const timeToImpact = approach / speed;
+            if (timeToImpact > maxLookAhead) {
+                continue;
+            }
+
+            const closestX = projectile.x + dirX * approach;
+            const closestY = projectile.y + dirY * approach;
+            const offsetX = this.x - closestX;
+            const offsetY = this.y - closestY;
+            const perpDistSq = offsetX * offsetX + offsetY * offsetY;
+
+            const projectileSize = projectile.size !== undefined ? Math.max(3, projectile.size) : 6;
+            const threatRadius = baseThreatRadius + projectileSize;
+            const threatRadiusSq = threatRadius * threatRadius;
+
+            if (perpDistSq > threatRadiusSq) {
+                continue;
+            }
+
+            const perpDist = Math.sqrt(perpDistSq);
+            let dodgeX = offsetX;
+            let dodgeY = offsetY;
+            let dodgeDist = perpDist;
+
+            if (dodgeDist < 0.001) {
+                dodgeX = -dirY;
+                dodgeY = dirX;
+                dodgeDist = 1;
+            }
+
+            dodgeX /= dodgeDist;
+            dodgeY /= dodgeDist;
+
+            const distanceScore = 1 - Math.min(1, perpDist / (threatRadius + 0.0001));
+            const timingScore = 1 - Math.min(1, timeToImpact / (maxLookAhead + 0.0001));
+
+            const severity = Math.min(1, distanceScore * 0.65 + timingScore * 0.45);
+
+            const threat = {
+                score: severity,
+                severity,
+                vector: { x: dodgeX, y: dodgeY },
+                strength: Math.min(0.45, 0.22 + severity * 0.4),
+                duration: 0.18 + Math.min(0.32, severity * 0.22 + timeToImpact * 0.35),
+                cooldown: 0.45 + severity * 0.35,
+                type: 'projectile',
+                timeToImpact
+            };
+
+            if (!best || threat.score > best.score) {
+                best = threat;
+            }
+        }
+
+        return best;
+    }
+
+    evaluateBeamThreat(options = {}) {
+        const allPlayers = this.getAllAlivePlayers();
+        if (!allPlayers || allPlayers.length === 0) {
+            return null;
+        }
+
+        const mageConfig = (typeof MAGE_CONFIG !== 'undefined' && MAGE_CONFIG) ? MAGE_CONFIG : null;
+        const beamWidthBase = options.beamWidth !== undefined
+            ? options.beamWidth
+            : (mageConfig && mageConfig.beamWidth ? mageConfig.beamWidth : 70);
+        const beamRangeBase = options.beamRange !== undefined
+            ? options.beamRange
+            : (mageConfig && mageConfig.beamRange ? mageConfig.beamRange : 600);
+
+        let best = null;
+
+        allPlayers.forEach(({ player }) => {
+            if (!player || !player.activeBeams || player.activeBeams.length === 0) {
+                return;
+            }
+
+            player.activeBeams.forEach(beam => {
+                if (!beam || !beam.direction || !beam.origin) {
+                    return;
+                }
+
+                const dir = beam.direction;
+                const origin = beam.origin;
+                const beamWidth = beam.width !== undefined ? beam.width : beamWidthBase;
+                const beamRange = beam.range !== undefined ? beam.range : beamRangeBase;
+
+                const dx = this.x - origin.x;
+                const dy = this.y - origin.y;
+                const projection = dx * dir.x + dy * dir.y;
+
+                if (projection < -this.size || projection > beamRange + this.size) {
+                    return;
+                }
+
+                const clampedProjection = Math.max(0, Math.min(beamRange, projection));
+                const closestX = origin.x + dir.x * clampedProjection;
+                const closestY = origin.y + dir.y * clampedProjection;
+                const offsetX = this.x - closestX;
+                const offsetY = this.y - closestY;
+                const perpDistSq = offsetX * offsetX + offsetY * offsetY;
+
+                const threatRadius = beamWidth * 0.5 + this.size * 0.85 + 18;
+                const threatRadiusSq = threatRadius * threatRadius;
+
+                if (perpDistSq > threatRadiusSq) {
+                    return;
+                }
+
+                const perpDist = Math.sqrt(Math.max(perpDistSq, 0.0001));
+                const dodgeX = offsetX / perpDist;
+                const dodgeY = offsetY / perpDist;
+
+                const distanceScore = 1 - Math.min(1, perpDist / threatRadius);
+                const rangeRatio = beamRange > 0 ? clampedProjection / beamRange : 0;
+                const coverageScore = 1 - Math.abs(rangeRatio - 0.5) * 0.8;
+
+                const severity = Math.min(1, distanceScore * 0.75 + coverageScore * 0.25);
+
+                const threat = {
+                    score: severity * 0.9,
+                    severity,
+                    vector: { x: dodgeX, y: dodgeY },
+                    strength: Math.min(0.5, 0.25 + severity * 0.35),
+                    duration: 0.28 + severity * 0.25,
+                    cooldown: 0.55 + severity * 0.35,
+                    type: 'beam'
+                };
+
+                if (!best || threat.score > best.score) {
+                    best = threat;
+                }
+            });
+        });
+
+        return best;
+    }
+
+    evaluateIncomingProjectileThreat(options = {}) {
+        const projectileThreat = this.evaluateProjectileThreat(options);
+        const beamThreat = this.evaluateBeamThreat(options);
+
+        if (projectileThreat && beamThreat) {
+            return projectileThreat.score >= beamThreat.score ? projectileThreat : beamThreat;
+        }
+        return projectileThreat || beamThreat;
+    }
+
+    getProjectileAvoidanceForce(deltaTime = 0.016, options = {}) {
+        if (!this.projectileDodgeEnabled) {
+            return null;
+        }
+
+        this.updateProjectileDodgeState(deltaTime);
+
+        if (this.projectileDodgeActive) {
+            const duration = Math.max(this.projectileDodgeDuration, 0.0001);
+            const progress = Math.min(1, this.projectileDodgeElapsed / duration);
+            const falloffPower = Math.max(0.25, 0.6 - this.intelligenceLevel * 0.25);
+            const falloff = Math.pow(1 - progress, falloffPower);
+            const intensity = this.projectileDodgeIntensity * falloff;
+
+            if (intensity > 0.01) {
+                return {
+                    x: this.projectileDodgeVector.x * intensity,
+                    y: this.projectileDodgeVector.y * intensity,
+                    strength: intensity,
+                    type: this.projectileDodgeType || 'projectile',
+                    speedMultiplier: this.projectileDodgeSpeedBoost
+                };
+            }
+            return null;
+        }
+
+        if (this.projectileDodgeCooldown > 0) {
+            return null;
+        }
+
+        const threat = this.evaluateIncomingProjectileThreat(options);
+        if (!threat || threat.score < 0.1) {
+            return null;
+        }
+
+        const baseChance = options.baseChance !== undefined
+            ? options.baseChance
+            : (0.12 + this.intelligenceLevel * 0.22);
+        const chance = Math.min(0.55, Math.max(0.08, baseChance + threat.score * 0.25));
+
+        if (Math.random() >= chance) {
+            this.projectileDodgeCooldown = 0.12 + Math.random() * 0.22;
+            return null;
+        }
+
+        const intensityBase = Math.min(0.65, Math.max(0.2,
+            threat.strength * (0.7 + this.intelligenceLevel * 0.35)));
+
+        const dodgeSkill = this.getProjectileDodgeSkill();
+        const scaledIntensity = Math.min(1.2, intensityBase * dodgeSkill);
+        const durationScale = 0.9 + this.intelligenceLevel * 0.55;
+        const cooldownScale = Math.max(0.55, 1.05 + this.intelligenceLevel * 0.35);
+        const speedBoost = 1.08 + this.intelligenceLevel * 0.3;
+
+        this.projectileDodgeActive = true;
+        this.projectileDodgeVector = threat.vector;
+        this.projectileDodgeIntensity = scaledIntensity;
+        this.projectileDodgeDuration = threat.duration * durationScale;
+        this.projectileDodgeElapsed = 0;
+        this.projectileDodgeType = threat.type;
+        this.projectileDodgeSpeedBoost = speedBoost;
+        this.projectileDodgeCooldown = (threat.cooldown + Math.random() * 0.25) / cooldownScale;
+
+        return {
+            x: this.projectileDodgeVector.x * scaledIntensity,
+            y: this.projectileDodgeVector.y * scaledIntensity,
+            strength: scaledIntensity,
+            type: threat.type,
+            speedMultiplier: speedBoost
+        };
     }
     
     // Predict where player will be based on current velocity
