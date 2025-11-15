@@ -1,0 +1,18 @@
+{
+  "name": "md-to-pdf-converter",
+  "version": "1.0.0",
+  "description": "Tool to convert Markdown files to PDF",
+  "main": "convert.js",
+  "scripts": {
+    "convert": "node convert.js",
+    "convert:all": "node convert.js --all"
+  },
+  "keywords": ["markdown", "pdf", "converter"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "md-to-pdf": "^5.2.3"
+  }
+}
+
+
