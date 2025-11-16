@@ -20,6 +20,86 @@ This document outlines the complete design for replacing the gear/loot system wi
 4. **Multiplayer synergy**: Team cards and shared card pools encourage cooperation
 5. **Balanced power**: All powerful effects have corresponding drawbacks or limitations
 
+### Key Terms & Definitions
+
+**Quality Band**: The tier system for card power levels. Five tiers exist:
+- **White** (Common): Basic quality, lowest power
+- **Green** (Uncommon): Improved quality, moderate power
+- **Blue** (Rare): High quality, significant power
+- **Purple** (Epic): Very high quality, powerful effects
+- **Orange** (Legendary): Maximum quality, game-changing effects
+
+**Quality Shift**: A percentage modifier that shifts the probability distribution toward higher quality bands. For example, "+10% quality shift" means the probability of rolling higher quality bands (green/blue/purple/orange) increases by 10%, with corresponding decreases in lower quality bands. Quality shifts only affect distribution within unlocked quality bands (see Mastery Cap).
+
+**Mastery Cap**: The maximum quality band a card can appear at based on its mastery level. Cards can only appear in packs at quality bands you've unlocked through mastery:
+- Mastery 0: White only
+- Mastery 1: White or Green
+- Mastery 2: White, Green, or Blue
+- Mastery 3: White, Green, Blue, or Purple
+- Mastery 4: White, Green, Blue, Purple, or Orange
+- Mastery 5: All quality bands unlocked (maximum)
+
+**Bonus Cards**: Additional card offers added to packs. When a room modifier or pack type grants "+1 bonus card", it means one additional card is added to the pack's card selection (e.g., a pack that normally offers 1 card now offers 2 cards).
+
+**Hand Size**: The maximum number of card slots available in the player's hand during a run. Default is 4, upgradeable via meta-progression. Cards beyond hand size cannot be held.
+
+**Starting Cards**: The number of cards drawn from the deck at the start of a run. Default is 3, upgradeable to 4 (cannot exceed hand size). These cards are drawn using a mastery-adjusted starting distribution that respects player investment (see Quality Distribution Curves section for mastery floor system).
+
+**Reserve Slots**: Storage slots for cards outside the hand. Cards in reserve are not active but can be swapped into the hand later. Unlocked via meta-progression (Room 30 milestone or purchase).
+
+**Draw Pile**: Cards remaining to be drawn from the deck during the run. When empty, the discard pile is shuffled into the draw pile (except for spent cards).
+
+**Discard Pile**: Cards that have been discarded from the hand. These cards can be reshuffled back into the draw pile when the draw pile is empty. Cards originally from the deck reshuffle; picked-up cards do not.
+
+**Spent Pile**: Cards permanently removed from the run (one-time use cards like Phoenix Down, consumed room modifiers). These cards never return to the draw pile.
+
+**Reroll Token**: A consumable item that allows rerolling a card's quality band once per run. When used, the card's quality is re-rolled using the current room's quality distribution (still capped by mastery level). Granted at mastery levels 2, 4, and 5.
+
+**Non-Stacking**: A card property indicating only one copy of that card can be in the hand at a time. If a non-stacking card is already in hand, attempts to draw or pick up another copy will either be rejected or swap with the existing copy.
+
+**Guaranteed**: A modifier indicating a card or quality band is certain to appear, bypassing normal probability distribution. For example, "guaranteed rare card" means at least one blue/purple/orange card will appear in the pack.
+
+**Upgrade Reward**: A reward type from packs that allows upgrading a card in hand by one quality band (white→green, green→blue, etc.) **for this run only** OR grants shards as an alternative. Players choose which card to upgrade. **Important**: This does NOT grant a permanent mastery unlock - it's a temporary in-run buff. To permanently unlock quality bands, use shard purchases at Nexus or boss drops.
+
+**Purification**: A special mechanic for removing curse cards. Curses cannot be voluntarily discarded and must be removed through:
+- **Purification Room**: A special room type that removes all curses
+- **Purification Scroll**: A consumable item that removes one curse
+- **Boss Clear Reward**: Some bosses offer curse removal as a reward option
+
+**Successful Run**: A run that counts toward progression unlocks. A run is successful if it ends by:
+- **Beating the final boss** (Room 32 boss) - Run completed successfully
+- **Dying** - Player death at any point in the run (including before reaching final boss) ends the run and counts toward progression
+- **Does NOT count**: Quitting a run manually, restarting a run, or abandoning a run
+
+**Cumulative Achievement**: An achievement tracked across all runs (lifetime). Progress accumulates over multiple runs and persists between runs. Examples: "Clear 30 rooms total (cumulative)", "Deal 10,000 damage (lifetime)", "After 3 successful runs".
+
+**Single-Run Achievement**: An achievement that must be completed in one run. Progress resets at the start of each new run. Examples: "Achieve 100 kills in one run", "Complete flawless room", "Reach room 20 without taking damage".
+
+**Boss Tier**: The difficulty category of boss encounters, aligned with room progression:
+- **First Boss (Room 12)**: Entry-level boss, drops Green minimum (no White drops), unlocks Mastery 1
+- **Second Boss (Room 22)**: Mid-level boss, drops Blue minimum, unlocks Mastery 2
+- **Final Boss (Room 32)**: End-level boss, drops Purple/Orange minimum, unlocks Mastery 3-4
+
+**Card Pack / Pack Type**: A reward container that offers cards or upgrades after clearing a room. Different pack types have different reward distributions:
+- **Standard Pack**: Basic card/upgrade rewards
+- **Elite Pack**: Improved quality distribution, better rewards
+- **Boss Pack**: Guaranteed card unlock, high quality distribution
+- **Upgrade Pack**: Focuses on upgrades rather than new cards
+- **Shard Pack**: Grants shards for meta-progression
+
+**Door Option**: A choice presented to players after clearing a room. Each door represents a different card pack reward. Players select which door/pack they want, determining their reward. Doors show preview information (pack type, card previews, bonus rewards).
+
+**Room Modifier**: A special card type that modifies the next room when used. Room modifiers are single-use, persistent cards that can be carried on runs (max 3) and stored in Nexus (max 30-40). They modify room difficulty, rewards, or enemy composition. Used before entering a room, consumed after use.
+
+**Team Card**: A special card type for multiplayer (1-4 players) that provides run-wide boons for the entire team. Equipped before starting a run in the Nexus. Only one team card can be active per run. Team cards affect all players and can modify quality distributions, drop rates, or provide team-wide buffs.
+
+**Combined Card**: A special card created during a run by combining two cards from the hand into one slot. Combined cards have both effects active simultaneously. They are single-run only (lost at run end), cannot be combined further (depth limit 1), and have 1.75x upgrade costs. Quality band is the average of both source cards (rounded down).
+
+**Permanent Unlock vs. Temporary Power** (The "Unlock vs. Power" Model):
+- **Permanent Unlocks**: Mastery levels unlocked via Boss drops or Shard purchases at Nexus. These persist across all future runs and allow cards to appear at higher quality bands in packs.
+- **Temporary Power**: Cards dropped above mastery cap from Elite/Challenge packs, or cards upgraded via Upgrade Rewards. These provide powerful effects for the current run only and do NOT grant permanent mastery unlocks.
+- **Why This Matters**: Creates clear distinction between meta-progression (permanent) and in-run power spikes (temporary), making each system feel valuable and non-conflicting.
+
 ---
 
 ## Phase 1: Data Structures & Save System
@@ -76,7 +156,7 @@ This document outlines the complete design for replacing the gear/loot system wi
   cardShards: 0,                  // Currency for card upgrades
   deckUpgrades: {
     handSize: 4,                  // Max hand size (slots available)
-    startingCards: 2,             // Number of cards drawn at run start (default 2, upgradeable to 3-4, max handSize)
+    startingCards: 3,             // Number of cards drawn at run start (default 3, upgradeable to 4, max handSize)
     mulligans: 0,                 // Mulligan count (default 0, unlockable via meta-progression)
     reserveSlots: 0,              // Reserve card slots
     roomModifierCarrySlots: 3,    // Max room modifier cards carried on run
@@ -145,24 +225,30 @@ Some cards are marked as **non-stacking**, meaning you can only have one copy of
 ### 2.1 Offense Family Cards
 
 #### Precision (from `critChance` affix)
+- **Unlock**: ✅ Unlocked by default (Starter card)
+- **Mastery Upgrade Costs**: M0→M1: 10 shards, M1→M2: 25 shards, M2→M3: 50 shards, M3→M4: 100 shards, M4→M5: 200 shards
 - **Application**: Passive - Always active, modifies crit chance stat
-- **White**: +5% crit chance - "Basic geometric precision"
-- **Green**: +10% crit chance - "Refined calculation"
-- **Blue**: +15% crit chance - "Advanced theorem"
-- **Purple**: +20% crit chance + "Crits restore 2% HP" - "Masterful application"
-- **Orange**: +25% crit chance + "Crits restore 5% HP and chain to nearest enemy" - "Bend probability itself. Critical hits restore 5% HP and chain to nearest enemy."
-- **Trade-off**: None (pure stat buff, but requires crits to trigger benefits)
+- **White**: +5% crit chance - "Basic geometric precision" (No drawback - baseline card)
+- **Green**: +10% crit chance - "Refined calculation" (No drawback - baseline card)
+- **Blue**: +15% crit chance, -3% defense - "Advanced theorem" (Trade-off introduced at significant power level)
+- **Purple**: +20% crit chance, -3% defense + "Crits restore 2% HP" - "Masterful application"
+- **Orange**: +25% crit chance, -3% defense + "Crits restore 5% HP and apply 'Vulnerability', increasing all damage taken by 10% for 3s" - "Bend probability itself. Critical hits restore health and find the target's absolute weakness."
+- **Trade-off**: -3% defense (introduced at Blue tier and above). Focus on precision offense comes at the cost of base protection. White/Green tiers are pure buffs to provide a consistent baseline.
 
 #### Fury (from `critDamage` affix)
+- **Unlock**: Room 10 milestone OR Purchase 30 shards
+- **Mastery Upgrade Costs**: M0→M1: 10 shards, M1→M2: 25 shards, M2→M3: 50 shards, M3→M4: 100 shards, M4→M5: 200 shards
 - **Application**: Passive - Always active, modifies crit damage multiplier
-- **White**: +15% crit damage - "Sharpened edge"
-- **Green**: +30% crit damage - "Razor focus"
-- **Blue**: +45% crit damage - "Devastating strike"
-- **Purple**: +60% crit damage + "Crits have 10% chance to stun" - "Unstoppable force"
-- **Orange**: +75% crit damage + "Crits chain to nearest enemy" - "Fury incarnate. Critical hits chain to nearest enemy with full damage."
-- **Trade-off**: None (pure stat buff, but only benefits from crits)
+- **White**: +15% crit damage - "Sharpened edge" (No drawback - baseline card)
+- **Green**: +30% crit damage - "Razor focus" (No drawback - baseline card)
+- **Blue**: +45% crit damage, +3% damage taken - "Devastating strike" (Trade-off introduced at significant power level)
+- **Purple**: +60% crit damage, +3% damage taken + "Crits have 10% chance to stun" - "Unstoppable force"
+- **Orange**: +75% crit damage, +3% damage taken + "Critical hits explode, dealing 50% of the crit's damage in a small radius" - "Fury incarnate. Critical hits are so devastating they explode outward."
+- **Trade-off**: +3% damage taken (introduced at Blue tier and above). Overwhelming offensive power makes you more vulnerable. White/Green tiers are pure buffs to provide a consistent baseline.
 
 #### Momentum (from `rampage` affix)
+- **Unlock**: Room 5 milestone OR Purchase 40 shards
+- **Mastery Upgrade Costs**: M0→M1: 10 shards, M1→M2: 25 shards, M2→M3: 50 shards, M3→M4: 100 shards, M4→M5: 200 shards
 - **Application**: Conditional trigger - Activates on kill, stacks damage bonus
 - **White**: +2% damage per kill (cap 10%, duration 5s) - "Building rhythm"
 - **Green**: +4% damage per kill (cap 15%, duration 6s) - "Gathering speed"
@@ -172,6 +258,8 @@ Some cards are marked as **non-stacking**, meaning you can only have one copy of
 - **Trade-off**: Stacks decay if no kills within duration window. Requires consistent kills to maintain stacks.
 
 #### Volley (from `multishot` affix) - **BALANCED VERSION**
+- **Unlock**: Room 25 milestone OR Purchase 150 shards OR Boss drop (Rooms 22+)
+- **Mastery Upgrade Costs**: M0→M1: 15 shards, M1→M2: 35 shards, M2→M3: 70 shards, M3→M4: 140 shards, M4→M5: 280 shards
 - **Non-Stacking**: Yes - Only one Volley card can be in hand at a time
 - **Application**: Passive - Always active, modifies projectile count and damage
 - **White**: +1 projectile, -40% damage per projectile (2 total, 60% each = 120% total, +20% gain) - "Split shot"
@@ -190,17 +278,21 @@ Some cards are marked as **non-stacking**, meaning you can only have one copy of
 **Trade-off**: Reduced damage per projectile, increased spread angle, reduced range for multishot projectiles. Requires multiple enemies to maximize effectiveness.
 
 #### Execute (from `execute` affix)
+- **Unlock**: Achievement "Deal 10,000 damage (lifetime)" OR Purchase 125 shards
+- **Mastery Upgrade Costs**: M0→M1: 15 shards, M1→M2: 35 shards, M2→M3: 70 shards, M3→M4: 140 shards, M4→M5: 280 shards
 - **Non-Stacking**: Yes - Only one Execute card can be in hand at a time
 - **Application**: Conditional trigger - Activates when enemy HP falls below threshold
 - **White**: Execute at 25% HP (bosses: 10% HP) - "Finishing blow"
 - **Green**: Execute at 30% HP (bosses: 12% HP) - "Swift end"
 - **Blue**: Execute at 35% HP (bosses: 15% HP) - "Merciless strike"
 - **Purple**: Execute at 40% HP (bosses: 18% HP) + "Execute grants 10% movement speed for 3s" - "Absolute termination"
-- **Orange**: Execute at 40% HP (bosses: 15% HP) + "Execute grants 15% movement speed for 5s" - "Geometric execution. Finishing blows grant speed and power."
+- **Orange**: Execute at 40% HP (bosses: 18% HP) + "Execute grants 15% movement speed for 5s" - "Geometric execution. Finishing blows grant speed and power."
 - **Boss Scaling**: Execute thresholds are significantly lower for bosses to prevent trivializing boss fights. Bosses have approximately 37.5% of the normal threshold (e.g., 25% normal → 10% boss, 40% normal → 15% boss). Orange tier reduced from 50% to 40% to prevent skipping half of boss fights.
 - **Trade-off**: Only triggers below threshold, requires precision timing. Lower thresholds on bosses maintain challenge while still providing value.
 
 #### Fractal Conduit (from `chainLightning` affix)
+- **Unlock**: Achievement "Clear 50 rooms total (cumulative)" OR Purchase 175 shards
+- **Mastery Upgrade Costs**: M0→M1: 20 shards, M1→M2: 50 shards, M2→M3: 100 shards, M3→M4: 200 shards, M4→M5: 400 shards
 - **Non-Stacking**: Yes - Only one Fractal Conduit card can be in hand at a time
 - **Application**: Conditional trigger - Activates on hit, chains to nearby enemies
 - **White**: Chains to 1 enemy (50% damage per chain) - "Single link" - Total: 150% damage potential
@@ -218,16 +310,20 @@ Some cards are marked as **non-stacking**, meaning you can only have one copy of
 **Trade-off**: Reduced damage per chain, requires multiple enemies. Chain is 1 → 1 → 1 (sequential, not simultaneous). Cannot hit the same enemy twice until legendary, and even then only once more after bouncing to another enemy first. Requires enemy clustering to maximize effectiveness.
 
 #### Detonating Vertex (from `explosiveAttacks` affix)
+- **Unlock**: Achievement "Achieve 100 kills in one run" OR Purchase 100 shards
+- **Mastery Upgrade Costs**: M0→M1: 15 shards, M1→M2: 35 shards, M2→M3: 70 shards, M3→M4: 140 shards, M4→M5: 280 shards
 - **Non-Stacking**: Yes - Only one Detonating Vertex card can be in hand at a time
 - **Application**: Conditional trigger - Random chance on hit to trigger explosion
 - **White**: 12% chance to explode (50% AoE damage) - "Unstable geometry"
 - **Green**: 18% chance to explode (60% AoE damage) - "Volatile strike"
 - **Blue**: 25% chance to explode (70% AoE damage) - "Explosive impact"
 - **Purple**: 32% chance to explode (80% AoE damage) + "Explosions have 20% chance to chain" - "Cascading detonation"
-- **Orange**: 40% chance to explode (90% AoE damage) + "Explosions always chain once" - "Fractal explosion. Every detonation triggers a secondary blast."
+- **Orange**: 40% chance to explode (90% AoE damage) + "Explosions now fracture, releasing 3 smaller 'cluster' bombs that detonate for 30% AoE damage each" - "Fractal explosion. Every detonation shatters, creating a cluster of secondary blasts."
 - **Trade-off**: Random chance, can damage player if too close. Unreliable damage source.
 
 #### Overcharge (from `overcharge` affix)
+- **Unlock**: Achievement "Clear 30 rooms total" OR Purchase 75 shards
+- **Mastery Upgrade Costs**: M0→M1: 15 shards, M1→M2: 35 shards, M2→M3: 70 shards, M3→M4: 140 shards, M4→M5: 280 shards
 - **Non-Stacking**: Yes - Only one Overcharge card can be in hand at a time
 - **Application**: Conditional trigger - Time-gated burst damage on timer
 - **White**: +15% burst damage every 5s - "Power surge"
@@ -240,15 +336,19 @@ Some cards are marked as **non-stacking**, meaning you can only have one copy of
 ### 2.2 Defense Family Cards
 
 #### Bulwark (from `defense` stat)
+- **Unlock**: ✅ Unlocked by default (Starter card)
+- **Mastery Upgrade Costs**: M0→M1: 10 shards, M1→M2: 25 shards, M2→M3: 50 shards, M3→M4: 100 shards, M4→M5: 200 shards
 - **Application**: Passive - Always active, modifies defense stat
-- **White**: +5% defense, -5% movement speed - "Basic protection"
-- **Green**: +8% defense, -5% movement speed - "Reinforced guard"
-- **Blue**: +12% defense, -5% movement speed - "Fortified defense"
+- **White**: +5% defense - "Basic protection" (No drawback - baseline card)
+- **Green**: +8% defense - "Reinforced guard" (No drawback - baseline card)
+- **Blue**: +12% defense, -5% movement speed - "Fortified defense" (Trade-off introduced at significant power level)
 - **Purple**: +16% defense, -5% movement speed + "Blocking reflects 10% damage" - "Impenetrable wall"
 - **Orange**: +20% defense, -5% movement speed + "Blocking reflects 25% damage and grants brief invulnerability" - "Absolute barrier. Defense becomes offense."
-- **Trade-off**: -5% movement speed per stack. Heavy armor slows movement, creating a meaningful trade-off between defense and mobility.
+- **Trade-off**: -5% movement speed per stack (introduced at Blue tier and above). Heavy armor slows movement, creating a meaningful trade-off between defense and mobility. White/Green tiers are pure buffs to provide consistent baseline for new players.
 
 #### Lifeline (from `lifesteal` affix)
+- **Unlock**: Room 10 milestone OR Purchase 50 shards
+- **Mastery Upgrade Costs**: M0→M1: 10 shards, M1→M2: 25 shards, M2→M3: 50 shards, M3→M4: 100 shards, M4→M5: 200 shards
 - **Application**: Passive - Always active, heals on damage dealt
 - **White**: 3% lifesteal - "Sustaining flow"
 - **Green**: 5% lifesteal - "Vital drain"
@@ -258,6 +358,8 @@ Some cards are marked as **non-stacking**, meaning you can only have one copy of
 - **Trade-off**: Requires dealing damage, less effective at full HP. No healing if not attacking.
 
 #### Fortify Aura (from `fortify` affix)
+- **Unlock**: Room 10 milestone OR Purchase 75 shards OR Boss drop (Rooms 11-15)
+- **Mastery Upgrade Costs**: M0→M1: 15 shards, M1→M2: 35 shards, M2→M3: 70 shards, M3→M4: 140 shards, M4→M5: 280 shards
 - **Non-Stacking**: Yes - Only one Fortify Aura card can be in hand at a time
 - **Application**: Passive - Always active, provides aura effect in radius
 - **White**: +5% defense aura (100px radius) - "Protective field"
@@ -268,6 +370,8 @@ Some cards are marked as **non-stacking**, meaning you can only have one copy of
 - **Trade-off**: Requires staying near allies, reduced personal benefit. Aura range limits positioning options.
 
 #### Phase Step (from `dodgeCharges` affix)
+- **Unlock**: Room 10 milestone OR Purchase 60 shards
+- **Mastery Upgrade Costs**: M0→M1: 10 shards, M1→M2: 25 shards, M2→M3: 50 shards, M3→M4: 100 shards, M4→M5: 200 shards
 - **Application**: Passive - Always active, increases dodge charge capacity
 - **White**: +1 dodge charge - "Extra mobility"
 - **Green**: +1 dodge charge - "Enhanced evasion"
@@ -277,6 +381,8 @@ Some cards are marked as **non-stacking**, meaning you can only have one copy of
 - **Trade-off**: None (pure utility buff, but opportunity cost of not taking damage/defense cards)
 
 #### Phasing (from `phasing` affix)
+- **Unlock**: Achievement "Dodge 500 attacks total" OR Purchase 100 shards
+- **Mastery Upgrade Costs**: M0→M1: 15 shards, M1→M2: 35 shards, M2→M3: 70 shards, M3→M4: 140 shards, M4→M5: 280 shards
 - **Non-Stacking**: Yes - Only one Phasing card can be in hand at a time
 - **Application**: Conditional trigger - Random chance to phase through incoming attacks
 - **White**: 10% chance to phase through attacks - "Partial intangibility"
@@ -287,6 +393,8 @@ Some cards are marked as **non-stacking**, meaning you can only have one copy of
 - **Trade-off**: Random chance, unreliable. Cannot be relied upon for consistent defense.
 
 #### Prism Shield (from `thorns` legendary effect)
+- **Unlock**: Achievement "Reflect 1,000 damage total" OR Purchase 150 shards
+- **Mastery Upgrade Costs**: M0→M1: 20 shards, M1→M2: 50 shards, M2→M3: 100 shards, M3→M4: 200 shards, M4→M5: 400 shards
 - **Application**: Passive - Always active, reflects damage when hit
 - **White**: 15% damage reflect - "Reactive defense"
 - **Green**: 20% damage reflect - "Mirror shield"
@@ -296,27 +404,35 @@ Some cards are marked as **non-stacking**, meaning you can only have one copy of
 - **Trade-off**: Requires taking damage to activate, less effective against ranged attacks. Still take full damage, only reflect portion.
 
 #### Phoenix Down (from `phoenix_down` legendary effect)
+- **Unlock**: Achievement "Revive 10 times total" OR Purchase 750 shards (available after first full run clear)
+- **Mastery Upgrade Costs**: M0→M1: 30 shards, M1→M2: 75 shards, M2→M3: 150 shards, M3→M4: 300 shards, M4→M5: 600 shards
 - **Non-Stacking**: Yes - Only one Phoenix Down card can be in hand at a time
 - **Application**: Conditional trigger - One-Time Use - Activates on death, revives player, then card is destroyed from hand
 - **Special Rules**:
   - **Drops only at Orange quality** - No white/green/blue/purple versions exist
   - **Base effect**: Revive at 30% HP, card destroyed from hand after use - "Rise from geometric ash"
+  - **Mastery 0-4**: Do not unlock quality bands (card only exists at Orange). These mastery levels provide visible progression toward the ultimate upgrade, giving players a long-term goal to work toward.
   - **Mastery 5 upgrade**: If player has Mastery 5 for Phoenix Down, revive at 50% HP + 20% damage boost for 10s - "Transcendent rebirth. Return stronger than before."
   - **Mastery applies during run**: Mastery upgrades apply even to cards found during the run (if you have Mastery 5, any Phoenix Down you find will have the upgraded effect)
+  - **Design Rationale**: Phoenix Down is already extremely powerful (revive mechanic), so mastery 0-4 serve as progression milestones rather than unlocking quality bands. The M5 upgrade provides a massive boon (20% HP increase + damage boost) on top of an already broken card, making the 1,155 total shard investment (M0→M5) feel rewarding. This breaks the normal mastery pattern intentionally - the card is so powerful that it needs a different progression structure.
 - **Trade-off**: Single-use card - destroyed from hand when triggered. Only activates on death, cannot be used proactively. Extremely powerful but permanent loss of the card slot. Must choose carefully when to risk death.
 
 ### 2.3 Mobility Family Cards
 
 #### Velocity (from `movementSpeed` affix)
+- **Unlock**: ✅ Unlocked by default (Starter card)
+- **Mastery Upgrade Costs**: M0→M1: 10 shards, M1→M2: 25 shards, M2→M3: 50 shards, M3→M4: 100 shards, M4→M5: 200 shards
 - **Application**: Passive - Always active, modifies movement speed stat
-- **White**: +10% movement speed, -2% projectile damage - "Quick step"
-- **Green**: +15% movement speed, -2% projectile damage - "Swift movement"
+- **White**: +10% movement speed - "Quick step" (No drawback - baseline card)
+- **Green**: +15% movement speed, -2% projectile damage - "Swift movement" (Trade-off introduced at moderate power level)
 - **Blue**: +20% movement speed, -2% projectile damage - "Rapid transit"
 - **Purple**: +25% movement speed, -2% projectile damage + "Movement speed increases damage by 5%" - "Momentum power"
 - **Orange**: +30% movement speed, -2% projectile damage + "Movement speed increases damage by 10% and grants dodge chance" - "Infinite velocity. Speed becomes strength."
-- **Trade-off**: -2% projectile damage per stack. Speed comes at the cost of precision and power, creating a meaningful trade-off between mobility and damage output.
+- **Trade-off**: -2% projectile damage per stack (introduced at Green tier and above). Speed comes at the cost of precision and power, creating a meaningful trade-off between mobility and damage output. White tier is a pure buff to provide consistent baseline for new players.
 
 #### Vector Laminar (from `projectileSpeed` affix)
+- **Unlock**: Room 10 milestone OR Purchase 40 shards
+- **Mastery Upgrade Costs**: M0→M1: 10 shards, M1→M2: 25 shards, M2→M3: 50 shards, M3→M4: 100 shards, M4→M5: 200 shards
 - **Application**: Passive - Always active, modifies projectile speed stat
 - **White**: +15% projectile speed - "Faster bolts"
 - **Green**: +25% projectile speed - "Swift projectiles"
@@ -326,6 +442,8 @@ Some cards are marked as **non-stacking**, meaning you can only have one copy of
 - **Trade-off**: None (pure utility buff, but opportunity cost of not taking damage/defense cards)
 
 #### Arcane Flow (from `cooldownReduction` affix)
+- **Unlock**: Achievement "Use abilities 200 times total" OR Purchase 125 shards
+- **Mastery Upgrade Costs**: M0→M1: 15 shards, M1→M2: 35 shards, M2→M3: 70 shards, M3→M4: 140 shards, M4→M5: 280 shards
 - **Application**: Passive - Always active, reduces all ability cooldowns
 - **White**: 8% cooldown reduction - "Faster recovery"
 - **Green**: 12% cooldown reduction - "Quick recharge"
@@ -335,6 +453,8 @@ Some cards are marked as **non-stacking**, meaning you can only have one copy of
 - **Trade-off**: None (pure utility buff, but opportunity cost of not taking damage/defense cards)
 
 #### Parallelogram Slip (dodge cooldown reduction)
+- **Unlock**: Achievement "Dodge 300 times total" OR Purchase 75 shards
+- **Mastery Upgrade Costs**: M0→M1: 15 shards, M1→M2: 35 shards, M2→M3: 70 shards, M3→M4: 140 shards, M4→M5: 280 shards
 - **Application**: Passive - Always active, reduces dodge cooldown
 - **White**: -0.3s dodge cooldown - "Quicker dodge"
 - **Green**: -0.5s dodge cooldown - "Faster evasion"
@@ -346,6 +466,8 @@ Some cards are marked as **non-stacking**, meaning you can only have one copy of
 ### 2.4 Ability Mutator Cards
 
 #### Whirlwind Core (from `square` class modifiers)
+- **Unlock**: Room 15 milestone OR Purchase 100 shards (Square class only)
+- **Mastery Upgrade Costs**: M0→M1: 15 shards, M1→M2: 35 shards, M2→M3: 70 shards, M3→M4: 140 shards, M4→M5: 280 shards
 - **Non-Stacking**: Yes - Only one Whirlwind Core card can be in hand at a time
 - **Application**: Passive - Always active, modifies whirlwind ability properties
 - **White**: +1s whirlwind duration - "Extended spin"
@@ -356,16 +478,20 @@ Some cards are marked as **non-stacking**, meaning you can only have one copy of
 - **Trade-off**: Requires melee range, can be interrupted. Whirlwind locks player in place during use.
 
 #### Thrust Focus (from `square` class modifiers)
+- **Unlock**: Room 15 milestone OR Purchase 100 shards (Square class only)
+- **Mastery Upgrade Costs**: M0→M1: 15 shards, M1→M2: 35 shards, M2→M3: 70 shards, M3→M4: 140 shards, M4→M5: 280 shards
 - **Non-Stacking**: Yes - Only one Thrust Focus card can be in hand at a time
 - **Application**: Passive - Always active, modifies thrust ability properties
 - **White**: +100 thrust range - "Extended reach"
 - **Green**: +40% thrust damage - "Powerful thrust"
 - **Blue**: +Knockback effect - "Forceful strike"
 - **Purple**: +Pierce (thrust hits multiple enemies) - "Penetrating thrust"
-- **Orange**: "Thrust chains to nearby enemies" - "Fractal thrust. Strike one, hit all."
+- **Orange**: "'Thrust' now has infinite range, pierces all enemies, and leaves a burning damage trail for 2s." - "Fractal thrust. The strike projects a line of force to infinity, searing the ground it passes over."
 - **Trade-off**: Linear attack, requires positioning. Thrust commits player to forward movement.
 
 #### Block Stance (from `square` class modifiers)
+- **Unlock**: Achievement "Block 200 attacks total" OR Purchase 125 shards (Square class only)
+- **Mastery Upgrade Costs**: M0→M1: 20 shards, M1→M2: 50 shards, M2→M3: 100 shards, M3→M4: 200 shards, M4→M5: 400 shards
 - **Non-Stacking**: Yes - Only one Block Stance card can be in hand at a time
 - **Application**: Passive - Always active, modifies block ability properties
 - **White**: +20% block reduction - "Stronger block"
@@ -376,6 +502,8 @@ Some cards are marked as **non-stacking**, meaning you can only have one copy of
 - **Trade-off**: Requires standing still. Blocking prevents movement and attacks.
 
 #### Fan of Knives+ (from `triangle` class modifiers)
+- **Unlock**: Room 15 milestone OR Purchase 100 shards (Triangle class only)
+- **Mastery Upgrade Costs**: M0→M1: 15 shards, M1→M2: 35 shards, M2→M3: 70 shards, M3→M4: 140 shards, M4→M5: 280 shards
 - **Non-Stacking**: Yes - Only one Fan of Knives+ card can be in hand at a time
 - **Application**: Passive - Always active, modifies fan of knives ability properties
 - **White**: +2 knives - "More blades"
@@ -386,6 +514,8 @@ Some cards are marked as **non-stacking**, meaning you can only have one copy of
 - **Trade-off**: Spread reduces accuracy, requires close range. More knives = wider spread = less precision.
 
 #### Shadow Clone (from `triangle` class modifiers)
+- **Unlock**: Room 15 milestone OR Purchase 100 shards (Triangle class only)
+- **Mastery Upgrade Costs**: M0→M1: 15 shards, M1→M2: 35 shards, M2→M3: 70 shards, M3→M4: 140 shards, M4→M5: 280 shards
 - **Non-Stacking**: Yes - Only one Shadow Clone card can be in hand at a time
 - **Application**: Passive - Always active, modifies shadow clone ability properties
 - **White**: +1 clone - "Single decoy"
@@ -396,16 +526,20 @@ Some cards are marked as **non-stacking**, meaning you can only have one copy of
 - **Trade-off**: Clones have limited duration, can be destroyed. Clones are temporary and vulnerable.
 
 #### Backstab Edge (from `triangle` class modifiers)
+- **Unlock**: Achievement "Deal 5,000 backstab damage total" OR Purchase 125 shards (Triangle class only)
+- **Mastery Upgrade Costs**: M0→M1: 20 shards, M1→M2: 50 shards, M2→M3: 100 shards, M3→M4: 200 shards, M4→M5: 400 shards
 - **Non-Stacking**: Yes - Only one Backstab Edge card can be in hand at a time
 - **Application**: Passive - Always active, modifies backstab damage multiplier
 - **White**: +25% backstab damage - "Sharpened edge"
 - **Green**: +35% backstab damage - "Deadly strike"
 - **Blue**: +45% backstab damage - "Lethal backstab"
 - **Purple**: +55% backstab damage + "Backstab has 25% chance to chain" - "Cascading strike"
-- **Orange**: +60% backstab damage + "Backstab chains to all nearby enemies" - "Fractal assassination. One strike, many deaths."
+- **Orange**: +60% backstab damage + "A killing blow with 'Backstab' grants 3s of stealth and resets the 'Backstab' cooldown" - "Fractal assassination. One kill grants the shadow, the next kill becomes the echo. The cycle repeats."
 - **Trade-off**: Requires positioning behind enemy. Only benefits from rear attacks, requires flanking.
 
 #### Blink Flux (from `hexagon` class modifiers)
+- **Unlock**: Room 15 milestone OR Purchase 100 shards (Hexagon class only)
+- **Mastery Upgrade Costs**: M0→M1: 15 shards, M1→M2: 35 shards, M2→M3: 70 shards, M3→M4: 140 shards, M4→M5: 280 shards
 - **Non-Stacking**: Yes - Only one Blink Flux card can be in hand at a time
 - **Application**: Passive - Always active, modifies blink ability properties
 - **White**: +150 blink range - "Extended teleport"
@@ -416,6 +550,8 @@ Some cards are marked as **non-stacking**, meaning you can only have one copy of
 - **Trade-off**: Requires positioning, can be disorienting. Blink commits to destination, can teleport into danger.
 
 #### Beam Mastery (from `hexagon` class modifiers)
+- **Unlock**: Achievement "Deal 10,000 beam damage total" OR Purchase 125 shards (Hexagon class only)
+- **Mastery Upgrade Costs**: M0→M1: 20 shards, M1→M2: 50 shards, M2→M3: 100 shards, M3→M4: 200 shards, M4→M5: 400 shards
 - **Non-Stacking**: Yes - Only one Beam Mastery card can be in hand at a time
 - **Application**: Passive - Always active, modifies beam ability properties
 - **White**: +1 beam charge - "Extra beam"
@@ -426,6 +562,8 @@ Some cards are marked as **non-stacking**, meaning you can only have one copy of
 - **Trade-off**: Beam requires channeling, can be interrupted. Player must remain stationary while beaming.
 
 #### Shield Bulwark (from `pentagon` class modifiers)
+- **Unlock**: Room 15 milestone OR Purchase 100 shards (Pentagon class only)
+- **Mastery Upgrade Costs**: M0→M1: 15 shards, M1→M2: 35 shards, M2→M3: 70 shards, M3→M4: 140 shards, M4→M5: 280 shards
 - **Non-Stacking**: Yes - Only one Shield Bulwark card can be in hand at a time
 - **Application**: Passive - Always active, modifies shield ability properties
 - **White**: +1s shield duration - "Longer shield"
@@ -437,6 +575,8 @@ Some cards are marked as **non-stacking**, meaning you can only have one copy of
 **Trade-off**: Shield requires timing, can be broken early
 
 #### Hammer Smash (from `pentagon` class modifiers)
+- **Unlock**: Achievement "Stun 100 enemies total" OR Purchase 125 shards (Pentagon class only)
+- **Mastery Upgrade Costs**: M0→M1: 20 shards, M1→M2: 50 shards, M2→M3: 100 shards, M3→M4: 200 shards, M4→M5: 400 shards
 - **Non-Stacking**: Yes - Only one Hammer Smash card can be in hand at a time
 - **Application**: Passive - Always active, modifies hammer smash ability properties
 - **White**: +40 radius - "Larger smash"
@@ -610,27 +750,30 @@ These represent the card packs shown on doors. Players select which pack they wa
 #### Standard Pack
 - **Reward Type**: Card (30% chance) OR Upgrade (70% chance)
 - **If Card**: 1 card per player from their deck, normal quality distribution
-- **If Upgrade**: Upgrade one card in hand by 1 quality band (white→green, etc.) OR 15 shards
+- **If Upgrade**: Upgrade one card in hand by 1 quality band **for this run only** (white→green, etc.) OR 15 shards (does NOT grant permanent mastery unlock)
 - No bonuses
 - **Difficulty**: Normal
 
 #### Elite Pack
 - **Reward Type**: Card (40% chance) OR Upgrade (60% chance)
 - **If Card**: 1 card per player from their deck, +10% quality shift, +1 bonus card
-- **If Upgrade**: Upgrade one card in hand by 1 quality band OR 25 shards
+  - **Special**: Elite packs can ignore mastery cap by +1 or +2 levels (temporary jackpot - card is powerful for this run only, does NOT grant permanent mastery unlock)
+  - Example: Precision at mastery 0 can drop as Blue from Elite pack (temporary), but picking it up does NOT unlock mastery 2 permanently
+- **If Upgrade**: Upgrade one card in hand by 1 quality band **for this run only** OR 25 shards (does NOT grant permanent mastery unlock)
 - **Difficulty**: Harder enemies (+15% HP/damage)
 
 #### Treasure Pack
 - **Reward Type**: Card (50% chance) OR Upgrade (50% chance)
 - **If Card**: 1 card per player from their deck, +20% quality shift, +1 bonus card
-- **If Upgrade**: Upgrade one card in hand by 1 quality band OR 35 shards
+- **If Upgrade**: Upgrade one card in hand by 1 quality band **for this run only** OR 35 shards (does NOT grant permanent mastery unlock)
 - +Health restore (25% max HP)
 - **Difficulty**: Normal
 
 #### Challenge Pack
 - **Reward Type**: Card (60% chance) OR Upgrade (40% chance)
 - **If Card**: 1 card per player from their deck, +30% quality shift, +2 bonus cards
-- **If Upgrade**: Upgrade one card in hand by 1 quality band OR 50 shards
+  - **Special**: Challenge packs can ignore mastery cap by +1 or +2 levels (temporary jackpot - card is powerful for this run only, does NOT grant permanent mastery unlock)
+- **If Upgrade**: Upgrade one card in hand by 1 quality band **for this run only** OR 50 shards (does NOT grant permanent mastery unlock)
 - +XP boost (+50% XP for room)
 - **Difficulty**: Much harder enemies (+30% HP/damage)
 
@@ -643,7 +786,7 @@ These represent the card packs shown on doors. Players select which pack they wa
 
 #### Upgrade Pack (New - Common)
 - **Reward Type**: Upgrade (100%)
-- Upgrade one card in hand by 1 quality band (player chooses which card)
+- Upgrade one card in hand by 1 quality band **for this run only** (player chooses which card, does NOT grant permanent mastery unlock)
 - OR: 20 shards (player choice)
 - **Difficulty**: Normal
 
@@ -661,16 +804,19 @@ These represent the card packs shown on doors. Players select which pack they wa
 
 #### Mastery Pack (Rare)
 - **Reward Type**: Upgrade (100%)
-- Upgrade one card in hand by 1 quality band (guaranteed)
+- Upgrade one card in hand by 1 quality band **for this run only** (guaranteed, does NOT grant permanent mastery unlock)
 - +25 shards
 - **Difficulty**: Moderate challenge (+20% HP/damage)
 
-#### Curse Pack (Rare - High Risk)
+#### Curse Pack (Rare - High Risk, Always Voluntary)
 - **Reward Type**: Curse (100%)
-- Offers 2-3 curse cards, player must take one
-- +Bonus reward: 30 shards OR upgrade one card in hand
+- **Door Option**: Appears as a door choice (rare, every 10-15 rooms)
+- **Preview**: "⚠️ CURSED REWARDS - Choose one curse for power"
+- Player **CHOOSES** to enter (not forced)
+- Offers 2-3 curse cards, player must select one
+- +Bonus reward: +50 shards OR upgrade one card in hand **for this run only** OR +2 bonus cards next room
 - **Difficulty**: Very challenging (+40% HP/damage, elite enemies)
-- **Note**: Curses cannot be voluntarily discarded once taken
+- **Note**: Curses cannot be voluntarily discarded once taken, but player always has the choice to avoid the door entirely
 
 **Reward System Benefits**:
 - **Cards remain meaningful**: When you get a card, it's a significant choice
@@ -791,20 +937,69 @@ Run-wide modifiers equipped pre-run. Each player equips one team card from their
 - **Take up hand slots** - Curses count toward hand size limit
 - **Non-stacking** - Only one of each curse type can be in hand
 - **Removable** - Can be removed through special mechanics (see Curse Removal below)
-- **Forced picks** - Some reward packs may force a curse card choice
+- **Always Voluntary** - Curses are NEVER forced. All curse acquisition is opt-in with clear tradeoffs.
 
-**Curse Acquisition**:
-- **Challenge Pack curse option** - 20% chance Challenge Pack offers curse + bonus reward
-- **Boss rooms** - Guaranteed curse card offer (can choose to take it or skip)
-- **Elite rooms** - 15% chance to offer curse card
-- **Curse Pack** - Rare door option that offers 2-3 curse cards, player must take one
-- **Special events** - Certain events force curse card acquisition
+**Curse Acquisition (Always Voluntary - Opt-In Risk/Reward)**:
 
-**Curse Removal**:
-- **Purification Room** - Rare room type that removes one curse (player choice)
-- **Purification Scroll** - Consumable item (rare drop) that removes one curse
-- **Boss clear reward** - Clearing a boss room may offer curse removal as reward option
-- **Note**: Curses do not have mastery levels - they must be removed through purification mechanics
+**1. Curse Pack Door Option** (Rare, appears every 10-15 rooms):
+- Door preview shows: "⚠️ CURSED REWARDS"
+- Hover text: "Choose one curse, gain powerful rewards (+50 shards OR upgrade one card OR +2 bonus cards next room)"
+- Player **CHOOSES** to enter (not forced)
+- Must select one curse from 2-3 options
+- Immediate bonus reward granted
+- Door clearly labeled with warning icon
+
+**2. Boss Curse Offer** (Optional, 25% chance after boss defeat):
+- Popup after boss: "Accept [Curse Name] for bonus loot?"
+- Shows curse effects + bonus (guaranteed Purple/Orange card + 50 shards)
+- "Accept" or "Decline" buttons
+- **No penalty for declining** - Player gets normal boss loot if declined
+- Clear choice: "Take curse for power boost, or skip for safety"
+
+**3. Elite/Challenge Curse Offer** (Optional, 15% chance):
+- Similar to boss offer structure
+- Smaller rewards (+30 shards OR upgrade one card)
+- Always optional - player can decline
+
+**Curse Removal (Deterministic + Multiple Paths)**:
+
+**1. Purification Room Door Option** (Guaranteed Cycle):
+- Appears every 8-10 rooms as a door choice (deterministic cadence)
+- **After taking a curse, GUARANTEED to appear within next 8 rooms** - Ensures players aren't stuck with a curse for 15+ rooms
+- Door shows: "🔮 PURIFICATION CHAMBER - Remove one curse OR +40 shards (if no curses)"
+- Moderate difficulty (+25% HP/damage)
+- Player chooses which curse to remove (if multiple)
+- Creates a "curse window" - players know they can remove it soon if needed
+
+**2. Purification Scroll** (Uncommon Drop - Emergency Safety Valve):
+- Elite rooms: 20% drop chance (up from "rare")
+- Boss rooms: 30% drop chance (50% if player has 2+ curses)
+- Can be used immediately at any safe/upgrade room
+- Stored in inventory (max 3)
+- Removes ONE curse of player's choice
+- Provides emergency removal if RNG is bad
+
+**3. Boss Clear Reward** (Always Available if Cursed):
+- If player has ANY curses, boss clear reward options **ALWAYS include**:
+  - Option 1: Take card/upgrade/shards (normal rewards)
+  - Option 2: Remove one curse (no shard cost, just a reward option)
+- Player chooses one
+- If player has no curses, this option doesn't appear
+- Ensures bosses can always be a "reset point" for curse management
+
+**4. Safe/Upgrade Room Purification** (Shard Purchase):
+- At safe/upgrade rooms, can spend 75 shards to remove one curse
+- Provides emergency removal if RNG is bad
+- Expensive enough to discourage relying on it, cheap enough to be viable
+
+**Design Philosophy**:
+- **Eliminates Trap State**: All curses are voluntary, removal is guaranteed within 8 rooms, multiple removal paths
+- **Preserves Risk/Reward**: Curses still offer powerful bonuses, taking curses is still a meaningful decision
+- **Creates Strategic Depth**: "Can I handle this curse for 8 rooms?" "Do I remove it now or push for one more elite room?"
+- **Respects Player Agency**: Never forced into unwinnable situations, always a path forward
+- **Fits Progression Philosophy**: Death = progress (curses don't persist beyond death), skilled players can leverage curses for power, new players can avoid curses entirely
+
+**Note**: Curses do not have mastery levels - they must be removed through purification mechanics
 
 #### Unstable Precision
 - **Category**: Curse - Offense
@@ -905,11 +1100,24 @@ Run-wide modifiers equipped pre-run. Each player equips one team card from their
 #### Doomed Pact
 - **Category**: Curse - Universal
 - **Non-Stacking**: Yes
-- **Application**: Passive - Always active, power with countdown
+- **Application**: Passive - Always active, power with gradual decay
 - **Effect**: +30% all damage, +20% all defense, +15% movement speed
-- **Curse**: After 20 rooms, player dies instantly (cannot be prevented, even by Phoenix Down). Counter visible in UI.
-- **Flavor**: "Ultimate power, ultimate price. Time is borrowed, not earned."
-- **Removal**: Cannot be removed. Must be purified before 20 rooms or death is guaranteed.
+- **Curse**: Stats decay by 5% per room after room 10 (damage: 30% → 25% → 20% → 15% → 10% → 5% → 0%, defense: 20% → 15% → 10% → 5% → 0%, speed: 15% → 10% → 5% → 0%). After 6 rooms of decay (room 16), all bonuses are gone and card becomes pure liability. Decay counter visible in UI.
+- **Flavor**: "Ultimate power, ultimate price. Time is borrowed, not earned. Power fades with each room."
+- **Removal**: Cannot be removed. Must be purified before decay completes or card becomes worthless. Creates interesting gameplay: "How long can I push this before it becomes a liability?"
+
+**UI Visualization Requirements**:
+- **Prominent decay counter**: Display "X rooms until next decay" (e.g., "3 rooms until next decay")
+- **Current stats display**: Show current stat values with decay indicator (e.g., "Damage: +25% (down from +30%)")
+- **Visual degradation**: Card becomes more "cracked" or "faded" each room as decay progresses
+- **Warning at room 15**: "Doomed Pact nearly depleted! Last room of benefits."
+- **Final warning at room 16**: "Doomed Pact provides no benefits - purify to remove"
+- **Countdown timer**: Visual indicator showing rooms remaining before next decay (if applicable)
+
+**Post-Decay Behavior** (After Room 16 - Full Decay):
+- **Option A (Simpler)**: Card remains in hand (takes up slot), provides 0 benefits, counts as dead weight (strategic penalty), can still be purified, serves as reminder: "Should have purified this!"
+- **Option B (More Dramatic)**: Card automatically transforms into "Broken Pact" (curse), Broken Pact: -10% all stats, must be purified to remove, teaches lesson: "Don't let curses decay"
+- **Recommendation**: Either option works - Option A is simpler to implement, Option B adds dramatic consequence and teaches players to manage curses proactively
 
 **Curse System Balance**:
 - **High risk, high reward** - Curses provide significant benefits but with meaningful drawbacks
@@ -929,8 +1137,14 @@ Run-wide modifiers equipped pre-run. Each player equips one team card from their
 Weighted probability tables by room range (white/green/blue/purple/orange percentages):
 
 **Starting Draw** (before run begins):
-- White: 80%, Green: 15%, Blue: 5%, Purple: 0%, Orange: 0%
-- **Mastery cap applies**: Cards at mastery 0 will be white only, even if distribution allows green/blue
+- **Base Distribution**: White: 80%, Green: 15%, Blue: 5%, Purple: 0%, Orange: 0%
+- **Mastery Floor System**: Starting draw respects mastery investment by applying a minimum quality floor based on average mastery level:
+  - **Average Mastery 0-1**: Base distribution (80/15/5/0/0)
+  - **Average Mastery 2**: Minimum floor (60/25/10/5/0) - Ensures at least 60% white, but green/blue more common
+  - **Average Mastery 3**: Minimum floor (40/30/20/8/2) - Purple becomes possible
+  - **Average Mastery 4+**: Minimum floor (20/25/25/20/10) - Orange becomes viable
+- **Mastery cap still applies**: Cards at mastery 0 will be white only, even if floor distribution allows green/blue
+- **Rationale**: Players who invest in mastery should see that investment reflected in starting draws. A player with M4 Precision shouldn't start with 80% white cards - their mastery investment should provide a better baseline.
 
 **Rooms 1-5**:
 - White: 70%, Green: 20%, Blue: 8%, Purple: 2%, Orange: 0%
@@ -949,16 +1163,18 @@ Weighted probability tables by room range (white/green/blue/purple/orange percen
 **Elite Rooms**:
 - Base distribution +10% shift toward top two bands
 - Example (Room 10): 40/25/20/10/5 → 30/25/25/15/5
-- **Mastery cap still applies**: If card is mastery 1, it can only be white/green (blue/purple/orange not possible)
+- **Elite packs can ignore mastery cap**: Elite packs can drop cards above your mastery level (e.g., Blue card even if mastery 0) - this is a temporary jackpot for this run only, does NOT grant permanent mastery unlock
+- **Standard packs in elite rooms still respect mastery cap**: If card is mastery 1, it can only be white/green in standard packs (blue/purple/orange not possible)
 
 **Boss Rooms**:
 - **Boss drops ignore mastery cap by +1 level minimum** - Bosses can drop cards at quality 1 level above your current mastery
-- **Scaling by Boss Tier**:
-  - **Early Boss (Rooms 1-5)**: Drops minimum Green (unlocks Mastery 1 if picked up)
-  - **Mid Boss (Rooms 6-10)**: Drops minimum Blue (unlocks Mastery 2 if picked up and Mastery 1 owned)
-  - **Late Boss (Rooms 11-15)**: Drops minimum Purple (unlocks Mastery 3 if picked up and Mastery 2 owned)
-  - **Final Boss (Rooms 16+)**: Drops minimum Purple/Orange mix (can unlock Mastery 3-4 if picked up)
-- Distribution: White: 0%, Green: 10%, Blue: 40%, Purple: 30%, Orange: 20%
+- **Scaling by Boss Tier** (aligned with Room 12, 22, 32 structure):
+  - **First Boss (Room 12)**: Drops minimum Green (no White drops, minimum Green quality enforced, unlocks Mastery 1 if picked up)
+    - Distribution: Green 60%, Blue 30%, Purple 8%, Orange 2%
+  - **Second Boss (Room 22)**: Drops minimum Blue (unlocks Mastery 2 if picked up and Mastery 1 owned)
+    - Distribution: Green 10%, Blue 50%, Purple 30%, Orange 10%
+  - **Final Boss (Room 32)**: Drops minimum Purple (unlocks Mastery 3-4 if picked up and prerequisites owned)
+    - Distribution: Blue 5%, Purple 45%, Orange 50%
 - **Mastery unlock on pickup**: Picking up boss card unlocks that mastery level permanently (if not already unlocked, see Boss Mastery Unlock System below)
 
 **Mastery Bonuses**:
@@ -976,22 +1192,52 @@ Weighted probability tables by room range (white/green/blue/purple/orange percen
 - **Level 4**: Unlocks orange band, +15% quality shift (cost: 100 shards) - Cards can now appear as orange in packs
 - **Level 5**: Legendary upgrade, +20% quality shift, grants reroll tokens (cost: 200 shards) - Maximum quality unlocked
 
-**Quality Band Unlocking Rules**:
-- **Cards can only appear in packs at quality bands you've unlocked** - If a card is mastery 0, it will ONLY appear as white quality in packs, even if the pack has high quality distribution
-- **Ways to unlock mastery levels**:
-  1. **Shard purchase**: Spend shards to upgrade cards (e.g., 10 shards for mastery 0→1)
-  2. **Upgrade rewards**: Upgrade rewards from packs can upgrade cards, unlocking the next quality band
-  3. **Boss drops**: Picking up boss cards unlocks mastery levels FREE (see Boss Mastery Unlock System section 3.2.5)
-- **Pack distribution respects mastery**: When a card is rolled in a pack, it can only be the highest quality band you've unlocked (e.g., if mastery 2, card can be white/green/blue, but not purple/orange)
-- **Boss drops ignore mastery cap**: Bosses can drop cards at quality +1 level above your current mastery, and picking them up unlocks that mastery level (see section 3.2.5)
+**The "Unlock vs. Power" Model**:
 
-**Example Progression**:
-1. **New player**: All cards at mastery 0 → All cards appear as white only in packs
-2. **First upgrade**: Player uses upgrade reward or 10 shards to upgrade Precision (white→green) → Precision mastery becomes 1, green quality unlocked
-3. **Next pack**: Precision can now appear as white OR green (based on pack distribution)
-4. **Boss drop**: Player beats Room 5 boss, gets Bulwark (Green) → Picking it up unlocks Bulwark mastery 1 for FREE (saves 10 shards)
-5. **Continue upgrading**: Player upgrades Precision to mastery 2 → Blue quality unlocked, Precision can now appear as white/green/blue in packs
-6. **Boss drop**: Player beats Room 10 boss, gets Precision (Blue) → Picking it up unlocks Precision mastery 2 for FREE (saves 25 shards)
+This system creates clear distinction between **permanent unlocks** (meta-progression) and **temporary power** (in-run bonuses):
+
+**1. Bosses: The Permanent Unlockers**
+- **Mechanic**: Bosses are the **only source of free, permanent mastery unlocks**
+- **What they do**: When you pick up a Boss's card, it **permanently unlocks** that mastery level for you (up to +1 from your current)
+- **Why it feels good**: This is the only way to get a "free" permanent unlock. Makes bosses feel special, rewarding, and like true gatekeepers of progression
+
+**2. Elites: The Temporary Jackpots**
+- **Mechanic**: Elite Packs (and Challenge Packs) can **ignore the mastery cap** (e.g., by +1 or +2)
+- **What they do**: An Elite room can drop a "Blue" (Mastery 2) card, even if your mastery for it is 0. You get to use this powerful card **for this run only**
+- **What they DON'T do**: Picking up this card does **NOT permanently unlock** Mastery 2. It's a "taste of power," a temporary in-run jackpot that rewards you for clearing a hard room
+- **Why it works**: Solves frustration (players can experience powerful cards) without stealing the Boss's thunder (permanent unlocks remain special)
+
+**3. In-Run Upgrades: The In-Run Polishers**
+- **Mechanic**: Upgrade Rewards from packs upgrade cards in-hand **for this run only**
+- **What they do**: An Upgrade Reward lets you upgrade a card in your hand (e.g., White → Green) **for this run only**
+- **What they DON'T do**: This does **NOT grant a permanent mastery unlock**. It's a simple, in-run buff. If you want to permanently unlock the Green mastery, you must spend shards at the Nexus or get a Boss drop
+- **Why it works**: Provides steady in-run improvement without conflicting with permanent progression systems
+
+**4. Shard Purchases: The Permanent Investment**
+- **Mechanic**: Spending shards at Nexus permanently unlocks mastery levels
+- **What they do**: Provides reliable, permanent progression path (faster/more reliable than waiting for boss drops)
+- **Why it works**: Gives players agency - they can choose to invest shards now or wait for boss drops
+
+**Quality Band Unlocking Rules**:
+- **Standard packs respect mastery cap**: Cards can only appear at quality bands you've unlocked through mastery. If a card is mastery 0, it will ONLY appear as white quality in standard packs, even if the pack has high quality distribution
+- **Elite/Challenge packs can ignore mastery cap**: Elite and Challenge packs can drop cards above your mastery level (temporary jackpot, no permanent unlock)
+- **Ways to unlock mastery levels PERMANENTLY**:
+  1. **Shard purchase**: Spend shards at Nexus to upgrade cards (e.g., 10 shards for mastery 0→1) - **Permanent unlock**
+  2. **Boss drops**: Picking up boss cards unlocks mastery levels FREE (see Boss Mastery Unlock System section 3.2.5) - **Permanent unlock**
+- **Ways to get temporary power (in-run only)**:
+  1. **Elite/Challenge packs**: Can drop cards above mastery cap - **Temporary, no permanent unlock**
+  2. **Upgrade rewards**: Upgrade cards in-hand for this run only - **Temporary, no permanent unlock**
+- **Pack distribution respects mastery** (for standard packs): When a card is rolled in a standard pack, it can only be the highest quality band you've unlocked (e.g., if mastery 2, card can be white/green/blue, but not purple/orange)
+- **Boss drops ignore mastery cap**: Bosses can drop cards at quality +1 level above your current mastery, and picking them up **permanently unlocks** that mastery level (see section 3.2.5)
+
+**Example Progression** (Demonstrating "Unlock vs. Power" Model):
+1. **New player**: All cards at mastery 0 → All cards appear as white only in standard packs
+2. **Elite room (Room 5)**: Drops Precision (Blue) - Player picks it up, gets powerful Blue Precision **for this run only**. Nexus mastery is still 0 (no permanent unlock)
+3. **Upgrade reward (Room 6)**: Player uses upgrade on Blue Precision → Becomes Purple Precision **for this run only**. Nexus mastery is still 0
+4. **Boss drop (Room 12)**: Player beats first boss, gets Bulwark (Green) → Picking it up **permanently unlocks** Bulwark mastery 1 (FREE, saves 10 shards). Future runs: Bulwark can now appear as Green in packs
+5. **Shard purchase (Nexus)**: Player spends 10 shards to upgrade Precision mastery 0→1 → **Permanently unlocks** Green quality. Future runs: Precision can now appear as Green in packs
+6. **Elite room (Room 15)**: Drops Precision (Blue) - Player picks it up, gets Blue Precision **for this run only**. Nexus mastery is still 1 (no permanent unlock from elite)
+7. **Boss drop (Room 22)**: Player beats second boss, gets Precision (Blue) → Picking it up **permanently unlocks** Precision mastery 2 (FREE, saves 25 shards). Future runs: Precision can now appear as Blue in packs
 
 **Reroll Tokens**:
 - Granted at mastery levels 2, 4, and 5
@@ -1011,11 +1257,13 @@ Weighted probability tables by room range (white/green/blue/purple/orange percen
 2. **Picking up boss card unlocks that mastery level permanently** (if not already unlocked)
 3. **Only unlocks +1 mastery level above current** - Cannot skip mastery levels (must have Mastery 1 to unlock Mastery 2, etc.)
 
-**Scaling by Boss Tier**:
-- **Early Boss (Rooms 1-5)**: Drops minimum Green (unlocks Mastery 1 if picked up)
-- **Mid Boss (Rooms 6-10)**: Drops minimum Blue (unlocks Mastery 2 if picked up and Mastery 1 owned)
-- **Late Boss (Rooms 11-15)**: Drops minimum Purple (unlocks Mastery 3 if picked up and Mastery 2 owned)
-- **Final Boss (Rooms 16+)**: Drops minimum Purple/Orange mix (can unlock Mastery 3-4 if picked up)
+**Scaling by Boss Tier** (aligned with Room 12, 22, 32 structure):
+- **First Boss (Room 12)**: Drops minimum Green (no White drops, minimum Green quality enforced, unlocks Mastery 1 if picked up)
+  - Distribution: Green 60%, Blue 30%, Purple 8%, Orange 2%
+- **Second Boss (Room 22)**: Drops minimum Blue (unlocks Mastery 2 if picked up and Mastery 1 owned)
+  - Distribution: Green 10%, Blue 50%, Purple 30%, Orange 10%
+- **Final Boss (Room 32)**: Drops minimum Purple (unlocks Mastery 3-4 if picked up and prerequisites owned)
+  - Distribution: Blue 5%, Purple 45%, Orange 50%
 
 **Mastery Unlock on Pickup**:
 - **If card mastery < drop quality mastery**: Unlock mastery level to match drop quality (FREE, no shard cost)
@@ -1026,22 +1274,22 @@ Weighted probability tables by room range (white/green/blue/purple/orange percen
 
 **Examples**:
 
-1. **Precision (Mastery 0) + Beat Room 5 Boss → Drops Precision (Green)**
+1. **Precision (Mastery 0) + Beat Room 12 Boss (First Boss) → Drops Precision (Green)**
    - Pickup unlocks Mastery 1 for Precision (saves 10 shards)
    - Future runs: Precision can now appear as Green in packs
    - Current run: Player gets Green Precision card
 
-2. **Bulwark (Mastery 1) + Beat Room 10 Boss → Drops Bulwark (Blue)**
+2. **Bulwark (Mastery 1) + Beat Room 22 Boss (Second Boss) → Drops Bulwark (Blue)**
    - Pickup unlocks Mastery 2 for Bulwark (saves 25 shards)
    - Future runs: Bulwark can now appear as Blue in packs
    - Current run: Player gets Blue Bulwark card
 
-3. **Velocity (Mastery 3) + Beat Room 15 Boss → Drops Velocity (Purple)**
+3. **Velocity (Mastery 3) + Beat Room 32 Boss (Final Boss) → Drops Velocity (Purple)**
    - No unlock (already have Mastery 3)
    - Still get Purple Velocity for current run
    - No mastery progression benefit
 
-4. **Fury (Mastery 0) + Beat Room 10 Boss → Drops Fury (Blue)**
+4. **Fury (Mastery 0) + Beat Room 22 Boss (Second Boss) → Drops Fury (Blue)**
    - **Cannot unlock Mastery 2 directly** - Must have Mastery 1 first
    - Pickup unlocks Mastery 1 for Fury (only +1 level above current)
    - Future runs: Fury can now appear as Green in packs
@@ -1051,7 +1299,7 @@ Weighted probability tables by room range (white/green/blue/purple/orange percen
 - **Orange (Mastery 4) unlocks are rare** - Requires late-game bosses + luck with distribution
 - **Players can still purchase mastery with shards** - Faster/more reliable than waiting for boss drops
 - **Boss unlocks reward skilled play** - Beat boss = meta-progression boost
-- **Cannot skip mastery levels** - Room 10 boss won't unlock Mastery 2 if you don't have Mastery 1
+- **Cannot skip mastery levels** - Room 22 boss won't unlock Mastery 2 if you don't have Mastery 1
 - **Multiple runs required** - One run can't unlock excessive amounts of mastery (prevents power creep)
 - **Strategic choice**: Players must decide whether to invest shards now or wait for boss drops
 
@@ -1074,33 +1322,344 @@ Weighted probability tables by room range (white/green/blue/purple/orange percen
 - Indicator shows even if card quality is higher than unlock level (e.g., Blue card but only unlocks M1)
 - See Card Display section (5.3) for visual design details
 
-### 3.3 Card Unlock System
+### 3.3 Feature Unlock Progression & UX Flow
 
-**Starter Cards** (unlocked by default):
-- All basic cards unlocked at mastery 0 (Precision, Bulwark, Velocity, etc.)
-- All starter cards start at mastery 0, meaning they will ONLY appear as white quality in packs until upgraded
-- Provides functional but weak starting deck
-- Players must upgrade cards to unlock higher quality bands (green/blue/purple/orange)
+**Progression Philosophy**: Features and card types are introduced gradually to prevent overwhelming new players. Each system builds on previous knowledge, creating a natural learning curve. The pacing is intentionally slower in early game to allow mastery of fundamentals before introducing complexity.
 
-**Room Milestone Unlocks**:
-- Room 5: Unlock advanced offense cards (Fury, Momentum, etc.)
-- Room 10: Unlock defense and mobility cards (Lifeline, Phase Step, etc.)
-- Room 15: Unlock ability mutator cards (Whirlwind Core, Blink Flux, etc.)
-- Room 20: Unlock economy and utility cards (Prism Tax, Scholar Sigil, etc.)
+**Boss Pacing Structure**:
+- **First Boss**: Room 12 (gives ~20-25 minutes of build time)
+- **Second Boss**: Room 22 (10 rooms later)
+- **Third Boss (Final)**: Room 32 (10 rooms later)
+- **Run ends after 3rd boss**
+- **Boss Pool Rotation**: 2 bosses per tier for variety
+
+**Unlock Order & Feature Introduction**:
+
+## Phase 1: Tutorial (Runs 1-5)
+
+**Goal:** Master the absolute basics
+
+### Unlocked by Default:
+- 3 starter cards (Precision, Bulwark, Velocity) - Mastery 0
+- Hand size 4, starting cards 3 (players get all 3 starter cards every run for consistency)
+- Basic pack rewards (Standard, Elite)
+- Card quality system (white only initially)
+
+### What's NOT Unlocked Yet:
+- No upgrade system (intentional - learn cards first)
+- No mulligans (learn to play with what you get)
+- No new cards yet (master the 3 starters)
+
+**Player Focus:** Learn combat, understand how cards affect gameplay, get comfortable with room types
+
+---
+
+## Phase 2: First Expansion (Runs 6-12)
+
+**Goal:** Introduce progression depth
+
+### Room 10 Milestone:
+- Unlock 2 new cards: **Fury** + **Momentum** (offense variety)
+- Tutorial: "New cards available! Experiment with offense synergies"
+
+### After 3 Successful Runs:
+- Unlock **Mulligan System** (1 mulligan)
+- Tutorial: "Reroll your starting hand for better synergies"
+- **Why Early?** New players benefit most from mulligans (helps them learn viable combos)
+
+### Room 12 - First Boss:
+- Unlock **Upgrade System** (shard spending, quality bands)
+- Unlock **Boss Mastery System**
+- First boss card drop (guaranteed new card unlock)
+- Tutorial: "Bosses drop powerful cards. Spend shards to unlock higher quality tiers"
+- **Why Now?** Players have played 6-8 runs, understand card value, ready to invest
+
+---
+
+## Phase 3: Build Variety (Runs 13-25)
+
+**Goal:** Enable specialized builds
+
+### Room 15 Milestone:
+- Unlock 2 defense cards: **Lifeline** + **Phase Step**
+- Unlock 1 mobility card: **Vector Laminar**
+
+### Room 22 - Second Boss:
+- Unlock **Safe/Upgrade Rooms** (first one appears)
+- Unlock 1 ability mutator: **Whirlwind Core** (for Square class)
+- Tutorial: "Modify your abilities with specialized cards"
+
+### Achievement: "Clear 30 Rooms Total (cumulative)":
+- Unlock **Room Modifier System** (tutorial + first modifier card)
+- Tutorial: "Make rooms harder for better rewards, or easier for breathing room"
+
+### After 10 Successful Runs:
+- Unlock 2nd mulligan (now have 2 total)
+
+---
+
+## Phase 4: Advanced Mechanics (Runs 26-40)
+
+**Goal:** Master risk/reward systems
+
+### Room 25 Milestone:
+- Unlock 2 more ability mutators (class-specific)
+- Unlock **Volley** card (powerful multishot)
+
+### Achievement: "Clear 50 Rooms Total (cumulative)":
+- Unlock **Curse System**
+- Unlock **Fractal Conduit** (chain lightning)
+- Tutorial: "Curses offer great power at a price"
+
+### Room 30 Milestone:
+- Unlock 2 economy cards: **Prism Tax** + **Scholar Sigil**
+- Unlock **Reserve Slots** (purchasable)
+
+### Room 32 - Third Boss (Run Ends):
+- Unlock **Phoenix Down** (available for purchase after first clear)
+- Unlock advanced room modifiers
+
+---
+
+## Phase 5: Mastery (Runs 41+)
+
+**Goal:** Complete collection, optimize builds
+
+### Achievement: "Clear 75 Rooms Total (cumulative)":
+- Unlock **Card Combination System** (500 shard purchase)
+- Tutorial: "Combine two cards into one for ultimate builds"
+
+### Achievement: "Complete 3 Full Runs":
+- Unlock remaining ability mutators
+- Unlock all remaining cards via achievements/purchases
+
+### Achievement: "Reach Room 40":
+- Unlock **Legendary Room Modifiers**
+- Unlock final team cards (multiplayer)
+
+---
+
+## Key Design Principles:
+
+1. **Slower Initial Pace**: 
+   - First new cards at Room 10 (not Room 5)
+   - Boss system introduced at Room 12 (not Room 5)
+   - Upgrades introduced after players understand cards
+
+2. **Spaced Introductions**:
+   - Each major system gets 5-10 runs to breathe
+   - No more than 2 new concepts per milestone
+   - Tutorial prompts for each new system
+
+3. **Achievement-Gated Advanced Content**:
+   - Curses, combinations, and advanced modifiers require significant playtime
+   - Prevents overwhelming new players
+   - Rewards dedicated players
+
+4. **Boss Alignment**:
+   - First boss at Room 12 (not 5)
+   - Bosses every 10 rooms (not 5)
+   - Run ends at Room 32 (3 bosses total)
+
+**Estimated Playtime to Full Unlock**:
+- **Basic Proficiency:** 5-8 runs (~3-5 hours)
+- **All Core Systems:** 15-20 runs (~8-12 hours)
+- **Full Collection:** 40-50 runs (~20-30 hours)
+- **Complete Mastery:** 75+ runs (40+ hours)
+
+**UX Flow Principles**:
+1. **One new system per milestone** - Don't introduce multiple complex systems simultaneously
+2. **Tutorial prompts** - When new features unlock, show brief tutorial/explanation
+3. **Visual indicators** - New features should be clearly marked (e.g., "NEW" badge)
+4. **Progressive complexity** - Start simple, add complexity gradually
+5. **Opt-in complexity** - Advanced features (curses, combination) are optional unlocks
+
+### 3.4 Card Unlock System
+
+**Starter Cards** (unlocked by default - LIMITED SET):
+- Players start with a **small subset** of basic cards unlocked at mastery 0:
+  - **Offense**: Precision (only)
+  - **Defense**: Bulwark (only)
+  - **Mobility**: Velocity (only)
+- **All starter cards start at mastery 0**, meaning they will ONLY appear as white quality in packs until upgraded
+- Provides functional but weak starting deck (3 cards total)
+- **Players must unlock additional cards through gameplay** - Not all cards are available from the start
+- Players must upgrade cards to unlock higher quality bands (green/blue/purple/orange) for cards they own
+
+**Card Unlock Methods**:
+- **Room Milestone Unlocks** - Reach specific room milestones (2-3 cards per milestone)
+- **Boss Drops** - Each boss guarantees one new card unlock (random from available pool)
+- **Achievement Unlocks** - Complete specific telemetry-based achievements
+- **Shard Purchase** - Purchase cards from Nexus shop (prices reflect power/usefulness)
+- **Time-Based Unlocks** - Some cards unlock after completing runs within time limits
+
+**Achievement Definition Clarity**:
+- **"After X successful runs"** = Completed runs - A run counts as "successful" if it ends by:
+  - **Beating the final boss** (Room 32 boss) - Run completed successfully
+  - **Dying** - Player death at any point in the run (including before reaching final boss) ends the run and counts toward progression
+  - **Does NOT count**: Quitting a run manually, restarting a run, or abandoning a run
+  - Cumulative across all runs (e.g., "After 3 successful runs" means 3 runs that ended in boss victory or death, regardless of when death occurred)
+- **"Clear X rooms total"** = Cumulative across all runs (e.g., "Clear 30 rooms total" means 30 rooms cleared across any number of runs)
+- **"Deal X damage total"** = Cumulative across all runs (lifetime damage dealt)
+- **"Achieve X in one run"** = Must be done in a single run (e.g., "Achieve 100 kills in one run")
+- **Examples**:
+  - "After 3 successful runs" ✅ Clear - means 3 runs that ended in boss victory or death (quitting/restarting doesn't count)
+  - "Clear 30 rooms total (cumulative)" ✅ Explicitly cumulative
+  - "Deal 10,000 damage (lifetime)" ✅ Explicitly cumulative
+  - "Achieve 100 kills in one run" ✅ Clear single-run requirement
+
+**Pricing Philosophy**:
+- **Basic cards**: 25-50 shards (simple stat modifiers)
+- **Intermediate cards**: 75-125 shards (conditional effects, moderate power)
+- **Advanced cards**: 150-200 shards (powerful effects, complex mechanics)
+- **Legendary cards**: 400-750 shards (extremely powerful, game-changing effects)
+- **Achievement unlocks**: FREE but require specific accomplishments
+- **Boss drops**: FREE but random, requires beating bosses
+- **Meta unlocks**: 75-500 shards (system unlocks, mulligans, combination)
+
+**Detailed Card Unlock List**:
+
+#### Offense Family Cards
+
+**Precision** - ✅ **Unlocked by default** (Starter card)
+
+**Fury** - **Unlock**: Room 10 milestone OR Purchase 30 shards
+- **Power level**: Basic (simple crit damage boost)
+- **Unlock priority**: Early (complements Precision)
+
+**Momentum** - **Unlock**: Room 10 milestone OR Purchase 40 shards
+- **Power level**: Intermediate (conditional stacking effect)
+- **Unlock priority**: Early (teaches conditional mechanics)
+
+**Volley** - **Unlock**: Room 25 milestone OR Purchase 150 shards OR Boss drop (Rooms 22+)
+- **Power level**: Advanced (powerful but balanced with trade-offs)
+- **Unlock priority**: Mid-Late (high impact card, build-defining)
+
+**Execute** - **Unlock**: Achievement "Deal 10,000 damage (lifetime)" OR Purchase 125 shards
+- **Power level**: Advanced (powerful conditional effect)
+- **Unlock priority**: Mid (requires understanding of combat)
+
+**Fractal Conduit** - **Unlock**: Achievement "Clear 50 rooms total (cumulative)" OR Purchase 175 shards
+- **Power level**: Advanced (complex chaining mechanics)
+- **Unlock priority**: Mid (requires understanding of positioning)
+
+**Detonating Vertex** - **Unlock**: Achievement "Achieve 100 kills in one run" OR Purchase 100 shards
+- **Power level**: Intermediate (random chance effect)
+- **Unlock priority**: Mid (teaches RNG mechanics)
+
+**Overcharge** - **Unlock**: Achievement "Clear 30 rooms total (cumulative)" OR Purchase 75 shards
+- **Power level**: Intermediate (time-gated effect)
+- **Unlock priority**: Mid (teaches timing mechanics)
+
+#### Defense Family Cards
+
+**Bulwark** - ✅ **Unlocked by default** (Starter card)
+
+**Lifeline** - **Unlock**: Room 15 milestone OR Purchase 50 shards
+- **Power level**: Basic (simple lifesteal)
+- **Unlock priority**: Early-Mid (essential sustain)
+
+**Fortify Aura** - **Unlock**: Room 15 milestone OR Purchase 75 shards OR Boss drop (Rooms 22+)
+- **Power level**: Intermediate (aura effect, multiplayer benefit)
+- **Unlock priority**: Mid (teaches aura mechanics)
+
+**Phase Step** - **Unlock**: Room 15 milestone OR Purchase 60 shards
+- **Power level**: Basic (utility buff)
+- **Unlock priority**: Early-Mid (mobility utility)
+
+**Phasing** - **Unlock**: Achievement "Dodge 500 attacks (lifetime)" OR Purchase 100 shards
+- **Power level**: Intermediate (random defensive effect)
+- **Unlock priority**: Mid (RNG defense)
+
+**Prism Shield** - **Unlock**: Achievement "Reflect 1,000 damage (lifetime)" OR Purchase 150 shards
+- **Power level**: Advanced (powerful reflect mechanic)
+- **Unlock priority**: Mid-Late (requires understanding of damage types)
+
+**Phoenix Down** - **Unlock**: Achievement "Revive 10 times (lifetime)" OR Purchase 750 shards (available after first full run clear)
+- **Power level**: Legendary (game-changing revive)
+- **Unlock priority**: Late (extremely powerful, should be rare)
+
+#### Mobility Family Cards
+
+**Velocity** - ✅ **Unlocked by default** (Starter card)
+
+**Vector Laminar** - **Unlock**: Room 15 milestone OR Purchase 40 shards
+- **Power level**: Basic (simple projectile speed)
+- **Unlock priority**: Early-Mid (utility)
+
+**Arcane Flow** - **Unlock**: Achievement "Use abilities 200 times (lifetime)" OR Purchase 125 shards
+- **Power level**: Advanced (powerful cooldown reduction)
+- **Unlock priority**: Mid (high impact for ability-focused builds)
+
+**Parallelogram Slip** - **Unlock**: Achievement "Dodge 300 times (lifetime)" OR Purchase 75 shards
+- **Power level**: Intermediate (dodge utility)
+- **Unlock priority**: Mid (mobility enhancement)
+
+#### Ability Mutator Family Cards
+
+**Whirlwind Core** - **Unlock**: Room 15 milestone OR Purchase 100 shards (Square class only)
+- **Power level**: Advanced (class-specific)
+- **Unlock priority**: Mid (requires class understanding)
+
+**Thrust Focus** - **Unlock**: Room 15 milestone OR Purchase 100 shards (Square class only)
+- **Power level**: Advanced (class-specific)
+- **Unlock priority**: Mid
+
+**Block Stance** - **Unlock**: Achievement "Block 200 attacks (lifetime)" OR Purchase 125 shards (Square class only)
+- **Power level**: Advanced (class-specific)
+- **Unlock priority**: Mid-Late
+
+**Fan of Knives+** - **Unlock**: Room 15 milestone OR Purchase 100 shards (Triangle class only)
+- **Power level**: Advanced (class-specific)
+- **Unlock priority**: Mid
+
+**Shadow Clone** - **Unlock**: Room 15 milestone OR Purchase 100 shards (Triangle class only)
+- **Power level**: Advanced (class-specific)
+- **Unlock priority**: Mid
+
+**Backstab Edge** - **Unlock**: Achievement "Deal 5,000 backstab damage (lifetime)" OR Purchase 125 shards (Triangle class only)
+- **Power level**: Advanced (class-specific)
+- **Unlock priority**: Mid-Late
+
+**Blink Flux** - **Unlock**: Room 15 milestone OR Purchase 100 shards (Hexagon class only)
+- **Power level**: Advanced (class-specific)
+- **Unlock priority**: Mid
+
+**Beam Mastery** - **Unlock**: Achievement "Deal 10,000 beam damage (lifetime)" OR Purchase 125 shards (Hexagon class only)
+- **Power level**: Advanced (class-specific)
+- **Unlock priority**: Mid-Late
+
+**Shield Bulwark** - **Unlock**: Room 15 milestone OR Purchase 100 shards (Pentagon class only)
+- **Power level**: Advanced (class-specific)
+- **Unlock priority**: Mid
+
+**Hammer Smash** - **Unlock**: Achievement "Stun 100 enemies (lifetime)" OR Purchase 125 shards (Pentagon class only)
+- **Power level**: Advanced (class-specific)
+- **Unlock priority**: Mid-Late
+
+#### Room Modifier Cards
+
+**Room Modifier System Unlock**: **Unlock**: Achievement "Clear 30 rooms total (cumulative)" OR Purchase 100 shards (unlocks entire system)
+- **Note**: Once system is unlocked, individual room modifier cards drop from elite/boss rooms
+- **Individual cards**: Drop from elite rooms (25% chance), boss rooms (40% chance)
+- **Storage**: Max 3 cards carried on run, up to 30-40 stored in Nexus
+  - **Storage Cap Rationale**: Prevents players from accumulating hundreds of room modifiers over long play sessions, which would make browsing and selecting modifiers tedious and overwhelming. The cap encourages active use and conversion, keeping the system manageable.
+- **Conversion**: Can convert room modifiers to 25 shards at Nexus (discard permanently)
+- **No individual purchase** - Room modifiers are acquired through gameplay only
+- **No guaranteed drops** - Removed "guaranteed every 7 rooms" to prevent redundancy with boss drops and reduce clutter
+
+#### Curse Cards
+
+**Curse System Unlock**: **Unlock**: Achievement "Clear 50 rooms total (cumulative)" OR Purchase 200 shards (unlocks entire system)
+- **Note**: Once system is unlocked, curse cards can appear in curse packs (voluntary door option), boss offers (25% chance, optional), or elite rooms (15% chance, optional)
+- **All curse acquisition is voluntary** - Players can always decline curse offers
+- **No individual purchase** - Curses are acquired through gameplay only
 
 **Boss Drops**:
-- Each boss guarantees one new card unlock
-- Card is random from available pool for current progression
+- Each boss guarantees one new card unlock (random from available pool for current progression)
 - **Boss drops ignore mastery cap by +1 level minimum** (see Boss Mastery Unlock System section 3.2.5)
-- Quality is based on boss room distribution and boss tier (Early/Mid/Late/Final)
+- Quality is based on boss room distribution and boss tier (First/Second/Final - Rooms 12/22/32)
 - **Picking up boss card unlocks mastery level** - FREE mastery unlock if card mastery is below drop quality (see section 3.2.5 for details)
-
-**Achievement Unlocks** (via telemetry):
-- Deal 10,000 damage: Unlock Execute card
-- Clear 50 rooms total: Unlock Fractal Conduit card
-- Achieve 100 kills in one run: Unlock Detonating Vertex card
-- Revive 10 times: Unlock Phoenix Down card
-- And more...
 
 **Team Card Unlocks** (multiplayer only):
 - Complete 10 rooms together: Coordinated Strike
@@ -1118,7 +1677,37 @@ Weighted probability tables by room range (white/green/blue/purple/orange percen
 - Revive teammates 30 times: Last Stand
 - Complete 60 rooms together: Shared Burden
 
-### 3.4 Card Shard System
+**Meta-Progression Unlocks** (purchasable with shards):
+
+**Mulligan System**:
+- **1st Mulligan**: Unlocks after 3 successful runs OR Purchase 50 shards
+- **2nd Mulligan**: Unlocks after 10 successful runs OR Purchase 150 shards
+- **Maximum**: 2 mulligans per run
+- **Rationale**: New players benefit most from mulligans (helps them learn viable combos), while experienced players can purchase immediately if desired
+- **"Successful Run" Definition**: A run counts as successful if it ends by:
+  - **Beating the final boss** (Room 32 boss) - Run completed successfully
+  - **Dying** - Player death at any point in the run (including before reaching final boss) ends the run and counts toward progression
+  - **Does NOT count**: Quitting a run manually, restarting a run, or abandoning a run
+
+**Card Combination System**:
+- **Unlock**: Achievement "Clear 75 rooms total (cumulative)" OR Purchase 500 shards
+- **Late-game power spike** - Allows combining two cards into one slot
+- **Upgrade costs**: Combined cards have 1.75x mastery upgrade costs
+
+**Reserve Slots**:
+- **Unlock**: Room 30 milestone OR Purchase (price TBD)
+- **Function**: Store cards outside hand for later use
+
+**Room Modifier System**:
+- **Unlock**: Achievement "Clear 30 rooms total (cumulative)" OR Purchase 100 shards
+- **Storage**: Max 3 cards carried on run, up to 30-40 stored in Nexus
+- **Rationale**: Core system should be accessible earlier, especially for struggling players
+
+**Curse System**:
+- **Unlock**: Achievement "Clear 50 rooms total (cumulative)" OR Purchase 200 shards
+- **Function**: Enables curse cards to appear in packs and offers
+
+### 3.5 Card Shard System
 
 **Shard Sources**:
 - Room completion: Base 5 shards + (room number × 2)
@@ -1152,13 +1741,19 @@ Game.roomModifierInventory = []; // Room modifier cards carried on run (max 3 de
 Game.activeTeamCards = [];      // Active team cards (multiplayer)
 ```
 
+**Card Instance Properties** (Runtime):
+- All card instances in `Game.hand`, `Game.drawPile`, `Game.discard` must include:
+  - `origin: 'deck' | 'found'` - Tracks whether card came from deck (reshuffles) or was found during run (temporary)
+  - Cards drawn from deck: `origin = 'deck'`
+  - Cards picked up during run: `origin = 'found'`
+
 **Core Functions**:
 - `shuffleDeck(deck)`: Shuffle deck using seeded RNG (for multiplayer sync)
-- `drawCards(count, qualityDistribution)`: Draw cards with quality based on room. Non-stacking cards cannot be drawn if already in hand.
-- `mulligan(cardIndices)`: Shuffle selected cards back into draw pile, then draw new cards using starting distribution (80/15/5/0/0). Non-stacking cards cannot be drawn if already in hand.
+- `drawCards(count, qualityDistribution)`: Draw cards with quality based on room. Non-stacking cards cannot be drawn if already in hand. **All cards drawn from drawPile must be tagged with `origin: 'deck'`**.
+- `mulligan(cardIndices)`: Shuffle selected cards back into draw pile, then draw new cards using starting distribution (80/15/5/0/0). Non-stacking cards cannot be drawn if already in hand. **New cards drawn must be tagged with `origin: 'deck'`**.
 - `playCard(cardId)`: Activate card effect, move to appropriate pile (discard for persistent, spent for one-time use/destroyed cards like Phoenix Down)
-- `discardCard(cardId)`: Move card to discard pile
-- `addToHand(card)`: Add card to hand (or swap if full). If card is non-stacking and already in hand, reject or swap with existing copy.
+- `discardCard(cardId)`: Move card to discard pile. **Preserves `origin` property**.
+- `addToHand(card)`: Add card to hand (or swap if full). If card is non-stacking and already in hand, reject or swap with existing copy. **When adding picked-up cards, must tag with `origin: 'found'`**.
 - `useRoomModifier(cardId, targetRoom)`: Consume room modifier card
 
 ### 4.1.5 Card Deck vs Hand Circulation
@@ -1172,26 +1767,29 @@ Game.activeTeamCards = [];      // Active team cards (multiplayer)
 - When drawing from `drawPile`, quality is rolled based on current room distribution **AND mastery level**
 - Quality is capped by mastery level - cards can only appear at quality bands you've unlocked
 - Same card type can be drawn multiple times with different qualities (within mastery limits)
+- **All cards drawn from deck must be tagged with `origin: 'deck'`** - This marks them as permanent deck cards that will reshuffle
 - **Example**: 
-  - Precision at mastery 0: Draw 1 → Precision (White only, mastery 0 caps it)
-  - Precision at mastery 1: Draw 2 → Precision (White or Green, rolled using room 1 distribution, but blue/purple/orange not possible)
-  - Precision at mastery 2: Room 5 clear → Precision (White/Green/Blue possible, rolled using room 5 distribution, but purple/orange not possible)
+  - Precision at mastery 0: Draw 1 → Precision (White only, mastery 0 caps it) with `origin: 'deck'`
+  - Precision at mastery 1: Draw 2 → Precision (White or Green, rolled using room 1 distribution, but blue/purple/orange not possible) with `origin: 'deck'`
+  - Precision at mastery 2: Room 5 clear → Precision (White/Green/Blue possible, rolled using room 5 distribution, but purple/orange not possible) with `origin: 'deck'`
 
 **Picked-Up Cards (During Run)**:
 - Cards picked up during run (from room clears) **ADD to hand** (if space available)
+- **All picked-up cards must be tagged with `origin: 'found'`** - This marks them as temporary cards that will NOT reshuffle
 - **Picked-up cards do NOT enter the draw pile** - They exist only in hand until discarded
-- When discarded, picked-up cards enter `discard` pile
-- **When discard pile reshuffles into draw pile**: Picked-up cards **DO NOT reshuffle back** - They are removed from circulation after being discarded
-- **Exception**: Cards originally from deck that were discarded DO reshuffle back into draw pile
+- When discarded, picked-up cards enter `discard` pile (with `origin: 'found'` preserved)
+- **When discard pile reshuffles into draw pile**: 
+  - Cards with `origin: 'deck'` **DO reshuffle back** into draw pile (permanent deck cards)
+  - Cards with `origin: 'found'` **DO NOT reshuffle back** - They are permanently removed from circulation after being discarded
 
 **Card Lifecycle Example**:
 1. Deck has "3x Precision" (card type, not specific instances), Precision is mastery 2 (white/green/blue unlocked)
-2. Draw Precision (White) → enters hand (rolled white from room 1 distribution, within mastery 2 limits)
-3. Draw Precision (Green) → enters hand (rolled green from room 1 distribution, within mastery 2 limits)
-4. Room 5: Precision (Blue) drops on ground → picked up → enters hand (rolled blue from room 5 distribution, within mastery 2 limits - purple/orange not possible)
-5. Hand now has: Precision (White), Precision (Green), Precision (Blue)
-6. If Precision (Blue) is discarded → enters discard pile
-7. When discard reshuffles → Precision (White) and Precision (Green) reshuffle (they were from deck), but Precision (Blue) does NOT (it was picked up)
+2. Draw Precision (White) → enters hand with `origin: 'deck'` (rolled white from room 1 distribution, within mastery 2 limits)
+3. Draw Precision (Green) → enters hand with `origin: 'deck'` (rolled green from room 1 distribution, within mastery 2 limits)
+4. Room 5: Precision (Blue) drops on ground → picked up → enters hand with `origin: 'found'` (rolled blue from room 5 distribution, within mastery 2 limits - purple/orange not possible)
+5. Hand now has: Precision (White, origin: 'deck'), Precision (Green, origin: 'deck'), Precision (Blue, origin: 'found')
+6. If Precision (Blue) is discarded → enters discard pile with `origin: 'found'` preserved
+7. When discard reshuffles → Precision (White) and Precision (Green) reshuffle (they have `origin: 'deck'`), but Precision (Blue) does NOT (it has `origin: 'found'` and is permanently removed)
 
 **Why This Matters**:
 - Picked-up cards are temporary bonuses - they don't persist through deck cycles
@@ -1212,15 +1810,17 @@ Game.activeTeamCards = [];      // Active team cards (multiplayer)
    - `Game.hand` initialized as empty
 
 3. **Starting Draw**:
-   - Draw `startingCards` cards (default 2, upgradeable to 3-4, max `handSize`) using starting distribution (80/15/5/0/0)
-   - Cards added to `Game.hand`
+   - Calculate average mastery level across all cards in deck
+   - Apply mastery floor distribution (see Quality Distribution Curves section)
+   - Draw `startingCards` cards (default 3, upgradeable to 4, max `handSize`) using mastery-adjusted starting distribution
+   - Cards added to `Game.hand` with `origin: 'deck'`
    - If mulligans unlocked (`mulligans > 0`), UI shows mulligan screen
    - If no mulligans unlocked, proceed directly to run start
 
 4. **Mulligan Phase** (if unlocked):
    - Player selects up to `mulligans` cards from starting hand to mulligan (default 0, unlockable via meta-progression)
    - Selected cards are shuffled back into `Game.drawPile` (cards are not removed from the run)
-   - New cards drawn using starting distribution (80/15/5/0/0) - same as initial starting draw
+   - New cards drawn using mastery-adjusted starting distribution (same as initial starting draw, respects mastery floor)
    - Mulligan complete, run begins with new starting hand
 
 5. **Run Start**:
@@ -1238,8 +1838,10 @@ Game.activeTeamCards = [];      // Active team cards (multiplayer)
   b) Card effect requires discard as cost (if any such cards exist)
   c) Card is destroyed (one-time use effects like Phoenix Down go to spent pile, not discard)
 - **Exception: Curse cards** - Curses cannot be discarded through normal means (hand full + pickup). They can only be removed through special mechanics (Purification Room, Purification Scroll, boss reward)
-- **Discarded cards enter `Game.discard` pile**
-- **When draw pile is empty**: Discard pile is shuffled into draw pile (creates a cycle)
+- **Discarded cards enter `Game.discard` pile** (with `origin` property preserved)
+- **When draw pile is empty**: Discard pile is filtered and shuffled into draw pile:
+  - Cards with `origin: 'deck'` are shuffled back into draw pile (creates a cycle)
+  - Cards with `origin: 'found'` are permanently removed from circulation (do NOT reshuffle)
 - **Exception**: Spent/destroyed cards (in `Game.spent`) never return to draw pile - they are permanently removed from the run
 
 **Discard vs Spent vs Cursed**:
@@ -1276,6 +1878,7 @@ Game.activeTeamCards = [];      // Active team cards (multiplayer)
 5. **Card Pickup** (if card reward):
    - Any player can pick up any card (not just their own)
    - If hand has space: card added to hand
+   - **All picked-up cards must be tagged with `origin: 'found'`** when added to hand (marks them as temporary, will not reshuffle)
    - If hand full: player chooses to swap with existing card or discard new card
    - Card pickup synced in multiplayer (host authoritative)
 
@@ -1326,15 +1929,14 @@ Game.activeTeamCards = [];      // Active team cards (multiplayer)
 - Special event rooms (guaranteed)
 - **Room modifier card packs** - Available as door options (rare, appears every 5-7 rooms)
 - **Shard purchase** - 50 shards for random room modifier (available in safe/upgrade rooms)
-- **Guaranteed drop every 5 rooms** - Every 5th room clear guarantees one room modifier card
-- Cards added to Nexus collection (max 20 stored), can be selected for future runs (max 3 carried per run)
+- Cards added to Nexus collection (max 30-40 stored), can be selected for future runs (max 3 carried per run)
 
-**Acquisition Rate Analysis**:
-- Typical run: ~20 rooms with ~3 elites and 2 bosses
-- Elite drops: 3 × 20% = 0.6 expected
-- Boss drops: 2 × 50% = 1.0 expected
-- Guaranteed drops: 20 ÷ 5 = 4 guaranteed
-- **Total expected per run: ~5.6 room modifiers** (sufficient for 3 carry limit + collection building)
+**Acquisition Rate Analysis** (32-room run):
+- Typical run: ~4 elite rooms, 3 boss rooms
+- Elite drops: 4 × 25% = 1.0 expected (increased from 15% to make elites more rewarding)
+- Boss drops: 3 × 40% = 1.2 expected
+- **Total expected per run: ~2.2 room modifiers** (balanced for 3 carry limit)
+- **Note**: With max carry of 3 and storage of 30-40, players will need to use or convert modifiers regularly to avoid hitting storage cap. The storage cap exists to prevent overwhelming inventory management for long-term players.
 
 ### 4.6 Bonus Room Types
 
@@ -1359,12 +1961,14 @@ Game.activeTeamCards = [];      // Active team cards (multiplayer)
 - Moderate difficulty (+20% HP/damage)
 - Useful for meta-progression
 
-**Purification Room** (Rare - Curse Removal):
-- Rare room type (appears every 10-15 rooms)
+**Purification Room** (Deterministic - Curse Removal):
+- **Door Option**: Appears as a door choice every 8-10 rooms (deterministic cadence)
+- **Guaranteed After Curse**: After taking a curse, Purification Room door is GUARANTEED to appear within next 8 rooms
 - Removes one curse card from hand (player chooses which curse to remove)
 - Moderate difficulty (+25% HP/damage)
 - Alternative reward: 40 shards if player has no curses
-- Can appear multiple times per run (but rare)
+- Door clearly labeled: "🔮 PURIFICATION CHAMBER"
+- Creates a "curse window" - players know they can remove it soon if needed
 
 ### 4.7 Card Combination System
 
@@ -1448,8 +2052,14 @@ Game.activeTeamCards = [];      // Active team cards (multiplayer)
 
 **Upgrade Shop**:
 - Purchase hand size upgrades (cost: 50 shards per slot, unlocks more slots)
-- Purchase starting cards upgrade (cost: 75 shards, increases from 2 → 3 → 4, cannot exceed `handSize`)
-- Unlock mulligans (cost: 100 shards, unlocks 1 mulligan, can purchase multiple times up to 2)
+- Purchase starting cards upgrade:
+  - **Default**: 3 cards (all starters)
+  - **Purchase 1**: 4 cards (75 shards)
+  - **Maximum**: Equal to current `handSize`
+  - **Upgrade Path**: If hand size increases, starting cards can be purchased up to new hand size limit (e.g., hand size 5 → can purchase starting cards to 5)
+  - **Cost Scaling**: 75 shards × current starting cards count (3→4 = 75 shards, 4→5 = 150 shards, 5→6 = 225 shards, etc.)
+  - **Cannot exceed hand size**: Starting cards cannot exceed `handSize` (e.g., if hand size is 4, starting cards max is 4)
+- Unlock mulligans (1st: 50 shards, 2nd: 150 shards, can purchase up to 2 total)
 - Purchase reserve slots (cost: 100 shards per slot)
 - Purchase room modifier carry slots (cost: 150 shards per slot, max 3 → 5)
 - Unlock card combination (cost: 500 shards, late meta-progression, allows combining two cards into one)
@@ -1459,7 +2069,10 @@ Game.activeTeamCards = [];      // Active team cards (multiplayer)
 **Hand Display** (`js/ui.js`):
 - Show current cards in hand
 - Quality indicators (border glow, tier colors)
-- Card tooltips (effects, flavor text)
+- **Card Origin Icons**: Each card must display a small, non-intrusive icon in one corner (e.g., top-right) based on `card.origin`:
+  - **`origin: 'deck'`**: Display "Deck" icon (suggestion: stacked cards icon or circular arrow/cycle icon) - indicates card will reshuffle when discarded
+  - **`origin: 'found'`**: Display "Temporary" icon (suggestion: spark icon, one-time icon like '1x', or download arrow icon) - indicates card will be removed when discarded
+- Card tooltips (effects, flavor text, origin information)
 - Play/discard buttons
 
 **Active Effects Panel**:
@@ -1479,7 +2092,8 @@ Game.activeTeamCards = [];      // Active team cards (multiplayer)
 - Card preview on hover
 - Pickup confirmation
 - **Boss Mastery Unlock Indicator**: When boss drops a card at +1 mastery level above current:
-  - Show prominent "Boss Unlock Available!" indicator on the card
+  - **Pre-pickup**: Visual indicator (glow/border) on ground card - "Boss Unlock Available!" glows on card
+  - **Post-pickup**: Banner notification + sound effect - "Mastery 1 Unlocked for Precision!" (creates memorable "moment")
   - Visual highlight (glow, border, or icon) to draw attention
   - Tooltip/description: "Picking up this card will unlock [Mastery Level] ([Quality] quality) for [Card Name] permanently (FREE)"
     - Example: "Picking up this card will unlock Mastery 1 (Green quality) for Precision permanently (FREE)"
@@ -1492,8 +2106,16 @@ Game.activeTeamCards = [];      // Active team cards (multiplayer)
 - Team card effects display
 - Duration/cooldown indicators
 
+**Run End / Death UI** (Optional Polish):
+- **After player dies (any room)**: Show banner "Run Complete - Progress Made!"
+- **Show unlock progress**: Display progress toward next unlock
+  - Example: "Mulligan unlocked! (3/3 successful runs)"
+  - Example: "Progress toward 2nd Mulligan: 7/10 successful runs"
+- **Rationale**: Makes the "death = progression" mechanic visible to players, reducing frustration and reinforcing that deaths contribute to meta-progression
+
 **Safe/Upgrade Room UI**:
-- Card quality band upgrade interface (spend shards to upgrade cards)
+- **Shard Purchase Interface** (Permanent Unlocks): Spend shards to permanently upgrade card mastery levels at Nexus. These are permanent unlocks that persist across all future runs.
+- **In-Run Upgrade Interface** (Temporary): Upgrade cards in-hand for this run only using upgrade rewards from packs. These do NOT grant permanent mastery unlocks.
 - Card combination interface (if unlocked):
   - Select two cards from hand to combine
   - **Combined cards are disabled/grayed out** - cannot be selected for further combination (depth limit: 1)
@@ -1524,6 +2146,9 @@ Game.activeTeamCards = [];      // Active team cards (multiplayer)
 - Flavor text
 - Trade-offs (if any)
 - Mastery level and upgrade info
+- **Card Origin Information** (new line below trade-offs):
+  - **If `card.origin === 'deck'`**: "Source: From Deck (Reshuffles when discarded)"
+  - **If `card.origin === 'found'`**: "Source: Found in Run (Removed from run when discarded)"
 - **Boss unlock info** (if applicable): "Picking up this card will unlock [Mastery Level] ([Quality] quality) for [Card Name] permanently (FREE mastery unlock)"
   - Example: "Picking up this card will unlock Mastery 1 (Green quality) for Precision permanently (FREE mastery unlock)"
   - Note: Shows the mastery level that will be unlocked, not necessarily the card's current quality (team cards may shift quality higher)
@@ -1735,4 +2360,3 @@ This design specification provides a comprehensive blueprint for replacing the g
 6. **Room modifiers**: Separate inventory system for rare, powerful room modifications
 
 The system maintains the geometric theme of the game while providing deep customization and progression options for players.
-
