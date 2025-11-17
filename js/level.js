@@ -103,8 +103,15 @@ const BOSS_DAMAGE_GROWTH_PER_ROOM = 0.14;    // 14% per room
 function generateRoom(roomNumber) {
     const room = new Room(roomNumber);
     
-    // Check if this is a boss room (every 5 rooms starting at room 10)
-    if ((roomNumber % 5 === 0) && (roomNumber >= 10)) {
+    // Safe/Upgrade rooms unlock at room 22; appear periodically
+    if (roomNumber >= 22 && (roomNumber % 7 === 2)) {
+        room.type = 'safe';
+        // No enemies in safe room; door opens immediately via checkRoomCleared
+        return room;
+    }
+    
+    // Boss rooms per spec at rooms 12, 22, 32
+    if (roomNumber === 12 || roomNumber === 22 || roomNumber === 32) {
         room.type = 'boss';
         const boss = generateBoss(roomNumber);
         room.enemies.push(boss);
@@ -132,6 +139,20 @@ function generateRoom(roomNumber) {
     const roomIndex = Math.max(0, roomNumber - 1);
     const enemyHpScale = Math.pow(1 + ENEMY_HP_GROWTH_PER_ROOM, roomIndex);
     const enemyDamageScale = Math.pow(1 + ENEMY_DAMAGE_GROWTH_PER_ROOM, roomIndex);
+	
+	// Apply next-room enemy modifiers from room modifier cards (one-time)
+	let enemyHpMod = 1.0;
+	let enemySpeedMod = 1.0;
+	if (typeof Game !== 'undefined' && Game.nextRoomEnemyMod) {
+		if (Number.isFinite(Game.nextRoomEnemyMod.hpPct) && Game.nextRoomEnemyMod.hpPct !== 0) {
+			enemyHpMod *= (1 + Game.nextRoomEnemyMod.hpPct);
+		}
+		if (Number.isFinite(Game.nextRoomEnemyMod.speedPct) && Game.nextRoomEnemyMod.speedPct !== 0) {
+			enemySpeedMod *= (1 + Game.nextRoomEnemyMod.speedPct);
+		}
+		// Clear so it only applies to this room
+		Game.nextRoomEnemyMod = null;
+	}
     
     const enemyCount = Math.floor(baseEnemyCount * mpScaling.enemyCount);
     
@@ -281,13 +302,17 @@ function generateRoom(roomNumber) {
         }
         
         // Scale enemy stats (room progression + multiplayer scaling)
-        enemy.maxHp = Math.floor(enemy.maxHp * enemyHpScale * mpScaling.enemyHP);
+	enemy.maxHp = Math.floor(enemy.maxHp * enemyHpScale * mpScaling.enemyHP * enemyHpMod);
         enemy.hp = enemy.maxHp;
         enemy.damage = enemy.damage * enemyDamageScale * mpScaling.enemyDamage;
         if (typeof enemy.damageScalingMultiplier === 'number') {
             enemy.damage *= enemy.damageScalingMultiplier;
         }
         enemy.xpValue = Math.floor(enemy.xpValue * enemyHpScale);
+	// Tag room-wide speed multiplier for AI that consults it (optional)
+	if (Number.isFinite(enemySpeedMod) && enemySpeedMod !== 1.0) {
+		enemy.globalSpeedMultiplier = (enemy.globalSpeedMultiplier || 1.0) * enemySpeedMod;
+	}
         
             // Set initial state to standby (will activate when player gets close)
             enemy.state = 'standby';
@@ -328,6 +353,77 @@ function checkRoomCleared() {
                 ? Game.collectTelemetryParticipants(true)
                 : [];
             Telemetry.recordRoomCleared(currentRoom.number, participants);
+        }
+        
+        // Update lifetime stats and check for card unlocks based on room milestone
+        if (typeof window.updateLifetimeStats === 'function') {
+            window.updateLifetimeStats({ totalRoomsCleared: 1 });
+        }
+        if (typeof window.checkRoomMilestoneUnlocks === 'function' && typeof Game !== 'undefined' && Game.roomNumber) {
+            const unlocked = window.checkRoomMilestoneUnlocks(Game.roomNumber);
+            if (unlocked.length > 0) {
+                console.log(`[CardUnlocks] Unlocked ${unlocked.length} card(s) at room ${Game.roomNumber}`);
+                // TODO: Show unlock notification UI
+            }
+        }
+        
+        // Card system: generate door options and spawn rewards/selections
+        if (typeof CardPacks !== 'undefined' && CardPacks.generateDoorOptions && typeof Game !== 'undefined') {
+            const forceUpgrade = currentRoom.type === 'safe';
+            const count = forceUpgrade ? 1 : (2 + Math.floor(Math.random() * 2));
+            if (forceUpgrade) {
+                const upgradeOption = {
+                    packType: 'Upgrade',
+                    rewardType: 'Upgrade',
+                    preview: ['+1 quality to a hand card', '+20 shards option'],
+                    payload: { upgrade: true, shards: 20 }
+                };
+                // Validate upgrade option - check if player can actually upgrade
+                // IMPORTANT: Account for room reward upgrade that will be picked up before door selection
+                const currentRoomNumber = currentRoom.number || (typeof Game !== 'undefined' ? Game.roomNumber : 1);
+                
+                // Check if there's a room reward that's an upgrade (from previous room's door selection)
+                const roomRewardIsUpgrade = typeof window !== 'undefined' && window.selectedDoorReward 
+                    && window.selectedDoorReward.rewardType === 'Upgrade' 
+                    && window.selectedDoorReward.payload 
+                    && window.selectedDoorReward.payload.upgrade;
+                
+                // Count how many cards can be upgraded
+                const upgradeableCount = typeof window.countUpgradeableCards === 'function'
+                    ? window.countUpgradeableCards(currentRoomNumber)
+                    : (typeof window.canUpgradeAnyCard === 'function' && window.canUpgradeAnyCard(currentRoomNumber) ? 1 : 0);
+                
+                // If room reward is an upgrade, it will use one upgrade slot
+                // So door upgrade options need at least 2 upgradeable cards (1 for room reward, 1 for door option)
+                const requiredUpgradeableCount = roomRewardIsUpgrade ? 2 : 1;
+                const canUpgrade = upgradeableCount >= requiredUpgradeableCount;
+                
+                upgradeOption.canUpgrade = canUpgrade;
+                if (!canUpgrade) {
+                    const maxQuality = typeof window.getMaxUpgradeQualityForRoom === 'function'
+                        ? window.getMaxUpgradeQualityForRoom(currentRoomNumber)
+                        : 'orange';
+                    if (roomRewardIsUpgrade) {
+                        upgradeOption.upgradeWarning = `Room reward is an upgrade. After using it, no cards will be upgradeable (max ${maxQuality} for Room ${currentRoomNumber}). Choose a different reward.`;
+                    } else {
+                        upgradeOption.upgradeWarning = `All cards are already at maximum upgrade quality (${maxQuality}) for Room ${currentRoomNumber}. Choose a different reward.`;
+                    }
+                }
+                Game.doorOptions = [upgradeOption];
+            } else {
+                Game.doorOptions = CardPacks.generateDoorOptions(currentRoom.number || 1, count);
+            }
+            Game.awaitingDoorSelection = true;
+            
+            // First spawn the reward for this room (if any)
+            if (typeof spawnRoomReward === 'function') {
+                spawnRoomReward();
+            }
+            
+            // Then spawn physical door selection objects (card packs) for next room
+            if (typeof createDoorSelections === 'function') {
+                createDoorSelections();
+            }
         }
         
         if (typeof Game !== 'undefined' &&
@@ -381,20 +477,14 @@ function generateBoss(roomNumber) {
         AudioManager.sounds.bossSpawn();
     }
     
-    // Determine which boss to spawn based on room number
-    if (roomNumber === 10) {
+    // Determine which boss to spawn based on room number (spec: 12, 22, 32)
+    if (roomNumber === 12) {
         // Swarm King
         boss = new BossSwarmKing(spawnX, spawnY);
-    } else if (roomNumber === 15) {
-        // Twin Prism
-        boss = new BossTwinPrism(spawnX, spawnY);
-    } else if (roomNumber === 20) {
+    } else if (roomNumber === 22) {
         // Fortress
         boss = new BossFortress(spawnX, spawnY);
-    } else if (roomNumber === 25) {
-        // Fractal Core
-        boss = new BossFractalCore(spawnX, spawnY);
-    } else if (roomNumber === 30) {
+    } else if (roomNumber === 32) {
         // Vortex
         boss = new BossVortex(spawnX, spawnY);
     } else {

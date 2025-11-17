@@ -774,11 +774,21 @@ class EnemyBase {
     
     // Apply stun effect
     applyStun(duration) {
+        // Track stun for lifetime stats (only count new stuns, not extending existing ones)
+        const wasStunned = this.stunned;
         this.stunned = true;
         this.stunDuration = duration;
         // Store base move speed if not already stored
         if (this.baseMoveSpeed === undefined || this.baseMoveSpeed === null) {
             this.baseMoveSpeed = this.moveSpeed;
+        }
+        
+        // Track lifetime stun stat (only on host/solo, only count new stuns)
+        if (!wasStunned) {
+            const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+            if (!isClient && typeof window.trackLifetimeStat === 'function') {
+                window.trackLifetimeStat('totalStuns', 1);
+            }
         }
     }
     
@@ -1223,9 +1233,19 @@ class EnemyBase {
         this.deathTime = Date.now(); // Track when enemy died (for delayed removal)
         
         // Track kill for the last attacker
-        if (this.lastAttacker && typeof Game !== 'undefined' && Game.getPlayerStats) {
-            const stats = Game.getPlayerStats(this.lastAttacker);
-            stats.addStat('kills', 1);
+        if (this.lastAttacker) {
+            // Track lifetime kills stat
+            const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+            if (!isClient && typeof window.trackLifetimeStat === 'function') {
+                window.trackLifetimeStat('totalKills', 1);
+            }
+            
+            if (typeof Game !== 'undefined' && Game.getPlayerStats) {
+                const stats = Game.getPlayerStats(this.lastAttacker);
+                if (stats) {
+                    stats.addStat('kills', 1);
+                }
+            }
         }
         
         // Emit particles on death
@@ -1244,8 +1264,10 @@ class EnemyBase {
                 const roomNum = typeof Game !== 'undefined' ? (Game.roomNumber || 1) : 1;
                 // Default to 'basic' difficulty for base class (can be overridden in subclasses)
                 const gear = generateGear(this.x, this.y, roomNum, 'basic');
-                groundLoot.push(gear);
-                console.log(`Dropped loot at (${Math.floor(this.x)}, ${Math.floor(this.y)})`);
+                if (gear) {
+                    groundLoot.push(gear);
+                    console.log(`Dropped loot at (${Math.floor(this.x)}, ${Math.floor(this.y)})`);
+                }
             }
         }
     }

@@ -204,6 +204,51 @@ class PlayerBase {
             return;
         }
         
+        // Block all player actions when awaiting card swap
+        const awaitingSwap = typeof Game !== 'undefined' && Game.awaitingHandSwap && Game.pendingSwapCard;
+        if (awaitingSwap) {
+            // Still update debuffs and cooldowns, but block movement and attacks
+            this.updateEnemyDebuffs(deltaTime);
+            
+            // Update cooldowns
+            if (this.attackCooldown > 0) {
+                this.attackCooldown -= deltaTime;
+            }
+            if (this.heavyAttackCooldown > 0) {
+                this.heavyAttackCooldown -= deltaTime;
+            }
+            
+            // Update dodge cooldowns (supports both single and multi-charge systems)
+            const usesChargeDodge = this.usesChargeBasedDodge();
+            if (usesChargeDodge && Array.isArray(this.dodgeCharges)) {
+                let readyCharges = 0;
+                for (let i = 0; i < this.dodgeCharges.length; i++) {
+                    if (this.dodgeCharges[i] <= 0) {
+                        readyCharges++;
+                    } else {
+                        this.dodgeCharges[i] -= deltaTime;
+                        if (this.dodgeCharges[i] < 0) this.dodgeCharges[i] = 0;
+                    }
+                }
+                this.dodgeCooldown = readyCharges > 0 ? 0 : (this.dodgeCharges.length > 0 ? Math.max(...this.dodgeCharges) : 0);
+            } else {
+                if (this.dodgeCooldown > 0) {
+                    this.dodgeCooldown -= deltaTime;
+                }
+            }
+            
+            // Update special ability cooldown
+            if (this.specialCooldown > 0) {
+                this.specialCooldown -= deltaTime;
+            }
+            
+            // Stop movement
+            this.vx = 0;
+            this.vy = 0;
+            
+            return; // Skip all other updates
+        }
+        
         this.updateEnemyDebuffs(deltaTime);
         
         // Handle movement - skip if dodging or if subclass handles movement during special abilities
@@ -390,6 +435,54 @@ class PlayerBase {
         // Update special ability cooldown
         if (this.specialCooldown > 0) {
             this.specialCooldown -= deltaTime;
+        }
+        
+        // Normalize cooldowns for UI consumers
+        if (!this.cooldowns) this.cooldowns = { dodge:{}, heavy:{}, special:{} };
+        // Dodge remaining time until at least one charge is ready
+        const normalizedDodgeRemaining = Math.max(0, Number.isFinite(this.dodgeCooldown) ? this.dodgeCooldown : 0);
+        const normalizedDodgeMax = Math.max(0.0001, Number.isFinite(this.dodgeCooldownTime) ? this.dodgeCooldownTime : 2.0);
+        this.cooldowns.dodge.remaining = normalizedDodgeRemaining;
+        this.cooldowns.dodge.max = normalizedDodgeMax;
+        // Heavy
+        const normalizedHeavyRemaining = Math.max(0, Number.isFinite(this.heavyAttackCooldown) ? this.heavyAttackCooldown : 0);
+        const normalizedHeavyMax = Math.max(0.0001, Number.isFinite(this.heavyAttackCooldownTime) ? this.heavyAttackCooldownTime : 1.5);
+        this.cooldowns.heavy.remaining = normalizedHeavyRemaining;
+        this.cooldowns.heavy.max = normalizedHeavyMax;
+        // Special
+        const normalizedSpecialRemaining = Math.max(0, Number.isFinite(this.specialCooldown) ? this.specialCooldown : 0);
+        const normalizedSpecialMax = Math.max(0.0001, Number.isFinite(this.specialCooldownTime) ? this.specialCooldownTime : 1.0);
+        this.cooldowns.special.remaining = normalizedSpecialRemaining;
+        this.cooldowns.special.max = normalizedSpecialMax;
+        // Per-charge dodge array for UI (supports multi-charge dodge)
+        if (this.dodgeChargeCooldowns && Array.isArray(this.dodgeChargeCooldowns)) {
+            this.cooldowns.dodge.charges = this.dodgeChargeCooldowns.slice();
+        } else {
+            this.cooldowns.dodge.charges = [this.cooldowns.dodge.remaining];
+        }
+        
+        // Emit normalized cooldowns JSON for DOM HUD (event-driven, UI-agnostic)
+        if (typeof window !== 'undefined' && window.UIBus && typeof window.UIBus.emit === 'function') {
+            try {
+                const bars = [];
+                // Dodge bars: one per charge if available
+                const dodgeMaxForUi = Math.max(0.0001, Number.isFinite(this.dodgeCooldownTime) ? this.dodgeCooldownTime : 2.0);
+                if (this.dodgeChargeCooldowns && Array.isArray(this.dodgeChargeCooldowns) && this.dodgeChargeCooldowns.length > 0) {
+                    for (let i = 0; i < this.dodgeChargeCooldowns.length; i++) {
+                        const rem = Math.max(0, Number.isFinite(this.dodgeChargeCooldowns[i]) ? this.dodgeChargeCooldowns[i] : 0);
+                        bars.push({ type: 'dodge', label: 'D', remaining: rem, max: dodgeMaxForUi });
+                    }
+                } else {
+                    bars.push({ type: 'dodge', label: 'Dodge', remaining: this.cooldowns.dodge.remaining, max: dodgeMaxForUi });
+                }
+                // Special
+                bars.push({ type: 'special', label: 'Special', remaining: this.cooldowns.special.remaining, max: this.cooldowns.special.max });
+                // Heavy
+                bars.push({ type: 'heavy', label: 'Heavy', remaining: this.cooldowns.heavy.remaining, max: this.cooldowns.heavy.max });
+                window.UIBus.emit('cooldowns:update', { bars });
+            } catch (e) {
+                // Avoid spamming console on every frame if something goes wrong
+            }
         }
         
         // Update heavy charge effect animation
@@ -763,6 +856,9 @@ class PlayerBase {
         // Set dodge state
         this.isDodging = true;
         this.invulnerable = true;
+        
+        // NOTE: We no longer track dodge usage here - instead we track successful dodges
+        // (when an attack would have hit but the player was dodging) in checkEnemiesVsPlayer()
         this.dodgeElapsed = 0;
         this.dodgeHitEnemies.clear(); // Reset hit tracking for new dodge
         
@@ -1157,7 +1253,15 @@ class PlayerBase {
         
         // Apply damage reduction from defense and class-based sources
         const reduction = this.computeDamageReduction();
+        const originalDamage = damage;
         damage = damage * (1 - reduction);
+        
+        // Track block if block stance reduced damage (Warrior-specific)
+        if (reduction > 0 && typeof this.blockStanceActive !== 'undefined' && this.blockStanceActive) {
+            if (typeof window.trackLifetimeStat === 'function') {
+                window.trackLifetimeStat('totalBlocks', 1);
+            }
+        }
         
         // Track damage taken in player stats
         if (typeof Game !== 'undefined' && Game.getPlayerStats && Game.getLocalPlayerId) {
@@ -1195,6 +1299,11 @@ class PlayerBase {
             
             sourceEnemy.takeDamage(reflectedDamage, attackerId);
             
+            // Track reflected damage for lifetime stats
+            if (typeof window.trackLifetimeStat === 'function') {
+                window.trackLifetimeStat('totalReflectedDamage', damageDealt);
+            }
+            
             // Track stats (host/solo only)
             const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
             if (!isClient && typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
@@ -1220,6 +1329,21 @@ class PlayerBase {
         
         // Subtract damage from HP
         this.hp -= damage;
+        
+        // Track near-death experiences (HP drops below 20%)
+        if (this.hp > 0 && this.hp <= (this.maxHp * 0.20)) {
+            // Only track once per near-death episode (use a flag to prevent multiple counts)
+            if (!this._nearDeathTracked) {
+                const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+                if (!isClient && typeof window.trackLifetimeStat === 'function') {
+                    window.trackLifetimeStat('totalNearDeathExperiences', 1);
+                }
+                this._nearDeathTracked = true;
+            }
+        } else if (this.hp > (this.maxHp * 0.30)) {
+            // Reset flag when HP recovers above 30%
+            this._nearDeathTracked = false;
+        }
         
         // Trigger screen shake on taking damage
         if (typeof Game !== 'undefined') {
@@ -1256,6 +1380,12 @@ class PlayerBase {
             this.hp = 0;
             this.dead = true;
             this.alive = false;
+            
+            // Track death for lifetime stats
+            const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+            if (!isClient && typeof window.trackLifetimeStat === 'function') {
+                window.trackLifetimeStat('totalDeaths', 1);
+            }
             
             if (typeof Telemetry !== 'undefined') {
                 const playerId = this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local');
@@ -1742,6 +1872,60 @@ class PlayerBase {
                 this.applyClassModifier(gear.classModifier);
             }
         });
+        
+        // Apply card effects from current hand (card system)
+        if (typeof DeckState !== 'undefined' && typeof CardEffects !== 'undefined' && CardEffects.applyPlayerStatModifiers) {
+            const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
+            const mods = CardEffects.applyPlayerStatModifiers(this, handCards);
+            if (mods) {
+                // Offensive
+                if (Number.isFinite(mods.critChance)) {
+                    this.critChance = (this.critChance || 0) + mods.critChance;
+                }
+				if (Number.isFinite(mods.critDamageMultiplierAdd)) {
+					this.critDamageMultiplier += mods.critDamageMultiplierAdd;
+				}
+                // Defensive (percent-based multiplier)
+                if (Number.isFinite(mods.defense)) {
+                    this.defenseMultiplier = (this.defenseMultiplier || 1) * (1 + mods.defense);
+                }
+				if (Number.isFinite(mods.thornsReflectAdd) && mods.thornsReflectAdd > 0) {
+					this.thornsReflect = (this.thornsReflect || 0) + mods.thornsReflectAdd;
+				}
+                // Movement
+                if (Number.isFinite(mods.moveSpeed)) {
+                    // moveSpeed applied as multiplier later
+                    speedBonus *= (1 + mods.moveSpeed);
+                }
+				if (Number.isFinite(mods.projectileSpeedAdd)) {
+					this.projectileSpeedMultiplier += mods.projectileSpeedAdd;
+				}
+                // Penalties
+                if (Number.isFinite(mods.defensePenalty) && mods.defensePenalty > 0) {
+                    this.defenseMultiplier = (this.defenseMultiplier || 1) * (1 - mods.defensePenalty);
+                }
+                if (Number.isFinite(mods.projectileDamagePenalty) && mods.projectileDamagePenalty > 0) {
+                    // Store as projectile damage penalty multiplier for attacks
+                    this.projectileDamagePenalty = mods.projectileDamagePenalty;
+                }
+                if (Number.isFinite(mods.moveSpeedPenalty) && mods.moveSpeedPenalty > 0) {
+                    speedBonus *= (1 - mods.moveSpeedPenalty);
+                }
+				// Utility
+				if (Number.isFinite(mods.lifestealAdd)) {
+					this.lifesteal = (this.lifesteal || 0) + mods.lifestealAdd;
+				}
+				if (Number.isFinite(mods.cooldownReductionAdd)) {
+					this.cooldownReduction = Math.min(0.75, (this.cooldownReduction || 0) + mods.cooldownReductionAdd);
+				}
+				if (Number.isFinite(mods.dodgeCooldownDelta) && mods.dodgeCooldownDelta !== 0) {
+					this.dodgeCooldownTime = Math.max(0.1, (this.dodgeCooldownTime || 2.0) + mods.dodgeCooldownDelta);
+				}
+				if (Number.isFinite(mods.bonusDodgeChargesAdd) && mods.bonusDodgeChargesAdd !== 0) {
+					this.bonusDodgeCharges = (this.bonusDodgeCharges || 0) + Math.floor(mods.bonusDodgeChargesAdd);
+				}
+            }
+        }
         
         // Calculate final stats
         // Damage and defense are now ADDITIVE (flat values from gear)

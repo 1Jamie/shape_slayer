@@ -232,15 +232,61 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                     hitbox.displayCrit = true;
                 }
                 
+                // Card effects: Momentum and Overcharge multipliers
+                let cardMultiplier = 1.0;
+                if (typeof CardEffects !== 'undefined') {
+                    const momentumMult = CardEffects.getMomentumMultiplier ? CardEffects.getMomentumMultiplier(player) : 1.0;
+                    const overchargeMult = CardEffects.getOverchargeMultiplier ? CardEffects.getOverchargeMultiplier(player) : 1.0;
+                    cardMultiplier = momentumMult * overchargeMult;
+                    // Reset overcharge after use (one attack only)
+                    if (overchargeMult > 1.0 && player._cardEffects) {
+                        player._cardEffects.overchargeActive = false;
+                        // Restart timer
+                        if (typeof DeckState !== 'undefined' && Array.isArray(DeckState.hand)) {
+                            const condEffects = CardEffects.getConditionalEffects ? CardEffects.getConditionalEffects(DeckState.hand) : null;
+                            if (condEffects && condEffects.overcharge) {
+                                player._cardEffects.overchargeTimer = condEffects.overcharge.interval || 5;
+                            }
+                        }
+                    }
+                }
+                
                 // Calculate final damage with backstab and crit multipliers
-                let finalDamage = hitbox.damage * critMultiplier;
+                let finalDamage = hitbox.damage * critMultiplier * cardMultiplier;
                 if (isBackstab) {
                     const backstabMultiplier = 2 + (player.backstabMultiplierBonus || 0); // Apply class modifier
                     finalDamage *= backstabMultiplier;
+                    
+                    // Track backstab damage for lifetime stats (track the extra damage from backstab)
+                    if (!isClient && typeof window.trackLifetimeStat === 'function') {
+                        const backstabExtraDamage = hitbox.damage * critMultiplier * cardMultiplier * (backstabMultiplier - 1);
+                        window.trackLifetimeStat('totalBackstabDamage', backstabExtraDamage);
+                    }
                 }
                 
-                // Execute bonus: extra damage to low HP enemies
-                if (player.executeBonus && player.executeBonus > 0) {
+                // Card Execute: instant kill at threshold (replaces old executeBonus)
+                let executeTriggered = false;
+                if (typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
+                    const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
+                    const condEffects = CardEffects.getConditionalEffects(handCards);
+                    if (condEffects.execute && !isClient) {
+                        const hpPercent = enemy.hp / (enemy.maxHp || enemy.hp);
+                        const threshold = enemy.isBoss ? condEffects.execute.bossThreshold : condEffects.execute.threshold;
+                        if (hpPercent <= threshold) {
+                            // Instant kill
+                            finalDamage = enemy.hp;
+                            executeTriggered = true;
+                            hitbox.displayExecute = true;
+                            // Apply movement speed bonus if available
+                            if (condEffects.execute.moveSpeedOnExecute && typeof player.applyTemporarySpeedBoost === 'function') {
+                                player.applyTemporarySpeedBoost(condEffects.execute.moveSpeedOnExecute.value, condEffects.execute.moveSpeedOnExecute.duration);
+                            }
+                        }
+                    }
+                }
+                
+                // Legacy execute bonus (fallback if no card Execute)
+                if (!executeTriggered && player.executeBonus && player.executeBonus > 0) {
                     const hpPercent = enemy.hp / (enemy.maxHp || enemy.hp);
                     if (hpPercent < 0.3) {
                         finalDamage *= (1 + player.executeBonus);
@@ -331,6 +377,11 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                 
                 // Track damage stats (host/solo only for consistency)
                 if (!isClient) {
+                    // Track lifetime damage stat
+                    if (typeof window.trackLifetimeStat === 'function') {
+                        window.trackLifetimeStat('totalDamageDealt', damageDealt);
+                    }
+                    
                     if (typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
                         const stats = Game.getPlayerStats(attackerId);
                         if (stats) {
@@ -340,6 +391,11 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                     
                     // Track damage toward XP (on kill)
                     if (enemy.hp <= 0) {
+                        // Track lifetime kills stat
+                        if (typeof window.trackLifetimeStat === 'function') {
+                            window.trackLifetimeStat('totalKills', 1);
+                        }
+                        
                         const stats = typeof Game !== 'undefined' && Game.getPlayerStats ? Game.getPlayerStats(attackerId) : null;
                         if (stats) {
                             stats.addStat('kills', 1);
@@ -374,7 +430,27 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                     player.fortifyShieldDecay = 0.1; // Reset decay timer
                 }
                 
-                // Rampage: Gain stack on kill (host/solo only)
+                // Card Momentum: Gain stack on kill (host/solo only)
+                if (!isClient && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined' && enemy.hp <= 0) {
+                    const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
+                    const condEffects = CardEffects.getConditionalEffects(handCards);
+                    if (condEffects.momentum && player._cardEffects) {
+                        const momentum = condEffects.momentum;
+                        // Cap the total multiplier value, not stack count
+                        const newStacks = Math.min((player._cardEffects.momentumStacks || 0) + momentum.perKill, momentum.cap);
+                        player._cardEffects.momentumStacks = newStacks;
+                        player._cardEffects.momentumTimer = momentum.duration;
+                        if (momentum.extendOnKill) {
+                            player._cardEffects.momentumTimer += momentum.extendOnKill;
+                        }
+                        // Apply movement speed bonus if available
+                        if (momentum.moveSpeedOnKill && typeof player.applyTemporarySpeedBoost === 'function') {
+                            player.applyTemporarySpeedBoost(momentum.moveSpeedOnKill, momentum.duration);
+                        }
+                    }
+                }
+                
+                // Rampage: Gain stack on kill (host/solo only) - legacy affix
                 if (!isClient && player.rampageBonus && player.rampageBonus > 0 && enemy.hp <= 0) {
                     const maxStacks = 5;
                     if (player.rampageStacks < maxStacks) {
@@ -383,13 +459,44 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                     }
                 }
                 
-                // Chain Lightning affix (host/solo only)
+                // Card Fractal Conduit: Chain lightning on hit (host/solo only)
+                if (!isClient && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined' && !hitbox.hasChainedCard) {
+                    const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
+                    const condEffects = CardEffects.getConditionalEffects(handCards);
+                    if (condEffects.fractalConduit) {
+                        const conduit = condEffects.fractalConduit;
+                        const chainRange = conduit.rangeBoost ? 400 : 300;
+                        chainLightningCard(player, enemy, conduit.chainCount, hitbox.damage * conduit.chainDamage, enemies, chainRange, conduit.lifeOnChain);
+                        hitbox.hasChainedCard = true;
+                    }
+                }
+                
+                // Card Detonating Vertex: Chance to explode on hit (host/solo only)
+                if (!isClient && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
+                    const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
+                    const condEffects = CardEffects.getConditionalEffects(handCards);
+                    if (condEffects.detonatingVertex && Math.random() < condEffects.detonatingVertex.chance) {
+                        const vertex = condEffects.detonatingVertex;
+                        createExplosion(enemy.x, enemy.y, 60, hitbox.damage * vertex.aoe, player, enemies);
+                        // Cluster bombs at orange tier
+                        if (vertex.clusters && vertex.clusters.count > 0) {
+                            for (let i = 0; i < vertex.clusters.count; i++) {
+                                const angle = (Math.PI * 2 * i) / vertex.clusters.count;
+                                const offsetX = Math.cos(angle) * 40;
+                                const offsetY = Math.sin(angle) * 40;
+                                createExplosion(enemy.x + offsetX, enemy.y + offsetY, 40, hitbox.damage * vertex.clusters.multiplier, player, enemies);
+                            }
+                        }
+                    }
+                }
+                
+                // Chain Lightning affix (host/solo only) - legacy affix
                 if (!isClient && player.chainLightningCount && player.chainLightningCount > 0 && !hitbox.hasChainedAffix) {
                     chainLightningAffix(player, enemy, player.chainLightningCount, hitbox.damage * 0.5, enemies);
                     hitbox.hasChainedAffix = true;
                 }
                 
-                // Explosive Attacks: Chance to create AoE (host/solo only)
+                // Explosive Attacks: Chance to create AoE (host/solo only) - legacy affix
                 if (!isClient && player.explosiveChance && player.explosiveChance > 0 && Math.random() < player.explosiveChance) {
                     createExplosion(enemy.x, enemy.y, 40, hitbox.damage * 0.5, player, enemies);
                 }
@@ -495,8 +602,8 @@ function checkEnemiesVsPlayer(player, enemies) {
     
     const playersToCheck = [];
     
-    // Add local player if alive and not invulnerable
-    if (player && player.alive && !player.invulnerable) {
+    // Add local player if alive (check invulnerability later to track successful dodges)
+    if (player && player.alive) {
         // Get local player ID for consistent identification
         const localPlayerId = typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local';
         
@@ -510,7 +617,7 @@ function checkEnemiesVsPlayer(player, enemies) {
     // Add remote player INSTANCES (host simulates these)
     if (typeof Game !== 'undefined' && Game.remotePlayerInstances) {
         Game.remotePlayerInstances.forEach((playerInstance, playerId) => {
-            if (playerInstance && playerInstance.alive && !playerInstance.invulnerable) {
+            if (playerInstance && playerInstance.alive) {
                 playersToCheck.push({
                     id: playerId,
                     player: playerInstance,
@@ -534,6 +641,28 @@ function checkEnemiesVsPlayer(player, enemies) {
                                                          p.x, p.y, playerRadius);
             
             if (hasProjectedHit) {
+                // Check if player is dodging/invulnerable - if so, count as successful dodge
+                if (p.invulnerable || p.isDodging) {
+                    // Track successful dodge (attack would have hit, but player dodged it)
+                    // Only track for local player to avoid double-counting in multiplayer
+                    const localPlayerId = typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local';
+                    if (id === localPlayerId && typeof window.trackLifetimeStat === 'function') {
+                        // Use a cooldown to prevent counting the same attack multiple times
+                        const dodgeTrackKey = `dodge_${enemy.id}_${id}`;
+                        if (!checkEnemiesVsPlayer.dodgeTrackCooldowns) {
+                            checkEnemiesVsPlayer.dodgeTrackCooldowns = new Map();
+                        }
+                        const lastDodgeTrack = checkEnemiesVsPlayer.dodgeTrackCooldowns.get(dodgeTrackKey) || 0;
+                        if (currentTime - lastDodgeTrack >= damageCooldownMs) {
+                            window.trackLifetimeStat('totalDodges', 1);
+                            checkEnemiesVsPlayer.dodgeTrackCooldowns.set(dodgeTrackKey, currentTime);
+                        }
+                    }
+                    // Skip damage application but still resolve overlap
+                    resolveEnemyPlayerOverlap(enemy, p);
+                    return; // Skip to next player
+                }
+                
                 // For diamond enemies, check if dash has already hit (prevents continuous damage)
                 // Check dashHasHit flag regardless of current state (dash or cooldown after dash)
                 if (enemy.shape === 'diamond' && enemy.dashHasHit === true) {
@@ -607,6 +736,15 @@ function checkEnemiesVsPlayer(player, enemies) {
     for (const [key, time] of checkEnemiesVsPlayer.damageCooldowns.entries()) {
         if (time < cleanupThreshold) {
             checkEnemiesVsPlayer.damageCooldowns.delete(key);
+        }
+    }
+    
+    // Clean up old dodge tracking cooldown entries
+    if (checkEnemiesVsPlayer.dodgeTrackCooldowns) {
+        for (const [key, time] of checkEnemiesVsPlayer.dodgeTrackCooldowns.entries()) {
+            if (time < cleanupThreshold) {
+                checkEnemiesVsPlayer.dodgeTrackCooldowns.delete(key);
+            }
         }
     }
 }
@@ -794,17 +932,24 @@ function chainLightningAttack(player, sourceEnemy, effect, damage) {
             
             // Track stats (host/solo only)
             const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
-            if (!isClient && typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
-                const stats = Game.getPlayerStats(attackerId);
-                if (stats) {
-                    stats.addStat('damageDealt', damageDealt);
+            if (!isClient) {
+                // Track lifetime damage stat
+                if (typeof window.trackLifetimeStat === 'function') {
+                    window.trackLifetimeStat('totalDamageDealt', damageDealt);
                 }
                 
-                // Track kill if enemy died
-                if (nearestEnemy.hp <= 0) {
-                    const killStats = Game.getPlayerStats(attackerId);
-                    if (killStats) {
-                        killStats.addStat('kills', 1);
+                if (typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
+                    const stats = Game.getPlayerStats(attackerId);
+                    if (stats) {
+                        stats.addStat('damageDealt', damageDealt);
+                    }
+                    
+                    // Track kill if enemy died
+                    if (nearestEnemy.hp <= 0) {
+                        const killStats = Game.getPlayerStats(attackerId);
+                        if (killStats) {
+                            killStats.addStat('kills', 1);
+                        }
                     }
                 }
             }
@@ -832,6 +977,75 @@ function chainLightningAttack(player, sourceEnemy, effect, damage) {
 }
 
 // Chain Lightning affix - chains to nearby enemies
+// Card-based chain lightning (Fractal Conduit)
+function chainLightningCard(player, sourceEnemy, chainCount, damage, enemies, range, lifeOnChain) {
+    if (!enemies || enemies.length === 0) return;
+    
+    const attackerId = player ? (player.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null)) : null;
+    const chainRange = range || 300;
+    const hitEnemies = new Set([sourceEnemy]);
+    let currentTarget = sourceEnemy;
+    const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+    
+    for (let i = 0; i < chainCount; i++) {
+        let nearestEnemy = null;
+        let nearestDist = chainRange;
+        
+        enemies.forEach(enemy => {
+            if (!enemy.alive || hitEnemies.has(enemy)) return;
+            
+            const dx = enemy.x - currentTarget.x;
+            const dy = enemy.y - currentTarget.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            if (dist < nearestDist) {
+                nearestDist = dist;
+                nearestEnemy = enemy;
+            }
+        });
+        
+        if (nearestEnemy) {
+            const chainDamage = damage; // Already reduced by card's chainDamage multiplier
+            const damageDealt = Math.min(chainDamage, nearestEnemy.hp);
+            
+            nearestEnemy.takeDamage(chainDamage, attackerId);
+            hitEnemies.add(nearestEnemy);
+            
+            // Lifesteal on chain if available
+            if (!isClient && lifeOnChain && lifeOnChain > 0 && player) {
+                const healAmount = damageDealt * lifeOnChain;
+                player.hp = Math.min(player.hp + healAmount, player.maxHp);
+            }
+            
+            // Track stats (host/solo only)
+            if (!isClient) {
+                // Track lifetime damage stat
+                if (typeof window.trackLifetimeStat === 'function') {
+                    window.trackLifetimeStat('totalDamageDealt', damageDealt);
+                }
+                
+                if (typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
+                    const stats = Game.getPlayerStats(attackerId);
+                    if (stats) {
+                        stats.addStat('damageDealt', damageDealt);
+                        if (nearestEnemy.hp <= 0) {
+                            // Track lifetime kills stat
+                            if (typeof window.trackLifetimeStat === 'function') {
+                                window.trackLifetimeStat('totalKills', 1);
+                            }
+                            stats.addStat('kills', 1);
+                        }
+                    }
+                }
+            }
+            
+            currentTarget = nearestEnemy;
+        } else {
+            break; // No more targets in range
+        }
+    }
+}
+
 function chainLightningAffix(player, sourceEnemy, chainCount, damage, enemies) {
     if (!enemies || enemies.length === 0) return;
     

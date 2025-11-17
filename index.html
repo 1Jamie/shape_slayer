@@ -37,14 +37,43 @@
             height: auto;
             image-rendering: -webkit-optimize-contrast;
             image-rendering: crisp-edges;
-th            image-rendering: pixelated;
+            image-rendering: pixelated;
         }
     </style>
 </head>
 <body>
     <canvas id="gameCanvas"></canvas>
+	<div id="ui-root"></div>
     
     <!-- Load scripts in dependency order -->
+	<link rel="stylesheet" href="css/ui/base.css">
+	<script src="ui/core/eventBus.js"></script>
+	<script src="ui/core/domRoot.js"></script>
+	<script src="js/ui-dom-flag.js"></script>
+	<script src="ui/components/pauseButton.js"></script>
+	<script src="ui/components/pauseMenu.js"></script>
+	<script src="ui/components/privacyModal.js"></script>
+	<script src="ui/components/updateModal.js"></script>
+	<script src="ui/components/launchModal.js"></script>
+	<script src="ui/components/multiplayerMenu.js"></script>
+    <script src="ui/components/characterSheet.js"></script>
+    <script src="ui/components/deckBuilder.js"></script>
+    <script src="ui/components/masterySystem.js"></script>
+    <script src="ui/components/shardDisplay.js"></script>
+    <script src="ui/components/hud.js"></script>
+	<script src="ui/components/doorOptions.js"></script>
+	<script src="ui/components/upgradeSelection.js"></script>
+	<script src="ui/components/mulligan.js"></script>
+	<script src="ui/components/handHUD.js"></script>
+	<script src="ui/components/swapPreview.js"></script>
+	<script src="ui/components/interactionButton.js"></script>
+	<script src="ui/components/audioMenu.js"></script>
+	<script src="ui/components/deathOverlay.js"></script>
+	<script src="ui/components/roomInfo.js"></script>
+	<script src="ui/components/roomAndLevel.js"></script>
+	<script src="ui/components/otherPlayersHealth.js"></script>
+	<script src="ui/components/mobileCooldowns.js"></script>
+	<script src="ui/components/spectatorIndicator.js"></script>
     <script src="js/audio.js"></script>
     <script src="js/music-manager.js"></script>
     <script src="js/utils.js"></script>
@@ -75,10 +104,24 @@ th            image-rendering: pixelated;
     <script src="js/bosses/boss-fractalcore.js"></script>
     <script src="js/bosses/boss-vortex.js"></script>
     <script src="js/level.js"></script>
+    <script src="js/doors/selection-doors.js"></script>
     <script src="js/combat.js"></script>
     <script src="js/ui.js"></script>
+    <script src="js/ui-character-sheet.js"></script>
     <script src="js/debug.js"></script>
     <script src="js/save.js"></script>
+    <!-- Card system files -->
+    <script src="js/cards/player-cards.js"></script>
+    <script src="js/cards/curse-cards.js"></script>
+    <script src="js/cards/room-modifier-cards.js"></script>
+    <script src="js/cards/team-cards.js"></script>
+    <script src="js/cards/card-data.js"></script>
+    <script src="js/cards/deck-manager.js"></script>
+    <script src="js/cards/card-effects.js"></script>
+    <script src="js/cards/card-unlocks.js"></script>
+    <script src="js/cards/ground.js"></script>
+    <script src="js/cards/packs.js"></script>
+    <script src="js/cards/migration.js"></script>
     <script src="js/version.js"></script>
     <script src="js/mp-config.js"></script>
     <script src="js/telemetry.js"></script>

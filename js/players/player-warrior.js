@@ -143,12 +143,83 @@ class Warrior extends PlayerBase {
     updateEffectiveStats() {
         // Reset class modifier storage
         this.whirlwindDamageMultiplier = 1.0;
+        this.whirlwindDurationBonus = 0;
+        this.whirlwindPullEffect = false;
+        this.whirlwindDamageAura = false;
+        this.whirlwindResetOnKill = false;
         this.thrustDistanceBonus = 0;
         this.thrustDamageMultiplier = 1.0;
+        this.thrustKnockback = false;
+        this.thrustPierce = false;
+        this.thrustInfiniteRange = false;
+        this.thrustPierceAll = false;
+        this.thrustBurningTrail = false;
         this.blockReductionBonus = 0;
+        this.blockDamageBoostOnBlock = 0;
+        this.blockReflectOnBlock = false;
         
-        // Call parent
+        // Call parent (applies stat modifiers from cards)
         super.updateEffectiveStats();
+        
+        // Apply ability mutator card effects
+        if (typeof DeckState !== 'undefined' && typeof CardEffects !== 'undefined' && CardEffects.getAbilityModifiers) {
+            const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
+            const abilityMods = CardEffects.getAbilityModifiers(this, handCards);
+            
+            if (abilityMods.whirlwind) {
+                if (abilityMods.whirlwind.durationBonus) {
+                    this.whirlwindDurationBonus += abilityMods.whirlwind.durationBonus;
+                }
+                if (abilityMods.whirlwind.damageMultiplier) {
+                    this.whirlwindDamageMultiplier += abilityMods.whirlwind.damageMultiplier;
+                }
+                if (abilityMods.whirlwind.pullEffect) {
+                    this.whirlwindPullEffect = true;
+                }
+                if (abilityMods.whirlwind.damageAura) {
+                    this.whirlwindDamageAura = true;
+                }
+                if (abilityMods.whirlwind.resetOnKill) {
+                    this.whirlwindResetOnKill = true;
+                }
+            }
+            
+            if (abilityMods.thrust) {
+                if (abilityMods.thrust.rangeBonus) {
+                    this.thrustDistanceBonus += abilityMods.thrust.rangeBonus;
+                }
+                if (abilityMods.thrust.damageMultiplier) {
+                    this.thrustDamageMultiplier += abilityMods.thrust.damageMultiplier;
+                }
+                if (abilityMods.thrust.knockback) {
+                    this.thrustKnockback = true;
+                }
+                if (abilityMods.thrust.pierce) {
+                    this.thrustPierce = true;
+                }
+                if (abilityMods.thrust.infiniteRange) {
+                    this.thrustInfiniteRange = true;
+                }
+                if (abilityMods.thrust.pierceAll) {
+                    this.thrustPierceAll = true;
+                }
+                if (abilityMods.thrust.burningTrail) {
+                    this.thrustBurningTrail = true;
+                }
+            }
+            
+            if (abilityMods.block) {
+                if (abilityMods.block.reductionBonus) {
+                    this.blockReductionBonus += abilityMods.block.reductionBonus;
+                }
+                if (abilityMods.block.damageBoostOnBlock) {
+                    this.blockDamageBoostOnBlock = abilityMods.block.damageBoostOnBlock;
+                }
+                if (abilityMods.block.reflectOnBlock) {
+                    this.blockReflectOnBlock = true;
+                }
+            }
+        }
     }
     
     // Override to apply Warrior-specific class modifiers
@@ -236,17 +307,24 @@ class Warrior extends PlayerBase {
                             
                             // Track stats (host/solo only)
                             const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
-                            if (!isClient && typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
-                                const stats = Game.getPlayerStats(attackerId);
-                                if (stats) {
-                                    stats.addStat('damageDealt', damageDealt);
+                            if (!isClient) {
+                                // Track lifetime damage stat
+                                if (typeof window.trackLifetimeStat === 'function') {
+                                    window.trackLifetimeStat('totalDamageDealt', damageDealt);
                                 }
                                 
-                                // Track kill if enemy died
-                                if (enemy.hp <= 0) {
-                                    const killStats = Game.getPlayerStats(attackerId);
-                                    if (killStats) {
-                                        killStats.addStat('kills', 1);
+                                if (typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
+                                    const stats = Game.getPlayerStats(attackerId);
+                                    if (stats) {
+                                        stats.addStat('damageDealt', damageDealt);
+                                    }
+                                    
+                                    // Track kill if enemy died
+                                    if (enemy.hp <= 0) {
+                                        const killStats = Game.getPlayerStats(attackerId);
+                                        if (killStats) {
+                                            killStats.addStat('kills', 1);
+                                        }
                                     }
                                 }
                             }
@@ -263,7 +341,8 @@ class Warrior extends PlayerBase {
             }
             
             // End whirlwind after duration
-            if (this.whirlwindElapsed >= this.whirlwindDuration) {
+            const effectiveWhirlwindDuration = WARRIOR_CONFIG.whirlwindDuration + (this.whirlwindDurationBonus || 0);
+            if (this.whirlwindElapsed >= effectiveWhirlwindDuration) {
                 this.whirlwindActive = false;
                 this.whirlwindElapsed = 0;
                 this.whirlwindHitTimer = 0;
@@ -330,17 +409,24 @@ class Warrior extends PlayerBase {
                                 
                                 // Track stats (host/solo only)
                                 const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
-                                if (!isClient && typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
-                                    const stats = Game.getPlayerStats(attackerId);
-                                    if (stats) {
-                                        stats.addStat('damageDealt', damageDealt);
+                                if (!isClient) {
+                                    // Track lifetime damage stat
+                                    if (typeof window.trackLifetimeStat === 'function') {
+                                        window.trackLifetimeStat('totalDamageDealt', damageDealt);
                                     }
                                     
-                                    // Track kill if enemy died
-                                    if (enemy.hp <= 0) {
-                                        const killStats = Game.getPlayerStats(attackerId);
-                                        if (killStats) {
-                                            killStats.addStat('kills', 1);
+                                    if (typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
+                                        const stats = Game.getPlayerStats(attackerId);
+                                        if (stats) {
+                                            stats.addStat('damageDealt', damageDealt);
+                                        }
+                                        
+                                        // Track kill if enemy died
+                                        if (enemy.hp <= 0) {
+                                            const killStats = Game.getPlayerStats(attackerId);
+                                            if (killStats) {
+                                                killStats.addStat('kills', 1);
+                                            }
                                         }
                                     }
                                 }
@@ -462,6 +548,11 @@ class Warrior extends PlayerBase {
             Game.triggerScreenShake(0.5, 0.2);
             Game.triggerHitPause(0.08); // Brief freeze on heavy attack
         }
+        
+        // Apply standardized heavy cooldown for UI parity
+        if (this.applyHeavyAttackCooldown) {
+            this.applyHeavyAttackCooldown();
+        }
     }
     
     createForwardThrust() {
@@ -505,6 +596,11 @@ class Warrior extends PlayerBase {
         this.thrustActive = true;
         this.thrustElapsed = 0;
         this.thrustHasChainedLegendary = false; // Reset chain flag for this thrust
+        
+        // Track ability use for lifetime stats
+        if (typeof window.trackLifetimeStat === 'function') {
+            window.trackLifetimeStat('totalAbilityUses', 1);
+        }
         
         // Scale thrust duration based on actual distance traveled (maintains constant speed)
         // Base: 300px in 0.12s, with +100 bonus: 400px in 0.16s

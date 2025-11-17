@@ -1152,6 +1152,9 @@ class MultiplayerManager {
         }
         
         console.log(`[Multiplayer] Lobby created: ${this.lobbyCode}`);
+        if (typeof window !== 'undefined' && window.UIBus && UIBus.emit) {
+            UIBus.emit('mp:lobby:created', { code: this.lobbyCode, isHost: !!this.isHost, players: (this.players || []).slice() });
+        }
         
         // Initialize host-side currency and upgrade tracking
         if (typeof Game !== 'undefined' && this.isHost && data.players) {
@@ -1229,6 +1232,9 @@ class MultiplayerManager {
             console.log(`[Multiplayer] Reconnected to lobby ${this.lobbyCode} with player ID ${this.playerId}`);
         } else {
             console.log(`[Multiplayer] Joined lobby: ${this.lobbyCode}`);
+        }
+        if (typeof window !== 'undefined' && window.UIBus && UIBus.emit) {
+            UIBus.emit('mp:lobby:joined', { code: this.lobbyCode, isHost: !!this.isHost, players: (this.players || []).slice() });
         }
         
         // Initialize host-side currency and upgrade tracking
@@ -1311,6 +1317,9 @@ class MultiplayerManager {
     // Handle lobby error
     handleLobbyError(data) {
         console.error('[Multiplayer] Lobby error:', data.message);
+        if (typeof window !== 'undefined' && window.UIBus && UIBus.emit) {
+            UIBus.emit('mp:lobby:error', { message: data.message || 'Unknown error' });
+        }
         
         // Notify game
         if (typeof onLobbyError === 'function') {
@@ -1382,6 +1391,9 @@ class MultiplayerManager {
         this.updateRemotePlayers();
         
         console.log('[Multiplayer] Player list updated:', this.players.map(p => `${p.name} (${p.id})`));
+        if (typeof window !== 'undefined' && window.UIBus && UIBus.emit) {
+            UIBus.emit('mp:lobby:players', { players: (this.players || []).slice() });
+        }
         
         // Update Game.remotePlayers for rendering
         if (typeof Game !== 'undefined') {
@@ -1395,6 +1407,9 @@ class MultiplayerManager {
         this.updateRemotePlayers();
         
         console.log(`[Multiplayer] Player left`);
+        if (typeof window !== 'undefined' && window.UIBus && UIBus.emit) {
+            UIBus.emit('mp:lobby:players', { players: (this.players || []).slice() });
+        }
         
         // Notify game
         if (typeof onPlayerLeft === 'function') {
@@ -2036,12 +2051,21 @@ class MultiplayerManager {
         // For remote players, this is the ONLY place stats are tracked
         const localPlayerId = typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
         if (attackerId !== localPlayerId && typeof Game !== 'undefined' && Game.getPlayerStats) {
+            // Track lifetime damage stat for remote players
+            if (typeof window.trackLifetimeStat === 'function') {
+                window.trackLifetimeStat('totalDamageDealt', damageDealt);
+            }
+            
             const stats = Game.getPlayerStats(attackerId);
             if (stats) {
                 stats.addStat('damageDealt', damageDealt);
                 
                 // Track kill if enemy died
                 if (oldHp > 0 && enemy.hp <= 0) {
+                    // Track lifetime kills stat for remote players
+                    if (typeof window.trackLifetimeStat === 'function') {
+                        window.trackLifetimeStat('totalKills', 1);
+                    }
                     stats.addStat('kills', 1);
                 }
             }

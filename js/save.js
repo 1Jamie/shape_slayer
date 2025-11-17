@@ -14,6 +14,43 @@ const SaveSystem = {
                 pentagon: { damage: 0, defense: 0, speed: 0 },
                 hexagon: { damage: 0, defense: 0, speed: 0 }
             },
+            // Card system (defaults)
+            cardsUnlocked: [],
+            cardMastery: {},
+            deckConfig: {
+                cards: [],
+                size: 20
+            },
+            teamCardsUnlocked: [],
+            activeTeamCard: null,
+            cardShards: 0,
+            deckUpgrades: {
+                handSize: 4,
+                startingCards: 3,
+                mulligans: 0,
+                reserveSlots: 0,
+                roomModifierCarrySlots: 3,
+                cardCombinationUnlocked: false
+            },
+            roomModifierCollection: [],
+            lifetimeStats: {
+                totalRoomsCleared: 0,
+                totalDamageDealt: 0,
+                totalKills: 0,
+                successfulRuns: 0,
+                totalDodges: 0,
+                totalAbilityUses: 0,
+                totalBlocks: 0,
+                totalReflectedDamage: 0,
+                totalRevives: 0,
+                maxRoomsInOneRun: 0,
+                totalBackstabDamage: 0,
+                totalBeamDamage: 0,
+                totalStuns: 0,
+                totalDeaths: 0,
+                totalNearDeathExperiences: 0
+            },
+            migratedFromGear: false,
             selectedClass: null,
             controlMode: 'auto', // 'auto', 'mobile', 'desktop'
             fullscreenEnabled: false,
@@ -44,6 +81,27 @@ const SaveSystem = {
                         pentagon: { ...defaults.upgrades.pentagon, ...(parsed.upgrades?.pentagon || {}) },
                         hexagon: { ...defaults.upgrades.hexagon, ...(parsed.upgrades?.hexagon || {}) }
                     },
+                    // Card system merge
+                    cardsUnlocked: Array.isArray(parsed.cardsUnlocked) ? parsed.cardsUnlocked : defaults.cardsUnlocked,
+                    cardMastery: parsed.cardMastery || defaults.cardMastery,
+                    deckConfig: {
+                        cards: Array.isArray(parsed.deckConfig?.cards) ? parsed.deckConfig.cards : defaults.deckConfig.cards,
+                        size: Number.isFinite(parsed.deckConfig?.size) ? parsed.deckConfig.size : defaults.deckConfig.size
+                    },
+                    teamCardsUnlocked: Array.isArray(parsed.teamCardsUnlocked) ? parsed.teamCardsUnlocked : defaults.teamCardsUnlocked,
+                    activeTeamCard: parsed.activeTeamCard !== undefined ? parsed.activeTeamCard : defaults.activeTeamCard,
+                    cardShards: Number.isFinite(parsed.cardShards) ? parsed.cardShards : defaults.cardShards,
+                    deckUpgrades: {
+                        handSize: Number.isFinite(parsed.deckUpgrades?.handSize) ? parsed.deckUpgrades.handSize : defaults.deckUpgrades.handSize,
+                        startingCards: Number.isFinite(parsed.deckUpgrades?.startingCards) ? parsed.deckUpgrades.startingCards : defaults.deckUpgrades.startingCards,
+                        mulligans: Number.isFinite(parsed.deckUpgrades?.mulligans) ? parsed.deckUpgrades.mulligans : defaults.deckUpgrades.mulligans,
+                        reserveSlots: Number.isFinite(parsed.deckUpgrades?.reserveSlots) ? parsed.deckUpgrades.reserveSlots : defaults.deckUpgrades.reserveSlots,
+                        roomModifierCarrySlots: Number.isFinite(parsed.deckUpgrades?.roomModifierCarrySlots) ? parsed.deckUpgrades.roomModifierCarrySlots : defaults.deckUpgrades.roomModifierCarrySlots,
+                        cardCombinationUnlocked: parsed.deckUpgrades?.cardCombinationUnlocked === true
+                    },
+                    roomModifierCollection: Array.isArray(parsed.roomModifierCollection) ? parsed.roomModifierCollection : defaults.roomModifierCollection,
+                    lifetimeStats: parsed.lifetimeStats ? { ...defaults.lifetimeStats, ...parsed.lifetimeStats } : defaults.lifetimeStats,
+                    migratedFromGear: parsed.migratedFromGear === true,
                     selectedClass: parsed.selectedClass || defaults.selectedClass,
                     controlMode: parsed.controlMode || defaults.controlMode,
                     fullscreenEnabled: parsed.fullscreenEnabled !== undefined ? parsed.fullscreenEnabled : defaults.fullscreenEnabled,
@@ -202,6 +260,67 @@ const SaveSystem = {
         save.fullscreenEnabled = enabled === true;
         this.save(save);
         return true;
+    },
+    
+    // ---- Card system helpers ----
+    getCardsUnlocked() {
+        const save = this.load();
+        return save.cardsUnlocked || [];
+    },
+    unlockCard(cardId) {
+        const save = this.load();
+        if (!Array.isArray(save.cardsUnlocked)) save.cardsUnlocked = [];
+        if (!save.cardsUnlocked.includes(cardId)) {
+            save.cardsUnlocked.push(cardId);
+            this.save(save);
+        }
+        return save.cardsUnlocked;
+    },
+    getCardMastery(cardId) {
+        const save = this.load();
+        return (save.cardMastery && Number.isFinite(save.cardMastery[cardId])) ? save.cardMastery[cardId] : 0;
+    },
+    setCardMastery(cardId, level) {
+        const save = this.load();
+        if (!save.cardMastery) save.cardMastery = {};
+        save.cardMastery[cardId] = Math.max(0, Math.min(5, Math.floor(level)));
+        this.save(save);
+        return save.cardMastery[cardId];
+    },
+    getDeckConfig() {
+        const save = this.load();
+        return save.deckConfig || { cards: [], size: 20 };
+    },
+    setDeckConfig(deckConfig) {
+        const save = this.load();
+        save.deckConfig = {
+            cards: Array.isArray(deckConfig.cards) ? deckConfig.cards.slice(0, deckConfig.size || 20) : [],
+            size: Number.isFinite(deckConfig.size) ? deckConfig.size : 20
+        };
+        this.save(save);
+        return save.deckConfig;
+    },
+    getCardShards() {
+        const save = this.load();
+        return Number.isFinite(save.cardShards) ? save.cardShards : 0;
+    },
+    addCardShards(amount) {
+        const save = this.load();
+        const current = Number.isFinite(save.cardShards) ? save.cardShards : 0;
+        save.cardShards = Math.max(0, current + Math.floor(amount || 0));
+        this.save(save);
+        return save.cardShards;
+    },
+    getDeckUpgrades() {
+        const save = this.load();
+        return save.deckUpgrades || { handSize: 4, startingCards: 3, mulligans: 0, reserveSlots: 0, roomModifierCarrySlots: 3, cardCombinationUnlocked: false };
+    },
+    setDeckUpgrade(key, value) {
+        const save = this.load();
+        save.deckUpgrades = save.deckUpgrades || { handSize: 4, startingCards: 3, mulligans: 0, reserveSlots: 0, roomModifierCarrySlots: 3, cardCombinationUnlocked: false };
+        save.deckUpgrades[key] = value;
+        this.save(save);
+        return save.deckUpgrades;
     },
     
     // Get last run version

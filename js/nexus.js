@@ -1242,12 +1242,6 @@ function renderNexus(ctx) {
     // Restore context after camera transform
     ctx.restore();
     
-    // Render currency display (top left) - screen space
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 18px Arial';
-    ctx.textAlign = 'left';
-    ctx.fillText(`Currency: ${Math.floor(Game.currentCurrency)}`, 20, 30);
-    
     // Render touch controls overlay (same as gameplay) - screen space
     if (typeof renderTouchControls === 'function') {
         renderTouchControls(ctx);
@@ -1258,8 +1252,9 @@ function renderNexus(ctx) {
         renderInteractionButton(ctx);
     }
     
-    // Render pause button (on top of everything) - screen space
-    if (typeof renderPauseButton === 'function') {
+    // Pause button is now handled by DOM UI (pauseButton.js)
+    // Only render canvas pause button if DOM UI is disabled
+    if (!window.USE_DOM_UI && typeof renderPauseButton === 'function') {
         renderPauseButton(ctx);
     }
 }

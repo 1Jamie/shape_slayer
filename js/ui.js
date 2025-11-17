@@ -550,35 +550,16 @@ function renderSoloDeathScreen(ctx, player) {
         ctx.fillText(stat, centerX, centerY - 200 * scale + (index * 35 * scale));
     });
     
-    // Currency breakdown
+    // Shards earned (replacing old currency system)
+    const shardsEarned = typeof SaveSystem !== 'undefined' && SaveSystem.getCardShards ? SaveSystem.getCardShards() : 0;
     ctx.font = `bold ${Math.floor(20 * scale)}px Arial`;
-    ctx.fillStyle = '#ffff00';
-    ctx.fillText('Currency Earned:', centerX, centerY - 30 * scale);
-    
-    ctx.font = `${Math.floor(18 * scale)}px Arial`;
-    ctx.fillStyle = '#cccccc';
-    ctx.textAlign = 'left';
-    
-    const currencyBreakdown = [
-        `Rooms: 9 × ${roomsCleared} = ${baseCurrency}`,
-        `Enemies: 1.8 × ${enemiesKilled} = ${bonusCurrency}`,
-        `Level: 0.9 × ${levelReached} = ${levelCurrency}`
-    ];
-    
-    currencyBreakdown.forEach((line, index) => {
-        ctx.fillText(line, centerX - 200 * scale, centerY + (index * 25 * scale));
-    });
-    
+    ctx.fillStyle = '#ffd700';
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#00ff00';
-    ctx.font = `bold ${Math.floor(22 * scale)}px Arial`;
-    ctx.fillText(`Total Earned: ${totalEarned}`, centerX, centerY + 90 * scale);
+    ctx.fillText('Card Shards:', centerX, centerY - 30 * scale);
     
-    // Current total currency
-    const currentTotal = typeof SaveSystem !== 'undefined' ? Math.floor(SaveSystem.getCurrency()) : 0;
-    ctx.fillStyle = '#ffff00';
-    ctx.font = `bold ${Math.floor(20 * scale)}px Arial`;
-    ctx.fillText(`Total Currency: ${currentTotal}`, centerX, centerY + 130 * scale);
+    ctx.font = `bold ${Math.floor(24 * scale)}px Arial`;
+    ctx.fillStyle = '#ffd700';
+    ctx.fillText(`${shardsEarned.toLocaleString()}`, centerX, centerY + 20 * scale);
     
     // Instructions (with input delay)
     if (!canAcceptInput) {
@@ -852,7 +833,8 @@ const CharacterSheet = {
     contentHeight: 0,
     modalBounds: null,
     lastTouchY: null,
-    scrollVelocity: 0
+	scrollVelocity: 0,
+	handSlotBounds: []
 };
 
 // Handle character sheet scroll input
@@ -1516,6 +1498,225 @@ function updateCharacterSheet(input) {
     }
 }
 
+// ---- Card UI helpers for Character Sheet ----
+function getQualityColor(quality) {
+    const map = { white: '#cccccc', green: '#4caf50', blue: '#2196f3', purple: '#9c27b0', orange: '#ff9800' };
+    return map[quality] || '#cccccc';
+}
+
+function getCategoryAccent(category) {
+    const c = (category || '').toLowerCase();
+    if (c.includes('offense')) return '#ff6b6b';
+    if (c.includes('defense')) return '#6bc1ff';
+    if (c.includes('mobility')) return '#5cffb5';
+    if (c.includes('ability')) return '#ffd166';
+    if (c.includes('economy')) return '#b4ff66';
+    if (c.includes('enemy') || c.includes('room')) return '#ff9ff3';
+    if (c.includes('team')) return '#feca57';
+    if (c.includes('curse')) return '#ff4757';
+    return '#bdbdbd';
+}
+
+function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+    if (!text) return y;
+    const words = String(text).split(' ');
+    let line = '';
+    let cursorY = y;
+    for (let n = 0; n < words.length; n++) {
+        const testLine = line.length ? (line + ' ' + words[n]) : words[n];
+        const metrics = ctx.measureText(testLine);
+        if (metrics.width > maxWidth && n > 0) {
+            ctx.fillText(line, x, cursorY);
+            line = words[n];
+            cursorY += lineHeight;
+        } else {
+            line = testLine;
+        }
+    }
+    if (line) {
+        ctx.fillText(line, x, cursorY);
+        cursorY += lineHeight;
+    }
+    return cursorY;
+}
+
+function drawCardTile(ctx, x, y, w, h, card) {
+    const name = card.name || card.family || 'Card';
+    const q = card._resolvedQuality || 'white';
+    const origin = card.origin === 'deck' ? 'D' : 'F';
+    const borderColor = getQualityColor(q);
+    const accent = getCategoryAccent(card.category || card.family || '');
+    
+    // Card background with subtle gradient and rounded corners
+    const radius = 10;
+    const gradient = ctx.createLinearGradient(x, y, x, y + h);
+    gradient.addColorStop(0, 'rgba(16, 16, 28, 0.95)');
+    gradient.addColorStop(1, 'rgba(10, 10, 20, 0.95)');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + w - radius, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+    ctx.lineTo(x + w, y + h - radius);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+    ctx.lineTo(x + radius, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
+    ctx.fill();
+    
+    // Border glow by quality
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = borderColor;
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    
+    // Top banner
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
+    ctx.fillRect(x + 1, y + 1, w - 2, 24);
+    
+    // Header: name + quality tag
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 12px Arial';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(name, x + 10, y + 18);
+    ctx.font = 'bold 10px Arial';
+    ctx.fillStyle = borderColor;
+    const qualText = `[${q.toUpperCase()}]`;
+    ctx.fillText(qualText, x + 10 + ctx.measureText(name + ' ').width, y + 18);
+    
+    // Origin badge
+    ctx.textAlign = 'right';
+    ctx.font = 'bold 11px Arial';
+    ctx.fillStyle = card.origin === 'deck' ? '#00ffaa' : '#ffaa00';
+    ctx.fillText(origin, x + w - 8, y + 16);
+    
+    // Category emblem area (center "art" placeholder using simple geometry)
+    const artX = x + Math.floor(w / 2);
+    const artY = y + 68;
+    ctx.fillStyle = accent;
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 2;
+    // Choose a simple shape based on category/family
+    const fam = (card.family || '').toLowerCase();
+    if ((card.category || '').toLowerCase().includes('mobility') || fam.includes('velocity')) {
+        // arrows
+        ctx.beginPath();
+        ctx.moveTo(artX - 20, artY);
+        ctx.lineTo(artX + 10, artY);
+        ctx.lineTo(artX, artY - 10);
+        ctx.lineTo(artX + 20, artY);
+        ctx.lineTo(artX, artY + 10);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+    } else if ((card.category || '').toLowerCase().includes('defense') || fam.includes('bulwark') || fam.includes('shield')) {
+        // shield
+        ctx.beginPath();
+        ctx.moveTo(artX, artY - 22);
+        ctx.lineTo(artX + 18, artY - 6);
+        ctx.lineTo(artX + 10, artY + 18);
+        ctx.lineTo(artX, artY + 24);
+        ctx.lineTo(artX - 10, artY + 18);
+        ctx.lineTo(artX - 18, artY - 6);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+    } else if ((card.category || '').toLowerCase().includes('offense') || fam.includes('precision') || fam.includes('fury')) {
+        // sword/triangle motif
+        ctx.beginPath();
+        ctx.moveTo(artX, artY - 24);
+        ctx.lineTo(artX + 14, artY + 12);
+        ctx.lineTo(artX - 14, artY + 12);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+    } else {
+        // circle with orbit accents
+        ctx.beginPath();
+        ctx.arc(artX, artY, 16, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(artX + 24, artY - 8, 4, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    
+    // Divider
+    ctx.strokeStyle = 'rgba(200, 200, 255, 0.15)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + 8, y + 98);
+    ctx.lineTo(x + w - 8, y + 98);
+    ctx.stroke();
+    
+    // Non-stacking / Curse badges
+    ctx.textAlign = 'left';
+    let badgeX = x + 10;
+    const badges = [];
+    if (card.nonStacking) badges.push('Non-Stacking');
+    if (card.isCurse) badges.push('Curse');
+    if (badges.length) {
+        ctx.font = 'bold 9px Arial';
+        ctx.fillStyle = '#ff8888';
+        ctx.fillText(badges.join(' • '), badgeX, y + 34);
+    }
+    
+    // Description
+    const qb = card.qualityBands && card.qualityBands[q];
+    const desc = qb && qb.description ? qb.description : '';
+    ctx.font = '10px Arial';
+    ctx.fillStyle = '#cfd8ff';
+    wrapText(ctx, desc, x + 10, y + 112, w - 20, 12);
+}
+
+function drawEmptyCardTile(ctx, x, y, w, h, label) {
+    const radius = 10;
+    const gradient = ctx.createLinearGradient(x, y, x, y + h);
+    gradient.addColorStop(0, 'rgba(14, 14, 20, 0.7)');
+    gradient.addColorStop(1, 'rgba(8, 8, 12, 0.7)');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + w - radius, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+    ctx.lineTo(x + w, y + h - radius);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+    ctx.lineTo(x + radius, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
+    ctx.fill();
+    
+    // Dashed border to indicate empty
+    ctx.setLineDash([6, 6]);
+    ctx.strokeStyle = 'rgba(200, 200, 200, 0.35)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    
+    // Placeholder icon (faint)
+    const cx = x + Math.floor(w / 2);
+    const cy = y + Math.floor(h / 2) - 6;
+    ctx.strokeStyle = 'rgba(180, 180, 220, 0.2)';
+    ctx.fillStyle = 'rgba(180, 180, 220, 0.08)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.rect(cx - 16, cy - 22, 32, 44);
+    ctx.stroke();
+    ctx.fill();
+    
+    // Label
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 12px Arial';
+    ctx.fillStyle = 'rgba(200, 200, 220, 0.7)';
+    ctx.fillText(label || 'Empty Slot', cx, y + h - 12);
+}
+
 // Render character sheet (inventory and stats)
 function renderCharacterSheet(ctx, player) {
     if (!CharacterSheet.isOpen || !player) return;
@@ -1534,13 +1735,11 @@ function renderCharacterSheet(ctx, player) {
     const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
     
     // Modal dimensions - responsive to screen size
-    // On mobile, maximize vertical space (minimal padding)
-    const modalWidth = isMobile ? Math.min(screenWidth * 0.96, 600) : Math.min(screenWidth * 0.90, 600);
-    // Mobile: 92% of screen height (maximize space, minimal margins)
-    // Desktop: 90% or max 700px
+    // Desktop: Use much larger canvas to showcase big card grid; Mobile stays compact for now
+    const modalWidth = isMobile ? Math.min(screenWidth * 0.96, 640) : Math.min(screenWidth * 0.92, 1100);
     const modalHeight = isMobile 
-        ? Math.min(screenHeight * 0.92, screenHeight - 40) // Leave only 40px total margin (20px top+bottom)
-        : Math.min(screenHeight * 0.90, 700);
+        ? Math.min(screenHeight * 0.92, screenHeight - 40)
+        : Math.min(screenHeight * 0.92, 820);
     const modalX = (screenWidth - modalWidth) / 2;
     const modalY = (screenHeight - modalHeight) / 2;
     
@@ -1564,7 +1763,7 @@ function renderCharacterSheet(ctx, player) {
     ctx.save();
     
     // Clip content to modal bounds (leave space for header and footer)
-    const headerHeight = 75;
+    const headerHeight = 110;
     const footerHeight = 35;
     const scrollableTop = modalY + headerHeight;
     const scrollableHeight = modalHeight - headerHeight - footerHeight;
@@ -1641,353 +1840,291 @@ function renderCharacterSheet(ctx, player) {
         }
     }
     
-    // Draw stats section (using currentY so it scrolls)
-    const leftColumnX = modalX + 60;
-    ctx.textAlign = 'left';
-    ctx.font = 'bold 16px Arial';
-    ctx.fillStyle = '#ffdd88';
-    ctx.fillText('STATS', leftColumnX, currentY);
-    currentY += 25;
+    // Compact core stats strip (everything else is on cards)
+    const stats = [];
+    stats.push({ label: 'HP', value: `${Math.floor(player.hp)}/${Math.floor(player.maxHp)}` });
+    stats.push({ label: 'DMG', value: `${player.damage.toFixed(1)}` });
+    stats.push({ label: 'DEF', value: `${(player.defense * 100).toFixed(0)}%` });
+    stats.push({ label: 'SPD', value: `${player.moveSpeed.toFixed(0)}` });
+    if (player.maxDodgeCharges) stats.push({ label: 'DODGE', value: `${player.maxDodgeCharges}` });
     
-    ctx.font = '13px Arial';
-    ctx.fillStyle = '#ffffff';
-    let statY = currentY;
-    const statLineHeight = 20;
-    
-    ctx.fillText(`HP: ${Math.floor(player.hp)} / ${Math.floor(player.maxHp)}`, leftColumnX, statY);
-    statY += statLineHeight;
-    ctx.fillText(`Damage: ${player.damage.toFixed(1)}`, leftColumnX, statY);
-    statY += statLineHeight;
-    ctx.fillText(`Defense: ${(player.defense * 100).toFixed(1)}%`, leftColumnX, statY);
-    statY += statLineHeight;
-    ctx.fillText(`Speed: ${player.moveSpeed.toFixed(0)}`, leftColumnX, statY);
-    statY += statLineHeight;
-    
-    // Show derived stats if they exist
-    if (player.critChance > 0) {
-        ctx.fillText(`Crit Chance: ${(player.critChance * 100).toFixed(0)}%`, leftColumnX, statY);
-        statY += statLineHeight;
-        
-        // Always show crit damage when crit chance > 0
-        const critDamageMult = player.critDamageMultiplier || 1.0;
-        const totalCritMult = 2.0 * critDamageMult; // Base 2x times the multiplier
-        ctx.fillText(`Crit Damage: ${totalCritMult.toFixed(2)}x (${(critDamageMult * 100).toFixed(0)}%)`, leftColumnX, statY);
-        statY += statLineHeight;
-    }
-    if (player.lifesteal > 0) {
-        ctx.fillText(`Lifesteal: ${(player.lifesteal * 100).toFixed(0)}%`, leftColumnX, statY);
-        statY += statLineHeight;
-    }
-    if (player.cooldownReduction > 0) {
-        ctx.fillText(`Cooldown Reduction: ${(player.cooldownReduction * 100).toFixed(0)}%`, leftColumnX, statY);
-        statY += statLineHeight;
-    }
-    
-    // Dodge charges breakdown (show sources clearly)
-    if (player.maxDodgeCharges) {
-        const baseCharges = player.baseDodgeCharges || 1;
-        const armorBonus = player.armor && player.armor.armorType && typeof ARMOR_TYPES !== 'undefined' && ARMOR_TYPES[player.armor.armorType] ? 
-            (ARMOR_TYPES[player.armor.armorType].dodgeBonus || 0) : 0;
-        const affixBonus = player.bonusDodgeCharges || 0;
-        
-        ctx.fillText(`Dodge Charges: ${player.maxDodgeCharges}`, leftColumnX, statY);
-        statY += statLineHeight;
-        
-        // Show breakdown in smaller text
-        ctx.font = '10px Arial';
-        ctx.fillStyle = '#aaaaaa';
-        ctx.fillText(`  Base: ${baseCharges}`, leftColumnX, statY);
-        statY += 14;
-        if (armorBonus > 0) {
-            ctx.fillText(`  Armor Type: +${armorBonus}`, leftColumnX, statY);
-            statY += 14;
-        }
-        if (affixBonus > 0) {
-            ctx.fillText(`  Affixes: +${affixBonus}`, leftColumnX, statY);
-            statY += 14;
-        }
-        ctx.font = '13px Arial';
+    // Centered chip row (compact core stats)
+    const chipH = 24;
+    const chipPadX = 10;
+    const gap = 10;
+    // Measure total width
+    ctx.font = 'bold 12px Arial';
+    let totalW = 0;
+    const chipWidths = stats.map(s => {
+        const w = ctx.measureText(`${s.label}: ${s.value}`).width + chipPadX * 2;
+        totalW += w;
+        return w;
+    });
+    totalW += gap * (stats.length - 1);
+    const chipsStartX = (modalX + modalWidth / 2) - Math.floor(totalW / 2);
+    let cx = chipsStartX;
+    const chipsY = currentY;
+    stats.forEach((s, i) => {
+        const w = chipWidths[i];
+        ctx.fillStyle = 'rgba(255,255,255,0.08)';
+        ctx.fillRect(cx, chipsY, w, chipH);
+        ctx.strokeStyle = 'rgba(150,150,255,0.3)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(cx, chipsY, w, chipH);
         ctx.fillStyle = '#ffffff';
-    }
+        ctx.textAlign = 'center';
+        ctx.fillText(`${s.label}: ${s.value}`, cx + Math.floor(w / 2), chipsY + 16);
+        cx += w + gap;
+    });
+    currentY += chipH + 28;
     
-    if (player.pierceCount > 0) {
-        ctx.fillStyle = '#ff44ff'; // Rare affix color
-        ctx.fillText(`Pierce: ${player.pierceCount} enemies`, leftColumnX, statY);
-        statY += statLineHeight;
-        ctx.fillStyle = '#ffffff';
-    }
-    
-    if (player.chainLightningCount > 0) {
-        ctx.fillStyle = '#ff44ff';
-        ctx.fillText(`Chain Lightning: ${player.chainLightningCount} targets`, leftColumnX, statY);
-        statY += statLineHeight;
-        ctx.fillStyle = '#ffffff';
-    }
-    
-    if (player.executeBonus > 0) {
-        ctx.fillStyle = '#ff44ff';
-        ctx.fillText(`Execute: +${(player.executeBonus * 100).toFixed(0)}% vs low HP`, leftColumnX, statY);
-        statY += statLineHeight;
-        ctx.fillStyle = '#ffffff';
-    }
-    
-    if (player.rampageBonus > 0) {
-        ctx.fillStyle = '#ff44ff';
-        ctx.fillText(`Rampage: ${player.rampageStacks || 0}/5 stacks (${(player.rampageBonus * 100).toFixed(0)}% each)`, leftColumnX, statY);
-        statY += statLineHeight;
-        ctx.fillStyle = '#ffffff';
-    }
-    
-    if (player.multishotCount > 0) {
-        ctx.fillStyle = '#ff44ff';
-        ctx.fillText(`Multishot: +${player.multishotCount} projectiles`, leftColumnX, statY);
-        statY += statLineHeight;
-        ctx.fillStyle = '#ffffff';
-    }
-    
-    if (player.phasingChance > 0) {
-        ctx.fillStyle = '#ff44ff';
-        ctx.fillText(`Phasing: ${(player.phasingChance * 100).toFixed(0)}% avoid`, leftColumnX, statY);
-        statY += statLineHeight;
-        ctx.fillStyle = '#ffffff';
-    }
-    
-    if (player.explosiveChance > 0) {
-        ctx.fillStyle = '#ff44ff';
-        ctx.fillText(`Explosive: ${(player.explosiveChance * 100).toFixed(0)}% proc`, leftColumnX, statY);
-        statY += statLineHeight;
-        ctx.fillStyle = '#ffffff';
-    }
-    
-    if (player.fortifyPercent > 0) {
-        ctx.fillStyle = '#ff44ff';
-        ctx.fillText(`Fortify: ${(player.fortifyPercent * 100).toFixed(0)}% → Shield (${player.fortifyShield.toFixed(0)})`, leftColumnX, statY);
-        statY += statLineHeight;
-        ctx.fillStyle = '#ffffff';
-    }
-    
-    if (player.overchargeChance > 0) {
-        ctx.fillStyle = '#ff44ff';
-        ctx.fillText(`Overcharge: ${(player.overchargeChance * 100).toFixed(0)}% refund`, leftColumnX, statY);
-        statY += statLineHeight;
-        ctx.fillStyle = '#ffffff';
-    }
-    
-    // Add spacing before ability cooldowns section
-    statY += 5;
-    
-    // Draw ability cooldowns section (using dynamic class descriptions)
-    if (player.playerClass && typeof getClassDescription !== 'undefined') {
-        // Get class config for cooldown values
-        const classKey = player.playerClass;
-        let config = null;
-        
-        if (classKey === 'square' && typeof WARRIOR_CONFIG !== 'undefined') {
-            config = WARRIOR_CONFIG;
-        } else if (classKey === 'triangle' && typeof ROGUE_CONFIG !== 'undefined') {
-            config = ROGUE_CONFIG;
-        } else if (classKey === 'pentagon' && typeof TANK_CONFIG !== 'undefined') {
-            config = TANK_CONFIG;
-        } else if (classKey === 'hexagon' && typeof MAGE_CONFIG !== 'undefined') {
-            config = MAGE_CONFIG;
-        }
-        
-        if (config) {
-            ctx.font = 'bold 14px Arial';
-            ctx.fillStyle = '#ffdd88';
-            ctx.fillText('ABILITY COOLDOWNS', leftColumnX, statY);
-            statY += 18;
-            
-            ctx.font = '12px Arial';
-            ctx.fillStyle = '#ffffff';
-            
-            // Heavy Attack cooldown
-            const heavyCooldown = config.heavyAttackCooldown || 0;
-            const actualHeavyCooldown = heavyCooldown * (1 - (player.cooldownReduction || 0));
-            ctx.fillText(`Heavy Attack: ${actualHeavyCooldown.toFixed(1)}s`, leftColumnX, statY);
-            statY += 16;
-            
-            // Special Ability cooldown
-            const specialCooldown = config.specialCooldown || 0;
-            const actualSpecialCooldown = specialCooldown * (1 - (player.cooldownReduction || 0));
-            ctx.fillText(`Special Ability: ${actualSpecialCooldown.toFixed(1)}s`, leftColumnX, statY);
-            statY += 16;
-            
-            // Mage-specific beam stats
-            if (classKey === 'hexagon') {
-                statY += 5; // Add spacing
-                
-                ctx.font = 'bold 14px Arial';
-                ctx.fillStyle = '#ffdd88';
-                ctx.fillText('BEAM STATS', leftColumnX, statY);
-                statY += 18;
-                
-                ctx.font = '12px Arial';
-                ctx.fillStyle = '#ffffff';
-                
-                // Beam charges (current/max)
-                const currentCharges = player.beamCharges || 0;
-                const maxCharges = player.maxBeamCharges || 2;
-                ctx.fillText(`Beam Charges: ${currentCharges}/${maxCharges}`, leftColumnX, statY);
-                statY += 16;
-                
-                // Beam duration
-                const beamDuration = player.effectiveBeamDuration || config.beamDuration || 1.5;
-                ctx.fillText(`Beam Duration: ${beamDuration.toFixed(2)}s`, leftColumnX, statY);
-                statY += 16;
-                
-                // Beam tick rate
-                const beamTickRate = player.effectiveBeamTickRate || config.beamTickRate || 0.2;
-                ctx.fillText(`Beam Tick Rate: ${beamTickRate.toFixed(3)}s`, leftColumnX, statY);
-                statY += 16;
-                
-                // Beam damage per tick
-                const beamDamagePerTick = config.beamDamagePerTick || 0.4;
-                ctx.fillText(`Beam Damage/Tick: ${(beamDamagePerTick * 100).toFixed(0)}%`, leftColumnX, statY);
-                statY += 16;
-                
-                // Beam max penetration
-                const maxPenetration = player.effectiveBeamMaxPenetration || config.beamMaxPenetration || 2;
-                ctx.fillText(`Beam Max Penetration: ${maxPenetration}`, leftColumnX, statY);
-                statY += 16;
-            }
-        }
-    }
-    
-    // Draw equipped gear section (parallel to stats, using same Y position)
+    // Draw cards section (parallel to stats, using same Y position)
     const rightColumnX = modalX + modalWidth / 2 + 30;
-    const gearStartY = currentY - 25; // Same starting Y as stats section
+    const cardsStartY = currentY - 25; // Same starting Y as stats section
     ctx.textAlign = 'left';
     ctx.font = 'bold 16px Arial';
     ctx.fillStyle = '#88ddff';
-    ctx.fillText('EQUIPPED GEAR', rightColumnX, gearStartY);
+    ctx.fillText('CARDS', rightColumnX, cardsStartY);
     
-    // Render each equipment slot
-    let gearY = gearStartY + 25;
-    const slots = ['weapon', 'armor', 'accessory'];
+    let cardY = cardsStartY + 25;
     
-    slots.forEach(slot => {
-        const gear = player.getEquippedGear(slot);
+    // Hand section (center-focused single row of large cards)
+    ctx.font = 'bold 16px Arial';
+    ctx.fillStyle = '#ffaa88';
+    ctx.textAlign = 'center';
+    ctx.fillText('HAND', modalX + modalWidth / 2, cardY);
+    cardY += 16;
+    (function () {
+        const hand = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.hand)) ? DeckState.hand : [];
+        const maxHand = (typeof SaveSystem !== 'undefined' && SaveSystem.getDeckUpgrades) ? (SaveSystem.getDeckUpgrades().handSize || 4) : 4;
+        const centerX = modalX + modalWidth / 2;
+        const areaMargin = 40;
+        const areaX = modalX + areaMargin;
+        const areaW = modalWidth - areaMargin * 2;
+        // Portrait cards: exactly maxHand slots, scale dynamically to fill center area
+        const desiredW = 220;
+        const desiredH = 310;
+        const minW = 130;
+        const maxW = 280;
+        const slots = Math.max(1, maxHand);
+        const gutter = 20;
+        let cardWidth = Math.floor((areaW - gutter * (slots - 1)) / slots);
+        cardWidth = Math.max(minW, Math.min(maxW, cardWidth));
+        const scale = cardWidth / desiredW;
+        const cardHeight = Math.floor(desiredH * scale);
         
-        // Slot label
-        ctx.font = 'bold 14px Arial';
-        ctx.fillStyle = '#ffaa88';
-        ctx.fillText(slot.toUpperCase() + ':', rightColumnX, gearY);
-        gearY += 18;
+        // header count on the right edge of hand area
+        ctx.font = '11px Arial';
+        ctx.fillStyle = '#dddddd';
+        ctx.textAlign = 'right';
+        const countText = `(${hand.length}/${maxHand})`;
+        ctx.fillText(countText, areaX + areaW, cardY);
+        ctx.textAlign = 'left';
+        cardY += 10;
         
-        if (gear) {
-            // Gear name and tier
-            ctx.font = '12px Arial';
-            ctx.fillStyle = gear.color;
-            let gearTitle = `${gear.tier.toUpperCase()}`;
-            if (gear.weaponType && typeof WEAPON_TYPES !== 'undefined') {
-                gearTitle += ` ${WEAPON_TYPES[gear.weaponType].name}`;
+        // Compute centered startX for the strip
+        const totalW = slots * cardWidth + (slots - 1) * gutter;
+        const startX = Math.floor(centerX - totalW / 2);
+        const y = cardY;
+        
+        // Draw drop shadow band behind cards for focus
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+        ctx.fillRect(startX - 16, y - 10, totalW + 32, cardHeight + 20);
+        
+        for (let i = 0; i < slots; i++) {
+            const x = startX + i * (cardWidth + gutter);
+            const card = hand[i];
+            if (card) {
+                drawCardTile(ctx, x, y, cardWidth, cardHeight, card);
+            } else {
+                drawEmptyCardTile(ctx, x, y, cardWidth, cardHeight, 'Empty Slot');
             }
-            if (gear.armorType && typeof ARMOR_TYPES !== 'undefined') {
-                gearTitle += ` ${ARMOR_TYPES[gear.armorType].name}`;
+            // Save bounds for click handling
+            if (!CharacterSheet.handSlotBounds) CharacterSheet.handSlotBounds = [];
+            CharacterSheet.handSlotBounds[i] = { x, y, w: cardWidth, h: cardHeight, index: i };
+            // If awaiting swap, draw subtle highlight over slots
+            if (typeof Game !== 'undefined' && Game.awaitingHandSwap) {
+                ctx.fillStyle = 'rgba(255, 221, 85, 0.12)';
+                ctx.fillRect(x, y, cardWidth, cardHeight);
             }
-            ctx.fillText(gearTitle, rightColumnX + 10, gearY);
-            gearY += 15;
-            
-            if (gear.name) {
-                ctx.font = '11px Arial';
-                ctx.fillStyle = '#dddddd';
-                ctx.fillText(gear.name, rightColumnX + 10, gearY);
-                gearY += 14;
-            }
-            
-            // Base stats
-            ctx.font = '10px Arial';
-            if (gear.stats.damage) {
-                ctx.fillStyle = '#ff8888';
-                ctx.fillText(`  +${gear.stats.damage.toFixed(1)} Damage`, rightColumnX + 10, gearY);
-                gearY += 13;
-            }
-            if (gear.stats.defense) {
-                ctx.fillStyle = '#88aaff';
-                ctx.fillText(`  +${(gear.stats.defense * 100).toFixed(1)}% Defense`, rightColumnX + 10, gearY);
-                gearY += 13;
-            }
-            if (gear.stats.speed) {
-                ctx.fillStyle = '#88ff88';
-                ctx.fillText(`  +${(gear.stats.speed * 100).toFixed(0)}% Speed`, rightColumnX + 10, gearY);
-                gearY += 13;
-            }
-            
-            // Affixes (show all)
-            if (gear.affixes && gear.affixes.length > 0) {
-                ctx.fillStyle = '#aaddff';
-                gear.affixes.forEach(affix => {
-                    // Integer affixes (count-based)
-                    const isIntegerAffix = ['dodgeCharges', 'maxHealth', 'pierce', 'chainLightning', 'multishot', 'beamCharges', 'beamPenetration'].includes(affix.type);
-                    let displayValue;
-                    
-                    // Special handling for beam affixes
-                    if (affix.type === 'beamTickRate') {
-                        displayValue = `-${(affix.value * 100).toFixed(0)}%`;
-                    } else if (isIntegerAffix) {
-                        displayValue = `+${affix.value.toFixed(0)}`;
-                    } else {
-                        displayValue = `+${(affix.value * 100).toFixed(0)}%`;
-                    }
-                    
-                    let displayName = affix.type.replace(/([A-Z])/g, ' $1').trim();
-                    
-                    // Special formatting for specific affixes
-                    const nameMap = {
-                        pierce: 'Pierce',
-                        chainLightning: 'Chain Lightning',
-                        execute: 'Execute',
-                        rampage: 'Rampage',
-                        multishot: 'Multishot',
-                        phasing: 'Phasing',
-                        explosiveAttacks: 'Explosive',
-                        fortify: 'Fortify',
-                        overcharge: 'Overcharge'
-                    };
-                    if (nameMap[affix.type]) {
-                        displayName = nameMap[affix.type];
-                    }
-                    
-                    // Tier badge
-                    const tierColors = { basic: '#888888', advanced: '#4488ff', rare: '#ff44ff' };
-                    const tierColor = tierColors[affix.tier] || '#888888';
-                    ctx.fillStyle = tierColor;
-                    ctx.fillText(`  [${(affix.tier || 'basic').toUpperCase()}] ${displayName}: ${displayValue}`, rightColumnX + 10, gearY);
-                    gearY += 13;
-                });
-            }
-            
-            // Class modifier
-            if (gear.classModifier) {
-                const classIcon = gear.classModifier.class === 'universal' ? '[All]' : `[${gear.classModifier.class}]`;
-                ctx.fillStyle = '#ffaa00';
-                ctx.font = 'bold 10px Arial';
-                ctx.fillText(`  ${classIcon} ${gear.classModifier.description}`, rightColumnX + 10, gearY);
-                gearY += 13;
-                ctx.font = '10px Arial';
-            }
-            
-            // Legendary effect
-            if (gear.legendaryEffect) {
-                ctx.fillStyle = '#ff9800';
-                ctx.font = 'bold 10px Arial';
-                ctx.fillText(`  [LEGENDARY] ${gear.legendaryEffect.description}`, rightColumnX + 10, gearY);
-                gearY += 13;
-                ctx.font = '10px Arial';
-            }
-            
-            gearY += 8; // Extra spacing between slots
-        } else {
-            ctx.font = '11px Arial';
-            ctx.fillStyle = '#888888';
-            ctx.fillText('  None equipped', rightColumnX + 10, gearY);
-            gearY += 25;
         }
-    });
+        cardY += cardHeight;
+    })();
+    cardY += 12;
+
+    // Piles summary - horizontal chips centered (Draw / Discard / Spent)
+    (function () {
+        const draw = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.drawPile)) ? DeckState.drawPile.length : 0;
+        const discard = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.discard)) ? DeckState.discard.length : 0;
+        const spent = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.spent)) ? DeckState.spent.length : 0;
+        const items = [
+            { label: 'DRAW', value: draw },
+            { label: 'DISCARD', value: discard },
+            { label: 'SPENT', value: spent }
+        ];
+        ctx.font = 'bold 12px Arial';
+        const padX = 10;
+        const chipH2 = 22;
+        const gap2 = 12;
+        let total = 0;
+        const widths = items.map(it => {
+            const w = ctx.measureText(`${it.label}: ${it.value}`).width + padX * 2;
+            total += w;
+            return w;
+        });
+        total += gap2 * (items.length - 1);
+        const sx = (modalX + modalWidth / 2) - Math.floor(total / 2);
+        let x = sx;
+        for (let i = 0; i < items.length; i++) {
+            const w = widths[i];
+            ctx.fillStyle = 'rgba(255,255,255,0.06)';
+            ctx.fillRect(x, cardY, w, chipH2);
+            ctx.strokeStyle = 'rgba(150,150,255,0.25)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x, cardY, w, chipH2);
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#dddddd';
+            ctx.fillText(`${items[i].label}: ${items[i].value}`, x + Math.floor(w / 2), cardY + 15);
+            x += w + gap2;
+        }
+        cardY += chipH2 + 18;
+    })();
+    
+    // Pending swap preview panel (smaller, bottom-right, unobtrusive)
+    if (typeof Game !== 'undefined' && Game.awaitingHandSwap && Game.pendingSwapCard) {
+        const margin = 16;
+        const panelW = 220;
+        const panelH = 280;
+        const panelX = modalX + modalWidth - panelW - margin;
+        const panelY = modalY + (modalHeight - panelH) - margin;
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(panelX, panelY, panelW, panelH);
+        ctx.strokeStyle = '#ffdd55';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(panelX, panelY, panelW, panelH);
+        ctx.fillStyle = '#ffdd55';
+        ctx.font = 'bold 14px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Incoming Card', panelX + panelW / 2, panelY + 22);
+        // Draw the incoming card tile
+        const tw = panelW - 24;
+        const th = panelH - 70;
+        const tx = panelX + 12;
+        const ty = panelY + 30;
+        drawCardTile(ctx, tx, ty, tw, th, Game.pendingSwapCard);
+        // Instructions
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '12px Arial';
+        ctx.fillText('Click a hand card to replace', panelX + panelW / 2, panelY + panelH - 10);
+    }
+    
+    // Piles summary: Draw / Discard / Spent
+    ctx.font = 'bold 14px Arial';
+    ctx.fillStyle = '#ffaa88';
+    ctx.fillText('PILES', rightColumnX, cardY);
+    cardY += 18;
+    (function () {
+        const draw = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.drawPile)) ? DeckState.drawPile : [];
+        const discard = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.discard)) ? DeckState.discard : [];
+        const spent = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.spent)) ? DeckState.spent : [];
+        ctx.font = '11px Arial';
+        ctx.fillStyle = '#dddddd';
+        ctx.fillText(`  Draw: ${draw.length}`, rightColumnX + 10, cardY); cardY += 14;
+        ctx.fillText(`  Discard: ${discard.length}`, rightColumnX + 10, cardY); cardY += 14;
+        ctx.fillText(`  Spent: ${spent.length}`, rightColumnX + 10, cardY); cardY += 16;
+    })();
+    
+    // Reserve
+    ctx.font = 'bold 14px Arial';
+    ctx.fillStyle = '#ffaa88';
+    ctx.fillText('RESERVE', rightColumnX, cardY);
+    cardY += 18;
+    (function () {
+        const reserve = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.reserve)) ? DeckState.reserve : [];
+        const reserveSlots = (typeof SaveSystem !== 'undefined' && SaveSystem.getDeckUpgrades) ? (SaveSystem.getDeckUpgrades().reserveSlots || 0) : 0;
+        ctx.font = '11px Arial';
+        ctx.fillStyle = reserve.length > 0 ? '#dddddd' : '#888888';
+        if (reserve.length === 0) {
+            ctx.fillText(`  Empty (${reserve.length}/${reserveSlots})`, rightColumnX + 10, cardY);
+            cardY += 16;
+        } else {
+            ctx.fillText(`  ${reserve.length}/${reserveSlots}`, rightColumnX + 10, cardY);
+            cardY += 14;
+            const preview = reserve.slice(0, 3);
+            preview.forEach(c => {
+                const name = c.name || c.family || 'Card';
+                ctx.font = '11px Arial';
+                ctx.fillStyle = '#cccccc';
+                ctx.fillText(`   - ${name}`, rightColumnX + 10, cardY);
+                cardY += 13;
+            });
+            if (reserve.length > 3) {
+                ctx.font = '10px Arial';
+                ctx.fillStyle = '#aaaaaa';
+                ctx.fillText(`   +${reserve.length - 3} more...`, rightColumnX + 10, cardY);
+                cardY += 12;
+            }
+        }
+    })();
+    
+    // Room Modifiers (carried on run)
+    ctx.font = 'bold 14px Arial';
+    ctx.fillStyle = '#ffaa88';
+    ctx.fillText('ROOM MODIFIERS', rightColumnX, cardY);
+    cardY += 18;
+    (function () {
+        const mods = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.roomModifierInventory)) ? DeckState.roomModifierInventory : [];
+        const carrySlots = (typeof SaveSystem !== 'undefined' && SaveSystem.getDeckUpgrades) ? (SaveSystem.getDeckUpgrades().roomModifierCarrySlots || 3) : 3;
+        ctx.font = '11px Arial';
+        ctx.fillStyle = mods.length > 0 ? '#dddddd' : '#888888';
+        if (mods.length === 0) {
+            ctx.fillText(`  None (${mods.length}/${carrySlots})`, rightColumnX + 10, cardY);
+            cardY += 16;
+        } else {
+            ctx.fillText(`  ${mods.length}/${carrySlots}`, rightColumnX + 10, cardY);
+            cardY += 14;
+            const preview = mods.slice(0, 2);
+            preview.forEach(m => {
+                const name = m.name || m.family || 'Modifier';
+                ctx.font = '11px Arial';
+                ctx.fillStyle = '#cccccc';
+                ctx.fillText(`   - ${name}`, rightColumnX + 10, cardY);
+                cardY += 13;
+            });
+            if (mods.length > 2) {
+                ctx.font = '10px Arial';
+                ctx.fillStyle = '#aaaaaa';
+                ctx.fillText(`   +${mods.length - 2} more...`, rightColumnX + 10, cardY);
+                cardY += 12;
+            }
+        }
+    })();
+    
+    // Team Cards (active)
+    ctx.font = 'bold 14px Arial';
+    ctx.fillStyle = '#ffaa88';
+    ctx.fillText('TEAM CARDS', rightColumnX, cardY);
+    cardY += 18;
+    (function () {
+        const team = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.activeTeamCards)) ? DeckState.activeTeamCards : [];
+        ctx.font = '11px Arial';
+        ctx.fillStyle = team.length > 0 ? '#dddddd' : '#888888';
+        if (team.length === 0) {
+            ctx.fillText('  None', rightColumnX + 10, cardY);
+            cardY += 16;
+        } else {
+            team.forEach(t => {
+                const name = t.name || t.family || 'Team Card';
+                ctx.font = '11px Arial';
+                ctx.fillStyle = '#cccccc';
+                ctx.fillText(`  ${name}`, rightColumnX + 10, cardY);
+                cardY += 13;
+            });
+        }
+    })();
     
     // Track maximum content Y position (for scroll calculation)
-    contentMaxY = Math.max(contentMaxY, gearY);
+    contentMaxY = Math.max(contentMaxY, cardY);
     
     // Restore context (end clipping)
     ctx.restore();
@@ -4243,6 +4380,45 @@ function checkGearInteraction() {
     return null;
 }
 
+// Check for door pack selection interaction
+function checkDoorPackInteraction() {
+    if (!Game || !Game.player || !Game.player.alive || typeof checkDoorInteraction !== 'function') {
+        return null;
+    }
+    const pack = checkDoorInteraction(Game.player);
+    if (pack) {
+        return { type: 'doorpack', data: pack };
+    }
+    return null;
+}
+
+// Check for card pickup interaction
+function checkCardInteraction() {
+    if (!Game || !Game.player || !Game.player.alive || typeof groundCards === 'undefined') {
+        return null;
+    }
+    const px = Game.player.x;
+    const py = Game.player.y;
+    let nearest = null;
+    let bestDist2 = Infinity;
+    for (let i = 0; i < groundCards.length; i++) {
+        const it = groundCards[i];
+        const dx = it.x - px;
+        const dy = it.y - py;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < bestDist2) {
+            bestDist2 = d2;
+            nearest = it;
+        }
+    }
+    if (!nearest) return null;
+    const pickRadius = 80;
+    if (bestDist2 <= pickRadius * pickRadius) {
+        return { type: 'card', data: nearest };
+    }
+    return null;
+}
+
 // Check for nexus interactions
 function checkNexusInteractions() {
     if (!Game || Game.state !== 'NEXUS' || !Game.player || typeof nexusRoom === 'undefined' || !nexusRoom) {
@@ -4298,7 +4474,18 @@ function updateInteractionState() {
     
     // Check for interactions based on game state
     if (Game && Game.state === 'PLAYING') {
-        currentInteraction = checkGearInteraction();
+        // Priority: door pack > upgrade pickup > card > gear
+        let upgradeInteraction = null;
+        if (typeof checkUpgradePickup === 'function') {
+            const upgrade = checkUpgradePickup(Game.player);
+            if (upgrade) {
+                upgradeInteraction = { type: 'upgrade', data: upgrade };
+            }
+        }
+        currentInteraction = checkDoorPackInteraction() || 
+                            upgradeInteraction ||
+                            checkCardInteraction() || 
+                            checkGearInteraction();
     } else if (Game && Game.state === 'NEXUS') {
         currentInteraction = checkNexusInteractions();
     } else {
@@ -4321,12 +4508,21 @@ function renderInteractionButton(ctx) {
     
     // Determine button label
     let label = 'Interact';
-    if (currentInteraction.type === 'gear') {
+    if (currentInteraction.type === 'doorpack') {
+        label = 'Select Pack';
+    } else if (currentInteraction.type === 'gear') {
         label = 'Pickup Gear';
+    } else if (currentInteraction.type === 'card') {
+        label = 'Pickup Card';
     } else if (currentInteraction.type === 'class') {
         label = 'Select Class';
     } else if (currentInteraction.type === 'upgrade') {
-        label = 'Purchase Upgrade';
+        // Check if it's a ground pickup or shop purchase
+        if (currentInteraction.data && currentInteraction.data.option) {
+            label = 'Pickup Upgrade';
+        } else {
+            label = 'Purchase Upgrade';
+        }
     } else if (currentInteraction.type === 'portal') {
         label = 'Enter Portal';
     }
@@ -4355,6 +4551,466 @@ function renderInteractionButton(ctx) {
     interactionButton.render(ctx);
 }
 
+// -------- Card Door Options UI --------
+function renderDoorOptions(ctx) {
+    if (typeof Game === 'undefined' || !Game.awaitingDoorSelection || !Array.isArray(Game.doorOptions) || Game.doorOptions.length === 0) return;
+    const canvasWidth = Game ? Game.config.width : 1280;
+    const canvasHeight = Game ? Game.config.height : 720;
+    const options = Game.doorOptions;
+    const cardWidth = 260;
+    const cardHeight = 120;
+    const spacing = 20;
+    const totalWidth = options.length * cardWidth + (options.length - 1) * spacing;
+    const startX = (canvasWidth - totalWidth) / 2;
+    const y = Math.max(40, canvasHeight * 0.15);
+    
+    options.forEach((opt, i) => {
+        const x = startX + i * (cardWidth + spacing);
+        const isUpgradeDisabled = opt.rewardType === 'Upgrade' && opt.canUpgrade === false;
+        
+        // Background with reduced opacity if disabled
+        ctx.fillStyle = isUpgradeDisabled ? 'rgba(0, 0, 0, 0.5)' : 'rgba(0, 0, 0, 0.75)';
+        ctx.fillRect(x, y, cardWidth, cardHeight);
+        
+        // Border color (grayed if disabled)
+        ctx.strokeStyle = isUpgradeDisabled ? '#888888' : 
+            (opt.packType === 'Elite' ? '#00ffff' : opt.packType === 'Challenge' ? '#ff8800' : '#ffffff');
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, cardWidth, cardHeight);
+        
+        // Text color (grayed if disabled)
+        ctx.fillStyle = isUpgradeDisabled ? '#888888' : '#ffff00';
+        ctx.font = 'bold 14px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText(`${opt.packType} Pack`, x + 10, y + 22);
+        
+        ctx.fillStyle = isUpgradeDisabled ? '#aaaaaa' : '#ffffff';
+        ctx.font = '12px Arial';
+        ctx.fillText(`Reward: ${opt.rewardType}`, x + 10, y + 42);
+        
+        // Warning text if disabled
+        if (isUpgradeDisabled && opt.upgradeWarning) {
+            ctx.fillStyle = '#ff6666';
+            ctx.font = 'bold 10px Arial';
+            const warningLines = opt.upgradeWarning.split('\n');
+            warningLines.forEach((line, idx) => {
+                ctx.fillText(line, x + 10, y + 64 + idx * 14);
+            });
+        } else {
+            // Normal previews
+            const previews = Array.isArray(opt.preview) ? opt.preview.slice(0, 2) : [];
+            previews.forEach((p, idx) => {
+                ctx.fillText(`- ${p}`, x + 10, y + 64 + idx * 18);
+            });
+        }
+        
+        // Boss mastery unlock indicator
+        if (opt.bossUnlock && opt.rewardType === 'Card') {
+            ctx.fillStyle = '#ffdd55';
+            ctx.font = 'bold 12px Arial';
+            ctx.fillText('Boss Unlock Available!', x + 10, y + cardHeight - 10);
+        }
+        
+        // Store bounds and disabled state for click handling
+        opt._bounds = { x, y, w: cardWidth, h: cardHeight };
+        opt._disabled = isUpgradeDisabled;
+    });
+    
+    // Room modifier picker (if any)
+    if (typeof SaveSystem !== 'undefined') {
+        const save = SaveSystem.load();
+        const mods = Array.isArray(save.roomModifierCollection) ? save.roomModifierCollection : [];
+        const slots = (SaveSystem.getDeckUpgrades ? (SaveSystem.getDeckUpgrades().roomModifierCarrySlots || 3) : 3);
+        if (mods.length > 0 && slots > 0) {
+            const panelY = y + cardHeight + 36;
+            const panelH = 70;
+            ctx.fillStyle = 'rgba(0,0,0,0.6)';
+            ctx.fillRect(20, panelY, (canvasWidth - 40), panelH);
+            ctx.strokeStyle = '#888';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(20, panelY, (canvasWidth - 40), panelH);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 12px Arial';
+            ctx.textAlign = 'left';
+            ctx.fillText('Room Modifiers (choose one to apply to next room):', 30, panelY + 18);
+            const itemW = 160, itemH = 36, gap = 10;
+            let ix = 30, iy = panelY + 26;
+            for (let i = 0; i < Math.min(mods.length, Math.floor((canvasWidth - 60) / (itemW + gap))); i++) {
+                const m = mods[i];
+                const selected = (Game && Game.selectedRoomModifier && Game.selectedRoomModifier.id === m.id);
+                ctx.fillStyle = selected ? 'rgba(255, 221, 85, 0.4)' : 'rgba(20,20,30,0.8)';
+                ctx.fillRect(ix, iy, itemW, itemH);
+                ctx.strokeStyle = '#cccccc';
+                ctx.strokeRect(ix, iy, itemW, itemH);
+                ctx.fillStyle = '#fff';
+                ctx.font = '11px Arial';
+                const name = m.family || m.name || (m.id || '').replace(/_/g,' ');
+                ctx.fillText(name, ix + 8, iy + 22);
+                // store bounds
+                m._bounds = { x: ix, y: iy, w: itemW, h: itemH };
+                ix += itemW + gap;
+            }
+        }
+    }
+    
+    // Help text
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 12px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Choose a door reward', canvasWidth / 2, y + cardHeight + 20);
+}
+
+function handleDoorOptionsClick(x, y) {
+    if (typeof Game === 'undefined' || !Game.awaitingDoorSelection || !Array.isArray(Game.doorOptions)) return false;
+    const opts = Game.doorOptions;
+    // First, handle modifier selection
+    if (typeof SaveSystem !== 'undefined') {
+        const save = SaveSystem.load();
+        const mods = Array.isArray(save.roomModifierCollection) ? save.roomModifierCollection : [];
+        for (let i = 0; i < mods.length; i++) {
+            const b = mods[i]._bounds;
+            if (b && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+                Game.selectedRoomModifier = mods[i];
+                return true;
+            }
+        }
+    }
+    for (let i = 0; i < opts.length; i++) {
+        const b = opts[i]._bounds;
+        if (b && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+            // Before processing click, check if disabled
+            if (opts[i]._disabled) {
+                console.warn('[Door Options] Cannot select disabled upgrade option');
+                return false;
+            }
+            // Apply and clear
+            if (typeof CardPacks !== 'undefined' && CardPacks.applyDoorOption) {
+                CardPacks.applyDoorOption(opts[i]);
+            }
+            Game.awaitingDoorSelection = false;
+            Game.doorOptions = [];
+            Game.selectedRoomModifier = null;
+            return true;
+        }
+    }
+    return false;
+}
+
+// -------- Upgrade Selection UI --------
+function renderUpgradeSelection(ctx) {
+    if (typeof Game === 'undefined' || !Game.awaitingUpgradeSelection) return;
+    const hand = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.hand)) ? DeckState.hand : [];
+    if (hand.length === 0) return;
+    const canvasWidth = Game ? Game.config.width : 1280;
+    const canvasHeight = Game ? Game.config.height : 720;
+    const cardWidth = 240;
+    const cardHeight = 90;
+    const spacing = 16;
+    const totalWidth = hand.length * cardWidth + (hand.length - 1) * spacing;
+    const startX = Math.max(20, (canvasWidth - totalWidth) / 2);
+    const y = canvasHeight - (cardHeight + 40);
+    
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(0, y - 30, canvasWidth, cardHeight + 60);
+    
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 14px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Select a card to upgrade (+1 quality)', canvasWidth / 2, y - 8);
+    
+    const order = ['white','green','blue','purple','orange'];
+    const roomNumber = (typeof Game !== 'undefined' && Game.roomNumber) ? Game.roomNumber : 1;
+    const maxQuality = typeof window.getMaxUpgradeQualityForRoom === 'function'
+        ? window.getMaxUpgradeQualityForRoom(roomNumber)
+        : 'orange';
+    const maxQualityIdx = order.indexOf(maxQuality);
+    hand.forEach((c, i) => {
+        const x = startX + i * (cardWidth + spacing);
+        const q = c._resolvedQuality || 'white';
+        const idx = Math.max(0, order.indexOf(q));
+        const next = idx < order.length - 1 ? order[idx + 1] : '(max)';
+        const canUpgrade = idx < order.length - 1 && (idx + 1 <= maxQualityIdx);
+        
+        ctx.fillStyle = 'rgba(20, 20, 30, 0.85)';
+        ctx.fillRect(x, y, cardWidth, cardHeight);
+        ctx.strokeStyle = canUpgrade ? '#00ff99' : '#666666';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, cardWidth, cardHeight);
+        
+        ctx.fillStyle = canUpgrade ? '#ffffcc' : '#888888';
+        ctx.font = 'bold 13px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText(c.name || c.family || 'Card', x + 10, y + 22);
+        
+        // Modify rendering based on upgrade availability
+        if (!canUpgrade && next !== '(max)') {
+            ctx.fillStyle = 'rgba(100, 100, 100, 0.5)'; // Gray out
+            const unlockRoom = typeof window.getRoomForQualityUnlock === 'function'
+                ? window.getRoomForQualityUnlock(next)
+                : 999;
+            ctx.fillStyle = '#888888';
+            ctx.font = '12px Arial';
+            ctx.fillText(`Quality: ${q} → ${next}`, x + 10, y + 42);
+            ctx.fillText(`Room ${unlockRoom}+`, x + 10, y + 60);
+        } else {
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '12px Arial';
+            ctx.fillText(`Quality: ${q} → ${next}`, x + 10, y + 42);
+        }
+        
+        // Store bounds for click
+        c._upgradeBounds = { x, y, w: cardWidth, h: cardHeight };
+        c._canUpgrade = canUpgrade;
+    });
+}
+
+function handleUpgradeSelectionClick(x, y) {
+    if (typeof Game === 'undefined' || !Game.awaitingUpgradeSelection) return false;
+    const hand = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.hand)) ? DeckState.hand : [];
+    for (let i = 0; i < hand.length; i++) {
+        const b = hand[i]._upgradeBounds;
+        if (b && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+            // Check if upgrade would exceed room limit
+            const roomNumber = (typeof Game !== 'undefined' && Game.roomNumber) ? Game.roomNumber : 1;
+            const maxQuality = typeof window.getMaxUpgradeQualityForRoom === 'function'
+                ? window.getMaxUpgradeQualityForRoom(roomNumber)
+                : 'orange';
+            const order = ['white','green','blue','purple','orange'];
+            const q = hand[i]._resolvedQuality || 'white';
+            const idx = order.indexOf(q);
+            const next = idx < order.length - 1 ? order[idx + 1] : null;
+            const maxQualityIdx = order.indexOf(maxQuality);
+            
+            if (next && idx + 1 > maxQualityIdx) {
+                // Upgrade would exceed limit - don't process click
+                return false;
+            }
+            
+            if (typeof upgradeHandCardOneBand === 'function') {
+                const ok = upgradeHandCardOneBand(i);
+                if (ok) {
+                    Game.awaitingUpgradeSelection = false;
+                    Game.pendingUpgrade = null;
+                }
+                return ok;
+            }
+            return false;
+        }
+    }
+    return false;
+}
+
+// -------- Mulligan UI --------
+function renderMulliganOverlay(ctx) {
+    if (!Game || !Game.awaitingMulligan) return;
+    const hand = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.hand)) ? DeckState.hand : [];
+    const canvasWidth = Game ? Game.config.width : 1280;
+    const canvasHeight = Game ? Game.config.height : 720;
+    const cardWidth = 200, cardHeight = 80, gap = 16;
+    const totalW = hand.length * cardWidth + (hand.length - 1) * gap;
+    const startX = Math.max(20, (canvasWidth - totalW) / 2);
+    const y = canvasHeight * 0.65;
+    
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0, y - 60, canvasWidth, cardHeight + 120);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 16px Arial';
+    ctx.textAlign = 'center';
+    const remaining = (Game.mulliganCount || 0) - (Array.isArray(Game.mulliganSelections) ? Game.mulliganSelections.length : 0);
+    ctx.fillText(`Mulligan: select up to ${Game.mulliganCount} cards to redraw (${remaining} left)`, canvasWidth / 2, y - 30);
+    
+    for (let i = 0; i < hand.length; i++) {
+        const c = hand[i];
+        const x = startX + i * (cardWidth + gap);
+        const selected = (Array.isArray(Game.mulliganSelections) && Game.mulliganSelections.includes(i));
+        ctx.fillStyle = selected ? 'rgba(255, 120, 120, 0.6)' : 'rgba(20,20,30,0.85)';
+        ctx.fillRect(x, y, cardWidth, cardHeight);
+        ctx.strokeStyle = selected ? '#ff6666' : '#cccccc';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, cardHeight, cardHeight); // thumbnail area
+        ctx.strokeRect(x, y, cardWidth, cardHeight);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 14px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText(c.name || c.family || 'Card', x + 90, y + 26);
+        ctx.font = '12px Arial';
+        ctx.fillText(`Q: ${c._resolvedQuality || 'white'} (${c.origin || 'deck'})`, x + 90, y + 50);
+        c._mulliganBounds = { x, y, w: cardWidth, h: cardHeight, index: i };
+    }
+    
+    // Reroll button
+    const btnW = 160, btnH = 36, btnX = (canvasWidth - btnW) / 2, btnY = y + cardHeight + 20;
+    ctx.fillStyle = remaining >= 0 ? '#00aaee' : '#666666';
+    ctx.fillRect(btnX, btnY, btnW, btnH);
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(btnX, btnY, btnH + (btnW - btnH), btnH);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 14px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Reroll Selected', btnX + btnW / 2, btnY + 24);
+    Game._mulliganButtonBounds = { x: btnX, y: btnY, w: btnW, h: btnH };
+}
+
+function handleMulliganClick(x, y) {
+    if (!Game || !Game.awaitingMulligan) return false;
+    const hand = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.hand)) ? DeckState.hand : [];
+    // Toggle selection
+    for (let i = 0; i < hand.length; i++) {
+        const b = hand[i]._mulliganBounds;
+        if (b && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+            if (!Array.isArray(Game.mulliganSelections)) Game.mulliganSelections = [];
+            const idx = Game.mulliganSelections.indexOf(i);
+            if (idx >= 0) {
+                Game.mulliganSelections.splice(idx, 1);
+            } else {
+                if (Game.mulliganSelections.length < (Game.mulliganCount || 0)) {
+                    Game.mulliganSelections.push(i);
+                }
+            }
+            return true;
+        }
+    }
+    // Commit button
+    const mb = Game._mulliganButtonBounds;
+    if (mb && x >= mb.x && x <= mb.x + mb.w && y >= mb.y && y <= mb.y + mb.h) {
+        if (typeof mulligan === 'function' && Array.isArray(Game.mulliganSelections)) {
+            mulligan(Game.mulliganSelections.slice());
+        }
+        Game.awaitingMulligan = false;
+        Game.mulliganSelections = [];
+        Game._mulliganButtonBounds = null;
+        return true;
+    }
+    return false;
+}
+
+// -------- Hand HUD + Swap Overlay --------
+function renderHandHUD(ctx) {
+    if (typeof DeckState === 'undefined' || !Array.isArray(DeckState.hand)) return;
+    const hand = DeckState.hand;
+    if (hand.length === 0) return;
+    const canvasWidth = Game ? Game.config.width : 1280;
+	const canvasHeight = Game ? Game.config.height : 720;
+	
+	// Right-side vertical stack
+	const margin = 12;
+	const cardW = 200;
+	const cardH = 56;
+	const spacing = 8;
+	const startX = canvasWidth - cardW - margin;
+	// Start below top HUD area a bit
+	const startY = 90;
+    
+	hand.forEach((c, i) => {
+		const x = startX;
+		const y = startY + i * (cardH + spacing);
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(x, y, cardW, cardH);
+        ctx.strokeStyle = '#66ccff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, cardW, cardH);
+        
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 12px Arial';
+        ctx.textAlign = 'left';
+        const name = c.name || c.family || 'Card';
+        const q = c._resolvedQuality || 'white';
+		ctx.fillText(name, x + 8, y + 20);
+        ctx.font = '11px Arial';
+		ctx.fillText(`Q: ${q}`, x + 8, y + 38);
+        
+        // Origin icon: D (deck) or F (found)
+        ctx.fillStyle = c.origin === 'deck' ? '#00ffaa' : '#ffaa00';
+        ctx.font = 'bold 12px Arial';
+        ctx.textAlign = 'right';
+		ctx.fillText(c.origin === 'deck' ? 'D' : 'F', x + cardW - 8, y + 20);
+        
+        c._handBounds = { x, y, w: cardW, h: cardH };
+    });
+    
+    // Swap overlay prompt (UI carries the interaction; no key hints)
+    if (typeof Game !== 'undefined' && Game.awaitingHandSwap) {
+		// Draw a small prompt under the stack on the right
+		const promptY = Math.min(startY + hand.length * (cardH + spacing), canvasHeight - 28);
+		const promptX = startX;
+		const promptW = cardW;
+		const promptH = 24;
+		ctx.fillStyle = 'rgba(0,0,0,0.7)';
+		ctx.fillRect(promptX, promptY, promptW, promptH);
+        ctx.fillStyle = '#ffdd55';
+        ctx.font = 'bold 13px Arial';
+		ctx.textAlign = 'center';
+		ctx.fillText('Select a card to replace', promptX + promptW / 2, promptY + 18);
+    }
+}
+
+// Global swap preview (bottom-right of canvas), independent of modals
+function renderSwapPreviewOverlay(ctx) {
+	if (typeof Game === 'undefined' || !Game.awaitingHandSwap || !Game.pendingSwapCard) return;
+	const canvasWidth = Game ? Game.config.width : ctx.canvas.width;
+	const canvasHeight = Game ? Game.config.height : ctx.canvas.height;
+	const margin = 14;
+	const panelW = 220;
+	const panelH = 300;
+	const panelX = canvasWidth - panelW - margin;
+	const panelY = canvasHeight - panelH - margin;
+	
+	// Background and border
+	ctx.save();
+	ctx.fillStyle = 'rgba(0,0,0,0.6)';
+	ctx.fillRect(panelX, panelY, panelW, panelH);
+	ctx.strokeStyle = '#ffdd55';
+	ctx.lineWidth = 2;
+	ctx.strokeRect(panelX, panelY, panelW, panelH);
+	
+	// Title
+	ctx.fillStyle = '#ffdd55';
+	ctx.font = 'bold 14px Arial';
+	ctx.textAlign = 'center';
+	ctx.fillText('Incoming Card', panelX + panelW / 2, panelY + 20);
+	
+	// Card preview
+	const tw = panelW - 20;
+	const th = panelH - 70;
+	const tx = panelX + 10;
+	const ty = panelY + 28;
+	drawCardTile(ctx, tx, ty, tw, th, Game.pendingSwapCard);
+	
+	// Hint
+	ctx.fillStyle = '#ffffff';
+	ctx.font = '12px Arial';
+	ctx.textAlign = 'center';
+	ctx.fillText('Click a hand card to replace', panelX + panelW / 2, panelY + panelH - 10);
+	ctx.restore();
+}
+function handleHandSwapClick(x, y) {
+    if (typeof Game === 'undefined' || !Game.awaitingHandSwap) return false;
+    if (typeof DeckState === 'undefined' || !Array.isArray(DeckState.hand)) return false;
+    const hand = DeckState.hand;
+    for (let i = 0; i < hand.length; i++) {
+        const b = hand[i]._handBounds;
+        if (b && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+            const pending = Game.pendingSwapCard;
+            if (!pending) {
+                Game.awaitingHandSwap = false;
+                return false;
+            }
+            // Replace
+            hand.splice(i, 1, { ...pending, _resolvedQuality: pending._resolvedQuality || 'white' });
+            Game.pendingSwapCard = null;
+            Game.awaitingHandSwap = false;
+            
+            // Re-validate door options after hand change (hand might now have upgradeable cards)
+            if (typeof window.CardPacks !== 'undefined' && typeof window.CardPacks.revalidateDoorOptions === 'function') {
+                window.CardPacks.revalidateDoorOptions();
+            }
+            
+            return true;
+        }
+    }
+    return false;
+}
 // Handle interaction button click
 function handleInteractionButtonClick(x, y) {
     if (!interactionButton || !currentInteraction) {
@@ -4368,7 +5024,12 @@ function handleInteractionButtonClick(x, y) {
         interactionButton.justPressed = true;
         
         // Trigger the interaction directly
-        if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'gear') {
+        if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'doorpack') {
+            // Select door pack (moves to next room)
+            if (typeof selectDoor === 'function' && currentInteraction.data) {
+                selectDoor(currentInteraction.data);
+            }
+        } else if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'gear') {
             // Use selected gear from LootSelection
             if (typeof LootSelection !== 'undefined') {
                 LootSelection.updateNearbyItems(Game.player);
@@ -4398,6 +5059,16 @@ function handleInteractionButtonClick(x, y) {
                     }
                 }
             }
+        } else if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'upgrade' && currentInteraction.data) {
+            // Pick up upgrade (opens upgrade modal)
+            if (typeof pickupUpgrade === 'function') {
+                pickupUpgrade(currentInteraction.data);
+            }
+        } else if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'card') {
+        if (typeof CardGround !== 'undefined' && CardGround.pickAt && Game.player) {
+            // pick at player's position (within radius)
+            CardGround.pickAt(Game.player.x, Game.player.y);
+        }
         } else if (Game && Game.state === 'NEXUS') {
             // Trigger nexus interaction by simulating G key press
             // We need to use the existing interaction logic
@@ -4902,8 +5573,9 @@ function renderUI(ctx, player) {
         renderDeathScreen(ctx, player);
     }
     
-    // Render pause button (if playing or in nexus)
-    if ((Game.state === 'PLAYING' || Game.state === 'NEXUS') && typeof renderPauseButton === 'function') {
+    // Pause button is now handled by DOM UI (pauseButton.js)
+    // Only render canvas pause button if DOM UI is disabled
+    if (!window.USE_DOM_UI && (Game.state === 'PLAYING' || Game.state === 'NEXUS') && typeof renderPauseButton === 'function') {
         renderPauseButton(ctx);
     }
     

@@ -427,8 +427,16 @@ const Game = {
         
         // Handle click/touch on canvas (for pause menu buttons, pause button, and interaction button)
         this.canvas.addEventListener('click', (e) => {
+			if (window.USE_DOM_UI) {
+				return;
+			}
             const rect = this.canvas.getBoundingClientRect();
             const gameCoords = this.screenToGame(e.clientX, e.clientY);
+			// Canvas-space coordinates (account for CSS scaling)
+			const scaleX = this.canvas.width / rect.width;
+			const scaleY = this.canvas.height / rect.height;
+			const canvasX = (e.clientX - rect.left) * scaleX;
+			const canvasY = (e.clientY - rect.top) * scaleY;
             
             console.log('[CLICK] Canvas clicked at:', gameCoords.x, gameCoords.y, 'state:', this.state, 'pausedFrom:', this.pausedFromState, 'showPauseMenu:', this.showPauseMenu);
             
@@ -481,6 +489,71 @@ const Game = {
                 }
             }
             
+            // Check card door options click
+            if (typeof Game !== 'undefined' && Game.awaitingDoorSelection && typeof handleDoorOptionsClick === 'function') {
+                if (handleDoorOptionsClick(gameCoords.x, gameCoords.y)) {
+                    // If a boss unlock was applied, show a quick banner
+                    if (typeof Game !== 'undefined' && Game.lastBossUnlock && Game.lastBossUnlock.cardName && Game.lastBossUnlock.level) {
+                        console.log(`[Cards] Mastery ${Game.lastBossUnlock.level} Unlocked for ${Game.lastBossUnlock.cardName}!`);
+                        Game.lastBossUnlock = null;
+                    }
+                    return;
+                }
+            }
+            
+			// Character Sheet swap: click on hand slot to replace (canvas/screen-space coords)
+            if (typeof CharacterSheet !== 'undefined' && CharacterSheet.isOpen && typeof Game !== 'undefined' && Game.awaitingHandSwap && Array.isArray(CharacterSheet.handSlotBounds)) {
+                for (let i = 0; i < CharacterSheet.handSlotBounds.length; i++) {
+                    const b = CharacterSheet.handSlotBounds[i];
+					if (b && canvasX >= b.x && canvasX <= b.x + b.w && canvasY >= b.y && canvasY <= b.y + b.h) {
+                        const pending = Game.pendingSwapCard;
+                        if (pending && typeof DeckState !== 'undefined' && Array.isArray(DeckState.hand)) {
+                            const old = DeckState.hand[i];
+                            if (old && Array.isArray(DeckState.discard)) {
+                                DeckState.discard.push(old);
+                            }
+                            DeckState.hand.splice(i, 1, { ...pending, _resolvedQuality: pending._resolvedQuality || 'white' });
+                            if (Game.pendingSwapSourceId && Array.isArray(window.groundCards)) {
+                                const gi = window.groundCards.findIndex(g => g.id === Game.pendingSwapSourceId);
+                                if (gi >= 0) window.groundCards.splice(gi, 1);
+                            }
+                            Game.pendingSwapCard = null;
+                            Game.pendingSwapSourceId = null;
+                            Game.awaitingHandSwap = false;
+							
+							// Re-validate door options after hand change (hand might now have upgradeable cards)
+							if (typeof window.CardPacks !== 'undefined' && typeof window.CardPacks.revalidateDoorOptions === 'function') {
+								window.CardPacks.revalidateDoorOptions();
+							}
+							
+							// Optionally keep the sheet open; if we want to auto-close:
+							// CharacterSheet.isOpen = false;
+                            return;
+                        }
+                    }
+                }
+            }
+            
+            // Check upgrade selection click
+            if (typeof Game !== 'undefined' && Game.awaitingUpgradeSelection && typeof handleUpgradeSelectionClick === 'function') {
+                if (handleUpgradeSelectionClick(gameCoords.x, gameCoords.y)) {
+                    return;
+                }
+            }
+            // Check mulligan overlay click
+            if (typeof Game !== 'undefined' && Game.awaitingMulligan && typeof handleMulliganClick === 'function') {
+                if (handleMulliganClick(gameCoords.x, gameCoords.y)) {
+                    return;
+                }
+            }
+            
+            // Check ground card pickup
+            if (typeof CardGround !== 'undefined' && CardGround.pickAt) {
+                if (CardGround.pickAt(gameCoords.x, gameCoords.y)) {
+                    return;
+                }
+            }
+            
             // Check interaction button (if in touch mode)
             if (typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode()) {
                 if (typeof handleInteractionButtonClick === 'function') {
@@ -510,6 +583,9 @@ const Game = {
         // Handle touch events for pause menu, pause button, and interaction button
         // IMPORTANT: This must run BEFORE Input.handleTouchStart to intercept UI touches
         this.canvas.addEventListener('touchstart', (e) => {
+			if (window.USE_DOM_UI) {
+				return;
+			}
             if (e.touches.length > 0) {
                 const touch = e.touches[0];
                 // Always get fresh bounding rect for accurate coordinate conversion
@@ -626,6 +702,13 @@ const Game = {
             }
             
             if (e.key === 'Escape') {
+                // Prevent pausing when awaiting card swap
+                if (this.awaitingHandSwap && this.pendingSwapCard) {
+                    console.log('[ESC KEY] Blocked - awaiting card swap');
+                    e.preventDefault();
+                    return;
+                }
+                
                 // Close character sheet first if open
                 if (typeof CharacterSheet !== 'undefined' && CharacterSheet.isOpen) {
                     CharacterSheet.isOpen = false;
@@ -2217,6 +2300,12 @@ const Game = {
             // Add to dead players set
             this.deadPlayers.add(playerId);
             
+            // Track death for lifetime stats (only for local player to avoid double-counting)
+            const localPlayerId = typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local';
+            if (playerId === localPlayerId && typeof window.trackLifetimeStat === 'function') {
+                window.trackLifetimeStat('totalDeaths', 1);
+            }
+            
             // Track death in stats
             if (this.getPlayerStats) {
                 const stats = this.getPlayerStats(playerId);
@@ -2278,6 +2367,11 @@ const Game = {
         // Update damage numbers
         if (typeof updateDamageNumbers !== 'undefined') {
             updateDamageNumbers(deltaTime);
+        }
+        
+        // Update door selections
+        if (typeof updateDoorSelections !== 'undefined') {
+            updateDoorSelections(deltaTime);
         }
         
         // Update level up message
@@ -2435,6 +2529,10 @@ const Game = {
             // SOLO: Update normally
             if (this.player && this.player.alive) {
                 this.player.update(deltaTime, Input);
+                // Update conditional card effects (momentum decay, overcharge timer)
+                if (typeof CardEffects !== 'undefined' && CardEffects.updateConditionalEffects) {
+                    CardEffects.updateConditionalEffects(this.player, deltaTime);
+                }
             }
         }
         
@@ -2531,8 +2629,17 @@ const Game = {
             checkRoomCleared();
             
             // Check if player wants to advance to next room
+            // Only check old door collision if no door selections are active
             if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen) {
-                this.checkDoorCollision();
+                const hasActiveSelections = typeof window !== 'undefined' && 
+                    Array.isArray(window.selectionDoors) && 
+                    window.selectionDoors.length > 0 &&
+                    window.selectionDoors.some(d => !d.selected && d.alpha > 0);
+                
+                // Only use old door system if new system is not active
+                if (!hasActiveSelections && !Game.awaitingDoorSelection) {
+                    this.checkDoorCollision();
+                }
             }
         }
         
@@ -3086,6 +3193,10 @@ const Game = {
         if (localPlayerId && this.player && this.player.dead) {
             const revivedLocal = applyRevival(this.player, localPlayerId, revived.size, true);
             if (revivedLocal) {
+                // Track revive for lifetime stats
+                if (typeof window.trackLifetimeStat === 'function') {
+                    window.trackLifetimeStat('totalRevives', 1);
+                }
                 console.log(`[Revival] Player revived at 50% HP (${Math.floor(this.player.hp)}/${Math.floor(this.player.maxHp)}) [reason=${reason}]`);
             }
         }
@@ -3224,6 +3335,17 @@ const Game = {
                     groundLoot.length = 0;
                 }
                 
+                // Clear door selections from previous room (but preserve selectedDoorReward for spawning)
+                if (typeof clearDoorSelections === 'function') {
+                    // Don't clear selectedDoorReward - it needs to persist until this room is cleared
+                    const savedReward = window.selectedDoorReward;
+                    clearDoorSelections();
+                    // Restore it if it exists (it will be cleared after spawning in spawnRoomReward)
+                    if (savedReward) {
+                        window.selectedDoorReward = savedReward;
+                    }
+                }
+                
                 // Reset player position to left side (new room size)
                 const roomHeight = 1350;
                 this.player.x = 100;
@@ -3293,7 +3415,7 @@ const Game = {
             }
             
             // In multiplayer, show pause menu overlay if showPauseMenu is true
-            if (inMultiplayer && this.showPauseMenu) {
+			if (inMultiplayer && this.showPauseMenu && !window.USE_DOM_UI) {
                 // Draw pause menu overlay
                 if (typeof renderPauseMenu !== 'undefined') {
                     renderPauseMenu(this.ctx);
@@ -3311,7 +3433,7 @@ const Game = {
                     if (typeof renderNexus !== 'undefined') {
                         renderNexus(this.ctx);
                     }
-                    if (typeof renderPauseMenu !== 'undefined') {
+					if (!window.USE_DOM_UI && typeof renderPauseMenu !== 'undefined') {
                         renderPauseMenu(this.ctx);
                     }
                 } else if (this.pausedFromState === 'PLAYING') {
@@ -3327,7 +3449,7 @@ const Game = {
                         Renderer.clear(this.ctx, this.config.width, this.config.height);
                     }
                     this.renderGameWorld(this.ctx);
-                    if (typeof renderPauseMenu !== 'undefined') {
+					if (!window.USE_DOM_UI && typeof renderPauseMenu !== 'undefined') {
                         renderPauseMenu(this.ctx);
                     }
                     return; // Exit early, state conversion done
@@ -3339,7 +3461,7 @@ const Game = {
                     if (typeof renderNexus !== 'undefined') {
                         renderNexus(this.ctx);
                     }
-                    if (typeof renderPauseMenu !== 'undefined') {
+					if (!window.USE_DOM_UI && typeof renderPauseMenu !== 'undefined') {
                         renderPauseMenu(this.ctx);
                     }
                 }
@@ -3369,7 +3491,7 @@ const Game = {
                 }
                 
                 // Draw pause menu
-                if (typeof renderPauseMenu !== 'undefined') {
+				if (!window.USE_DOM_UI && typeof renderPauseMenu !== 'undefined') {
                     renderPauseMenu(this.ctx);
                 }
             }
@@ -3464,6 +3586,10 @@ const Game = {
             if (typeof renderGroundLoot !== 'undefined') {
                 renderGroundLoot(this.ctx);
             }
+            // Draw ground cards
+            if (typeof renderGroundCards !== 'undefined') {
+                renderGroundCards(this.ctx);
+            }
             
             // Draw particles (behind UI)
             if (typeof renderParticles !== 'undefined') {
@@ -3475,10 +3601,36 @@ const Game = {
                 renderLightningArcs(this.ctx);
             }
             
-            // Draw door if room is cleared
+            // Draw upgrade pickups (inside camera transform - world space)
+            if (typeof window !== 'undefined' && typeof window.renderUpgradePickups === 'function') {
+                window.renderUpgradePickups(this.ctx);
+            } else if (typeof renderUpgradePickups !== 'undefined') {
+                renderUpgradePickups(this.ctx);
+            }
+            
+            // Draw door selections (inside camera transform - world space)
+            // These are the card pack options for selecting the next room's reward
+            if (typeof window !== 'undefined' && typeof window.renderDoorSelections === 'function') {
+                window.renderDoorSelections(this.ctx);
+            } else if (typeof renderDoorSelections === 'function') {
+                renderDoorSelections(this.ctx);
+            } else if (typeof window !== 'undefined' && Array.isArray(window.selectionDoors) && window.selectionDoors.length > 0) {
+                console.warn('[DOOR SYSTEM] renderDoorSelections function not available but', window.selectionDoors.length, 'selections exist!');
+            }
+            
+            // Draw door if room is cleared (only if no door selections active)
             if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen) {
-                const door = getDoorPosition();
-                Renderer.door(this.ctx, door.x, door.y, door.width, door.height, this.doorPulse);
+                // Check if new door selection system is active
+                const hasActiveSelections = typeof window !== 'undefined' && 
+                    Array.isArray(window.selectionDoors) && 
+                    window.selectionDoors.length > 0 &&
+                    window.selectionDoors.some(d => !d.selected && d.alpha > 0);
+                
+                // Only show regular door if new system is not active
+                if (!hasActiveSelections && !Game.awaitingDoorSelection) {
+                    const door = getDoorPosition();
+                    Renderer.door(this.ctx, door.x, door.y, door.width, door.height, this.doorPulse);
+                }
             }
             
             // Draw damage numbers
@@ -3500,7 +3652,56 @@ const Game = {
             }
             
             // Draw UI (on top of everything, screen-relative coordinates)
-            renderUI(this.ctx, this.player);
+			if (!window.USE_DOM_UI) {
+				renderUI(this.ctx, this.player);
+			}
+            // Hand HUD
+			if (!window.USE_DOM_UI && typeof renderHandHUD !== 'undefined') {
+                renderHandHUD(this.ctx);
+            }
+            // Swap preview overlay (always screen-space)
+			if (!window.USE_DOM_UI && typeof renderSwapPreviewOverlay !== 'undefined') {
+                renderSwapPreviewOverlay(this.ctx);
+            }
+            
+            // Card door options overlay
+			if (!window.USE_DOM_UI && typeof renderDoorOptions !== 'undefined') {
+                renderDoorOptions(this.ctx);
+            }
+            // Upgrade selection overlay
+			if (!window.USE_DOM_UI && typeof renderUpgradeSelection !== 'undefined') {
+                renderUpgradeSelection(this.ctx);
+            }
+            // Mulligan overlay
+			if (!window.USE_DOM_UI && typeof renderMulliganOverlay !== 'undefined') {
+                renderMulliganOverlay(this.ctx);
+            }
+            // Boss unlock banner (transient HUD message)
+            if (this.bossUnlockBanner && this.bossUnlockBanner.until && Date.now() < this.bossUnlockBanner.until) {
+                const msg = this.bossUnlockBanner.text || 'Mastery Unlocked!';
+                const w = this.config.width;
+                const x = Math.floor(w / 2);
+                const y = 80;
+                this.ctx.save();
+                this.ctx.textAlign = 'center';
+                this.ctx.font = 'bold 20px Arial';
+                // Background pill
+                const padX = 16, padY = 10;
+                const textW = this.ctx.measureText(msg).width;
+                const pillW = textW + padX * 2;
+                const pillH = 36;
+                this.ctx.fillStyle = 'rgba(0,0,0,0.6)';
+                this.ctx.fillRect(x - pillW / 2, y - pillH / 2, pillW, pillH);
+                this.ctx.strokeStyle = '#ffd24d';
+                this.ctx.lineWidth = 2;
+                this.ctx.strokeRect(x - pillW / 2, y - pillH / 2, pillW, pillH);
+                // Text
+                this.ctx.fillStyle = '#ffea8a';
+                this.ctx.fillText(msg, x, y + 7);
+                this.ctx.restore();
+            } else if (this.bossUnlockBanner && this.bossUnlockBanner.until && Date.now() >= this.bossUnlockBanner.until) {
+                this.bossUnlockBanner = null;
+            }
             
             // Draw FPS (screen-relative)
             if (this.player && !this.player.dead) {
@@ -3511,7 +3712,7 @@ const Game = {
             }
             
             // In multiplayer, show pause menu overlay if showPauseMenu is true
-            if (inMultiplayer && this.showPauseMenu) {
+			if (inMultiplayer && this.showPauseMenu && !window.USE_DOM_UI) {
                 // Draw pause menu overlay on top of everything
                 if (typeof renderPauseMenu !== 'undefined') {
                     renderPauseMenu(this.ctx);
@@ -3520,11 +3721,11 @@ const Game = {
         }
         
         // Render modals on top of everything (launch modal takes priority)
-        if (this.privacyModalVisible && typeof renderPrivacyModal !== 'undefined') {
+		if (!window.USE_DOM_UI && this.privacyModalVisible && typeof renderPrivacyModal !== 'undefined') {
             renderPrivacyModal(this.ctx);
-        } else if (this.launchModalVisible && typeof renderLaunchModal !== 'undefined') {
+		} else if (!window.USE_DOM_UI && this.launchModalVisible && typeof renderLaunchModal !== 'undefined') {
             renderLaunchModal(this.ctx);
-        } else if (this.updateModalVisible && typeof renderUpdateModal !== 'undefined') {
+		} else if (!window.USE_DOM_UI && this.updateModalVisible && typeof renderUpdateModal !== 'undefined') {
             renderUpdateModal(this.ctx);
         }
     },
@@ -3588,10 +3789,34 @@ const Game = {
             renderGroundLoot(ctx);
         }
         
-        // Draw door if room is cleared
+        // Draw upgrade pickups
+        if (typeof window !== 'undefined' && typeof window.renderUpgradePickups === 'function') {
+            window.renderUpgradePickups(ctx);
+        } else if (typeof renderUpgradePickups !== 'undefined') {
+            renderUpgradePickups(ctx);
+        }
+        
+        // Draw door selections (card view before selection, door view after)
+        if (typeof window !== 'undefined' && typeof window.renderDoorSelections === 'function') {
+            window.renderDoorSelections(ctx);
+        } else if (typeof renderDoorSelections !== 'undefined') {
+            renderDoorSelections(ctx);
+        }
+        
+        // Draw door if room is cleared (only if no door selections active)
+        // The new door selection system replaces the old door when active
         if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen) {
-            const door = getDoorPosition();
-            Renderer.door(ctx, door.x, door.y, door.width, door.height, this.doorPulse);
+            // Check if new door selection system is active
+            const hasActiveSelections = typeof window !== 'undefined' && 
+                Array.isArray(window.selectionDoors) && 
+                window.selectionDoors.length > 0 &&
+                window.selectionDoors.some(d => !d.selected && d.alpha > 0);
+            
+            // Only show regular door if new system is not active
+            if (!hasActiveSelections && !Game.awaitingDoorSelection) {
+                const door = getDoorPosition();
+                Renderer.door(ctx, door.x, door.y, door.width, door.height, this.doorPulse);
+            }
         }
         
         // Draw particles
@@ -3607,12 +3832,20 @@ const Game = {
         // Restore context
         ctx.restore();
         
-        // Draw UI (outside of screen shake)
-        renderUI(ctx, this.player);
+		// Draw UI (outside of screen shake)
+		if (!window.USE_DOM_UI) {
+			renderUI(ctx, this.player);
+		}
     },
     
     // Toggle pause
     togglePause() {
+        // Prevent pausing when awaiting card swap
+        if (this.awaitingHandSwap && this.pendingSwapCard) {
+            console.log('[TOGGLE PAUSE] Blocked - awaiting card swap');
+            return;
+        }
+        
         // Check if multiplayer is enabled
         const inMultiplayer = this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
         
@@ -3686,6 +3919,43 @@ const Game = {
                 this.resumeFromPauseMusic();
             }
         }
+    },
+    
+    // Cleanup deck/hand state (called when returning to nexus, restarting, or game over)
+    cleanupDeckState() {
+        // Clear deck state
+        if (typeof window.DeckState !== 'undefined') {
+            if (Array.isArray(window.DeckState.hand)) {
+                window.DeckState.hand.length = 0;
+            }
+            if (Array.isArray(window.DeckState.discard)) {
+                window.DeckState.discard.length = 0;
+            }
+            if (Array.isArray(window.DeckState.drawPile)) {
+                window.DeckState.drawPile.length = 0;
+            }
+            if (Array.isArray(window.DeckState.spent)) {
+                window.DeckState.spent.length = 0;
+            }
+            if (Array.isArray(window.DeckState.reserve)) {
+                window.DeckState.reserve.length = 0;
+            }
+        }
+        
+        // Clear pending swap state
+        this.pendingSwapCard = null;
+        this.pendingSwapSourceId = null;
+        this.awaitingHandSwap = false;
+        
+        // Clear ground cards
+        if (typeof window.groundCards !== 'undefined' && Array.isArray(window.groundCards)) {
+            window.groundCards.length = 0;
+        }
+        
+        // Clear mulligan state
+        this.awaitingMulligan = false;
+        this.mulliganSelections = [];
+        this.mulliganCount = 0;
     },
     
     // Return to nexus after death
@@ -3811,6 +4081,22 @@ const Game = {
                 roomsClearedByPlayer,
                 finalPlayers: participants
             });
+            
+            // Update lifetime stats from run
+            if (typeof window.updateLifetimeStatsFromRun === 'function' && this.playerStats) {
+                const localPlayerId = this.getLocalPlayerId ? this.getLocalPlayerId() : null;
+                if (localPlayerId) {
+                    const stats = this.getPlayerStats(localPlayerId);
+                    if (stats) {
+                        window.updateLifetimeStatsFromRun({
+                            roomsCleared: stats.roomsCleared || 0,
+                            runEnded: true,
+                            died: result === 'failure',
+                            beatBoss: result === 'success'
+                        });
+                    }
+                }
+            }
         }
         
         // Reset game state
@@ -3855,6 +4141,12 @@ const Game = {
         this.deathScreenStartTime = 0; // Reset death screen timer
         this.waitingForHostReturn = false; // Clear waiting flag
         this.finalStats = null; // Clear final stats
+        
+        // Reset first room flag for door reward system
+        if (typeof window !== 'undefined') {
+            window.isFirstRoom = true;
+            window.selectedDoorReward = null;
+        }
         if (this.deadPlayers) {
             this.deadPlayers.clear();
         }
@@ -3865,6 +4157,9 @@ const Game = {
         if (typeof groundLoot !== 'undefined') {
             groundLoot.length = 0;
         }
+        
+        // Clear deck/hand state (cleanup from run)
+        this.cleanupDeckState();
         
         // Clean up multiplayer shadow instances (clients only)
         if (this.remotePlayerShadowInstances) {
@@ -4009,6 +4304,71 @@ const Game = {
             return;
         }
         
+        // Card system migration and deck initialization
+        if (typeof runCardSystemMigration === 'function' && typeof SaveSystem !== 'undefined') {
+            runCardSystemMigration(SaveSystem);
+        }
+        if (typeof initializeRunDeck === 'function' && typeof SaveSystem !== 'undefined' && typeof CardCatalog !== 'undefined') {
+            const deckCfg = SaveSystem.getDeckConfig ? SaveSystem.getDeckConfig() : { cards: [], size: 20 };
+            let cards = Array.isArray(deckCfg.cards) ? deckCfg.cards.slice() : [];
+            // Validate deck: ensure at least 10 cards, cap to size
+            const sizeLimit = Number.isFinite(deckCfg.size) ? deckCfg.size : 20;
+            if (cards.length < 10 && typeof SaveSystem.getCardsUnlocked === 'function') {
+                const unlocked = SaveSystem.getCardsUnlocked();
+                // Fill with unlocked (prefer starters) up to 10
+                const starterOrder = ['precision_001','bulwark_001','velocity_001'];
+                starterOrder.forEach(id => { if (cards.length < 10 && unlocked.includes(id) && !cards.includes(id)) cards.push(id); });
+                for (let i = 0; i < unlocked.length && cards.length < 10; i++) {
+                    const id = unlocked[i];
+                    if (!cards.includes(id)) cards.push(id);
+                }
+            }
+            if (cards.length > sizeLimit) {
+                cards = cards.slice(0, sizeLimit);
+            }
+            // Apply team card selection (basic support for single team card)
+            if (Array.isArray(window.DeckState && DeckState.activeTeamCards)) {
+                DeckState.activeTeamCards = [];
+            }
+            const activeTeamCardId = SaveSystem.activeTeamCard || null;
+            if (activeTeamCardId && typeof CardCatalog !== 'undefined' && CardCatalog.getById) {
+                const def = CardCatalog.getById(activeTeamCardId);
+                if (def) {
+                    if (typeof DeckState !== 'undefined') {
+                        DeckState.activeTeamCards = [def];
+                    }
+                    // Special-case: Fortune's Favor → global min band of green
+                    if ((def.family || '').toLowerCase().includes('fortune') && (def.family || '').toLowerCase().includes('favor')) {
+                        this.teamMinBand = 'green';
+                    }
+                }
+            } else {
+                this.teamMinBand = null;
+            }
+            initializeRunDeck(cards);
+            const upgrades = SaveSystem.getDeckUpgrades ? SaveSystem.getDeckUpgrades() : { handSize: 4, startingCards: 3 };
+            const drawCount = Math.max(0, Math.min(upgrades.startingCards || 3, upgrades.handSize || 4));
+            if (drawCount > 0) {
+                if (typeof drawStartingHand === 'function') {
+                    drawStartingHand(drawCount);
+                } else {
+                    // Fallback
+                    drawCards(drawCount);
+                }
+            }
+            // Mulligan UI if available
+            const mulligans = (SaveSystem.getDeckUpgrades ? (SaveSystem.getDeckUpgrades().mulligans || 0) : 0);
+            if (mulligans > 0) {
+                this.awaitingMulligan = true;
+                this.mulliganSelections = [];
+                this.mulliganCount = mulligans;
+            } else {
+                this.awaitingMulligan = false;
+                this.mulliganSelections = [];
+                this.mulliganCount = 0;
+            }
+        }
+        
         this.gameOverMusicPlaying = false;
         
         console.log('[GAME START] ========================================');
@@ -4020,6 +4380,19 @@ const Game = {
         // Create player with selected class (start at left side of screen)
         this.player = createPlayer(this.selectedClass, 100, this.config.height / 2);
         this.player.playerId = this.getLocalPlayerId(); // Set player ID for damage attribution
+        
+        // Initialize conditional card effects state
+        if (typeof CardEffects !== 'undefined' && CardEffects.initConditionalState) {
+            CardEffects.initConditionalState(this.player);
+            // Initialize Overcharge timer if player has Overcharge card
+            if (typeof DeckState !== 'undefined' && Array.isArray(DeckState.hand)) {
+                const condEffects = CardEffects.getConditionalEffects ? CardEffects.getConditionalEffects(DeckState.hand) : null;
+                if (condEffects && condEffects.overcharge && this.player._cardEffects) {
+                    this.player._cardEffects.overchargeTimer = condEffects.overcharge.interval || 5;
+                    this.player._cardEffects.overchargeBurstDamage = condEffects.overcharge.burstDamage || 0.15;
+                }
+            }
+        }
         
         // Initialize room system
         if (typeof initializeRoom !== 'undefined') {
@@ -4139,6 +4512,9 @@ const Game = {
         if (typeof groundLoot !== 'undefined') {
             groundLoot.length = 0;
         }
+        
+        // Clear deck/hand state (cleanup from previous run)
+        this.cleanupDeckState();
         
         // Reset room system
         if (typeof initializeRoom !== 'undefined') {
@@ -4402,6 +4778,12 @@ const Game = {
                         
                         // HOST ONLY: Apply damage (clients don't run this code path)
                         enemy.takeDamage(finalDamage, projectileOwnerId);
+                        
+                        // Track lifetime damage stat
+                        if (typeof window.trackLifetimeStat === 'function') {
+                            window.trackLifetimeStat('totalDamageDealt', damageDealt);
+                        }
+                        
                         if (this.getPlayerStats && projectileOwnerId) {
                             const stats = this.getPlayerStats(projectileOwnerId);
                             if (stats) {
@@ -4574,6 +4956,30 @@ const Game = {
                             projectile.x, projectile.y, projectile.size,
                             p.x, p.y, p.size || 20
                         )) {
+                            // Check if player is dodging/invulnerable - if so, count as successful dodge
+                            if (p.invulnerable || p.isDodging) {
+                                // Track successful dodge (projectile would have hit, but player dodged it)
+                                // Only track for local player to avoid double-counting in multiplayer
+                                if (isLocal && typeof window.trackLifetimeStat === 'function') {
+                                    // Use a cooldown to prevent counting the same projectile multiple times
+                                    const dodgeTrackKey = `dodge_projectile_${projectile.id || index}_${id}`;
+                                    if (!this.projectileDodgeTrackCooldowns) {
+                                        this.projectileDodgeTrackCooldowns = new Map();
+                                    }
+                                    const currentTime = Date.now();
+                                    const lastDodgeTrack = this.projectileDodgeTrackCooldowns.get(dodgeTrackKey) || 0;
+                                    const damageCooldownMs = 350; // Same cooldown as melee attacks
+                                    if (currentTime - lastDodgeTrack >= damageCooldownMs) {
+                                        window.trackLifetimeStat('totalDodges', 1);
+                                        this.projectileDodgeTrackCooldowns.set(dodgeTrackKey, currentTime);
+                                    }
+                                }
+                                // Skip damage application but remove projectile
+                                projectilesToRemove.push(index);
+                                projectileHit = true;
+                                return; // Skip to next player
+                            }
+                            
                             // Play projectile hit sound
                             if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
                                 AudioManager.sounds.projectileHit();

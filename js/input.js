@@ -132,6 +132,43 @@ const Input = {
             if (e.key === 'Tab') {
                 e.preventDefault();
             }
+            
+            // Pickup key (G) for ground cards and door selection during gameplay
+            if (e.key.toLowerCase() === 'g') {
+                if (typeof Game !== 'undefined' && Game.state === 'PLAYING' && Game.player) {
+                    // First check for door selection
+                    if (typeof checkDoorInteraction === 'function' && typeof selectDoor === 'function') {
+                        const door = checkDoorInteraction(Game.player);
+                        if (door) {
+                            selectDoor(door);
+                            return; // Don't also try to pick up cards
+                        }
+                    }
+                    // Then check for upgrade pickup
+                    if (typeof checkUpgradePickup === 'function' && typeof pickupUpgrade === 'function') {
+                        const upgrade = checkUpgradePickup(Game.player);
+                        if (upgrade) {
+                            pickupUpgrade(upgrade);
+                            return; // Don't also try to pick up cards
+                        }
+                    }
+                    // Finally try card pickup
+                    if (typeof CardGround !== 'undefined' && CardGround.pickAt) {
+                        // Attempt pickup at player position
+                        CardGround.pickAt(Game.player.x, Game.player.y);
+                    }
+                }
+            }
+            
+            // Cycle ground card selection with [ and ]
+            if (typeof Game !== 'undefined' && Game.state === 'PLAYING' && typeof CardGround !== 'undefined') {
+                if (e.key === '[') {
+                    CardGround.cycleSelection(-1);
+                } else if (e.key === ']') {
+                    CardGround.cycleSelection(1);
+                }
+            }
+            
         });
         
         document.addEventListener('keyup', (e) => {
@@ -150,6 +187,27 @@ const Input = {
         
         // Mouse buttons
         canvas.addEventListener('mousedown', (e) => {
+			// When DOM UI is enabled, ignore gameplay mouse when non-gameplay UI is visible
+			if (window.USE_DOM_UI && typeof Game !== 'undefined') {
+				const inMp = Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+				const pauseMenuVisible = Game.state === 'PAUSED' || (inMp && Game.showPauseMenu);
+				if (pauseMenuVisible || Game.privacyModalVisible || Game.updateModalVisible || Game.launchModalVisible) {
+					e.preventDefault();
+					e.stopPropagation();
+					return;
+				}
+			}
+			// Suppress gameplay mouse input during blocking UI flows (e.g., swap)
+			if (typeof Game !== 'undefined' && (Game.awaitingHandSwap || Game.awaitingDoorSelection || Game.awaitingUpgradeSelection || Game.awaitingMulligan) ) {
+				e.preventDefault();
+				e.stopPropagation();
+				return;
+			}
+			if (typeof CharacterSheet !== 'undefined' && CharacterSheet.isOpen && typeof Game !== 'undefined' && Game.awaitingHandSwap) {
+				e.preventDefault();
+				e.stopPropagation();
+				return;
+			}
             if (e.button === 0) this.mouseLeft = true;
             if (e.button === 2) this.mouseRight = true;
         });

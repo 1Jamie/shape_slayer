@@ -431,6 +431,9 @@ function calculateTierProbabilities(roomNumber, enemyDifficulty = 'basic') {
 
 // Generate random gear with stats
 function generateGear(x, y, roomNumberOrTier = 1, enemyDifficulty = 'basic') {
+    // Card system active: disable gear generation
+    return null;
+    
     const tiers = ['gray', 'green', 'blue', 'purple', 'orange'];
     const slots = ['weapon', 'armor', 'accessory'];
     

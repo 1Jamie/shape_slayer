@@ -135,6 +135,14 @@ class Mage extends PlayerBase {
         this.projectileCountBonus = 0;
         this.blinkRangeBonus = 0;
         this.blinkDamageMultiplier = 1.0;
+        this.blinkChainBlink = false;
+        this.blinkDamagingTrail = false;
+        this.blinkResetOnKill = false;
+        this.beamChargeBonus = 0;
+        this.beamTickRateReduction = 0;
+        this.beamDurationMultiplier = 0;
+        this.beamPenetrationBonus = 0;
+        this.beamSplitOnHit = false;
         this.aoeRadiusBonus = 0;
         
         // Beam heavy attack state - support multiple simultaneous beams
@@ -152,10 +160,60 @@ class Mage extends PlayerBase {
         this.projectileCountBonus = 0;
         this.blinkRangeBonus = 0;
         this.blinkDamageMultiplier = 1.0;
+        this.blinkChainBlink = false;
+        this.blinkDamagingTrail = false;
+        this.blinkResetOnKill = false;
+        this.beamChargeBonus = 0;
+        this.beamTickRateReduction = 0;
+        this.beamDurationMultiplier = 0;
+        this.beamPenetrationBonus = 0;
+        this.beamSplitOnHit = false;
         this.aoeRadiusBonus = 0;
         
-        // Call parent first
+        // Call parent first (applies stat modifiers from cards)
         super.updateEffectiveStats();
+        
+        // Apply ability mutator card effects
+        if (typeof DeckState !== 'undefined' && typeof CardEffects !== 'undefined' && CardEffects.getAbilityModifiers) {
+            const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
+            const abilityMods = CardEffects.getAbilityModifiers(this, handCards);
+            
+            if (abilityMods.blink) {
+                if (abilityMods.blink.rangeBonus) {
+                    this.blinkRangeBonus += abilityMods.blink.rangeBonus;
+                }
+                if (abilityMods.blink.damageMultiplier) {
+                    this.blinkDamageMultiplier += abilityMods.blink.damageMultiplier;
+                }
+                if (abilityMods.blink.chainBlink) {
+                    this.blinkChainBlink = true;
+                }
+                if (abilityMods.blink.damagingTrail) {
+                    this.blinkDamagingTrail = true;
+                }
+                if (abilityMods.blink.resetOnKill) {
+                    this.blinkResetOnKill = true;
+                }
+            }
+            
+            if (abilityMods.beam) {
+                if (abilityMods.beam.chargeBonus) {
+                    this.beamChargeBonus += abilityMods.beam.chargeBonus;
+                }
+                if (abilityMods.beam.tickRateReduction) {
+                    this.beamTickRateReduction += abilityMods.beam.tickRateReduction;
+                }
+                if (abilityMods.beam.durationMultiplier) {
+                    this.beamDurationMultiplier += abilityMods.beam.durationMultiplier;
+                }
+                if (abilityMods.beam.penetrationBonus) {
+                    this.beamPenetrationBonus += abilityMods.beam.penetrationBonus;
+                }
+                if (abilityMods.beam.splitOnHit) {
+                    this.beamSplitOnHit = true;
+                }
+            }
+        }
         
         // Apply beam charge bonuses and resize cooldown array if needed
         const newMaxBeamCharges = MAGE_CONFIG.beamCharges + this.bonusBeamCharges;
@@ -350,6 +408,11 @@ class Mage extends PlayerBase {
         
         this.isAttacking = true;
         
+        // Apply standardized heavy cooldown for UI parity
+        if (this.applyHeavyAttackCooldown) {
+            this.applyHeavyAttackCooldown();
+        }
+        
         // Trigger screen shake
         if (typeof Game !== 'undefined') {
             Game.triggerScreenShake(0.3, 0.15);
@@ -469,6 +532,11 @@ class Mage extends PlayerBase {
     }
     
     activateBlink(input) {
+        // Track ability use for lifetime stats
+        if (typeof window.trackLifetimeStat === 'function') {
+            window.trackLifetimeStat('totalAbilityUses', 1);
+        }
+        
         // Play mage blink sound
         if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
             AudioManager.sounds.mageBlink();
@@ -1041,6 +1109,11 @@ class Mage extends PlayerBase {
                         killStats.addStat('kills', 1);
                     }
                 }
+            }
+            
+            // Track beam damage for lifetime stats
+            if (typeof window.trackLifetimeStat === 'function') {
+                window.trackLifetimeStat('totalBeamDamage', damageDealt);
             }
             
             // Apply lifesteal

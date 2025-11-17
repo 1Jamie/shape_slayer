@@ -395,9 +395,19 @@ class BossBase extends EnemyBase {
         this.alive = false;
         
         // Track kill for the last attacker
-        if (this.lastAttacker && typeof Game !== 'undefined' && Game.getPlayerStats) {
-            const stats = Game.getPlayerStats(this.lastAttacker);
-            stats.addStat('kills', 1);
+        if (this.lastAttacker) {
+            // Track lifetime kills stat
+            const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+            if (!isClient && typeof window.trackLifetimeStat === 'function') {
+                window.trackLifetimeStat('totalKills', 1);
+            }
+            
+            if (typeof Game !== 'undefined' && Game.getPlayerStats) {
+                const stats = Game.getPlayerStats(this.lastAttacker);
+                if (stats) {
+                    stats.addStat('kills', 1);
+                }
+            }
         }
         
         // Emit particles on death
@@ -420,8 +430,10 @@ class BossBase extends EnemyBase {
                 const offsetX = (Math.random() - 0.5) * 40;
                 const offsetY = (Math.random() - 0.5) * 40;
                 const gear = generateGear(this.x + offsetX, this.y + offsetY, roomNum, 'boss');
-                groundLoot.push(gear);
-                console.log(`Boss dropped ${gear.tier} loot`);
+                if (gear) {
+                    groundLoot.push(gear);
+                    console.log(`Boss dropped ${gear.tier} loot`);
+                }
             }
         }
     }

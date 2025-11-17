@@ -129,8 +129,15 @@ class Tank extends PlayerBase {
         // Class modifier storage
         this.shieldDurationBonus = 0;
         this.shieldWaveDamageMultiplier = 1.0;
+        this.shieldLargerWaveRadius = false;
+        this.shieldDamageReductionWhileShielding = false;
+        this.shieldExplodeOnBreak = false;
         this.shoutRadiusBonus = 0;
+        this.hammerRadiusBonus = 0;
         this.hammerKnockbackMultiplier = 1.0;
+        this.hammerStunEffect = false;
+        this.hammerDamageZone = false;
+        this.hammerShockwave = false;
         this.shieldReductionBonus = 0;
         
         // Update effective stats
@@ -144,12 +151,61 @@ class Tank extends PlayerBase {
         // Reset class modifier storage
         this.shieldDurationBonus = 0;
         this.shieldWaveDamageMultiplier = 1.0;
+        this.shieldLargerWaveRadius = false;
+        this.shieldDamageReductionWhileShielding = false;
+        this.shieldExplodeOnBreak = false;
         this.shoutRadiusBonus = 0;
+        this.hammerRadiusBonus = 0;
         this.hammerKnockbackMultiplier = 1.0;
+        this.hammerStunEffect = false;
+        this.hammerDamageZone = false;
+        this.hammerShockwave = false;
         this.shieldReductionBonus = 0;
         
-        // Call parent
+        // Call parent (applies stat modifiers from cards)
         super.updateEffectiveStats();
+        
+        // Apply ability mutator card effects
+        if (typeof DeckState !== 'undefined' && typeof CardEffects !== 'undefined' && CardEffects.getAbilityModifiers) {
+            const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
+            const abilityMods = CardEffects.getAbilityModifiers(this, handCards);
+            
+            if (abilityMods.shield) {
+                if (abilityMods.shield.durationBonus) {
+                    this.shieldDurationBonus += abilityMods.shield.durationBonus;
+                }
+                if (abilityMods.shield.waveDamageMultiplier) {
+                    this.shieldWaveDamageMultiplier += abilityMods.shield.waveDamageMultiplier;
+                }
+                if (abilityMods.shield.largerWaveRadius) {
+                    this.shieldLargerWaveRadius = true;
+                }
+                if (abilityMods.shield.damageReductionWhileShielding) {
+                    this.shieldDamageReductionWhileShielding = true;
+                }
+                if (abilityMods.shield.explodeOnBreak) {
+                    this.shieldExplodeOnBreak = true;
+                }
+            }
+            
+            if (abilityMods.hammer) {
+                if (abilityMods.hammer.radiusBonus) {
+                    this.hammerRadiusBonus += abilityMods.hammer.radiusBonus;
+                }
+                if (abilityMods.hammer.knockbackMultiplier) {
+                    this.hammerKnockbackMultiplier += abilityMods.hammer.knockbackMultiplier;
+                }
+                if (abilityMods.hammer.stunEffect) {
+                    this.hammerStunEffect = true;
+                }
+                if (abilityMods.hammer.damageZone) {
+                    this.hammerDamageZone = true;
+                }
+                if (abilityMods.hammer.shockwave) {
+                    this.hammerShockwave = true;
+                }
+            }
+        }
     }
     
     // Override to apply Tank-specific class modifiers
@@ -237,6 +293,11 @@ class Tank extends PlayerBase {
     }
     
     hammerSwingAttack() {
+        // Track ability use for lifetime stats
+        if (typeof window.trackLifetimeStat === 'function') {
+            window.trackLifetimeStat('totalAbilityUses', 1);
+        }
+        
         // Play tank basic attack sound
         if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
             AudioManager.sounds.tankBasicAttack();
@@ -300,6 +361,11 @@ class Tank extends PlayerBase {
         if (typeof Game !== 'undefined') {
             Game.triggerScreenShake(0.5, 0.2);
             Game.triggerHitPause(0.08); // Brief freeze on heavy attack
+        }
+        
+        // Apply standardized heavy cooldown for UI parity
+        if (this.applyHeavyAttackCooldown) {
+            this.applyHeavyAttackCooldown();
         }
     }
     
@@ -424,6 +490,10 @@ class Tank extends PlayerBase {
     }
     
     activateShield(input) {
+        // Track ability use for lifetime stats
+        if (typeof window.trackLifetimeStat === 'function') {
+            window.trackLifetimeStat('totalAbilityUses', 1);
+        }
         // Play tank shield activation sound
         if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
             AudioManager.sounds.tankShieldStart();
@@ -595,17 +665,24 @@ class Tank extends PlayerBase {
                                         
                                         // Track stats (host/solo only)
                                         const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
-                                        if (!isClient && typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
-                                            const stats = Game.getPlayerStats(attackerId);
-                                            if (stats) {
-                                                stats.addStat('damageDealt', damageDealt);
+                                        if (!isClient) {
+                                            // Track lifetime damage stat
+                                            if (typeof window.trackLifetimeStat === 'function') {
+                                                window.trackLifetimeStat('totalDamageDealt', damageDealt);
                                             }
                                             
-                                            // Track kill if enemy died
-                                            if (enemy.hp <= 0) {
-                                                const killStats = Game.getPlayerStats(attackerId);
-                                                if (killStats) {
-                                                    killStats.addStat('kills', 1);
+                                            if (typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
+                                                const stats = Game.getPlayerStats(attackerId);
+                                                if (stats) {
+                                                    stats.addStat('damageDealt', damageDealt);
+                                                }
+                                                
+                                                // Track kill if enemy died
+                                                if (enemy.hp <= 0) {
+                                                    const killStats = Game.getPlayerStats(attackerId);
+                                                    if (killStats) {
+                                                        killStats.addStat('kills', 1);
+                                                    }
                                                 }
                                             }
                                         }
