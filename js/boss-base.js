@@ -330,10 +330,152 @@ class BossBase extends EnemyBase {
         // Phase indicator
         const phaseColors = ['#00ff00', '#ffaa00', '#ff0000']; // Green, Orange, Red
         ctx.fillStyle = phaseColors[this.phase - 1] || '#ffffff';
-        ctx.font = '12px Arial';
+        ctx.font = 'bold 12px Orbitron';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(`Phase ${this.phase}`, this.x, barY - 10);
+    }
+
+    // Override renderStatusEffects for bosses (positioned above health bar)
+    renderStatusEffects(ctx) {
+        const effects = [];
+        const iconSize = 10; // Slightly larger for bosses
+        const iconSpacing = 14;
+        const startY = this.y - this.size - 23; // Above health bar (which is at -15)
+        let currentX = this.x;
+
+        // Bleed indicator (red drop icon with stack count)
+        if (this.bleeding && this.bleedStacks > 0) {
+            effects.push({
+                x: currentX,
+                y: startY,
+                type: 'bleed',
+                stacks: this.bleedStacks,
+                color: '#ff0000'
+            });
+            currentX += iconSpacing;
+        }
+
+        // Burn indicator (orange flame icon)
+        if (this.burning && this.burnDuration > 0) {
+            effects.push({
+                x: currentX,
+                y: startY,
+                type: 'burn',
+                color: '#ff6600'
+            });
+            currentX += iconSpacing;
+        }
+
+        // Vulnerability indicator (purple icon)
+        if (this.vulnerable && this.vulnerabilityDuration > 0) {
+            effects.push({
+                x: currentX,
+                y: startY,
+                type: 'vulnerability',
+                color: '#aa00ff'
+            });
+            currentX += iconSpacing;
+        }
+
+        // Slow indicator (blue snowflake icon)
+        if (this.slowed && this.slowDuration > 0) {
+            effects.push({
+                x: currentX,
+                y: startY,
+                type: 'slow',
+                color: '#0099ff'
+            });
+            currentX += iconSpacing;
+        }
+
+        // Render all effects
+        if (effects.length === 0) return;
+
+        // Center the effects horizontally
+        const totalWidth = (effects.length - 1) * iconSpacing;
+        const startX = this.x - totalWidth / 2;
+
+        effects.forEach((effect, index) => {
+            const x = startX + index * iconSpacing;
+            const y = effect.y;
+
+            ctx.save();
+
+            // Draw icon background circle
+            ctx.fillStyle = effect.color;
+            ctx.globalAlpha = 0.8;
+            ctx.beginPath();
+            ctx.arc(x, y, iconSize / 2 + 1, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Draw icon border
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = 1.0;
+            ctx.stroke();
+
+            // Draw icon symbol
+            ctx.fillStyle = '#ffffff';
+            ctx.globalAlpha = 1.0;
+            ctx.beginPath();
+
+            switch (effect.type) {
+                case 'bleed':
+                    // Draw drop shape
+                    ctx.moveTo(x, y - iconSize / 2);
+                    ctx.lineTo(x - iconSize / 3, y);
+                    ctx.lineTo(x, y + iconSize / 2);
+                    ctx.lineTo(x + iconSize / 3, y);
+                    ctx.closePath();
+                    ctx.fill();
+                    // Draw stack count ABOVE the icon
+                    if (effect.stacks > 1) {
+                        ctx.fillStyle = '#ffffff';
+                        ctx.font = 'bold 12px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'bottom';
+                        // Add text shadow for better visibility
+                        ctx.shadowColor = '#000000';
+                        ctx.shadowBlur = 3;
+                        ctx.fillText(effect.stacks.toString(), x, y - iconSize / 2 - 4);
+                        ctx.shadowBlur = 0;
+                    }
+                    break;
+                case 'burn':
+                    // Draw flame shape (simple triangle)
+                    ctx.moveTo(x, y - iconSize / 2);
+                    ctx.lineTo(x - iconSize / 3, y + iconSize / 4);
+                    ctx.lineTo(x, y + iconSize / 2);
+                    ctx.lineTo(x + iconSize / 3, y + iconSize / 4);
+                    ctx.closePath();
+                    ctx.fill();
+                    break;
+                case 'vulnerability':
+                    // Draw exclamation mark
+                    ctx.fillRect(x - 1.5, y - iconSize / 2, 3, iconSize * 0.6);
+                    ctx.beginPath();
+                    ctx.arc(x, y + iconSize / 3, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    break;
+                case 'slow':
+                    // Draw snowflake (simple X with center)
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    ctx.moveTo(x - iconSize / 3, y);
+                    ctx.lineTo(x + iconSize / 3, y);
+                    ctx.moveTo(x, y - iconSize / 3);
+                    ctx.lineTo(x, y + iconSize / 3);
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.arc(x, y, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    break;
+            }
+
+            ctx.restore();
+        });
     }
     
     // Render weak points as glowing circles

@@ -1,50 +1,57 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Shape Slayer</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            -webkit-tap-highlight-color: transparent;
-        }
-        html, body {
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            position: fixed;
-            touch-action: none;
-            -webkit-overflow-scrolling: none;
-        }
-        body {
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            background-color: #0a0a0a;
-            font-family: Arial, sans-serif;
-        }
-        #gameCanvas {
-            display: block;
-            background-color: #1a1a2e;
-            max-width: 100vw;
-            max-height: 100vh;
-            width: auto;
-            height: auto;
-            image-rendering: -webkit-optimize-contrast;
-            image-rendering: crisp-edges;
-th            image-rendering: pixelated;
-        }
-    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/ui/base.css">
 </head>
+
 <body>
+    <!-- Prevent back navigation (including side mouse button) - must load first -->
+    <script src="js/prevent-back-navigation.js"></script>
+
     <canvas id="gameCanvas"></canvas>
-    
+    <div id="ui-root"></div>
+
     <!-- Load scripts in dependency order -->
+    <script src="ui/core/eventBus.js"></script>
+    <script src="ui/core/domRoot.js"></script>
+    <script src="js/ui-dom-flag.js"></script>
+    <script src="ui/components/pauseButton.js"></script>
+    <script src="ui/components/pauseMenu.js"></script>
+    <script src="ui/components/privacyModal.js"></script>
+    <script src="ui/components/updateModal.js"></script>
+    <script src="ui/components/launchModal.js"></script>
+    <script src="ui/components/multiplayerMenu.js"></script>
+    <script src="ui/components/characterSheet.js"></script>
+    <script src="ui/components/deckBuilder.js"></script>
+    <script src="ui/components/masterySystem.js"></script>
+    <script src="ui/components/indexMachine.js"></script>
+    <script src="ui/components/shardDisplay.js"></script>
+    <script src="ui/components/roomModifierSelection.js"></script>
+    <script src="ui/components/doorModifierSelection.js"></script>
+    <script src="ui/components/hud.js"></script>
+    <script src="ui/components/doorOptions.js"></script>
+    <script src="ui/components/upgradeSelection.js"></script>
+    <script src="ui/components/deckUpgradeMenu.js"></script>
+    <script src="ui/components/mulligan.js"></script>
+    <script src="ui/components/handHUD.js"></script>
+    <script src="ui/components/swapPreview.js"></script>
+    <script src="ui/components/interactionButton.js"></script>
+    <script src="ui/components/audioMenu.js"></script>
+    <script src="ui/components/deathOverlay.js"></script>
+    <script src="ui/components/roomInfo.js"></script>
+    <script src="ui/components/roomAndLevel.js"></script>
+    <script src="ui/components/otherPlayersHealth.js"></script>
+    <script src="ui/components/mobileCooldowns.js"></script>
+    <script src="ui/components/spectatorIndicator.js"></script>
+    <script src="ui/components/toast.js"></script>
     <script src="js/audio.js"></script>
     <script src="js/music-manager.js"></script>
     <script src="js/utils.js"></script>
@@ -52,6 +59,15 @@ th            image-rendering: pixelated;
     <script src="js/touch-controls.js"></script>
     <script src="js/input.js"></script>
     <script src="js/gear.js"></script>
+    <script src="js/loot-selection.js"></script>
+    <script src="ui/components/gearTooltip.js"></script>
+    <!-- Item system files -->
+    <script src="js/items/item-definitions.js"></script>
+    <script src="js/items/item-manager.js"></script>
+    <script src="js/items/item-ground.js"></script>
+    <script src="js/items/item-pylon.js"></script>
+    <script src="js/items/item-effects.js"></script>
+    <script src="js/items/item-visuals.js"></script>
     <!-- Player class files -->
     <script src="js/players/player-base.js"></script>
     <script src="js/players/player-warrior.js"></script>
@@ -75,10 +91,25 @@ th            image-rendering: pixelated;
     <script src="js/bosses/boss-fractalcore.js"></script>
     <script src="js/bosses/boss-vortex.js"></script>
     <script src="js/level.js"></script>
+    <script src="js/doors/selection-doors.js"></script>
     <script src="js/combat.js"></script>
     <script src="js/ui.js"></script>
+    <script src="js/ui-character-sheet.js"></script>
     <script src="js/debug.js"></script>
     <script src="js/save.js"></script>
+    <!-- Card system files -->
+    <script src="js/cards/player-cards.js"></script>
+    <script src="js/cards/curse-cards.js"></script>
+    <script src="js/cards/room-modifier-cards.js"></script>
+    <script src="js/cards/team-cards.js"></script>
+    <script src="js/cards/card-data.js"></script>
+    <script src="js/cards/deck-manager.js"></script>
+    <script src="js/cards/card-effects.js"></script>
+    <script src="js/cards/class-card.js"></script>
+    <script src="js/cards/card-unlocks.js"></script>
+    <script src="js/cards/ground.js"></script>
+    <script src="js/cards/packs.js"></script>
+    <script src="js/cards/migration.js"></script>
     <script src="js/version.js"></script>
     <script src="js/mp-config.js"></script>
     <script src="js/telemetry.js"></script>
@@ -86,4 +117,5 @@ th            image-rendering: pixelated;
     <script src="js/nexus.js"></script>
     <script src="js/main.js"></script>
 </body>
+
 </html>

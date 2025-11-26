@@ -16,6 +16,9 @@ const TANK_CONFIG = {
     damagePerLevel: 0.5,           // Damage increase per level
     defensePerLevel: 0.005,        // Defense increase per level (0.005 = 0.5%)
     speedPerLevel: 2,              // Speed increase per level (pixels/second)
+    cooldownPerLevel: 0.01,        // Cooldown reduction per level (0.01 = 1% per level)
+    healthPerLevel: 5,             // Health increase per level (flat HP)
+    attackSpeedPerLevel: 0.05,     // Attack speed increase per level (0.05 = 5% faster per level)
     
     // Basic Attack (Hammer Swing)
     hammerDistance: 81,            // Distance from player center to hammer (pixels) - increased 15%
@@ -78,23 +81,30 @@ class Tank extends PlayerBase {
         const classDef = CLASS_DEFINITIONS.pentagon;
         
         // Load upgrades from save system
-        let upgradeBonuses = { damage: 0, defense: 0, speed: 0 };
+        let upgradeBonuses = { damage: 0, defense: 0, speed: 0, cooldown: 0, health: 0, attackSpeed: 0 };
         if (typeof SaveSystem !== 'undefined') {
             const upgrades = SaveSystem.getUpgrades('pentagon');
             // Calculate bonuses using config values
             upgradeBonuses.damage = upgrades.damage * TANK_CONFIG.damagePerLevel;
             upgradeBonuses.defense = upgrades.defense * TANK_CONFIG.defensePerLevel;
             upgradeBonuses.speed = upgrades.speed * TANK_CONFIG.speedPerLevel;
+            upgradeBonuses.cooldown = upgrades.cooldown * TANK_CONFIG.cooldownPerLevel;
+            upgradeBonuses.health = upgrades.health * TANK_CONFIG.healthPerLevel;
+            upgradeBonuses.attackSpeed = upgrades.attackSpeed * TANK_CONFIG.attackSpeedPerLevel;
         }
-        
+
         // Set base stats from CONFIG (single source of truth)
         this.baseDamage = TANK_CONFIG.baseDamage + upgradeBonuses.damage;
         this.baseMoveSpeed = TANK_CONFIG.baseSpeed + upgradeBonuses.speed;
         this.initialBaseMoveSpeed = this.baseMoveSpeed; // Store original for level scaling
         this.baseDefense = TANK_CONFIG.baseDefense + upgradeBonuses.defense;
-        this.baseMaxHp = TANK_CONFIG.baseHp; // Store base max HP for gear calculations
-        this.maxHp = TANK_CONFIG.baseHp;
-        this.hp = TANK_CONFIG.baseHp;
+        this.baseMaxHp = TANK_CONFIG.baseHp + upgradeBonuses.health; // Store base max HP for gear calculations
+        this.maxHp = TANK_CONFIG.baseHp + upgradeBonuses.health;
+        this.hp = TANK_CONFIG.baseHp + upgradeBonuses.health;
+        
+        // Apply cooldown and attack speed upgrades
+        this.cooldownReduction = Math.min(0.75, upgradeBonuses.cooldown); // Cap at 75%
+        this.attackSpeedMultiplier = 1.0 + upgradeBonuses.attackSpeed;
         this.baseCritChance = TANK_CONFIG.critChance || 0; // Store base for updateEffectiveStats
         this.critChance = TANK_CONFIG.critChance || 0;
         this.color = classDef.color;
@@ -129,12 +139,23 @@ class Tank extends PlayerBase {
         // Class modifier storage
         this.shieldDurationBonus = 0;
         this.shieldWaveDamageMultiplier = 1.0;
+        this.shieldLargerWaveRadius = false;
+        this.shieldDamageReductionWhileShielding = false;
+        this.shieldExplodeOnBreak = false;
         this.shoutRadiusBonus = 0;
+        this.hammerRadiusBonus = 0;
         this.hammerKnockbackMultiplier = 1.0;
+        this.hammerStunEffect = false;
+        this.hammerDamageZone = false;
+        this.hammerShockwave = false;
         this.shieldReductionBonus = 0;
         
         // Update effective stats
         this.updateEffectiveStats();
+        
+        // Reapply upgrade bonuses after updateEffectiveStats (which resets these values)
+        this.cooldownReduction = Math.min(0.75, upgradeBonuses.cooldown); // Cap at 75%
+        this.attackSpeedMultiplier = 1.0 + upgradeBonuses.attackSpeed;
         
         console.log('Tank class initialized');
     }
@@ -144,12 +165,61 @@ class Tank extends PlayerBase {
         // Reset class modifier storage
         this.shieldDurationBonus = 0;
         this.shieldWaveDamageMultiplier = 1.0;
+        this.shieldLargerWaveRadius = false;
+        this.shieldDamageReductionWhileShielding = false;
+        this.shieldExplodeOnBreak = false;
         this.shoutRadiusBonus = 0;
+        this.hammerRadiusBonus = 0;
         this.hammerKnockbackMultiplier = 1.0;
+        this.hammerStunEffect = false;
+        this.hammerDamageZone = false;
+        this.hammerShockwave = false;
         this.shieldReductionBonus = 0;
         
-        // Call parent
+        // Call parent (applies stat modifiers from cards)
         super.updateEffectiveStats();
+        
+        // Apply ability mutator card effects
+        if (typeof DeckState !== 'undefined' && typeof CardEffects !== 'undefined' && CardEffects.getAbilityModifiers) {
+            const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
+            const abilityMods = CardEffects.getAbilityModifiers(this, handCards);
+            
+            if (abilityMods.shield) {
+                if (abilityMods.shield.durationBonus) {
+                    this.shieldDurationBonus += abilityMods.shield.durationBonus;
+                }
+                if (abilityMods.shield.waveDamageMultiplier) {
+                    this.shieldWaveDamageMultiplier += abilityMods.shield.waveDamageMultiplier;
+                }
+                if (abilityMods.shield.largerWaveRadius) {
+                    this.shieldLargerWaveRadius = true;
+                }
+                if (abilityMods.shield.damageReductionWhileShielding) {
+                    this.shieldDamageReductionWhileShielding = true;
+                }
+                if (abilityMods.shield.explodeOnBreak) {
+                    this.shieldExplodeOnBreak = true;
+                }
+            }
+            
+            if (abilityMods.hammer) {
+                if (abilityMods.hammer.radiusBonus) {
+                    this.hammerRadiusBonus += abilityMods.hammer.radiusBonus;
+                }
+                if (abilityMods.hammer.knockbackMultiplier) {
+                    this.hammerKnockbackMultiplier += abilityMods.hammer.knockbackMultiplier;
+                }
+                if (abilityMods.hammer.stunEffect) {
+                    this.hammerStunEffect = true;
+                }
+                if (abilityMods.hammer.damageZone) {
+                    this.hammerDamageZone = true;
+                }
+                if (abilityMods.hammer.shockwave) {
+                    this.hammerShockwave = true;
+                }
+            }
+        }
     }
     
     // Override to apply Tank-specific class modifiers
@@ -237,6 +307,11 @@ class Tank extends PlayerBase {
     }
     
     hammerSwingAttack() {
+        // Track ability use for lifetime stats
+        if (typeof window.trackLifetimeStat === 'function') {
+            window.trackLifetimeStat('totalAbilityUses', 1);
+        }
+        
         // Play tank basic attack sound
         if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
             AudioManager.sounds.tankBasicAttack();
@@ -300,6 +375,11 @@ class Tank extends PlayerBase {
         if (typeof Game !== 'undefined') {
             Game.triggerScreenShake(0.5, 0.2);
             Game.triggerHitPause(0.08); // Brief freeze on heavy attack
+        }
+        
+        // Apply standardized heavy cooldown for UI parity
+        if (this.applyHeavyAttackCooldown) {
+            this.applyHeavyAttackCooldown();
         }
     }
     
@@ -424,6 +504,10 @@ class Tank extends PlayerBase {
     }
     
     activateShield(input) {
+        // Track ability use for lifetime stats
+        if (typeof window.trackLifetimeStat === 'function') {
+            window.trackLifetimeStat('totalAbilityUses', 1);
+        }
         // Play tank shield activation sound
         if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
             AudioManager.sounds.tankShieldStart();
@@ -437,7 +521,6 @@ class Tank extends PlayerBase {
         this.invulnerable = true;
         this.invulnerabilityTime = TANK_CONFIG.shieldInvulnTime;
         this.shieldDirection = this.rotation; // Store initial direction
-        console.log('Shield activated!');
     }
     
     // Override getDamageReduction for shield
@@ -546,6 +629,9 @@ class Tank extends PlayerBase {
                     const waveMaxDistance = TANK_CONFIG.shieldWaveRange;
                     const waveWidth = TANK_CONFIG.shieldWaveWidth;
                     
+                    // Calculate shield visual start position (same as in renderClassVisuals)
+                    const shieldVisualStart = this.size + TANK_CONFIG.shieldDistance - (TANK_CONFIG.shieldDepth / 2);
+                    
                     // Calculate current wave front distance
                     const waveProgress = this.shieldWaveElapsed / this.shieldWaveDuration;
                     const currentWaveDistance = waveMaxDistance * waveProgress;
@@ -595,17 +681,24 @@ class Tank extends PlayerBase {
                                         
                                         // Track stats (host/solo only)
                                         const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
-                                        if (!isClient && typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
-                                            const stats = Game.getPlayerStats(attackerId);
-                                            if (stats) {
-                                                stats.addStat('damageDealt', damageDealt);
+                                        if (!isClient) {
+                                            // Track lifetime damage stat
+                                            if (typeof window.trackLifetimeStat === 'function') {
+                                                window.trackLifetimeStat('totalDamageDealt', damageDealt);
                                             }
                                             
-                                            // Track kill if enemy died
-                                            if (enemy.hp <= 0) {
-                                                const killStats = Game.getPlayerStats(attackerId);
-                                                if (killStats) {
-                                                    killStats.addStat('kills', 1);
+                                            if (typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
+                                                const stats = Game.getPlayerStats(attackerId);
+                                                if (stats) {
+                                                    stats.addStat('damageDealt', damageDealt);
+                                                }
+                                                
+                                                // Track kill if enemy died
+                                                if (enemy.hp <= 0) {
+                                                    const killStats = Game.getPlayerStats(attackerId);
+                                                    if (killStats) {
+                                                        killStats.addStat('kills', 1);
+                                                    }
                                                 }
                                             }
                                         }

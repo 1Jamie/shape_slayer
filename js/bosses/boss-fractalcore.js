@@ -418,7 +418,7 @@ class BossFractalCore extends BossBase {
         
         // Screen shake
         if (typeof Game !== 'undefined') {
-            Game.triggerScreenShake(4, 0.2);
+            Game.triggerScreenShake(4, 0.2, 'boss');
         }
     }
     
@@ -513,7 +513,7 @@ class BossFractalCore extends BossBase {
         
         // Screen shake
         if (typeof Game !== 'undefined') {
-            Game.triggerScreenShake(4, 0.2);
+            Game.triggerScreenShake(4, 0.2, 'boss');
         }
     }
     
@@ -566,7 +566,7 @@ class BossFractalCore extends BossBase {
         this.createShockwave(this.x, this.y, 400, 2.0, this.damage * 3); // Increased from 1.5 to 2.0
         
         if (typeof Game !== 'undefined') {
-            Game.triggerScreenShake(10, 0.5);
+            Game.triggerScreenShake(10, 0.5, 'boss');
             if (typeof createParticleBurst !== 'undefined') {
                 createParticleBurst(this.x, this.y, this.color, 50);
             }
@@ -624,6 +624,9 @@ class BossFractalCore extends BossBase {
         
         this.renderHazards(ctx);
         this.renderHealthBar(ctx);
+
+        // Draw status effect indicators
+        this.renderStatusEffects(ctx);
     }
     
     renderOctagon(ctx, x, y, size, color, isTelegraphing = false) {

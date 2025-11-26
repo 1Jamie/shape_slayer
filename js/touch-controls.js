@@ -280,7 +280,7 @@ class TouchButton {
         // Label (larger text for mobile readability)
         if (this.label) {
             ctx.fillStyle = isReady ? '#ffffff' : 'rgba(200, 200, 220, 0.9)';
-            ctx.font = 'bold 17px Arial'; // Larger font for mobile
+            ctx.font = 'bold 17px Orbitron'; // Larger font for mobile
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             
@@ -292,7 +292,7 @@ class TouchButton {
             
             // Show charge count if provided (like dodge charges for Rogue)
             if (charges !== null && charges !== undefined) {
-                ctx.font = 'bold 14px Arial';
+                ctx.font = 'bold 14px Orbitron';
                 ctx.fillStyle = '#ffffff';
                 ctx.textAlign = 'right';
                 ctx.textBaseline = 'top';

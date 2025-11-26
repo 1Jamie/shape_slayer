@@ -118,7 +118,7 @@ function renderMarkdownLine(ctx, line, x, y, maxWidth, baseColor = '#cccccc') {
         let fontStyle = '';
         if (segment.italic) fontStyle = 'italic ';
         if (segment.bold) fontStyle += 'bold ';
-        ctx.font = `${fontStyle}${fontSize} Arial`;
+        ctx.font = `${fontStyle}${fontSize} Orbitron`;
         
         // Set color (special color for quotes)
         ctx.fillStyle = segment.color || (segment.bold ? '#ffdd88' : baseColor);

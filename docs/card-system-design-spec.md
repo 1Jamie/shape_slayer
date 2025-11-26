@@ -130,7 +130,8 @@ This document outlines the complete design for replacing the gear/loot system wi
   isCombined: boolean,           // true if this is a combined card (runtime-only, not saved)
   combinedFrom: [string, string], // If combined, array of two source card IDs (runtime-only, not saved)
   nonStacking: boolean,          // true if only one of this card can be in hand at a time
-  isCurse: boolean               // true if this is a curse card (cannot be voluntarily discarded)
+  isCurse: boolean,              // true if this is a curse card (cannot be voluntarily discarded)
+  maxCopies: number              // Maximum copies allowed in deck (1-4, see Deck Limits section)
   // Note: Combined cards are single-run only and do not persist to save data or deck
   // Note: Curse cards cannot be voluntarily discarded and must be removed through special mechanics
 }
@@ -404,7 +405,8 @@ Some cards are marked as **non-stacking**, meaning you can only have one copy of
 - **Trade-off**: Requires taking damage to activate, less effective against ranged attacks. Still take full damage, only reflect portion.
 
 #### Phoenix Down (from `phoenix_down` legendary effect)
-- **Unlock**: Achievement "Revive 10 times total" OR Purchase 750 shards (available after first full run clear)
+- **Unlock**: Achievement "Survive 15 near-death experiences (HP drops below 20%)" OR Purchase 750 shards (available after first full run clear)
+- **Design Rationale**: Near-death experiences reward players who push their limits and face challenging content, rather than penalizing skilled players who die less. Skilled players who progress further will naturally encounter more dangerous situations and unlock this powerful card faster.
 - **Mastery Upgrade Costs**: M0→M1: 30 shards, M1→M2: 75 shards, M2→M3: 150 shards, M3→M4: 300 shards, M4→M5: 600 shards
 - **Non-Stacking**: Yes - Only one Phoenix Down card can be in hand at a time
 - **Application**: Conditional trigger - One-Time Use - Activates on death, revives player, then card is destroyed from hand
@@ -727,6 +729,7 @@ Some cards are marked as **non-stacking**, meaning you can only have one copy of
 **Card Upgrade Voucher**
 - **Application**: Active - One-Time Use - Manually activated at safe/upgrade rooms, consumed after use
 - Consumable: Upgrade a card's quality band by one tier (white → green → blue → purple → orange)
+  - **Note**: Upgrade quality is limited by room number (see Room-Based Upgrade Limits section 3.2.6). Cannot upgrade beyond room's maximum quality band.
 - Can be used on any card in hand
 - **Rarity**: Very rare drop from boss rooms
 - **Flavor**: "Ascend. Elevate your power."
@@ -751,6 +754,7 @@ These represent the card packs shown on doors. Players select which pack they wa
 - **Reward Type**: Card (30% chance) OR Upgrade (70% chance)
 - **If Card**: 1 card per player from their deck, normal quality distribution
 - **If Upgrade**: Upgrade one card in hand by 1 quality band **for this run only** (white→green, etc.) OR 15 shards (does NOT grant permanent mastery unlock)
+  - **Note**: Upgrade quality is limited by room number (see Room-Based Upgrade Limits section 3.2.6). Cannot upgrade beyond room's maximum quality band.
 - No bonuses
 - **Difficulty**: Normal
 
@@ -760,12 +764,14 @@ These represent the card packs shown on doors. Players select which pack they wa
   - **Special**: Elite packs can ignore mastery cap by +1 or +2 levels (temporary jackpot - card is powerful for this run only, does NOT grant permanent mastery unlock)
   - Example: Precision at mastery 0 can drop as Blue from Elite pack (temporary), but picking it up does NOT unlock mastery 2 permanently
 - **If Upgrade**: Upgrade one card in hand by 1 quality band **for this run only** OR 25 shards (does NOT grant permanent mastery unlock)
+  - **Note**: Upgrade quality is limited by room number (see Room-Based Upgrade Limits section 3.2.6). Cannot upgrade beyond room's maximum quality band.
 - **Difficulty**: Harder enemies (+15% HP/damage)
 
 #### Treasure Pack
 - **Reward Type**: Card (50% chance) OR Upgrade (50% chance)
 - **If Card**: 1 card per player from their deck, +20% quality shift, +1 bonus card
 - **If Upgrade**: Upgrade one card in hand by 1 quality band **for this run only** OR 35 shards (does NOT grant permanent mastery unlock)
+  - **Note**: Upgrade quality is limited by room number (see Room-Based Upgrade Limits section 3.2.6). Cannot upgrade beyond room's maximum quality band.
 - +Health restore (25% max HP)
 - **Difficulty**: Normal
 
@@ -774,6 +780,7 @@ These represent the card packs shown on doors. Players select which pack they wa
 - **If Card**: 1 card per player from their deck, +30% quality shift, +2 bonus cards
   - **Special**: Challenge packs can ignore mastery cap by +1 or +2 levels (temporary jackpot - card is powerful for this run only, does NOT grant permanent mastery unlock)
 - **If Upgrade**: Upgrade one card in hand by 1 quality band **for this run only** OR 50 shards (does NOT grant permanent mastery unlock)
+  - **Note**: Upgrade quality is limited by room number (see Room-Based Upgrade Limits section 3.2.6). Cannot upgrade beyond room's maximum quality band.
 - +XP boost (+50% XP for room)
 - **Difficulty**: Much harder enemies (+30% HP/damage)
 
@@ -787,6 +794,7 @@ These represent the card packs shown on doors. Players select which pack they wa
 #### Upgrade Pack (New - Common)
 - **Reward Type**: Upgrade (100%)
 - Upgrade one card in hand by 1 quality band **for this run only** (player chooses which card, does NOT grant permanent mastery unlock)
+  - **Note**: Upgrade quality is limited by room number (see Room-Based Upgrade Limits section 3.2.6). Cannot upgrade beyond room's maximum quality band.
 - OR: 20 shards (player choice)
 - **Difficulty**: Normal
 
@@ -805,6 +813,7 @@ These represent the card packs shown on doors. Players select which pack they wa
 #### Mastery Pack (Rare)
 - **Reward Type**: Upgrade (100%)
 - Upgrade one card in hand by 1 quality band **for this run only** (guaranteed, does NOT grant permanent mastery unlock)
+  - **Note**: Upgrade quality is limited by room number (see Room-Based Upgrade Limits section 3.2.6). Cannot upgrade beyond room's maximum quality band.
 - +25 shards
 - **Difficulty**: Moderate challenge (+20% HP/damage)
 
@@ -1322,6 +1331,99 @@ This system creates clear distinction between **permanent unlocks** (meta-progre
 - Indicator shows even if card quality is higher than unlock level (e.g., Blue card but only unlocks M1)
 - See Card Display section (5.3) for visual design details
 
+### 3.2.6 Room-Based Upgrade Limits
+
+**Problem Statement**: Without limits, players can upgrade a single card from White → Green → Blue → Purple by room 4 if they receive upgrade rewards in consecutive rooms. This creates power spikes that break progression pacing and encourages stacking upgrades on one card instead of diversifying.
+
+**Solution**: Limit the maximum quality band that upgrade rewards can achieve based on the current room number. This ensures upgrades align with natural quality distribution curves and boss progression milestones.
+
+**Upgrade Quality Band Limits by Room**:
+
+- **Rooms 1-5**: Maximum upgrade quality = **Green**
+  - **Allowed upgrades**: White → Green only
+  - **Rationale**: Natural distribution is 70% white, 20% green, 8% blue, 2% purple. Green upgrades are reasonable (20% natural chance), but blue/purple are too rare (8%/2%) to allow via upgrades. Prevents early power spikes.
+  - **Example**: Player gets upgrade reward in Room 3. They can upgrade a White card to Green, but cannot upgrade a Green card to Blue (even if they have a Green card in hand).
+
+- **Rooms 6-10**: Maximum upgrade quality = **Blue**
+  - **Allowed upgrades**: White → Green → Blue
+  - **Rationale**: Natural distribution allows 15% blue, 8% purple. Blue upgrades are reasonable (15% natural chance), but purple is still rare enough (8%) that upgrades shouldn't allow it yet. Encourages diversifying upgrades across multiple cards.
+  - **Example**: Player gets upgrade reward in Room 8. They can upgrade White → Green or Green → Blue, but cannot upgrade Blue → Purple.
+
+- **Rooms 11-15**: Maximum upgrade quality = **Purple**
+  - **Allowed upgrades**: White → Green → Blue → Purple
+  - **Rationale**: First boss at Room 12 drops minimum Green, but natural distribution has 12% purple. Purple upgrades should be available here to reward progression past the first boss. Aligns with mid-game power scaling.
+  - **Example**: Player gets upgrade reward in Room 13. They can upgrade up to Purple (White → Green → Blue → Purple), but cannot upgrade Purple → Orange.
+
+- **Rooms 16-21**: Maximum upgrade quality = **Purple** (unchanged)
+  - **Allowed upgrades**: White → Green → Blue → Purple
+  - **Rationale**: Maintains Purple as the cap until second boss. Second boss at Room 22 drops minimum Blue, so Purple upgrades remain appropriate. Prevents Orange upgrades from appearing too early.
+
+- **Rooms 22-31**: Maximum upgrade quality = **Orange**
+  - **Allowed upgrades**: White → Green → Blue → Purple → Orange
+  - **Rationale**: Second boss at Room 22 drops minimum Blue, final boss at Room 32 drops minimum Purple. Orange upgrades should be available here to reward late-game progression. Natural distribution has 12% orange in rooms 16+, so Orange upgrades are appropriate.
+  - **Example**: Player gets upgrade reward in Room 25. They can upgrade up to Orange (all upgrades allowed).
+
+- **Rooms 32+**: Maximum upgrade quality = **Orange** (unchanged)
+  - **Allowed upgrades**: White → Green → Blue → Purple → Orange
+  - **Rationale**: Final boss at Room 32. Orange is the maximum quality, so no further upgrades are possible.
+
+**Implementation Rules**:
+
+1. **Upgrade attempts are capped by room limit**: If a player tries to upgrade a card that would exceed the room's maximum quality, the upgrade is rejected with a clear message: "Cannot upgrade beyond [Quality] until Room [X]"
+   - Example: Player in Room 4 tries to upgrade Green → Blue: "Cannot upgrade beyond Green until Room 6"
+
+2. **Upgrade limit applies to all upgrade sources**:
+   - Standard Pack upgrade rewards
+   - Elite Pack upgrade rewards
+   - Treasure Pack upgrade rewards
+   - Challenge Pack upgrade rewards
+   - Upgrade Pack rewards
+   - Mastery Pack rewards
+   - Card Upgrade Voucher consumables (room modifier cards)
+
+3. **Upgrade limit does NOT apply to**:
+   - **Boss drops**: Bosses can still drop cards at any quality (they ignore mastery cap and upgrade limits)
+   - **Elite/Challenge pack card drops**: These can still drop cards above mastery cap (temporary jackpot)
+   - **Card quality from natural drops**: Cards found in packs still roll quality based on room distribution (upgrade limits only affect upgrade rewards, not natural drops)
+
+4. **UI Feedback**:
+   - When viewing upgrade options, gray out or disable upgrades that would exceed the room limit
+   - Show tooltip: "Upgrade to [Quality] available starting Room [X]"
+   - Display current room's upgrade limit prominently in upgrade interface
+   - Example: "Room 4: Maximum upgrade quality is Green"
+
+5. **Strategic Impact**:
+   - **Encourages diversification**: Players must upgrade multiple cards instead of stacking one card
+   - **Aligns with progression**: Upgrade limits match natural quality distribution curves
+   - **Prevents power spikes**: No more White → Purple by room 4
+   - **Maintains boss value**: Bosses remain the primary source of high-quality cards early game
+   - **Rewards progression**: Limits increase as players progress, creating natural power scaling
+
+**Example Progression Scenarios**:
+
+**Scenario 1: Early Game (Rooms 1-5)**
+- Room 1: Player gets upgrade reward → Can upgrade White → Green (max allowed)
+- Room 2: Player gets upgrade reward → Can upgrade another White → Green, or upgrade existing Green card (but cannot go Green → Blue)
+- Room 3: Player gets upgrade reward → Must upgrade a different card (White → Green) or wait
+- **Result**: Player has 2-3 Green cards by room 5, encouraging diversification
+
+**Scenario 2: Mid Game (Rooms 6-10)**
+- Room 6: Player gets upgrade reward → Can now upgrade Green → Blue (new limit allows Blue)
+- Room 7: Player gets upgrade reward → Can upgrade another card to Blue, or upgrade White → Green
+- Room 8: Player gets upgrade reward → Can upgrade Green → Blue, but cannot upgrade Blue → Purple yet
+- **Result**: Player has 1-2 Blue cards and several Green cards by room 10, balanced progression
+
+**Scenario 3: Late Game (Rooms 22+)**
+- Room 22: Player gets upgrade reward → Can now upgrade Purple → Orange (new limit allows Orange)
+- Room 25: Player gets upgrade reward → Can upgrade any card up to Orange
+- **Result**: Player can achieve Orange cards through upgrades, rewarding late-game progression
+
+**Balance Notes**:
+- **Upgrade limits are per-room, not cumulative**: Each room's limit applies independently. Room 6 allows Blue, but Room 5 does not (even if you're upgrading in Room 6).
+- **Limits prevent stacking but don't prevent progression**: Players can still upgrade cards, just not beyond the room's limit. This encourages upgrading multiple cards.
+- **Bosses remain valuable**: Boss drops can still provide high-quality cards that upgrades cannot (e.g., Purple card from Room 12 boss, even though upgrades are capped at Green in rooms 1-5).
+- **Elite/Challenge packs remain valuable**: These can still drop cards above mastery cap, providing temporary power spikes that upgrades cannot.
+
 ### 3.3 Feature Unlock Progression & UX Flow
 
 **Progression Philosophy**: Features and card types are introduced gradually to prevent overwhelming new players. Each system builds on previous knowledge, creating a natural learning curve. The pacing is intentionally slower in early game to allow mastery of fundamentals before introducing complexity.
@@ -1720,6 +1822,69 @@ This system creates clear distinction between **permanent unlocks** (meta-progre
 - Upgrade card mastery levels
 - Purchase deck upgrades (hand size, mulligans, etc.)
 - Convert to currency (10 shards = 1 currency) - not recommended
+
+---
+
+## Phase 3.6: Deck Limits & Copy Restrictions
+
+**Deck Limits System**: Players can add multiple copies of the same card to their deck, up to a maximum limit per card. This creates strategic deck-building decisions and prevents overpowered combinations while allowing consistency for key build-defining cards.
+
+### Limit Categories
+
+**1. Standard Limits (Stacking Cards) - Max 4 Copies**
+- **Logic**: These cards stack additively. Drawing multiples is always beneficial. Players should be allowed to fill their deck with these if they want a "Stat Stick" build.
+- **Cards**:
+  - Precision (Crit Chance)
+  - Fury (Crit Damage)
+  - Bulwark (Defense)
+  - Velocity (Move Speed)
+  - Lifeline (Lifesteal)
+  - Vector Laminar (Projectile Speed)
+  - Phase Step (Dodge Charges)
+
+**2. Tactical Limits (Conditional Stacking) - Max 3 Copies**
+- **Logic**: These cards technically stack, but have diminishing returns or require specific playstyles to maintain. 4 copies would likely be overkill or unmanageable.
+- **Cards**:
+  - Momentum (Stacking damage on kill) - Hard to maintain too many stacks
+  - Arcane Flow (Cooldown Reduction) - Capped by mathematical limits eventually
+  - Parallelogram Slip (Dodge CD)
+  - Prism Shield (Reflect)
+
+**3. Build-Definer Limits (Non-Stacking / Powerful) - Max 2 Copies**
+- **Logic**: These are Non-Stacking cards. You only ever want one in your hand. Allowing 2 copies is the "Consistency Tax" sweet spot—it gives you a much better opening draw chance, but ensures you will have exactly one "dead draw" later in the run.
+- **Cards**:
+  - **Offense**: Volley, Execute, Fractal Conduit, Detonating Vertex, Overcharge
+  - **Defense**: Fortify Aura, Phasing
+  - **Class Modifiers (Essential)**: Whirlwind Core, Fan of Knives+, Blink Flux, Thrust Focus, Block Stance, Shadow Clone, Backstab Edge, Beam Mastery, Shield Bulwark, Hammer Smash
+- **Reasoning**: These define the class/build. Players will almost always take 2 to ensure they get their ability upgrade, accepting the dead draw as the cost of doing business.
+
+**4. Legendary / Unique Limits (Strict) - Max 1 Copy**
+- **Logic**: These cards are either too powerful to allow consistency, or their mechanics break if duplicates exist.
+- **Cards**:
+  - **Phoenix Down**: It's a "Get out of Jail Free" card. If you allowed 2, a player could use one (it destroys itself), and then draw the second one for a second revive. That is too powerful.
+  - **Remnant Cards** (e.g., Ashen Core): These are designed around a specific discard cycle. Having multiple copies would confuse the cycle mechanic and make the "puzzle" too easy or too chaotic.
+  - **Team Cards**: Inherently limited to 1 per player in the pre-game lobby.
+
+### Summary Table
+
+| Limit Category | Max Copies | Card Types | Strategic Goal |
+|---------------|------------|------------|----------------|
+| Stat Foundation | 4 | Precision, Bulwark, Velocity, Lifeline, Fury, Vector Laminar, Phase Step | Allow pure stat-scaling builds |
+| Advanced Stats | 3 | Momentum, Arcane Flow, Prism Shield, Parallelogram Slip | Allow heavy investment with slight restriction |
+| Build Enablers | 2 | Volley, Execute, Fractal Conduit, Detonating Vertex, Overcharge, Fortify Aura, Phasing, All Class Modifiers | The Consistency Tax. Pay 1 dead draw for reliability |
+| Legendary | 1 | Phoenix Down, Remnant Cards, Team Cards | Restrict power spikes; enforce high variance |
+
+### Deck Building Strategy
+
+This system creates a fascinating pre-game loop:
+- "I have 20 slots. I need Whirlwind Core to make my build work, so I'll spend 2 slots on it (1 active, 1 insurance). That leaves 18 slots. I want Volley but I can risk only taking 1 copy because I can wait for it. That leaves 17 slots for Precision and Bulwark..."
+
+**Implementation Notes**:
+- Deck builder UI must display current copy count and max limit for each card
+- Visual feedback when limit is reached (disable add button, show limit indicator)
+- Deck validation must check copy limits before allowing deck save
+- `deckConfig.cards` array can contain duplicate card IDs (e.g., `["precision_001", "precision_001", "precision_001"]` for 3x Precision)
+- Copy limits are enforced at deck building time, not at runtime
 
 ---
 

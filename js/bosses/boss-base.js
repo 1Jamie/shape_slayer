@@ -96,7 +96,7 @@ class BossBase extends EnemyBase {
     onPhaseTransition(oldPhase, newPhase) {
         // Trigger screen shake and particles
         if (typeof Game !== 'undefined') {
-            Game.triggerScreenShake(5, 0.3);
+            Game.triggerScreenShake(5, 0.3, 'boss');
             if (typeof createParticleBurst !== 'undefined') {
                 createParticleBurst(this.x, this.y, this.color, 20);
             }
@@ -380,7 +380,7 @@ class BossBase extends EnemyBase {
                 createParticleBurst(wpX, wpY, '#00ffff', 15);
             }
             if (typeof Game !== 'undefined') {
-                Game.triggerScreenShake(3, 0.15);
+                Game.triggerScreenShake(3, 0.15, 'boss');
             }
         }
         
@@ -395,9 +395,19 @@ class BossBase extends EnemyBase {
         this.alive = false;
         
         // Track kill for the last attacker
-        if (this.lastAttacker && typeof Game !== 'undefined' && Game.getPlayerStats) {
-            const stats = Game.getPlayerStats(this.lastAttacker);
-            stats.addStat('kills', 1);
+        if (this.lastAttacker) {
+            // Track lifetime kills stat
+            const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+            if (!isClient && typeof window.trackLifetimeStat === 'function') {
+                window.trackLifetimeStat('totalKills', 1);
+            }
+            
+            if (typeof Game !== 'undefined' && Game.getPlayerStats) {
+                const stats = Game.getPlayerStats(this.lastAttacker);
+                if (stats) {
+                    stats.addStat('kills', 1);
+                }
+            }
         }
         
         // Emit particles on death
@@ -405,9 +415,58 @@ class BossBase extends EnemyBase {
             createParticleBurst(this.x, this.y, this.color, 30);
         }
         
+        // Track boss kill for credits reward
+        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+        if (!isClient && typeof Game !== 'undefined') {
+            if (typeof Game.bossesKilled === 'number') {
+                Game.bossesKilled++;
+            } else {
+                Game.bossesKilled = 1;
+            }
+        }
+        
         // Give XP to all alive players (multiplayer: host distributes; solo: local player)
         if (typeof Game !== 'undefined' && Game.distributeXPToAllPlayers && this.xpValue) {
             Game.distributeXPToAllPlayers(this.xpValue);
+        }
+        
+        // Item drop system (bosses have high chance to drop items)
+        if (typeof Game !== 'undefined' && typeof ITEM_DEFINITIONS !== 'undefined' && typeof getRandomItem === 'function') {
+            // Bosses have 50% chance to drop an item (highest drop rate)
+            if (Math.random() < 0.50) {
+                const itemDef = getRandomItem();
+
+                // Check if in multiplayer - use pylons instead of ground items
+                const inMultiplayer = typeof multiplayerManager !== 'undefined' &&
+                    multiplayerManager &&
+                    multiplayerManager.lobbyCode;
+
+                if (inMultiplayer) {
+                    // Create item pylon (multiplayer)
+                    if (typeof createItemPylon === 'function') {
+                        createItemPylon(this.x, this.y, itemDef);
+                        console.log(`[Item Pylon] ${itemDef.name} (${itemDef.rarity}) from Boss`);
+                    }
+                } else {
+                    // Create ground item (single player)
+                    const groundItem = {
+                        id: 'item_' + Date.now() + '_' + Math.random(),
+                        itemId: itemDef.id,
+                        definition: itemDef,
+                        x: this.x,
+                        y: this.y,
+                        size: 12,
+                        pulse: 0,
+                        pickupRadius: 30
+                    };
+
+                    // Add to ground items
+                    if (!Game.groundItems) Game.groundItems = [];
+                    Game.groundItems.push(groundItem);
+
+                    console.log(`[Item Drop] ${itemDef.name} (${itemDef.rarity}) from Boss`);
+                }
+            }
         }
         
         // Drop guaranteed rare+ loot (2-3 items) - syncs via game_state in multiplayer
@@ -420,8 +479,10 @@ class BossBase extends EnemyBase {
                 const offsetX = (Math.random() - 0.5) * 40;
                 const offsetY = (Math.random() - 0.5) * 40;
                 const gear = generateGear(this.x + offsetX, this.y + offsetY, roomNum, 'boss');
-                groundLoot.push(gear);
-                console.log(`Boss dropped ${gear.tier} loot`);
+                if (gear) {
+                    groundLoot.push(gear);
+                    console.log(`Boss dropped ${gear.tier} loot`);
+                }
             }
         }
     }
@@ -450,10 +511,152 @@ class BossBase extends EnemyBase {
         // Phase indicator
         const phaseColors = ['#00ff00', '#ffaa00', '#ff0000']; // Green, Orange, Red
         ctx.fillStyle = phaseColors[this.phase - 1] || '#ffffff';
-        ctx.font = '12px Arial';
+        ctx.font = 'bold 12px Orbitron';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(`Phase ${this.phase}`, this.x, barY - 10);
+    }
+
+    // Override renderStatusEffects for bosses (positioned above health bar)
+    renderStatusEffects(ctx) {
+        const effects = [];
+        const iconSize = 10; // Slightly larger for bosses
+        const iconSpacing = 14;
+        const startY = this.y - this.size - 23; // Above health bar (which is at -15)
+        let currentX = this.x;
+
+        // Bleed indicator (red drop icon with stack count)
+        if (this.bleeding && this.bleedStacks > 0) {
+            effects.push({
+                x: currentX,
+                y: startY,
+                type: 'bleed',
+                stacks: this.bleedStacks,
+                color: '#ff0000'
+            });
+            currentX += iconSpacing;
+        }
+
+        // Burn indicator (orange flame icon)
+        if (this.burning && this.burnDuration > 0) {
+            effects.push({
+                x: currentX,
+                y: startY,
+                type: 'burn',
+                color: '#ff6600'
+            });
+            currentX += iconSpacing;
+        }
+
+        // Vulnerability indicator (purple icon)
+        if (this.vulnerable && this.vulnerabilityDuration > 0) {
+            effects.push({
+                x: currentX,
+                y: startY,
+                type: 'vulnerability',
+                color: '#aa00ff'
+            });
+            currentX += iconSpacing;
+        }
+
+        // Slow indicator (blue snowflake icon)
+        if (this.slowed && this.slowDuration > 0) {
+            effects.push({
+                x: currentX,
+                y: startY,
+                type: 'slow',
+                color: '#0099ff'
+            });
+            currentX += iconSpacing;
+        }
+
+        // Render all effects
+        if (effects.length === 0) return;
+
+        // Center the effects horizontally
+        const totalWidth = (effects.length - 1) * iconSpacing;
+        const startX = this.x - totalWidth / 2;
+
+        effects.forEach((effect, index) => {
+            const x = startX + index * iconSpacing;
+            const y = effect.y;
+
+            ctx.save();
+
+            // Draw icon background circle
+            ctx.fillStyle = effect.color;
+            ctx.globalAlpha = 0.8;
+            ctx.beginPath();
+            ctx.arc(x, y, iconSize / 2 + 1, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Draw icon border
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = 1.0;
+            ctx.stroke();
+
+            // Draw icon symbol
+            ctx.fillStyle = '#ffffff';
+            ctx.globalAlpha = 1.0;
+            ctx.beginPath();
+
+            switch (effect.type) {
+                case 'bleed':
+                    // Draw drop shape
+                    ctx.moveTo(x, y - iconSize / 2);
+                    ctx.lineTo(x - iconSize / 3, y);
+                    ctx.lineTo(x, y + iconSize / 2);
+                    ctx.lineTo(x + iconSize / 3, y);
+                    ctx.closePath();
+                    ctx.fill();
+                    // Draw stack count ABOVE the icon
+                    if (effect.stacks > 1) {
+                        ctx.fillStyle = '#ffffff';
+                        ctx.font = 'bold 12px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'bottom';
+                        // Add text shadow for better visibility
+                        ctx.shadowColor = '#000000';
+                        ctx.shadowBlur = 3;
+                        ctx.fillText(effect.stacks.toString(), x, y - iconSize / 2 - 4);
+                        ctx.shadowBlur = 0;
+                    }
+                    break;
+                case 'burn':
+                    // Draw flame shape (simple triangle)
+                    ctx.moveTo(x, y - iconSize / 2);
+                    ctx.lineTo(x - iconSize / 3, y + iconSize / 4);
+                    ctx.lineTo(x, y + iconSize / 2);
+                    ctx.lineTo(x + iconSize / 3, y + iconSize / 4);
+                    ctx.closePath();
+                    ctx.fill();
+                    break;
+                case 'vulnerability':
+                    // Draw exclamation mark
+                    ctx.fillRect(x - 1.5, y - iconSize / 2, 3, iconSize * 0.6);
+                    ctx.beginPath();
+                    ctx.arc(x, y + iconSize / 3, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    break;
+                case 'slow':
+                    // Draw snowflake (simple X with center)
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    ctx.moveTo(x - iconSize / 3, y);
+                    ctx.lineTo(x + iconSize / 3, y);
+                    ctx.moveTo(x, y - iconSize / 3);
+                    ctx.lineTo(x, y + iconSize / 3);
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.arc(x, y, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    break;
+            }
+
+            ctx.restore();
+        });
     }
     
     // Render weak points as glowing circles

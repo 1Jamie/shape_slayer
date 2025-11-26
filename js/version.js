@@ -2,15 +2,15 @@
 // Update this file when releasing new versions
 
 const GameVersion = {
-    VERSION: '0.5.3.1',
-    
-    UPDATE_MESSAGES: {
-        '0.2.1': 'Initial early access release! Please report any bugs you find at https://github.com/1jamie/shape_slayer/issues',
-        '0.2.2': 'Refactored the code to be more modular and easier to maintain with classes. Now uses a base class for all players and subclasses for each class in their own files. This will make it easier to add new classes in the future and one class cant break the whole game.',
-        '0.3.0': 'Added multiplayer support. Now you can play with up to 3 friends online. Please report any bugs you find at https://github.com/1jamie/shape_slayer/issues',
-        '0.3.1': '- Fixed a bug where after starting a run solo you could no longer access the multiplayer menu. \n - Added seperate tracking for currency per player and currency earned in multiplayer is properly tracked and shared back to the client so when you play solo it is still there! \n - Same was done for upgrades so each class will have its upgrades and you can use them in mutliplayer and solo.',
-        '0.4.1': '- Fixed bug that prevented single player instances from purchasing upgrades in the Nexus. (my bad, i really should have caught this before release of the multiplayer system < thanks you know who for the catch >)',
-        '0.5.0': `**MAJOR UPDATE: Architecture & Quality of Life Improvements (ADDITION OF GEAR AFFIXES AND CLASS MODIFIERS!)**
+  VERSION: '0.6.0',
+
+  UPDATE_MESSAGES: {
+    '0.2.1': 'Initial early access release! Please report any bugs you find at https://github.com/1jamie/shape_slayer/issues',
+    '0.2.2': 'Refactored the code to be more modular and easier to maintain with classes. Now uses a base class for all players and subclasses for each class in their own files. This will make it easier to add new classes in the future and one class cant break the whole game.',
+    '0.3.0': 'Added multiplayer support. Now you can play with up to 3 friends online. Please report any bugs you find at https://github.com/1jamie/shape_slayer/issues',
+    '0.3.1': '- Fixed a bug where after starting a run solo you could no longer access the multiplayer menu. \n - Added seperate tracking for currency per player and currency earned in multiplayer is properly tracked and shared back to the client so when you play solo it is still there! \n - Same was done for upgrades so each class will have its upgrades and you can use them in mutliplayer and solo.',
+    '0.4.1': '- Fixed bug that prevented single player instances from purchasing upgrades in the Nexus. (my bad, i really should have caught this before release of the multiplayer system < thanks you know who for the catch >)',
+    '0.5.0': `**MAJOR UPDATE: Architecture & Quality of Life Improvements (ADDITION OF GEAR AFFIXES AND CLASS MODIFIERS!)**
 
 **Gear Affixes and Class Modifiers:**
 • **Gear Affix System:** Introducing a brand new loot and affix system! Gear drops (weapons, armor, trinkets) can now roll randomized affixes that grant unique stat bonuses or modifiers. Some examples include +Attack, +Defense, %Move Speed, Dodge Chance, Crit, class-specific effects, and more. Each piece of gear displays its affixes and stat rolls in detailed in-game tooltips.
@@ -82,7 +82,7 @@ const GameVersion = {
 • New files: mp-server-master.js, mp-server-worker.js, config.js
 • Fully backward compatible with existing deployments
 `,
-        '0.5.1': `**🔨 THE GREAT REBALANCING 🔨** (11/05/2025)
+    '0.5.1': `**🔨 THE GREAT REBALANCING 🔨** (11/05/2025)
 *"48 hours. 3 patches melted down into 1. 1 developer who clearly needs sleep. Your game? Completely different now."*
 
 
@@ -278,7 +278,7 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 
 *P.P.S. - This patch happened in way too few hours because I don't sleep. Send coffee. Or therapy. Preferably both.*
 `,
-        '0.5.2': `**🩹 HOTFIX: DAMAGE CONTROL (LITERALLY) QOL** (11/09/2025)
+    '0.5.2': `**🩹 HOTFIX: DAMAGE CONTROL (LITERALLY) QOL** (11/09/2025)
 *"Remember how you hit for 5,500 damage in Room 23? Yeah, that wasn't 'build craft'. That was a math crime."*
 
 **👑 Swarm King: Beam Therapy & Minion Management**
@@ -334,7 +334,7 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 
 *TL;DR:* Damage numbers are back on a leash. You can still break the game—just not by accident. You're welcome.*
 `,
-        '0.5.3': `**TELEM UPDATE** (11/11/2025)
+    '0.5.3': `**TELEM UPDATE** (11/11/2025)
 *"Well you see... I found 'The boss feels spicy' doesnt really help me with balancing"*
 
 **I CAN SEE YOU:**
@@ -345,7 +345,7 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 
 *TL;DR:* Telemetry now exist in opt in and the pause menu looks much nicer*
 `,
-        '0.5.3.1': `**🔴 CIRCLE OF TRUST ISSUES - AND SOME MUSIC!** (11/12/2025)
+    '0.5.3.1': `**🔴 CIRCLE OF TRUST ISSUES - AND SOME MUSIC!** (11/12/2025)
 *"Remember those red circles you mercy-farmed in Room 1? They compared notes, formed a study group, and now you're the pop quiz."*
 
 • **Honor Society Enrollment (All Enemies):** IQ got scaled harder than exponential growth. Feints, combo detection, surround formations, wall checks, pattern recognition—all unlocked earlier. Room 4 stopped being recess and turned into Euclid’s nightmare.
@@ -388,21 +388,64 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 • **Client Level-Ups Actually Level:** Remote players finally receive actual stat bumps instead of placebo sparkles. Yes, Karen, your HP now scales even when you’re not the host. Try not to sprain your newfound survivability.
 
 *TL;DR:* Circles evolved from cannon fodder to coordinated chaos, ranged kids min-maxed trigonometry, retreat spam got sent to detention, the telegraph PTA installed synchronized warning lights, and spawn counts went keto. Bring AoE, bring timing, bring snacks for the wipe-fest`,
-    },
-    
-    // Update type labels - can be: 'major', 'feature', 'minor', 'hotfix', 'bugfix', 'refactor', 'rebalance'
-    // Multiple tags can be assigned to show mixed updates
-    UPDATE_TYPES: {
-        '0.2.1': ['major', 'feature'],
-        '0.2.2': ['minor', 'refactor'],
-        '0.3.0': ['major', 'feature'],
-        '0.3.1': ['minor', 'bugfix'],
-        '0.4.1': ['hotfix'],
-        '0.5.0': ['major', 'feature'],
-        '0.5.1': ['major', 'rebalance'],
-        '0.5.2': ['minor', 'hotfix'],
-        '0.5.3': ['minor'],
-        '0.5.3.1': ['minor', 'feature', 'rebalance'] 
-    }
+    '0.6.0': `**🃏 UPDATE 0.6.0: THE "DECK YOURSELF" UPDATE** (11/25/2025)
+*"We heard you liked complexity, so we put a card game inside your bullet hell. Also we rewrote the renderer. And the UI. And added biomes. This was supposed to be a small patch. It wasn't."*
+
+**🃏 Card System (New Game Mode):**
+*"Gear Mode still exists. Your orange weapons are safe. Card Mode is single-player only because multiplayer is hard and we gave up. Soon™."*
+• **Deck Building:** 10-20 cards, hand size 4, draw 4 per room, standard MTG rules apply
+• **30+ Cards:** Precision (crit chance), Bulwark (defense), Velocity (speed), Fury (crit damage), Momentum (snowball damage), Execute (instant kill below threshold), Fractal Conduit (chain lightning), Phoenix Down (one-time revive), plus class-specific ability mutators
+  *"Yes, infinite blink is possible. No, we won't nerf it. (Maybe.)"*
+• **Mastery System:** Cards level 0-5 with shards (new currency). M5 unlocks special bonuses. Grind for it. We know you will.
+• **Packs:** Standard, Elite, Treasure, Challenge, Boss. Ethical loot boxes—free and you can't pay real money. Revolutionary.
+• **Shards:** Earn by killing things, spend on unlocks and upgrades. Achievement milestones also unlock cards if you're into that whole "earning things" philosophy.
+
+**😈 Room Modifiers (Risk/Reward Chaos):**
+*"We felt the game was too fair. So we added cards that make rooms harder for better loot. You're welcome."*
+• **Enemy Buffs:** Elite Armor (+HP), Swift Assault (+speed), Volatile Spawn (explosions on death), Shielded Brood (shields), Double Trouble (2× enemies). All reward bonus cards/shards/quality shifts.
+• **Economy Boosters:** Prism Tax (currency), Scholar Sigil (XP), Loot Surge (extra card offers), Mastery Boost (quality shift), Shard Mine (shards)
+• **Easy Mode Cards:** Truncation (breather room), Safe Passage (no enemies), Treasure Cache (guaranteed treasure), Elite Challenge (guaranteed elite pack), Boss Rush (skip to boss)
+  *"For speedrunners and masochists. Often the same people."*
+
+**💎 Item System (Run-Specific Power-Ups):**
+*"Items drop from enemies (4-20% chance). They stack infinitely. Some scale logarithmically because infinite linear scaling breaks games faster than you can say 'balanced.'"*
+• **Defensive:** Shield Generator (HP shields), Reactive Armor (damage reduction), Regenerative Matrix (HP regen), Thornmail Fragment (reflect damage), Slow Aura (enemy slow)
+• **Offensive:** Fractal Shard (damage), Critical Lens (crit chance/damage), Fury Catalyst (attack speed + damage), Damage Aura (AoE DoT), Chain Reaction (kill AoE), Bleeding Edge (bleed), Executioner's Mark (execute damage), Volatile Core (explosive hits), Piercing Strike (pierce)
+• **Utility:** Speed Boost Module (movement), Cooldown Reducer (ability cooldowns)
+  *"Stack shields forever. Stack damage forever. Stack until the game breaks. We dare you. (Please don't. The code is fragile.)"*
+• **Scaling:** Linear for shield/regen/speed/pierce, logarithmic for most damage items. Formula: \`baseValue * (1 + log2(stacks))\` for the nerds. Stack 1 = base, Stack 4 = 2x, Stack 16 = 4x. Math is a cruel mistress.
+
+**🎨 Visual Overhaul (The "My Eyes!" Update):**
+*"We discovered shaders. And CSS. And the concept of 'visual design.' It's been a journey."*
+• **Rendering Rewrite:** Pattern caching (stopped redrawing floor 60 times per second), door sprites, viewport culling, particle system overhaul. Performance stonks ↑
+• **Atmosphere:** Vignette system (spooky edges), glow effects (everything glows now, it's a rave), biome-specific lighting (Swarm green, Prism blue, Fortress brown, Fractal pink, Vortex purple, Endless darker purple)
+• **DOM UI:** Killed canvas-based UI. HTML/CSS now. You can actually READ the text. Revolutionary.
+• **Typography:** 'Orbitron' font. Sounds like a Transformer, looks like sci-fi. Perfect.
+• **Index Machine:** Pokedex for geometry. Tracks affixes, cards, items, utility cards. Progressive reveal (undiscovered = ???), quality band tracking, preview panels. Completionists rejoice.
+
+**⬆️ New Upgrades:**
+• **Cooldown Reduction:** Abilities recharge faster
+• **Max Health:** More HP = die slower
+• **Attack Speed:** Shoot faster = kill faster
+  *"Simple. Effective. Boring? Maybe. But you'll pick them anyway because math."*
+
+*TL;DR:* Card system (single-player only), 30+ cards with mastery levels, room modifiers for risk/reward, item system with infinite stacking and logarithmic scaling, rendering rewrite with caching and culling, visual overhaul with biomes and glow effects, DOM-based UI, Index Machine for discovery tracking. Scope creep is a hell of a drug.`,
+  },
+
+  // Update type labels - can be: 'major', 'feature', 'minor', 'hotfix', 'bugfix', 'refactor', 'rebalance'
+  // Multiple tags can be assigned to show mixed updates
+  UPDATE_TYPES: {
+    '0.2.1': ['major', 'feature'],
+    '0.2.2': ['minor', 'refactor'],
+    '0.3.0': ['major', 'feature'],
+    '0.3.1': ['minor', 'bugfix'],
+    '0.4.1': ['hotfix'],
+    '0.5.0': ['major', 'feature'],
+    '0.5.1': ['major', 'rebalance'],
+    '0.5.2': ['minor', 'hotfix'],
+    '0.5.3': ['minor'],
+    '0.5.3.1': ['minor', 'feature', 'rebalance'],
+    '0.6.0': ['major', 'feature', 'visuals']
+  }
 };
 

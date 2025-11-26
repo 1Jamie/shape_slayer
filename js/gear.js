@@ -113,6 +113,8 @@ const CLASS_MODIFIER_POOL = {
 
 // Global ground loot array
 const groundLoot = [];
+// Expose globally for DOM components
+window.groundLoot = groundLoot;
 
 // Get gear scaling based on room number
 function getGearScaling(roomNumber) {
@@ -431,6 +433,11 @@ function calculateTierProbabilities(roomNumber, enemyDifficulty = 'basic') {
 
 // Generate random gear with stats
 function generateGear(x, y, roomNumberOrTier = 1, enemyDifficulty = 'basic') {
+    // Only generate gear in gear mode
+    if (typeof Game !== 'undefined' && Game.gameMode !== 'gear') {
+        return null;
+    }
+    
     const tiers = ['gray', 'green', 'blue', 'purple', 'orange'];
     const slots = ['weapon', 'armor', 'accessory'];
     
@@ -763,12 +770,12 @@ function renderGroundLoot(ctx) {
         
         // Draw tier name above gear
         ctx.fillStyle = '#ffffff';
-        ctx.font = '10px Arial';
+        ctx.font = 'bold 10px Orbitron';
         ctx.textAlign = 'center';
         ctx.fillText(gear.tier.toUpperCase(), gear.x, gear.y - gear.size - 15);
         
         // Draw slot name and type
-        ctx.font = '8px Arial';
+        ctx.font = 'bold 8px Orbitron';
         let slotText = gear.slot;
         if (gear.weaponType) slotText += ` (${WEAPON_TYPES[gear.weaponType].name})`;
         if (gear.armorType) slotText += ` (${ARMOR_TYPES[gear.armorType].name})`;

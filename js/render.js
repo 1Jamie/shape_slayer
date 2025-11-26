@@ -13,21 +13,21 @@ class Particle {
         this.maxLife = life;
         this.alpha = 1.0;
     }
-    
+
     update(deltaTime) {
         this.x += this.vx * deltaTime;
         this.y += this.vy * deltaTime;
         this.life -= deltaTime;
-        
+
         // Fade out over time
         this.alpha = this.life / this.maxLife;
-        
+
         // Apply gravity
         this.vy += 200 * deltaTime;
-        
+
         return this.life > 0;
     }
-    
+
     render(ctx) {
         ctx.save();
         ctx.globalAlpha = this.alpha;
@@ -60,13 +60,13 @@ function releaseParticle(p) {
 function createParticleBurst(x, y, color, count = 10) {
     if (typeof Game === 'undefined') return;
     if (!Game.particles) Game.particles = [];
-    
+
     for (let i = 0; i < count; i++) {
         const angle = (Math.PI * 2 / count) * i + Math.random() * 0.5;
         const speed = 100 + Math.random() * 100;
         const vx = Math.cos(angle) * speed;
         const vy = Math.sin(angle) * speed;
-        
+
         let particle = getParticle();
         if (!particle) {
             particle = new Particle(x, y, vx, vy, color, 3 + Math.random() * 3, 0.5);
@@ -81,7 +81,7 @@ function createParticleBurst(x, y, color, count = 10) {
             particle.maxLife = 0.5;
             particle.alpha = 1.0;
         }
-        
+
         Game.particles.push(particle);
     }
 }
@@ -89,20 +89,20 @@ function createParticleBurst(x, y, color, count = 10) {
 function createDirectionalParticleBurst(x, y, dirX, dirY, color, options = {}) {
     if (typeof Game === 'undefined') return;
     if (!Game.particles) Game.particles = [];
-    
+
     const count = options.count || 12;
     const spread = options.spread !== undefined ? options.spread : Math.PI / 5;
     const baseSpeed = options.speed || 220;
     const baseSize = options.size || 3;
     const life = options.life || 0.4;
-    
+
     const magnitude = Math.sqrt((dirX || 0) * (dirX || 0) + (dirY || 0) * (dirY || 0));
     const normX = magnitude > 0.0001 ? dirX / magnitude : 1;
     const normY = magnitude > 0.0001 ? dirY / magnitude : 0;
     const baseAngle = Math.atan2(normY, normX);
-    
+
     const safeColor = color || '#ffffff';
-    
+
     for (let i = 0; i < count; i++) {
         const offset = (Math.random() - 0.5) * spread * 2;
         const speedScale = 0.6 + Math.random() * 0.6;
@@ -110,11 +110,11 @@ function createDirectionalParticleBurst(x, y, dirX, dirY, color, options = {}) {
         const speed = baseSpeed * speedScale;
         const vx = Math.cos(angle) * speed;
         const vy = Math.sin(angle) * speed;
-        
+
         let particle = getParticle();
         const particleSize = baseSize + Math.random() * (options.sizeVariance || 2);
         const particleLife = life * (0.8 + Math.random() * 0.4);
-        
+
         if (!particle) {
             particle = new Particle(x, y, vx, vy, safeColor, particleSize, particleLife);
         } else {
@@ -128,13 +128,13 @@ function createDirectionalParticleBurst(x, y, dirX, dirY, color, options = {}) {
             particle.maxLife = particleLife;
             particle.alpha = 1.0;
         }
-        
+
         // Slight perpendicular drift for ribbon effect
         const perpX = -normY;
         const perpY = normX;
         particle.vx += perpX * baseSpeed * 0.15 * (Math.random() - 0.5);
         particle.vy += perpY * baseSpeed * 0.15 * (Math.random() - 0.5);
-        
+
         Game.particles.push(particle);
     }
 }
@@ -143,7 +143,7 @@ function createDirectionalParticleBurst(x, y, dirX, dirY, color, options = {}) {
 function createLightningArc(x1, y1, x2, y2) {
     if (typeof Game === 'undefined') return;
     if (!Game.lightningArcs) Game.lightningArcs = [];
-    
+
     // Create lightning arc object
     const arc = {
         x1: x1,
@@ -155,40 +155,40 @@ function createLightningArc(x1, y1, x2, y2) {
         alpha: 1.0,
         segments: [] // Zigzag points for lightning effect
     };
-    
+
     // Generate zigzag lightning path
     const dx = x2 - x1;
     const dy = y2 - y1;
     const distance = Math.sqrt(dx * dx + dy * dy);
     const segmentCount = Math.floor(distance / 30) + 2; // One segment per 30px
-    
+
     arc.segments.push({ x: x1, y: y1 });
-    
+
     for (let i = 1; i < segmentCount - 1; i++) {
         const t = i / (segmentCount - 1);
         const baseX = x1 + dx * t;
         const baseY = y1 + dy * t;
-        
+
         // Add random perpendicular offset for zigzag
         const perpX = -dy / distance;
         const perpY = dx / distance;
         const offset = (Math.random() - 0.5) * 20;
-        
+
         arc.segments.push({
             x: baseX + perpX * offset,
             y: baseY + perpY * offset
         });
     }
-    
+
     arc.segments.push({ x: x2, y: y2 });
-    
+
     Game.lightningArcs.push(arc);
 }
 
 // Update lightning arcs
 function updateLightningArcs(deltaTime) {
     if (!Game || !Game.lightningArcs) return;
-    
+
     Game.lightningArcs = Game.lightningArcs.filter(arc => {
         arc.life -= deltaTime;
         arc.alpha = arc.life / arc.maxLife;
@@ -199,17 +199,45 @@ function updateLightningArcs(deltaTime) {
 // Render lightning arcs
 function renderLightningArcs(ctx) {
     if (!Game || !Game.lightningArcs) return;
-    
+
+    // Viewport culling helper
+    const isArcVisible = (arc) => {
+        if (!Game.camera || !Game.config) return true; // Render if no camera
+
+        const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+        const zoom = isMobile ? 1.0 : (Game.baseZoom || 1.1);
+        const margin = 50; // Small margin for arcs
+
+        const screenW = Game.config.width / zoom;
+        const screenH = Game.config.height / zoom;
+
+        const viewX = Game.camera.x - screenW / 2 - margin;
+        const viewY = Game.camera.y - screenH / 2 - margin;
+        const viewW = screenW + margin * 2;
+        const viewH = screenH + margin * 2;
+
+        // Check if either endpoint is visible
+        const p1Visible = arc.x1 >= viewX && arc.x1 <= viewX + viewW &&
+            arc.y1 >= viewY && arc.y1 <= viewY + viewH;
+        const p2Visible = arc.x2 >= viewX && arc.x2 <= viewX + viewW &&
+            arc.y2 >= viewY && arc.y2 <= viewY + viewH;
+
+        return p1Visible || p2Visible;
+    };
+
     Game.lightningArcs.forEach(arc => {
+        // CULLING: Skip if off-screen
+        if (!isArcVisible(arc)) return;
+
         ctx.save();
         ctx.globalAlpha = arc.alpha;
-        
+
         // Draw outer glow
         ctx.strokeStyle = `rgba(150, 200, 255, ${arc.alpha * 0.6})`;
         ctx.lineWidth = 4;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
-        
+
         ctx.beginPath();
         arc.segments.forEach((segment, i) => {
             if (i === 0) {
@@ -219,11 +247,11 @@ function renderLightningArcs(ctx) {
             }
         });
         ctx.stroke();
-        
+
         // Draw inner core
         ctx.strokeStyle = `rgba(255, 255, 255, ${arc.alpha})`;
         ctx.lineWidth = 2;
-        
+
         ctx.beginPath();
         arc.segments.forEach((segment, i) => {
             if (i === 0) {
@@ -233,7 +261,7 @@ function renderLightningArcs(ctx) {
             }
         });
         ctx.stroke();
-        
+
         ctx.restore();
     });
 }
@@ -241,32 +269,32 @@ function renderLightningArcs(ctx) {
 // Render burn effect on an enemy (orange/red pulsing glow with rising particles)
 function renderBurnEffect(ctx, enemy) {
     if (!enemy || !enemy.burning) return;
-    
+
     ctx.save();
-    
+
     // Pulsing orange/red glow
     const burnPulse = Math.sin(Date.now() / 100) * 0.5 + 0.5;
     const glowRadius = enemy.size + 5 + burnPulse * 3;
-    
+
     // Outer glow
     ctx.fillStyle = `rgba(255, 100, 0, ${0.3 * burnPulse})`;
     ctx.beginPath();
     ctx.arc(enemy.x, enemy.y, glowRadius, 0, Math.PI * 2);
     ctx.fill();
-    
+
     // Inner glow
     ctx.fillStyle = `rgba(255, 150, 50, ${0.5 * burnPulse})`;
     ctx.beginPath();
     ctx.arc(enemy.x, enemy.y, enemy.size + 3, 0, Math.PI * 2);
     ctx.fill();
-    
+
     // Rising fire particles
     if (Math.random() < 0.3) { // 30% chance per frame to spawn particle
         const angle = Math.random() * Math.PI * 2;
         const offset = Math.random() * enemy.size;
         const px = enemy.x + Math.cos(angle) * offset;
         const py = enemy.y + Math.sin(angle) * offset;
-        
+
         let particle = getParticle();
         if (!particle) {
             particle = new Particle(px, py, 0, -50 - Math.random() * 30, '#ff6600', 2 + Math.random() * 2, 0.3);
@@ -281,37 +309,37 @@ function renderBurnEffect(ctx, enemy) {
             particle.maxLife = 0.3;
             particle.alpha = 1.0;
         }
-        
+
         if (typeof Game !== 'undefined' && Game.particles) {
             Game.particles.push(particle);
         }
     }
-    
+
     ctx.restore();
 }
 
 // Render freeze/slow effect on an enemy (blue/cyan glow with frost)
 function renderFreezeEffect(ctx, enemy) {
     if (!enemy || !enemy.slowed) return;
-    
+
     ctx.save();
-    
+
     // Pulsing blue/cyan glow
     const freezePulse = Math.sin(Date.now() / 150) * 0.5 + 0.5;
     const glowRadius = enemy.size + 4 + freezePulse * 2;
-    
+
     // Outer glow
     ctx.fillStyle = `rgba(100, 200, 255, ${0.25 * freezePulse})`;
     ctx.beginPath();
     ctx.arc(enemy.x, enemy.y, glowRadius, 0, Math.PI * 2);
     ctx.fill();
-    
+
     // Inner glow
     ctx.fillStyle = `rgba(150, 220, 255, ${0.4 * freezePulse})`;
     ctx.beginPath();
     ctx.arc(enemy.x, enemy.y, enemy.size + 2, 0, Math.PI * 2);
     ctx.fill();
-    
+
     // Ice crystals/frost particles around enemy
     const time = Date.now() / 1000;
     for (let i = 0; i < 4; i++) {
@@ -319,7 +347,7 @@ function renderFreezeEffect(ctx, enemy) {
         const distance = enemy.size + 8;
         const px = enemy.x + Math.cos(angle) * distance;
         const py = enemy.y + Math.sin(angle) * distance;
-        
+
         ctx.fillStyle = `rgba(200, 240, 255, ${0.7 * freezePulse})`;
         ctx.beginPath();
         // Draw small diamond crystal
@@ -330,14 +358,14 @@ function renderFreezeEffect(ctx, enemy) {
         ctx.closePath();
         ctx.fill();
     }
-    
+
     ctx.restore();
 }
 
 // Update and render particles
 function updateParticles(deltaTime) {
     if (!Game || !Game.particles) return;
-    
+
     Game.particles = Game.particles.filter(particle => {
         const alive = particle.update(deltaTime);
         if (!alive) {
@@ -349,9 +377,30 @@ function updateParticles(deltaTime) {
 
 function renderParticles(ctx) {
     if (!Game || !Game.particles) return;
-    
+
+    // Viewport Culling
+    let viewX = 0, viewY = 0, viewW = 2400, viewH = 1350;
+
+    if (Game.camera && Game.config) {
+        const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+        const zoom = isMobile ? 1.0 : (Game.baseZoom || 1.1);
+        const padding = 100; // Margin for particles
+
+        const screenW = Game.config.width / zoom;
+        const screenH = Game.config.height / zoom;
+
+        viewX = Game.camera.x - screenW / 2 - padding;
+        viewY = Game.camera.y - screenH / 2 - padding;
+        viewW = screenW + padding * 2;
+        viewH = screenH + padding * 2;
+    }
+
     Game.particles.forEach(particle => {
-        particle.render(ctx);
+        // Simple AABB check
+        if (particle.x >= viewX && particle.x <= viewX + viewW &&
+            particle.y >= viewY && particle.y <= viewY + viewH) {
+            particle.render(ctx);
+        }
     });
 }
 
@@ -417,63 +466,225 @@ function getBiomeForRoom(roomNumber) {
     return BIOMES.endless;
 }
 
-// Render room background with biome styling (should be called inside camera transform)
-function renderRoomBackground(ctx, roomNumber) {
+// Pattern cache to avoid recreating patterns every frame
+const patternCache = new Map();
+
+// Helper to get or create a cached pattern for a biome
+function getBiomeGridPattern(ctx, biome, isMask, isParallax) {
+    const cacheKey = `${biome.pattern}_${biome.gridColor}_${biome.accentColor}_${isMask}_${isParallax}`;
+
+    if (patternCache.has(cacheKey)) {
+        return patternCache.get(cacheKey);
+    }
+
+    // Create offscreen canvas for the pattern tile
+    const patternCanvas = document.createElement('canvas');
+    const pCtx = patternCanvas.getContext('2d');
+
+    // Determine grid size and scaling
+    // Parallax grid is 2x larger
+    const scale = isParallax ? 2 : 1;
+    const gridSize = biome.gridSize * scale;
+
+    // Set canvas size based on pattern
+    // For diagonal, we need a larger tile to ensure seamless tiling
+    const tileSize = biome.pattern === 'diagonal' ? gridSize * 2 : gridSize;
+    patternCanvas.width = tileSize;
+    patternCanvas.height = tileSize;
+
+    // Parse color
+    const hex = biome.accentColor.replace('#', '');
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+
+    // Style settings
+    // If it's a mask (for vignette), we want to "cut" through darkness.
+    // We use white/alpha for the mask to control how much darkness is removed.
+    // If it's normal render, we use the biome colors.
+
+    const glowWidth = isParallax ? 4 : 6;
+    const coreWidth = 1;
+
+    // Alpha values
+    let glowAlpha, coreAlpha;
+    let glowColor, coreColor;
+
+    if (isMask) {
+        // For vignette mask:
+        // We want to remove darkness, so we draw with opacity.
+        // Higher alpha = more darkness removed = brighter glow.
+        // User feedback: "a little darker". reduced slightly more.
+        glowAlpha = isParallax ? 0.015 : 0.04;
+        coreAlpha = isParallax ? 0.04 : 0.12;
+
+        // Use white for mask (alpha controls intensity)
+        glowColor = `rgba(255, 255, 255, ${glowAlpha})`;
+        coreColor = `rgba(255, 255, 255, ${coreAlpha})`;
+    } else {
+        // Normal render
+        glowAlpha = isParallax ? 0.15 : 0.4;
+        coreAlpha = isParallax ? 0.2 : 0.6; // Faint core for normal render
+
+        glowColor = `rgba(${r}, ${g}, ${b}, ${glowAlpha})`;
+        // Core is usually the grid color, but we can use accent for "neon" look
+        // biome.gridColor is usually very faint. Let's use accent with low alpha for core.
+        coreColor = `rgba(${r}, ${g}, ${b}, ${coreAlpha})`;
+    }
+
+    // Draw Pattern
+    pCtx.lineCap = 'square';
+
+    const drawLine = (x1, y1, x2, y2, width, color) => {
+        pCtx.beginPath();
+        pCtx.lineWidth = width;
+        pCtx.strokeStyle = color;
+        pCtx.moveTo(x1, y1);
+        pCtx.lineTo(x2, y2);
+        pCtx.stroke();
+    };
+
+    if (biome.pattern === 'grid') {
+        // Draw Glow (Vertical & Horizontal)
+        // We draw at 0 and tileSize to ensure wrapping?
+        // Actually for a pattern, drawing at x=0.5 or similar helps crispness, 
+        // but for glow we want soft.
+        // Draw lines along top and left edges. 
+        // Since it repeats, top edge of one is bottom of another.
+
+        // Vertical
+        drawLine(0, 0, 0, tileSize, glowWidth, glowColor);
+        drawLine(0, 0, 0, tileSize, coreWidth, coreColor);
+
+        // Horizontal
+        drawLine(0, 0, tileSize, 0, glowWidth, glowColor);
+        drawLine(0, 0, tileSize, 0, coreWidth, coreColor);
+
+    } else if (biome.pattern === 'diagonal') {
+        // Diagonal X pattern
+        // Line 1: Top-Left to Bottom-Right
+        drawLine(0, 0, tileSize, tileSize, glowWidth, glowColor);
+        drawLine(0, 0, tileSize, tileSize, coreWidth, coreColor);
+
+        // Line 2: Top-Right to Bottom-Left
+        drawLine(tileSize, 0, 0, tileSize, glowWidth, glowColor);
+        drawLine(tileSize, 0, 0, tileSize, coreWidth, coreColor);
+    }
+
+    // Create pattern
+    const pattern = ctx.createPattern(patternCanvas, 'repeat');
+    patternCache.set(cacheKey, pattern);
+    return pattern;
+}
+
+// Helper to draw biome grid (can be used for main render and vignette mask)
+function drawBiomeGrid(ctx, roomNumber, isVignetteMask = false) {
     // Use room size (larger than canvas/viewport)
     const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : 2400;
     const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : 1350;
     const biome = getBiomeForRoom(roomNumber);
-    
+
+    // Viewport Culling Calculation
+    let viewX = 0, viewY = 0, viewW = roomWidth, viewH = roomHeight;
+    let zoom = 1.0;
+
+    if (typeof Game !== 'undefined' && Game.camera && Game.config) {
+        // Get camera position and zoom
+        const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+        zoom = isMobile ? 1.0 : (Game.baseZoom || 1.1);
+
+        // Calculate visible world area
+        const padding = 200;
+        const screenW = Game.config.width / zoom;
+        const screenH = Game.config.height / zoom;
+
+        viewX = Game.camera.x - screenW / 2 - padding;
+        viewY = Game.camera.y - screenH / 2 - padding;
+        viewW = screenW + padding * 2;
+        viewH = screenH + padding * 2;
+    }
+
+    // --- PARALLAX GRID (Background Layer) ---
+    if (typeof Game !== 'undefined' && Game.camera) {
+        ctx.save();
+
+        const parallaxFactor = 0.5;
+        const offsetX = Game.camera.x * (1 - parallaxFactor);
+        const offsetY = Game.camera.y * (1 - parallaxFactor);
+
+        ctx.translate(offsetX, offsetY);
+
+        // Calculate visible bounds for parallax
+        const paraViewX = viewX - offsetX;
+        const paraViewY = viewY - offsetY;
+
+        // Clamp to room bounds (extended)
+        const startX = Math.max(-roomWidth, paraViewX);
+        const endX = Math.min(roomWidth * 2, paraViewX + viewW);
+        const startY = Math.max(-roomHeight, paraViewY);
+        const endY = Math.min(roomHeight * 2, paraViewY + viewH);
+
+        const width = endX - startX;
+        const height = endY - startY;
+
+        if (width > 0 && height > 0) {
+            const pattern = getBiomeGridPattern(ctx, biome, isVignetteMask, true);
+            ctx.fillStyle = pattern;
+
+            // We need to offset the fillRect to align pattern?
+            // createPattern 'repeat' starts at 0,0 of the canvas (or transformed origin).
+            // Since we translated context, 0,0 is at offsetX, offsetY.
+            // The pattern should align naturally if we just fill the rect.
+            ctx.fillRect(startX, startY, width, height);
+        }
+
+        ctx.restore();
+    }
+
+    // --- MAIN GRID (Foreground Layer) ---
+    ctx.save();
+
+    // Calculate visible bounds for main layer
+    const mainStartX = Math.max(0, viewX);
+    const mainEndX = Math.min(roomWidth, viewX + viewW);
+    const mainStartY = Math.max(0, viewY);
+    const mainEndY = Math.min(roomHeight, viewY + viewH);
+
+    const mainW = mainEndX - mainStartX;
+    const mainH = mainEndY - mainStartY;
+
+    if (mainW > 0 && mainH > 0) {
+        const pattern = getBiomeGridPattern(ctx, biome, isVignetteMask, false);
+        ctx.fillStyle = pattern;
+        ctx.fillRect(mainStartX, mainStartY, mainW, mainH);
+    }
+
+    ctx.restore();
+}
+
+// Render room background with biome styling (should be called inside camera transform)
+function renderRoomBackground(ctx, roomNumber) {
     // NOTE: Base color is already cleared outside camera transform in main.js
     // We only draw the grid pattern here (in world space, so it stays fixed to floor)
-    
-    // Render grid pattern over entire room (world space - fixed to floor)
-    ctx.strokeStyle = biome.gridColor;
-    ctx.lineWidth = 1;
-    
-    if (biome.pattern === 'grid') {
-        // Standard grid pattern
-        for (let x = 0; x < roomWidth; x += biome.gridSize) {
-            ctx.beginPath();
-            ctx.moveTo(x, 0);
-            ctx.lineTo(x, roomHeight);
-            ctx.stroke();
-        }
-        for (let y = 0; y < roomHeight; y += biome.gridSize) {
-            ctx.beginPath();
-            ctx.moveTo(0, y);
-            ctx.lineTo(roomWidth, y);
-            ctx.stroke();
-        }
-    } else if (biome.pattern === 'diagonal') {
-        // Diagonal grid pattern for fractal biome
-        const spacing = biome.gridSize;
-        for (let i = -roomHeight; i < roomWidth + roomHeight; i += spacing) {
-            ctx.beginPath();
-            ctx.moveTo(i, 0);
-            ctx.lineTo(i + roomHeight, roomHeight);
-            ctx.stroke();
-        }
-        for (let i = -roomWidth; i < roomWidth + roomHeight; i += spacing) {
-            ctx.beginPath();
-            ctx.moveTo(0, i);
-            ctx.lineTo(roomWidth, i + roomWidth);
-            ctx.stroke();
-        }
-    }
-    
+
+    drawBiomeGrid(ctx, roomNumber, false);
+
     // Add subtle accent overlay for boss rooms
     if (roomNumber % 5 === 0 && roomNumber >= 10) {
+        const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : 2400;
+        const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : 1350;
+        const biome = getBiomeForRoom(roomNumber);
+
         // Boss room - add subtle pulsing effect
         const pulseTime = Date.now() * 0.001;
         const pulseAlpha = 0.05 + Math.sin(pulseTime) * 0.02;
-        
-        // Parse hex color to RGB
+
+        // Parse hex color to RGB for glow effects
         const hex = biome.accentColor.replace('#', '');
         const r = parseInt(hex.substring(0, 2), 16);
         const g = parseInt(hex.substring(2, 4), 16);
         const b = parseInt(hex.substring(4, 6), 16);
-        
+
         ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${pulseAlpha})`;
         ctx.fillRect(0, 0, roomWidth, roomHeight);
     }
@@ -484,113 +695,166 @@ function renderRoomBoundaries(ctx, roomNumber) {
     const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : 2400;
     const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : 1350;
     const biome = getBiomeForRoom(roomNumber);
-    
+
     const wallThickness = 20;
-    
+
     // Parse biome accent color
     const hex = biome.accentColor.replace('#', '');
     const r = parseInt(hex.substring(0, 2), 16);
     const g = parseInt(hex.substring(2, 4), 16);
     const b = parseInt(hex.substring(4, 6), 16);
-    
+
     // Draw walls with biome-colored borders
     ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.3)`;
     ctx.strokeStyle = biome.accentColor;
     ctx.lineWidth = 3;
-    
+
     // Top wall
     ctx.fillRect(0, 0, roomWidth, wallThickness);
     ctx.strokeRect(0, 0, roomWidth, wallThickness);
-    
+
     // Bottom wall
     ctx.fillRect(0, roomHeight - wallThickness, roomWidth, wallThickness);
     ctx.strokeRect(0, roomHeight - wallThickness, roomWidth, wallThickness);
-    
+
     // Left wall
     ctx.fillRect(0, 0, wallThickness, roomHeight);
     ctx.strokeRect(0, 0, wallThickness, roomHeight);
-    
+
     // Right wall
     ctx.fillRect(roomWidth - wallThickness, 0, wallThickness, roomHeight);
     ctx.strokeRect(roomWidth - wallThickness, 0, wallThickness, roomHeight);
 }
 
 const Renderer = {
-    // Draw circle
-    circle(ctx, x, y, radius, color, fill = true) {
-        ctx.beginPath();
-        ctx.arc(x, y, radius, 0, Math.PI * 2);
-        if (fill) {
-            ctx.fillStyle = color;
-            ctx.fill();
-        } else {
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 2;
-            ctx.stroke();
-        }
-    },
-
-    // Draw rectangle
-    rect(ctx, x, y, width, height, color, fill = true) {
-        ctx.beginPath();
-        ctx.rect(x, y, width, height);
-        if (fill) {
-            ctx.fillStyle = color;
-            ctx.fill();
-        } else {
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 2;
-            ctx.stroke();
-        }
-    },
-
     // Clear canvas with background color
     clear(ctx, width, height, color = '#1a1a2e') {
         ctx.fillStyle = color;
         ctx.fillRect(0, 0, width, height);
     },
-    
-    // Draw door
-    door(ctx, x, y, width, height, pulse = 0) {
-        // Outer glow for pulse effect
-        const pulseSize = 3 + Math.sin(pulse) * 2;
+
+    // Door Cache System
+    doorCache: new Map(),
+
+    // Helper to get or create a cached door sprite
+    getCachedDoor(width, height) {
+        // Round dimensions to reduce fragmentation
+        const keyWidth = Math.ceil(width);
+        const keyHeight = Math.ceil(height);
+        const key = `${keyWidth}_${keyHeight}`;
+
+        if (this.doorCache.has(key)) {
+            return this.doorCache.get(key);
+        }
+
+        // Create new cached door
+        const canvas = document.createElement('canvas');
+        // Size includes glow + padding
+        const padding = 25;
+        canvas.width = keyWidth + padding * 2;
+        canvas.height = keyHeight + padding * 2;
+        const ctx = canvas.getContext('2d');
+
+        // Offset to draw centered in canvas with padding
+        const x = padding;
+        const y = padding;
+
+        // Outer glow for pulse effect (baked in at max intensity or base intensity?)
+        // We bake the base glow. Pulse scaling will be applied at draw time.
         ctx.shadowBlur = 20;
         ctx.shadowColor = '#ffaa00';
-        
+
         // Draw door body (gold/yellow)
         ctx.fillStyle = '#ffaa00';
-        ctx.fillRect(x, y, width, height);
-        
+        ctx.fillRect(x, y, keyWidth, keyHeight);
+
         // Draw door outline
         ctx.strokeStyle = '#ff8800';
         ctx.lineWidth = 3;
-        ctx.strokeRect(x, y, width, height);
-        
+        ctx.strokeRect(x, y, keyWidth, keyHeight);
+
         // Draw door handle
         ctx.fillStyle = '#996600';
         ctx.beginPath();
-        ctx.arc(x + width - 10, y + height / 2, 5, 0, Math.PI * 2);
+        ctx.arc(x + keyWidth - 10, y + keyHeight / 2, 5, 0, Math.PI * 2);
         ctx.fill();
-        
-        ctx.shadowBlur = 0;
+
+        this.doorCache.set(key, canvas);
+        return canvas;
     },
-    
+
+    // Draw door
+    door(ctx, x, y, width, height, pulse = 0) {
+        // Check debug flag
+        if (typeof DebugFlags !== 'undefined' && DebugFlags.USE_CACHING === false) {
+            // Fallback to original rendering
+            // Outer glow for pulse effect
+            const pulseSize = 3 + Math.sin(pulse) * 2;
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = '#ffaa00';
+
+            // Draw door body (gold/yellow)
+            ctx.fillStyle = '#ffaa00';
+            ctx.fillRect(x, y, width, height);
+
+            // Draw door outline
+            ctx.strokeStyle = '#ff8800';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(x, y, width, height);
+
+            // Draw door handle
+            ctx.fillStyle = '#996600';
+            ctx.beginPath();
+            ctx.arc(x + width - 10, y + height / 2, 5, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.shadowBlur = 0;
+            return;
+        }
+
+        // Get cached door
+        const cachedCanvas = this.getCachedDoor(width, height);
+
+        // Pulse effect
+        const pulseScale = 1.0 + Math.sin(pulse) * 0.02; // Subtle pulse scale
+
+        ctx.save();
+
+        // Center of the door for scaling
+        const centerX = x + width / 2;
+        const centerY = y + height / 2;
+
+        ctx.translate(centerX, centerY);
+        ctx.scale(pulseScale, pulseScale);
+
+        // Draw cached image centered
+        const offset = cachedCanvas.width / 2;
+        // Note: Our cache has padding, so center of canvas is width/2, height/2
+        // But the door rect inside the cache is at (padding, padding) with size (width, height)
+        // So the center of the door in the cache is at (padding + width/2, padding + height/2)
+        // Which is exactly canvas.width/2 and canvas.height/2 if padding is symmetric
+
+        ctx.drawImage(cachedCanvas, -cachedCanvas.width / 2, -cachedCanvas.height / 2);
+
+        ctx.restore();
+    },
+
     // Draw polygon (for pentagon and hexagon shapes)
     polygon(ctx, x, y, radius, sides, rotation, color) {
         ctx.save();
         ctx.translate(x, y);
         ctx.rotate(rotation);
-        
+
         ctx.fillStyle = color;
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 2;
-        
+
         ctx.beginPath();
         for (let i = 0; i < sides; i++) {
             const angle = (Math.PI * 2 / sides) * i - Math.PI / 2;
             const px = Math.cos(angle) * radius;
             const py = Math.sin(angle) * radius;
-            
+
             if (i === 0) {
                 ctx.moveTo(px, py);
             } else {
@@ -600,7 +864,7 @@ const Renderer = {
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
-        
+
         ctx.restore();
     }
 };

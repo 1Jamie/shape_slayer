@@ -16,6 +16,9 @@ const ROGUE_CONFIG = {
     damagePerLevel: 0.5,           // Damage increase per level
     defensePerLevel: 0.005,        // Defense increase per level (0.005 = 0.5%)
     speedPerLevel: 2,              // Speed increase per level (pixels/second)
+    cooldownPerLevel: 0.01,        // Cooldown reduction per level (0.01 = 1% per level)
+    healthPerLevel: 5,             // Health increase per level (flat HP)
+    attackSpeedPerLevel: 0.05,     // Attack speed increase per level (0.05 = 5% faster per level)
     
     // Dodge System
     dodgeCharges: 2,               // Number of dodge charges available
@@ -73,23 +76,30 @@ class Rogue extends PlayerBase {
         const classDef = CLASS_DEFINITIONS.triangle;
         
         // Load upgrades from save system
-        let upgradeBonuses = { damage: 0, defense: 0, speed: 0 };
+        let upgradeBonuses = { damage: 0, defense: 0, speed: 0, cooldown: 0, health: 0, attackSpeed: 0 };
         if (typeof SaveSystem !== 'undefined') {
             const upgrades = SaveSystem.getUpgrades('triangle');
             // Calculate bonuses using config values
             upgradeBonuses.damage = upgrades.damage * ROGUE_CONFIG.damagePerLevel;
             upgradeBonuses.defense = upgrades.defense * ROGUE_CONFIG.defensePerLevel;
             upgradeBonuses.speed = upgrades.speed * ROGUE_CONFIG.speedPerLevel;
+            upgradeBonuses.cooldown = upgrades.cooldown * ROGUE_CONFIG.cooldownPerLevel;
+            upgradeBonuses.health = upgrades.health * ROGUE_CONFIG.healthPerLevel;
+            upgradeBonuses.attackSpeed = upgrades.attackSpeed * ROGUE_CONFIG.attackSpeedPerLevel;
         }
-        
+
         // Set base stats from CONFIG (single source of truth)
         this.baseDamage = ROGUE_CONFIG.baseDamage + upgradeBonuses.damage;
         this.baseMoveSpeed = ROGUE_CONFIG.baseSpeed + upgradeBonuses.speed;
         this.initialBaseMoveSpeed = this.baseMoveSpeed; // Store original for level scaling
         this.baseDefense = ROGUE_CONFIG.baseDefense + upgradeBonuses.defense;
-        this.baseMaxHp = ROGUE_CONFIG.baseHp; // Store base max HP for gear calculations
-        this.maxHp = ROGUE_CONFIG.baseHp;
-        this.hp = ROGUE_CONFIG.baseHp;
+        this.baseMaxHp = ROGUE_CONFIG.baseHp + upgradeBonuses.health; // Store base max HP for gear calculations
+        this.maxHp = ROGUE_CONFIG.baseHp + upgradeBonuses.health;
+        this.hp = ROGUE_CONFIG.baseHp + upgradeBonuses.health;
+        
+        // Apply cooldown and attack speed upgrades
+        this.cooldownReduction = Math.min(0.75, upgradeBonuses.cooldown); // Cap at 75%
+        this.attackSpeedMultiplier = 1.0 + upgradeBonuses.attackSpeed;
         this.baseCritChance = ROGUE_CONFIG.critChance; // Store base for updateEffectiveStats
         this.critChance = ROGUE_CONFIG.critChance;
         this.color = classDef.color;
@@ -127,11 +137,22 @@ class Rogue extends PlayerBase {
         // Class modifier storage
         this.dodgeDamageMultiplier = 1.0;
         this.knifeCountBonus = 0;
+        this.fanOfKnivesPierceChance = 0;
+        this.fanOfKnivesReturnToPlayer = false;
         this.shadowCloneCountBonus = 0;
+        this.shadowCloneDamage = 0;
+        this.shadowCloneExplodeOnDeath = false;
         this.backstabMultiplierBonus = 0;
+        this.backstabChainChance = 0;
+        this.backstabStealthOnKill = 0;
+        this.backstabResetCooldownOnKill = false;
         
         // Update effective stats
         this.updateEffectiveStats();
+        
+        // Reapply upgrade bonuses after updateEffectiveStats (which resets these values)
+        this.cooldownReduction = Math.min(0.75, upgradeBonuses.cooldown); // Cap at 75%
+        this.attackSpeedMultiplier = 1.0 + upgradeBonuses.attackSpeed;
         
         console.log('Rogue class initialized');
     }
@@ -141,11 +162,63 @@ class Rogue extends PlayerBase {
         // Reset class modifier storage
         this.dodgeDamageMultiplier = 1.0;
         this.knifeCountBonus = 0;
+        this.fanOfKnivesPierceChance = 0;
+        this.fanOfKnivesReturnToPlayer = false;
         this.shadowCloneCountBonus = 0;
+        this.shadowCloneDamage = 0;
+        this.shadowCloneExplodeOnDeath = false;
         this.backstabMultiplierBonus = 0;
+        this.backstabChainChance = 0;
+        this.backstabStealthOnKill = 0;
+        this.backstabResetCooldownOnKill = false;
         
-        // Call parent
+        // Call parent (applies stat modifiers from cards)
         super.updateEffectiveStats();
+        
+        // Apply ability mutator card effects
+        if (typeof DeckState !== 'undefined' && typeof CardEffects !== 'undefined' && CardEffects.getAbilityModifiers) {
+            const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
+            const abilityMods = CardEffects.getAbilityModifiers(this, handCards);
+            
+            if (abilityMods.fanOfKnives) {
+                if (abilityMods.fanOfKnives.knifeCountBonus) {
+                    this.knifeCountBonus += abilityMods.fanOfKnives.knifeCountBonus;
+                }
+                if (abilityMods.fanOfKnives.pierceChance) {
+                    this.fanOfKnivesPierceChance = abilityMods.fanOfKnives.pierceChance;
+                }
+                if (abilityMods.fanOfKnives.returnToPlayer) {
+                    this.fanOfKnivesReturnToPlayer = true;
+                }
+            }
+            
+            if (abilityMods.shadowClone) {
+                if (abilityMods.shadowClone.cloneCountBonus) {
+                    this.shadowCloneCountBonus += abilityMods.shadowClone.cloneCountBonus;
+                }
+                if (abilityMods.shadowClone.cloneDamage) {
+                    this.shadowCloneDamage = abilityMods.shadowClone.cloneDamage;
+                }
+                if (abilityMods.shadowClone.explodeOnDeath) {
+                    this.shadowCloneExplodeOnDeath = true;
+                }
+            }
+            
+            if (abilityMods.backstab) {
+                if (abilityMods.backstab.damageMultiplier) {
+                    this.backstabMultiplierBonus += abilityMods.backstab.damageMultiplier;
+                }
+                if (abilityMods.backstab.chainChance) {
+                    this.backstabChainChance = abilityMods.backstab.chainChance;
+                }
+                if (abilityMods.backstab.stealthOnKill) {
+                    this.backstabStealthOnKill = abilityMods.backstab.stealthOnKill;
+                }
+                if (abilityMods.backstab.resetCooldownOnKill) {
+                    this.backstabResetCooldownOnKill = true;
+                }
+            }
+        }
     }
     
     // Override to apply Rogue-specific class modifiers
@@ -224,20 +297,62 @@ class Rogue extends PlayerBase {
             playerId: this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null) // For damage attribution
         };
         
-        Game.projectiles.push(baseKnife);
+        // Check for Volley card (projectileCountBonus > 0)
+        const hasVolley = (this.projectileCountBonus || 0) > 0;
+        const totalExtraProjectiles = this.projectileCountBonus + (this.multishotCount || 0);
         
-        // Multishot: Create additional projectiles at angles
-        if (this.multishotCount && this.multishotCount > 0) {
-            for (let i = 0; i < this.multishotCount; i++) {
+        // Apply Volley damage reduction if active
+        let volleyDamageMultiplier = 1.0;
+        if (hasVolley && this.volleyDamagePerProjectile) {
+            volleyDamageMultiplier = this.volleyDamagePerProjectile;
+        }
+        
+        // Base projectile (always fires)
+        const baseProjectile = {
+            ...baseKnife,
+            damage: this.damage * (hasVolley ? volleyDamageMultiplier : 1.0)
+        };
+        
+        // Apply Volley pierce/chain bonuses to base if active
+        if (hasVolley) {
+            if (this.volleyPierceAll) {
+                baseProjectile.pierceAll = true;
+            } else if (this.volleyPierceChance && Math.random() < this.volleyPierceChance) {
+                baseProjectile.pierce = true;
+            }
+            if (this.volleyChain) {
+                baseProjectile.hasChainEffect = true;
+            }
+        }
+        
+        Game.projectiles.push(baseProjectile);
+        
+        // Multishot/Volley: Create additional projectiles at angles
+        if (totalExtraProjectiles > 0) {
+            for (let i = 0; i < totalExtraProjectiles; i++) {
                 const angleOffset = ((i + 1) % 2 === 0 ? 1 : -1) * (Math.ceil((i + 1) / 2) * 0.15); // Alternate ±0.15, ±0.3 radians
                 const multishotAngle = Math.atan2(dirY, dirX) + angleOffset;
                 
-                Game.projectiles.push({
+                const extraProjectile = {
                     ...baseKnife,
                     vx: Math.cos(multishotAngle) * ROGUE_CONFIG.knifeSpeed * (this.projectileSpeedMultiplier || 1.0),
                     vy: Math.sin(multishotAngle) * ROGUE_CONFIG.knifeSpeed * (this.projectileSpeedMultiplier || 1.0),
-                    damage: this.damage * 0.5 // 50% damage for multishot projectiles
-                });
+                    damage: this.damage * (hasVolley ? volleyDamageMultiplier : 0.5) // Volley reduction or 50% for multishot
+                };
+                
+                // Apply Volley pierce/chain bonuses to extra projectiles if active
+                if (hasVolley) {
+                    if (this.volleyPierceAll) {
+                        extraProjectile.pierceAll = true;
+                    } else if (this.volleyPierceChance && Math.random() < this.volleyPierceChance) {
+                        extraProjectile.pierce = true;
+                    }
+                    if (this.volleyChain) {
+                        extraProjectile.hasChainEffect = true;
+                    }
+                }
+                
+                Game.projectiles.push(extraProjectile);
             }
         }
     }
@@ -259,6 +374,11 @@ class Rogue extends PlayerBase {
         if (typeof Game !== 'undefined') {
             Game.triggerScreenShake(0.5, 0.2);
             Game.triggerHitPause(0.08); // Brief freeze on heavy attack
+        }
+        
+        // Apply standardized heavy cooldown for UI parity
+        if (this.applyHeavyAttackCooldown) {
+            this.applyHeavyAttackCooldown();
         }
         
         // Clear preview when attack fires
@@ -313,6 +433,10 @@ class Rogue extends PlayerBase {
     }
     
     activateShadowClones() {
+        // Track ability use for lifetime stats
+        if (typeof window.trackLifetimeStat === 'function') {
+            window.trackLifetimeStat('totalAbilityUses', 1);
+        }
         // Play shadow clones sound
         if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
             AudioManager.sounds.rogueShadowClones();

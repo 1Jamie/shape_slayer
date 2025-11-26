@@ -3,7 +3,7 @@
 const Input = {
     // Key states
     keys: {},
-    
+
     // Mouse state (screen coordinates)
     mouse: {
         x: 0,
@@ -11,63 +11,63 @@ const Input = {
     },
     mouseLeft: false,
     mouseRight: false,
-    
+
     // Get mouse position in world coordinates (accounting for camera)
     getWorldMousePos() {
         if (typeof Game === 'undefined') {
             return { x: this.mouse.x, y: this.mouse.y };
         }
-        
+
         // Get current zoom level (desktop only)
-        const isMobile = this.isTouchMode && this.isTouchMode();
-        const zoom = isMobile ? 1.0 : (Game.baseZoom || 1.1);
-        
+        // Mobile UI disabled - always use desktop zoom
+        const zoom = Game.baseZoom || 1.1;
+
         // Combat rooms - use combat camera
         if (Game.camera && Game.state === 'PLAYING') {
             const centerX = Game.config.width / 2;
             const centerY = Game.config.height / 2;
-            
+
             // Convert screen to world with zoom
             const screenDeltaX = (this.mouse.x - centerX) / zoom;
             const screenDeltaY = (this.mouse.y - centerY) / zoom;
-            
+
             return {
                 x: Game.camera.x + screenDeltaX,
                 y: Game.camera.y + screenDeltaY
             };
         }
-        
+
         // Nexus - use nexus camera
         if (Game.nexusCamera && Game.state === 'NEXUS') {
             const centerX = Game.config.width / 2;
             const centerY = Game.config.height / 2;
-            
+
             // Convert screen to world with zoom
             const screenDeltaX = (this.mouse.x - centerX) / zoom;
             const screenDeltaY = (this.mouse.y - centerY) / zoom;
-            
+
             return {
                 x: Game.nexusCamera.x + screenDeltaX,
                 y: Game.nexusCamera.y + screenDeltaY
             };
         }
-        
+
         // Fallback - screen coordinates
         return { x: this.mouse.x, y: this.mouse.y };
     },
-    
+
     // Touch state
     touchActive: false,
     activeTouches: {}, // Map of touchId -> touch data
     touchJoysticks: {}, // Map of joystick name -> VirtualJoystick
     touchButtons: {}, // Map of button name -> TouchButton
-    
+
     // Control mode
     controlMode: 'auto', // 'auto', 'mobile', 'desktop'
-    
+
     // Last aim angle (for maintaining direction when joystick is released on mobile)
     lastAimAngle: 0,
-    
+
     // Class-based input configuration for mobile touch controls
     // Defines which input type each ability uses per class
     // 'button' - Simple button press (instant activation)
@@ -95,75 +95,157 @@ const Input = {
             specialAbility: 'joystick-press-release' // Blink (directional teleport with aim)
         }
     },
-    
+
     // Get input type for a specific ability of a class
     getAbilityInputType(classType, ability) {
         if (!this.classInputConfig[classType]) return 'button';
         return this.classInputConfig[classType][ability] || 'button';
     },
-    
+
     // Device detection - check user agent for mobile/tablet
+    // DISABLED: Always return false to force desktop mode
     isMobileDevice() {
-        const ua = navigator.userAgent || navigator.vendor || window.opera;
-        // Check for mobile device patterns
-        return /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(ua.toLowerCase());
+        return false; // Mobile UI disabled - always desktop mode
     },
-    
+
     // Check if touch mode is active
+    // DISABLED: Always return false to force desktop mode
     isTouchMode() {
-        if (this.controlMode === 'mobile') return true;
-        if (this.controlMode === 'desktop') return false;
-        // Auto mode: detect based on user agent (not touch capability)
-        return this.isMobileDevice();
+        return false; // Mobile UI disabled - always desktop mode
     },
-    
+
     // Initialize input handlers
     init(canvas) {
         // Load control mode setting
         if (typeof SaveSystem !== 'undefined') {
             this.controlMode = SaveSystem.getControlMode() || 'auto';
         }
-        
+
         // Keyboard events
         document.addEventListener('keydown', (e) => {
+            // Don't intercept keys if user is typing in an input field
+            const target = e.target;
+            if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+                this.keys[e.key.toLowerCase()] = true;
+                return; // Don't process game shortcuts when typing
+            }
+
             this.keys[e.key.toLowerCase()] = true;
-            
+
             // Prevent default Tab behavior (focus shifting) when used for character sheet
             if (e.key === 'Tab') {
                 e.preventDefault();
             }
+
+            // Room modifier selection key (M) when doors are shown
+            if (e.key.toLowerCase() === 'm') {
+                if (typeof Game !== 'undefined' && Game.state === 'PLAYING' && Game.player && Game.awaitingDoorSelection) {
+                    // Check if player is near a door pack
+                    if (typeof checkDoorInteraction === 'function') {
+                        const doorPack = checkDoorInteraction(Game.player);
+                        if (doorPack && typeof window.openDoorModifierSelection === 'function') {
+                            e.preventDefault();
+                            window.openDoorModifierSelection(doorPack);
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // Pickup key (G) for ground cards and door selection during gameplay
+            if (e.key.toLowerCase() === 'g') {
+                if (typeof Game !== 'undefined' && Game.state === 'PLAYING' && Game.player) {
+                    // First check for door selection
+                    if (typeof checkDoorInteraction === 'function' && typeof selectDoor === 'function') {
+                        const door = checkDoorInteraction(Game.player);
+                        if (door) {
+                            selectDoor(door);
+                            return; // Don't also try to pick up cards
+                        }
+                    }
+                    // Then check for upgrade pickup
+                    if (typeof checkUpgradePickup === 'function' && typeof pickupUpgrade === 'function') {
+                        const upgrade = checkUpgradePickup(Game.player);
+                        if (upgrade) {
+                            pickupUpgrade(upgrade);
+                            return; // Don't also try to pick up cards
+                        }
+                    }
+                    // Finally try card pickup
+                    if (typeof CardGround !== 'undefined' && CardGround.pickAt) {
+                        // Attempt pickup at player position
+                        CardGround.pickAt(Game.player.x, Game.player.y);
+                    }
+                }
+            }
+
+            // Cycle ground card selection with [ and ]
+            if (typeof Game !== 'undefined' && Game.state === 'PLAYING' && typeof CardGround !== 'undefined') {
+                if (e.key === '[') {
+                    CardGround.cycleSelection(-1);
+                } else if (e.key === ']') {
+                    CardGround.cycleSelection(1);
+                }
+            }
+
         });
-        
+
         document.addEventListener('keyup', (e) => {
             this.keys[e.key.toLowerCase()] = false;
         });
-        
+
         // Mouse position
         canvas.addEventListener('mousemove', (e) => {
             const rect = canvas.getBoundingClientRect();
             // Convert screen coordinates to game coordinates
-            const scaleX = canvas.width / rect.width;
-            const scaleY = canvas.height / rect.height;
+            // Use logical width (Game.config.width) if available, otherwise fallback to canvas.width
+            // This handles the supersampling case where canvas.width is 2x rect.width
+            const logicalWidth = (typeof Game !== 'undefined' && Game.config) ? Game.config.width : canvas.width;
+            const logicalHeight = (typeof Game !== 'undefined' && Game.config) ? Game.config.height : canvas.height;
+
+            const scaleX = logicalWidth / rect.width;
+            const scaleY = logicalHeight / rect.height;
             this.mouse.x = (e.clientX - rect.left) * scaleX;
             this.mouse.y = (e.clientY - rect.top) * scaleY;
         });
-        
+
         // Mouse buttons
         canvas.addEventListener('mousedown', (e) => {
+            // When DOM UI is enabled, ignore gameplay mouse when non-gameplay UI is visible
+            if (window.USE_DOM_UI && typeof Game !== 'undefined') {
+                const inMp = Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+                const pauseMenuVisible = Game.state === 'PAUSED' || (inMp && Game.showPauseMenu);
+                if (pauseMenuVisible || Game.privacyModalVisible || Game.updateModalVisible || Game.launchModalVisible) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                }
+            }
+            // Suppress gameplay mouse input during blocking UI flows (e.g., swap)
+            if (typeof Game !== 'undefined' && (Game.awaitingHandSwap || Game.awaitingDoorSelection || Game.awaitingUpgradeSelection || Game.awaitingMulligan)) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+            if (typeof CharacterSheet !== 'undefined' && CharacterSheet.isOpen && typeof Game !== 'undefined' && Game.awaitingHandSwap) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
             if (e.button === 0) this.mouseLeft = true;
             if (e.button === 2) this.mouseRight = true;
         });
-        
+
         canvas.addEventListener('mouseup', (e) => {
             if (e.button === 0) this.mouseLeft = false;
             if (e.button === 2) this.mouseRight = false;
         });
-        
+
         // Prevent context menu
         canvas.addEventListener('contextmenu', (e) => {
             e.preventDefault();
         });
-        
+
         // Touch events
         // Use capture: false so UI handlers (pause button, etc.) can intercept first
         canvas.addEventListener('touchstart', (e) => {
@@ -171,92 +253,93 @@ const Input = {
             // UI handlers in main.js will preventDefault if they handle it
             this.handleTouchStart(e, canvas);
         }, { passive: false, capture: false });
-        
+
         canvas.addEventListener('touchmove', (e) => {
             if (this.touchActive) {
                 e.preventDefault();
             }
             this.handleTouchMove(e, canvas);
         }, { passive: false, capture: false });
-        
+
         canvas.addEventListener('touchend', (e) => {
             if (this.touchActive) {
                 e.preventDefault();
             }
             this.handleTouchEnd(e);
         }, { passive: false, capture: false });
-        
+
         canvas.addEventListener('touchcancel', (e) => {
             if (this.touchActive) {
                 e.preventDefault();
             }
             this.handleTouchEnd(e);
         }, { passive: false, capture: false });
-        
-        // Prevent default touch behaviors globally
-        document.addEventListener('touchstart', (e) => {
-            if (this.isTouchMode()) {
-                // Only prevent default if we're in touch mode
-                // This prevents scrolling/zooming on mobile
-            }
-        }, { passive: false });
-        
-        // Initialize touch controls if in touch mode
-        if (this.isTouchMode()) {
-            this.initTouchControls(canvas);
-        }
+
+        // Touch controls disabled - mobile UI is disabled
+        // document.addEventListener('touchstart', (e) => {
+        //     if (this.isTouchMode()) {
+        //         // Only prevent default if we're in touch mode
+        //         // This prevents scrolling/zooming on mobile
+        //     }
+        // }, { passive: false });
+
+        // Touch controls disabled - mobile UI is disabled
+        // if (this.isTouchMode()) {
+        //     this.initTouchControls(canvas);
+        // }
     },
-    
+
     // Initialize touch control UI elements
     initTouchControls(canvas) {
-        // Use actual canvas dimensions (now dynamic based on screen size)
-        const width = canvas.width;
-        const height = canvas.height;
-        
+        // Use logical dimensions if available (Game.config), otherwise fallback to canvas dimensions
+        // This handles supersampling where canvas.width is 2x logical width
+        const width = (typeof Game !== 'undefined' && Game.config) ? Game.config.width : canvas.width;
+        const height = (typeof Game !== 'undefined' && Game.config) ? Game.config.height : canvas.height;
+
         // Debug: Log initialization
         if (typeof Game !== 'undefined' && Game.fullscreenEnabled) {
             console.log(`[INIT TOUCH CONTROLS] Canvas: ${canvas.width}x${canvas.height}`);
             const rect = canvas.getBoundingClientRect();
             console.log(`[INIT TOUCH CONTROLS] Display rect: ${rect.width.toFixed(0)}x${rect.height.toFixed(0)} at (${rect.left.toFixed(0)}, ${rect.top.toFixed(0)})`);
         }
-        
+
         // Mobile-optimized layout for thumb reach
         // Design philosophy: Left thumb controls movement, right thumb controls combat
         // All controls positioned in bottom corners for natural thumb reach
         // NO OVERLAPPING - proper spacing between all controls
-        
+
         // Scale control sizes based on screen width (but clamp to reasonable range)
         const widthScale = Math.max(0.7, Math.min(1.3, width / 1280));
         const baseMovementRadius = 75;
         const baseAttackRadius = 70;
         const baseButtonSize = 58;
-        
+
         const movementRadius = Math.floor(baseMovementRadius * widthScale);
         const basicAttackRadius = Math.floor(baseAttackRadius * widthScale);
         const buttonSize = Math.floor(baseButtonSize * widthScale);
         const buttonHeight = Math.floor(52 * widthScale);
-        
+
         // LEFT SIDE - Movement joystick (left thumb zone)
         // Position: Lower for better thumb reach, especially on tall phones
         const leftX = Math.max(100, width * 0.08); // ~8% from left edge, min 100px
         const leftY = height - Math.max(120, height * 0.16); // Dynamic: ~16% from bottom, min 120px
         this.touchJoysticks.movement = new VirtualJoystick(leftX, leftY, movementRadius, 20);
-        
+
         // RIGHT SIDE - Combat controls (right thumb zone)
         // Radial layout: Main attack joystick in center, ability buttons arranged around it
         // Position: Lower for better thumb reach
         const rightX = width - Math.max(130, width * 0.10); // ~10% from right edge, min 130px
         const rightY = height - Math.max(140, height * 0.18); // Dynamic: ~18% from bottom, min 140px
-        
+
         // Basic attack joystick (CENTRAL - primary action, main right thumb position)
         const centerX = rightX;
         const centerY = rightY;
         this.touchJoysticks.basicAttack = new VirtualJoystick(centerX, centerY, basicAttackRadius, 20);
-        
+
         // Radial button layout around the central joystick
         // Create a cohesive cluster with proper spacing (increased spacing to prevent accidental hits)
         const radialRadius = basicAttackRadius + Math.floor(75 * widthScale); // Distance from center (scaled)
-        
+
         // Position buttons at angles around the circle (3 buttons: Heavy, Special, Dodge)
         // Angles optimized for thumb reach: Heavy (upper-left), Special (upper-right), Dodge (bottom)
         const angles = [
@@ -264,7 +347,7 @@ const Input = {
             Math.PI * 0.3,   // Special: ~54 degrees (upper-right, easily reachable)
             Math.PI * 1.5    // Dodge: 270 degrees (bottom, natural thumb position)
         ];
-        
+
         // Heavy attack button (upper-left of center joystick)
         const heavyAngle = angles[0];
         const heavyX = centerX + Math.cos(heavyAngle) * radialRadius;
@@ -276,7 +359,7 @@ const Input = {
             buttonHeight,
             'Heavy'
         );
-        
+
         // Heavy attack joystick (for warrior class - directional charge attack)
         // Centered on button position - REDUCED SIZE for mobile
         const abilityJoystickRadius = Math.floor(38 * widthScale); // Smaller than before (was 48)
@@ -286,7 +369,7 @@ const Input = {
             abilityJoystickRadius,
             14
         );
-        
+
         // Special ability button (upper-right of center joystick)
         const specialAngle = angles[1];
         const specialX = centerX + Math.cos(specialAngle) * radialRadius;
@@ -298,7 +381,7 @@ const Input = {
             buttonHeight,
             'Spcl'
         );
-        
+
         // Special ability joystick (for directional abilities - centered on button position)
         // REDUCED SIZE for mobile
         this.touchJoysticks.specialAbility = new VirtualJoystick(
@@ -307,7 +390,7 @@ const Input = {
             abilityJoystickRadius,
             14
         );
-        
+
         // Dodge button (bottom of center joystick)
         const dodgeAngle = angles[2];
         const dodgeX = centerX + Math.cos(dodgeAngle) * radialRadius;
@@ -319,7 +402,7 @@ const Input = {
             buttonHeight,
             'Dodge'
         );
-        
+
         // Dodge joystick (for triangle/rogue class - directional dash attack)
         // Centered on button position - REDUCED SIZE for mobile
         this.touchJoysticks.dodge = new VirtualJoystick(
@@ -328,7 +411,7 @@ const Input = {
             abilityJoystickRadius,
             14
         );
-        
+
         // Character sheet button (top-right corner, away from combat controls and pause button)
         const charButtonWidth = Math.floor(90 * widthScale);
         const charButtonHeight = Math.floor(40 * widthScale);
@@ -340,23 +423,23 @@ const Input = {
             'Char'
         );
     },
-    
+
     // Handle touch start
     handleTouchStart(e, canvas) {
         if (!this.isTouchMode()) return;
-        
+
         // Check if event was already handled by UI (pause button, interaction button, etc.)
         // UI handlers will call stopPropagation if they handle the touch
         if (e.defaultPrevented) {
             return;
         }
-        
+
         // Check if character sheet is open and store touch for scrolling
         if (typeof CharacterSheet !== 'undefined' && CharacterSheet.isOpen && e.touches.length > 0) {
             const touch = e.touches[0];
             CharacterSheet.lastTouchY = touch.clientY;
         }
-        
+
         // Get fresh bounding rect to ensure correct coordinates after resize/fullscreen
         // Force a reflow to ensure rect is up-to-date
         void canvas.offsetWidth; // Force reflow
@@ -366,9 +449,9 @@ const Input = {
             console.warn('[TOUCH] Canvas rect is zero, skipping touch');
             return;
         }
-        
+
         const touches = Array.from(e.touches);
-        
+
         // Use Game.screenToGame if available for consistent coordinate conversion
         // Otherwise fall back to manual calculation
         let convertCoords;
@@ -378,8 +461,10 @@ const Input = {
             };
         } else {
             // Fallback: manual conversion using canvas dimensions
-            const scaleX = canvas.width / rect.width;
-            const scaleY = canvas.height / rect.height;
+            const logicalWidth = (typeof Game !== 'undefined' && Game.config) ? Game.config.width : canvas.width;
+            const logicalHeight = (typeof Game !== 'undefined' && Game.config) ? Game.config.height : canvas.height;
+            const scaleX = logicalWidth / rect.width;
+            const scaleY = logicalHeight / rect.height;
             convertCoords = (clientX, clientY) => {
                 return {
                     x: (clientX - rect.left) * scaleX,
@@ -387,22 +472,22 @@ const Input = {
                 };
             };
         }
-        
+
         touches.forEach(touch => {
             // Convert screen coordinates to game coordinates using consistent method
             const gameCoords = convertCoords(touch.clientX, touch.clientY);
             const x = gameCoords.x;
             const y = gameCoords.y;
             const touchId = touch.identifier;
-            
+
             // Debug logging for fullscreen issues
             if (typeof Game !== 'undefined' && Game.fullscreenEnabled) {
                 console.log(`[TOUCH] Screen: (${touch.clientX.toFixed(0)}, ${touch.clientY.toFixed(0)}) -> Game: (${x.toFixed(0)}, ${y.toFixed(0)}), rect: ${rect.width.toFixed(0)}x${rect.height.toFixed(0)}, canvas: ${canvas.width}x${canvas.height}`);
             }
-            
+
             this.activeTouches[touchId] = { x, y };
             this.touchActive = true;
-            
+
             // Check character sheet close button if sheet is open (highest priority)
             if (typeof CharacterSheet !== 'undefined' && CharacterSheet.isOpen && CharacterSheet.closeButtonBounds) {
                 const bounds = CharacterSheet.closeButtonBounds;
@@ -412,7 +497,7 @@ const Input = {
                     return;
                 }
             }
-            
+
             // Check character sheet button (top priority UI element)
             if (this.touchButtons.characterSheet && this.touchButtons.characterSheet.contains(x, y)) {
                 if (this.touchButtons.characterSheet.startTouch(touchId, x, y)) {
@@ -423,15 +508,16 @@ const Input = {
                     return;
                 }
             }
-            
+
             // Priority-based touch assignment for mobile usability
             // Check buttons FIRST (they have smaller hit areas), then joysticks
             // This prevents joysticks from stealing touches from buttons
-            
+
             // Use game coordinates for screen middle calculation
-            const screenMiddle = canvas.width / 2;
+            const logicalWidth = (typeof Game !== 'undefined' && Game.config) ? Game.config.width : canvas.width;
+            const screenMiddle = logicalWidth / 2;
             const isLeftSide = x < screenMiddle;
-            
+
             if (isLeftSide) {
                 // LEFT SIDE: Movement joystick only
                 if (this.touchJoysticks.movement && !this.touchJoysticks.movement.active) {
@@ -445,7 +531,7 @@ const Input = {
                 // Buttons must be checked first because joysticks have large hit areas
                 const buttonOrder = ['heavyAttack', 'dodge', 'specialAbility'];
                 let buttonMatched = false;
-                
+
                 // Debug: log button positions in fullscreen
                 if (typeof Game !== 'undefined' && Game.fullscreenEnabled) {
                     console.log(`[RIGHT SIDE] Touch at game coords: (${x.toFixed(0)}, ${y.toFixed(0)})`);
@@ -463,7 +549,7 @@ const Input = {
                         console.log(`  basicAttack joystick: center (${joystick.centerX.toFixed(0)}, ${joystick.centerY.toFixed(0)}), distance: ${distance.toFixed(0)}, hit radius: ${joystick.radius * 1.3}`);
                     }
                 }
-                
+
                 // Check buttons with padded bounds first (8px padding for easier tapping)
                 for (const buttonName of buttonOrder) {
                     const button = this.touchButtons[buttonName];
@@ -480,7 +566,7 @@ const Input = {
                         }
                     }
                 }
-                
+
                 // Priority 2: Basic attack joystick (main combat action)
                 // Only check if no button was matched and touch is clearly in joystick area
                 if (!buttonMatched && this.touchJoysticks.basicAttack && !this.touchJoysticks.basicAttack.active) {
@@ -488,11 +574,11 @@ const Input = {
                     const dx = x - joystick.centerX;
                     const dy = y - joystick.centerY;
                     const distance = Math.sqrt(dx * dx + dy * dy);
-                    
+
                     // Check if touch is within restricted joystick area (just radius, not 2x)
                     // This prevents overlap with radial buttons that are at radius + 75px
                     const restrictedHitRadius = joystick.radius; // 70px - well clear of buttons at 145px
-                    
+
                     if (distance <= restrictedHitRadius) {
                         // Additional safety check: make sure we're not near any button area
                         let tooCloseToButton = false;
@@ -516,7 +602,7 @@ const Input = {
                                 }
                             }
                         }
-                        
+
                         // Use restricted hit area when buttons are nearby
                         if (!tooCloseToButton && joystick.startTouch(touchId, x, y, true)) {
                             if (typeof Game !== 'undefined' && Game.fullscreenEnabled) {
@@ -527,7 +613,7 @@ const Input = {
                     }
                 }
             }
-            
+
             // Fallback: if touch didn't match any control, try joysticks (for edge cases)
             if (isLeftSide) {
                 if (this.touchJoysticks.movement && !this.touchJoysticks.movement.active) {
@@ -548,20 +634,20 @@ const Input = {
             }
         });
     },
-    
+
     // Handle touch move
     handleTouchMove(e, canvas) {
         if (!this.isTouchMode()) return;
-        
+
         // Handle character sheet scrolling if open
         if (typeof CharacterSheet !== 'undefined' && CharacterSheet.isOpen && e.touches.length > 0) {
             const touch = e.touches[0];
             if (CharacterSheet.lastTouchY !== null) {
                 const deltaY = CharacterSheet.lastTouchY - touch.clientY;
-                const gameCoords = typeof Game !== 'undefined' && Game.screenToGame 
+                const gameCoords = typeof Game !== 'undefined' && Game.screenToGame
                     ? Game.screenToGame(touch.clientX, touch.clientY)
                     : { x: touch.clientX, y: touch.clientY };
-                
+
                 if (typeof handleCharacterSheetScroll !== 'undefined' && handleCharacterSheetScroll(gameCoords.x, gameCoords.y, deltaY)) {
                     CharacterSheet.lastTouchY = touch.clientY;
                     e.preventDefault();
@@ -570,16 +656,16 @@ const Input = {
             }
             CharacterSheet.lastTouchY = touch.clientY;
         }
-        
+
         // Get fresh bounding rect to ensure correct coordinates after resize/fullscreen
         void canvas.offsetWidth; // Force reflow
         const rect = canvas.getBoundingClientRect();
         if (rect.width === 0 || rect.height === 0) {
             return;
         }
-        
+
         const touches = Array.from(e.touches);
-        
+
         // Use Game.screenToGame if available for consistent coordinate conversion
         // Otherwise fall back to manual calculation
         let convertCoords;
@@ -589,8 +675,10 @@ const Input = {
             };
         } else {
             // Fallback: manual conversion using canvas dimensions
-            const scaleX = canvas.width / rect.width;
-            const scaleY = canvas.height / rect.height;
+            const logicalWidth = (typeof Game !== 'undefined' && Game.config) ? Game.config.width : canvas.width;
+            const logicalHeight = (typeof Game !== 'undefined' && Game.config) ? Game.config.height : canvas.height;
+            const scaleX = logicalWidth / rect.width;
+            const scaleY = logicalHeight / rect.height;
             convertCoords = (clientX, clientY) => {
                 return {
                     x: (clientX - rect.left) * scaleX,
@@ -598,31 +686,31 @@ const Input = {
                 };
             };
         }
-        
+
         touches.forEach(touch => {
             // Convert screen coordinates to game coordinates using consistent method
             const gameCoords = convertCoords(touch.clientX, touch.clientY);
             const x = gameCoords.x;
             const y = gameCoords.y;
             const touchId = touch.identifier;
-            
+
             if (this.activeTouches[touchId]) {
                 this.activeTouches[touchId].x = x;
                 this.activeTouches[touchId].y = y;
-                
+
                 // Update joysticks (movement, basic attack, special ability)
                 for (const joystick of Object.values(this.touchJoysticks)) {
                     if (joystick && joystick.touchId === touchId) {
                         joystick.updateTouch(touchId, x, y);
                     }
                 }
-                
+
                 // Handle heavy attack joystick activation (for warrior and triangle classes - directional charge attack)
                 const playerClass = typeof Game !== 'undefined' && Game.player ? Game.player.playerClass : null;
-                const usesHeavyJoystick = playerClass && this.getAbilityInputType && 
+                const usesHeavyJoystick = playerClass && this.getAbilityInputType &&
                     this.getAbilityInputType(playerClass, 'heavyAttack') === 'joystick-press-release';
-                
-                if (usesHeavyJoystick && this.touchButtons.heavyAttack && this.touchButtons.heavyAttack.pressed && 
+
+                if (usesHeavyJoystick && this.touchButtons.heavyAttack && this.touchButtons.heavyAttack.pressed &&
                     this.touchButtons.heavyAttack.touchId === touchId) {
                     // Check if finger moved away from button center (dragging)
                     const button = this.touchButtons.heavyAttack;
@@ -631,22 +719,22 @@ const Input = {
                     const dx = x - buttonCenterX;
                     const dy = y - buttonCenterY;
                     const distance = Math.sqrt(dx * dx + dy * dy);
-                    
+
                     // If moved more than 10px, activate joystick mode for aiming
                     if (distance > 10 && this.touchJoysticks.heavyAttack && !this.touchJoysticks.heavyAttack.active) {
                         // Transfer touch to joystick
                         this.touchJoysticks.heavyAttack.startTouch(touchId, x, y);
-                    } else if (this.touchJoysticks.heavyAttack && this.touchJoysticks.heavyAttack.active && 
-                               this.touchJoysticks.heavyAttack.touchId === touchId) {
+                    } else if (this.touchJoysticks.heavyAttack && this.touchJoysticks.heavyAttack.active &&
+                        this.touchJoysticks.heavyAttack.touchId === touchId) {
                         // Update joystick if already active
                         this.touchJoysticks.heavyAttack.updateTouch(touchId, x, y);
                     }
                 }
-                
+
                 // Handle dodge joystick activation (for triangle/rogue class - directional dash attack)
                 const isRogue = typeof Game !== 'undefined' && Game.player && Game.player.playerClass === 'triangle';
-                
-                if (isRogue && this.touchButtons.dodge && this.touchButtons.dodge.pressed && 
+
+                if (isRogue && this.touchButtons.dodge && this.touchButtons.dodge.pressed &&
                     this.touchButtons.dodge.touchId === touchId) {
                     // Check if finger moved away from button center (dragging)
                     const button = this.touchButtons.dodge;
@@ -655,27 +743,27 @@ const Input = {
                     const dx = x - buttonCenterX;
                     const dy = y - buttonCenterY;
                     const distance = Math.sqrt(dx * dx + dy * dy);
-                    
+
                     // If moved more than 10px, activate joystick mode for aiming
                     if (distance > 10 && this.touchJoysticks.dodge && !this.touchJoysticks.dodge.active) {
                         // Transfer touch to joystick
                         this.touchJoysticks.dodge.startTouch(touchId, x, y);
-                    } else if (this.touchJoysticks.dodge && this.touchJoysticks.dodge.active && 
-                               this.touchJoysticks.dodge.touchId === touchId) {
+                    } else if (this.touchJoysticks.dodge && this.touchJoysticks.dodge.active &&
+                        this.touchJoysticks.dodge.touchId === touchId) {
                         // Update joystick if already active
                         this.touchJoysticks.dodge.updateTouch(touchId, x, y);
                     }
                 }
-                
+
                 // Handle special ability joystick activation
                 // Use modular config to check if class needs joystick for special ability
                 const playerClassForSpecial = typeof Game !== 'undefined' && Game.player ? Game.player.playerClass : null;
-                const specialInputType = playerClassForSpecial && this.getAbilityInputType ? 
+                const specialInputType = playerClassForSpecial && this.getAbilityInputType ?
                     this.getAbilityInputType(playerClassForSpecial, 'specialAbility') : 'button';
-                const needsSpecialJoystick = specialInputType === 'joystick-press-release' || 
+                const needsSpecialJoystick = specialInputType === 'joystick-press-release' ||
                     specialInputType === 'joystick-continuous';
-                
-                if (needsSpecialJoystick && this.touchButtons.specialAbility && this.touchButtons.specialAbility.pressed && 
+
+                if (needsSpecialJoystick && this.touchButtons.specialAbility && this.touchButtons.specialAbility.pressed &&
                     this.touchButtons.specialAbility.touchId === touchId) {
                     // Check if finger moved away from button center (dragging)
                     const button = this.touchButtons.specialAbility;
@@ -684,13 +772,13 @@ const Input = {
                     const dx = x - buttonCenterX;
                     const dy = y - buttonCenterY;
                     const distance = Math.sqrt(dx * dx + dy * dy);
-                    
+
                     // If moved more than 10px, activate joystick mode for directional abilities
                     if (distance > 10 && this.touchJoysticks.specialAbility && !this.touchJoysticks.specialAbility.active) {
                         // Transfer touch to joystick
                         this.touchJoysticks.specialAbility.startTouch(touchId, x, y);
-                    } else if (this.touchJoysticks.specialAbility && this.touchJoysticks.specialAbility.active && 
-                               this.touchJoysticks.specialAbility.touchId === touchId) {
+                    } else if (this.touchJoysticks.specialAbility && this.touchJoysticks.specialAbility.active &&
+                        this.touchJoysticks.specialAbility.touchId === touchId) {
                         // Update joystick if already active
                         this.touchJoysticks.specialAbility.updateTouch(touchId, x, y);
                     }
@@ -698,27 +786,27 @@ const Input = {
             }
         });
     },
-    
+
     // Handle touch end
     handleTouchEnd(e) {
         if (!this.isTouchMode()) return;
-        
+
         const touches = Array.from(e.changedTouches);
-        
+
         touches.forEach(touch => {
             const touchId = touch.identifier;
-            
+
             // Before ending touches, capture final joystick state for buttons that need it
             // This is especially important for directional abilities like blink and warrior/triangle heavy attack
             const playerClass = typeof Game !== 'undefined' && Game.player ? Game.player.playerClass : null;
             const isRogue = playerClass === 'triangle';
-            const needsSpecialJoystick = typeof Game !== 'undefined' && Game.player && 
+            const needsSpecialJoystick = typeof Game !== 'undefined' && Game.player &&
                 (Game.player.playerClass === 'hexagon' || Game.player.playerClass === 'pentagon');
-            
+
             // Capture heavy attack joystick state for classes that use joystick (warrior and triangle)
-            const usesHeavyJoystick = playerClass && this.getAbilityInputType && 
+            const usesHeavyJoystick = playerClass && this.getAbilityInputType &&
                 this.getAbilityInputType(playerClass, 'heavyAttack') === 'joystick-press-release';
-            
+
             if (usesHeavyJoystick) {
                 if (this.touchJoysticks.heavyAttack && this.touchJoysticks.heavyAttack.touchId === touchId) {
                     const joystick = this.touchJoysticks.heavyAttack;
@@ -740,7 +828,7 @@ const Input = {
                     }
                 }
             }
-            
+
             // Capture dodge joystick state for triangle/rogue
             if (isRogue) {
                 if (this.touchJoysticks.dodge && this.touchJoysticks.dodge.touchId === touchId) {
@@ -763,14 +851,14 @@ const Input = {
                     }
                 }
             }
-            
+
             // Capture special ability joystick state for classes that use joystick
             const playerClassForSpecial = typeof Game !== 'undefined' && Game.player ? Game.player.playerClass : null;
-            const specialInputType = playerClassForSpecial && this.getAbilityInputType ? 
+            const specialInputType = playerClassForSpecial && this.getAbilityInputType ?
                 this.getAbilityInputType(playerClassForSpecial, 'specialAbility') : 'button';
-            const needsSpecialJoystickCapture = specialInputType === 'joystick-press-release' || 
+            const needsSpecialJoystickCapture = specialInputType === 'joystick-press-release' ||
                 specialInputType === 'joystick-continuous';
-            
+
             if (needsSpecialJoystickCapture) {
                 // Check if this touch was associated with the special ability joystick
                 if (this.touchJoysticks.specialAbility && this.touchJoysticks.specialAbility.touchId === touchId) {
@@ -798,41 +886,41 @@ const Input = {
                     }
                 }
             }
-            
+
             // End joystick interactions
             for (const joystick of Object.values(this.touchJoysticks)) {
                 if (joystick) {
                     joystick.endTouch(touchId);
                 }
             }
-            
+
             // End button interactions
             for (const button of Object.values(this.touchButtons)) {
                 if (button) {
                     button.endTouch(touchId);
                 }
             }
-            
+
             delete this.activeTouches[touchId];
         });
-        
+
         // Check if any touches remain
         if (Object.keys(this.activeTouches).length === 0) {
             this.touchActive = false;
         }
     },
-    
+
     // Update touch controls (call each frame)
     update(deltaTime) {
         if (!this.isTouchMode()) return;
-        
+
         // Update joysticks
         for (const joystick of Object.values(this.touchJoysticks)) {
             if (joystick) {
                 joystick.update(deltaTime);
             }
         }
-        
+
         // Update buttons
         for (const button of Object.values(this.touchButtons)) {
             if (button) {
@@ -840,9 +928,9 @@ const Input = {
             }
         }
     },
-    
+
     // Unified input methods
-    
+
     // Get movement input (normalized direction vector)
     getMovementInput() {
         if (this.isTouchMode() && this.touchJoysticks.movement) {
@@ -859,7 +947,7 @@ const Input = {
             if (this.getKeyState('s')) y += 1;
             if (this.getKeyState('a')) x -= 1;
             if (this.getKeyState('d')) x += 1;
-            
+
             // Normalize
             const length = Math.sqrt(x * x + y * y);
             if (length > 0) {
@@ -868,26 +956,26 @@ const Input = {
             return { x: 0, y: 0 };
         }
     },
-    
+
     // Get aim direction (angle in radians)
     getAimDirection() {
         if (this.isTouchMode()) {
             // Check heavy attack joystick first (if active, it takes priority)
-            if (this.touchJoysticks.heavyAttack && this.touchJoysticks.heavyAttack.active && 
+            if (this.touchJoysticks.heavyAttack && this.touchJoysticks.heavyAttack.active &&
                 this.touchJoysticks.heavyAttack.getMagnitude() > 0.1) {
                 const angle = this.touchJoysticks.heavyAttack.getAngle();
                 this.lastAimAngle = angle;
                 return angle;
             }
-            
+
             // Check special ability joystick (shield/blink) - second priority
-            if (this.touchJoysticks.specialAbility && this.touchJoysticks.specialAbility.active && 
+            if (this.touchJoysticks.specialAbility && this.touchJoysticks.specialAbility.active &&
                 this.touchJoysticks.specialAbility.getMagnitude() > 0.1) {
                 const angle = this.touchJoysticks.specialAbility.getAngle();
                 this.lastAimAngle = angle;
                 return angle;
             }
-            
+
             // Otherwise check basic attack joystick
             if (this.touchJoysticks.basicAttack) {
                 if (this.touchJoysticks.basicAttack.active) {
@@ -900,7 +988,7 @@ const Input = {
                     return this.lastAimAngle;
                 }
             }
-            
+
             // No joystick active, return last stored angle
             return this.lastAimAngle;
         } else {
@@ -914,7 +1002,7 @@ const Input = {
             return 0;
         }
     },
-    
+
     // Check if ability is pressed
     isAbilityPressed(ability) {
         if (this.isTouchMode()) {
@@ -936,7 +1024,7 @@ const Input = {
             return false;
         }
     },
-    
+
     // Check if ability was just pressed (for one-time actions)
     isAbilityJustPressed(ability) {
         if (this.isTouchMode()) {
@@ -957,7 +1045,7 @@ const Input = {
             return false;
         }
     },
-    
+
     // Get ability direction (for directional abilities)
     getAbilityDirection(ability) {
         if (this.isTouchMode()) {
@@ -977,9 +1065,9 @@ const Input = {
             if (ability === 'specialAbility' && this.touchJoysticks.specialAbility) {
                 // Use modular config to check if class needs joystick for special ability
                 const playerClass = typeof Game !== 'undefined' && Game.player ? Game.player.playerClass : null;
-                const specialInputType = playerClass && this.getAbilityInputType ? 
+                const specialInputType = playerClass && this.getAbilityInputType ?
                     this.getAbilityInputType(playerClass, 'specialAbility') : 'button';
-                const needsSpecialJoystick = specialInputType === 'joystick-press-release' || 
+                const needsSpecialJoystick = specialInputType === 'joystick-press-release' ||
                     specialInputType === 'joystick-continuous';
                 if (needsSpecialJoystick) {
                     return this.touchJoysticks.specialAbility.getDirection();
@@ -999,7 +1087,7 @@ const Input = {
             return { x: 0, y: 0 };
         }
     },
-    
+
     // Get ability angle (for directional abilities)
     getAbilityAngle(ability) {
         if (this.isTouchMode()) {
@@ -1019,9 +1107,9 @@ const Input = {
             if (ability === 'specialAbility' && this.touchJoysticks.specialAbility) {
                 // Use modular config to check if class needs joystick for special ability
                 const playerClass = typeof Game !== 'undefined' && Game.player ? Game.player.playerClass : null;
-                const specialInputType = playerClass && this.getAbilityInputType ? 
+                const specialInputType = playerClass && this.getAbilityInputType ?
                     this.getAbilityInputType(playerClass, 'specialAbility') : 'button';
-                const needsSpecialJoystick = specialInputType === 'joystick-press-release' || 
+                const needsSpecialJoystick = specialInputType === 'joystick-press-release' ||
                     specialInputType === 'joystick-continuous';
                 if (needsSpecialJoystick) {
                     return this.touchJoysticks.specialAbility.getAngle();
@@ -1032,12 +1120,12 @@ const Input = {
             return this.getAimDirection();
         }
     },
-    
+
     // Check if a key is pressed
     isKeyPressed(key) {
         return this.keys[key.toLowerCase()] === true;
     },
-    
+
     // Get key state
     getKeyState(key) {
         return this.keys[key.toLowerCase()] || false;
