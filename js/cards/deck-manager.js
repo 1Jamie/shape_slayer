@@ -8,7 +8,8 @@ window.DeckState = {
 	spent: [],
 	reserve: [],
 	roomModifierInventory: [],
-	activeTeamCards: []
+	activeTeamCards: [],
+	classCard: null // Special class card that scales with level
 };
 
 // Room-based upgrade quality limits (easily tunable)
@@ -38,7 +39,7 @@ function getRoomForQualityUnlock(targetQuality) {
 	const qualityOrder = ['white', 'green', 'blue', 'purple', 'orange'];
 	const targetIdx = qualityOrder.indexOf(targetQuality);
 	if (targetIdx === -1) return 999;
-	
+
 	for (const limit of UPGRADE_QUALITY_LIMITS) {
 		const limitIdx = qualityOrder.indexOf(limit.maxQuality);
 		if (limitIdx >= targetIdx) {
@@ -51,53 +52,67 @@ function getRoomForQualityUnlock(targetQuality) {
 // Check if any cards in hand can be upgraded given room limits
 function canUpgradeAnyCard(roomNumber) {
 	const hand = window.DeckState && Array.isArray(window.DeckState.hand) ? window.DeckState.hand : [];
-	if (hand.length === 0) return false;
-	
 	const maxQuality = getMaxUpgradeQualityForRoom(roomNumber);
 	const qualityOrder = ['white', 'green', 'blue', 'purple', 'orange'];
 	const maxQualityIdx = qualityOrder.indexOf(maxQuality);
-	
+
+	// Check hand cards
 	for (const card of hand) {
 		if (!card || !card.qualityBands) continue;
 		const cur = card._resolvedQuality || 'white';
 		const curIdx = qualityOrder.indexOf(cur);
 		if (curIdx === -1 || curIdx >= qualityOrder.length - 1) continue;
-		
+
 		const next = qualityOrder[curIdx + 1];
 		if (!card.qualityBands[next]) continue;
-		
+
 		// Check if upgrade would exceed room limit
 		if (curIdx + 1 <= maxQualityIdx) {
 			return true; // At least one card can be upgraded
 		}
 	}
+
+	// Check class card
+	if (window.DeckState && window.DeckState.classCard) {
+		if (typeof window.canUpgradeClassCard === 'function' && window.canUpgradeClassCard(roomNumber)) {
+			return true;
+		}
+	}
+
 	return false; // No cards can be upgraded
 }
 
 // Count how many cards in hand can be upgraded given room limits
 function countUpgradeableCards(roomNumber) {
 	const hand = window.DeckState && Array.isArray(window.DeckState.hand) ? window.DeckState.hand : [];
-	if (hand.length === 0) return 0;
-	
 	const maxQuality = getMaxUpgradeQualityForRoom(roomNumber);
 	const qualityOrder = ['white', 'green', 'blue', 'purple', 'orange'];
 	const maxQualityIdx = qualityOrder.indexOf(maxQuality);
 	let count = 0;
-	
+
+	// Count hand cards
 	for (const card of hand) {
 		if (!card || !card.qualityBands) continue;
 		const cur = card._resolvedQuality || 'white';
 		const curIdx = qualityOrder.indexOf(cur);
 		if (curIdx === -1 || curIdx >= qualityOrder.length - 1) continue;
-		
+
 		const next = qualityOrder[curIdx + 1];
 		if (!card.qualityBands[next]) continue;
-		
+
 		// Check if upgrade would exceed room limit
 		if (curIdx + 1 <= maxQualityIdx) {
 			count++; // This card can be upgraded
 		}
 	}
+
+	// Count class card if it can be upgraded
+	if (window.DeckState && window.DeckState.classCard) {
+		if (typeof window.canUpgradeClassCard === 'function' && window.canUpgradeClassCard(roomNumber)) {
+			count++;
+		}
+	}
+
 	return count;
 }
 
@@ -139,7 +154,7 @@ function applyUpwardShift(dist, shiftUp = 0) {
 
 function applyMinBand(dist, minBand) {
 	if (!minBand) return { ...dist };
-	const order = ['white','green','blue','purple','orange'];
+	const order = ['white', 'green', 'blue', 'purple', 'orange'];
 	const minIdx = order.indexOf(minBand);
 	if (minIdx <= 0) return { ...dist };
 	const out = { ...dist };
@@ -184,12 +199,12 @@ function applyEliteShift(dist) {
 function capByMastery(dist, masteryLevel) {
 	const out = { ...dist };
 	// Mastery 0: white only; 1: white/green; 2: +blue; 3: +purple; 4+: +orange
-	const allowed = masteryLevel >= 4 ? ['white','green','blue','purple','orange']
-		: masteryLevel === 3 ? ['white','green','blue','purple']
-		: masteryLevel === 2 ? ['white','green','blue']
-		: masteryLevel === 1 ? ['white','green']
-		: ['white'];
-	for (const band of ['white','green','blue','purple','orange']) {
+	const allowed = masteryLevel >= 4 ? ['white', 'green', 'blue', 'purple', 'orange']
+		: masteryLevel === 3 ? ['white', 'green', 'blue', 'purple']
+			: masteryLevel === 2 ? ['white', 'green', 'blue']
+				: masteryLevel === 1 ? ['white', 'green']
+					: ['white'];
+	for (const band of ['white', 'green', 'blue', 'purple', 'orange']) {
 		if (!allowed.includes(band)) out[band] = 0;
 	}
 	return normalizeWeights(out);
@@ -215,6 +230,46 @@ function averageMastery(cardIds) {
 	return sum / cardIds.length;
 }
 
+// Helper to get the next quality tier
+function getNextQuality(quality) {
+	const order = ['white', 'green', 'blue', 'purple', 'orange'];
+	const idx = order.indexOf(quality);
+	if (idx === -1 || idx >= order.length - 1) return 'orange';
+	return order[idx + 1];
+}
+
+// Helper to cap distribution at a maximum quality
+function capDistributionByQuality(dist, maxQuality) {
+	const order = ['white', 'green', 'blue', 'purple', 'orange'];
+	const maxIdx = order.indexOf(maxQuality);
+	if (maxIdx === -1) return dist; // Invalid quality, do nothing
+
+	const out = { ...dist };
+	let totalRemoved = 0;
+
+	// Zero out anything above maxQuality
+	for (let i = maxIdx + 1; i < order.length; i++) {
+		const q = order[i];
+		totalRemoved += out[q] || 0;
+		out[q] = 0;
+	}
+
+	// If we removed probability, we must re-normalize
+	// Simple normalization: divide by remaining sum
+	// Better approach: redistribute removed probability to the max allowed tier?
+	// Standard approach for "capping": just normalize what's left.
+	// If everything was removed (e.g. minBand > maxQuality), fallback to maxQuality.
+
+	const remainingSum = Object.values(out).reduce((a, b) => a + b, 0);
+	if (remainingSum <= 0.0001) {
+		// Fallback: 100% chance of max allowed quality
+		out[maxQuality] = 1.0;
+		return out;
+	}
+
+	return normalizeWeights(out);
+}
+
 // Resolve final quality band for a card draw
 function resolveQualityForCard(cardId, roomNumber, options = {}) {
 	const isStarting = options.isStarting === true;
@@ -223,24 +278,37 @@ function resolveQualityForCard(cardId, roomNumber, options = {}) {
 	const qualityShift = Number.isFinite(options.qualityShift) ? Math.max(0, Math.min(0.5, options.qualityShift)) : 0;
 	const minBand = options.minBand || null;
 	const mastery = getCardMastery(cardId);
+
 	let dist = isStarting
 		? getStartingFloorDistribution(averageMastery((SaveSystem.getDeckConfig && SaveSystem.getDeckConfig().cards) || []))
 		: getRoomQualityDistribution(roomNumber || 1);
+
 	if (isElite) {
 		dist = applyEliteShift(dist);
 	}
+
 	// Apply external quality shift (from pack bonuses)
 	if (qualityShift > 0) {
 		dist = applyUpwardShift(dist, qualityShift);
 	}
+
 	// Cap by mastery (standard packs respect cap). For elites, spec allows ignoring cap, but that will be handled when generating packs; draws from deck should respect cap.
 	if (!ignoreCap) {
 		dist = capByMastery(dist, mastery);
 	}
+
 	// Enforce minimum band if specified (e.g., guaranteed rare+)
 	if (minBand) {
 		dist = applyMinBand(dist, minBand);
 	}
+
+	// NEW: Cap by Room Max + 1 (unless it's a starting hand draw)
+	if (!isStarting) {
+		const maxUpgrade = getMaxUpgradeQualityForRoom(roomNumber || 1);
+		const dropCap = getNextQuality(maxUpgrade);
+		dist = capDistributionByQuality(dist, dropCap);
+	}
+
 	return pickWeighted(dist);
 }
 
@@ -285,6 +353,21 @@ window.drawCards = function drawCards(count = 1) {
 		} catch (e) {
 			card._resolvedQuality = 'white';
 		}
+		
+		// Track all quality bands up to the drawn quality
+		if (typeof SaveSystem !== 'undefined' && SaveSystem.seeCardQualityBand && card.id && card._resolvedQuality) {
+			const qualityOrder = ['white', 'green', 'blue', 'purple', 'orange'];
+			const drawnQuality = card._resolvedQuality;
+			const drawnQualityIdx = qualityOrder.indexOf(drawnQuality);
+			
+			// Track all qualities from white up to the drawn quality
+			if (drawnQualityIdx >= 0) {
+				for (let i = 0; i <= drawnQualityIdx; i++) {
+					SaveSystem.seeCardQualityBand(card.id, qualityOrder[i]);
+				}
+			}
+		}
+		
 		window.DeckState.hand.push(card);
 		drawn.push(card);
 	}
@@ -317,6 +400,21 @@ window.drawStartingHand = function drawStartingHand(count = 1) {
 		} catch (e) {
 			card._resolvedQuality = 'white';
 		}
+		
+		// Track all quality bands up to the starting quality
+		if (typeof SaveSystem !== 'undefined' && SaveSystem.seeCardQualityBand && card.id && card._resolvedQuality) {
+			const qualityOrder = ['white', 'green', 'blue', 'purple', 'orange'];
+			const startingQuality = card._resolvedQuality;
+			const startingQualityIdx = qualityOrder.indexOf(startingQuality);
+			
+			// Track all qualities from white up to the starting quality
+			if (startingQualityIdx >= 0) {
+				for (let i = 0; i <= startingQualityIdx; i++) {
+					SaveSystem.seeCardQualityBand(card.id, qualityOrder[i]);
+				}
+			}
+		}
+		
 		window.DeckState.hand.push(card);
 		drawn.push(card);
 	}
@@ -324,15 +422,37 @@ window.drawStartingHand = function drawStartingHand(count = 1) {
 };
 
 window.addToHand = function addToHand(card) {
-	// Non-stacking validation
+	// Non-stacking validation - allow swap if hand is full even for non-stacking duplicates
+	const baseMaxSize = (typeof SaveSystem !== 'undefined' && SaveSystem.getDeckUpgrades) ? (SaveSystem.getDeckUpgrades().handSize || 4) : 4;
+	const runBonus = (typeof Game !== 'undefined' && Game.runHandSizeBonus) ? Game.runHandSizeBonus : 0;
+	const maxSize = baseMaxSize + runBonus;
+	const handFull = Array.isArray(window.DeckState.hand) && window.DeckState.hand.length >= maxSize;
+
 	if (card.nonStacking) {
 		const already = window.DeckState.hand.find(c => c.family === card.family);
-		if (already) return false;
+		if (already) {
+			// Non-stacking duplicate found - if hand is full, allow swap; otherwise reject
+			if (handFull) {
+				// Hand is full - allow swap to replace the existing non-stacking card
+				if (typeof Game !== 'undefined') {
+					// Clear any existing swap state first
+					Game.awaitingHandSwap = true;
+					Game.pendingSwapCard = { ...card, origin: card.origin || 'found' };
+					// Open character sheet to perform swap in full UI
+					if (typeof CharacterSheet !== 'undefined') {
+						CharacterSheet.isOpen = true;
+					}
+				}
+				return false;
+			}
+			// Hand not full but duplicate exists - reject
+			return false;
+		}
 	}
-	// Capacity check
-	const maxSize = (typeof SaveSystem !== 'undefined' && SaveSystem.getDeckUpgrades) ? (SaveSystem.getDeckUpgrades().handSize || 4) : 4;
-	if (Array.isArray(window.DeckState.hand) && window.DeckState.hand.length >= maxSize) {
-		// Trigger swap UI
+
+	// Capacity check (include run bonus from bonus slot rooms)
+	if (handFull) {
+		// Trigger swap UI - clear any existing swap state first
 		if (typeof Game !== 'undefined') {
 			Game.awaitingHandSwap = true;
 			Game.pendingSwapCard = { ...card, origin: card.origin || 'found' };
@@ -343,7 +463,30 @@ window.addToHand = function addToHand(card) {
 		}
 		return false;
 	}
+
+	// Clear swap state if we successfully add the card
+	if (typeof Game !== 'undefined' && Game.awaitingHandSwap) {
+		Game.awaitingHandSwap = false;
+		Game.pendingSwapCard = null;
+		Game.pendingSwapSourceId = null;
+	}
+
 	const instance = { ...card, origin: card.origin || 'found' };
+	
+	// Track card discovery when picked up
+	if (typeof SaveSystem !== 'undefined' && SaveSystem.discoverCard && card.id) {
+		if (card.category === 'Room' || card.category === 'Team') {
+			// Utility cards (room modifiers, team cards)
+			if (SaveSystem.discoverUtilityCard) {
+				SaveSystem.discoverUtilityCard(card.id);
+			}
+		} else {
+			// Regular cards
+			SaveSystem.discoverCard(card.id);
+		}
+	}
+	
+	// Track quality bands up to the picked up quality
 	if (!instance._resolvedQuality) {
 		try {
 			const roomNum = (typeof Game !== 'undefined' && Game.roomNumber) ? Game.roomNumber : 1;
@@ -352,6 +495,19 @@ window.addToHand = function addToHand(card) {
 			instance._resolvedQuality = 'white';
 		}
 	}
+	
+	// Track all quality bands up to the picked up quality
+	if (typeof SaveSystem !== 'undefined' && SaveSystem.seeCardQualityBand && instance.id && instance._resolvedQuality) {
+		const qualityOrder = ['white', 'green', 'blue', 'purple', 'orange'];
+		const pickedQuality = instance._resolvedQuality;
+		const pickedQualityIdx = qualityOrder.indexOf(pickedQuality);
+		
+		// Track all qualities from white up to the picked quality
+		for (let i = 0; i <= pickedQualityIdx; i++) {
+			SaveSystem.seeCardQualityBand(instance.id, qualityOrder[i]);
+		}
+	}
+	
 	window.DeckState.hand.push(instance);
 	return true;
 };
@@ -387,28 +543,28 @@ window.upgradeHandCardOneBand = function upgradeHandCardOneBand(index) {
 	if (!Array.isArray(hand) || index < 0 || index >= hand.length) return false;
 	const card = hand[index];
 	if (!card || !card.qualityBands) return false;
-	
+
 	// CRITICAL FIX: Ensure we're working with a unique card instance
 	// If multiple cards with the same ID exist, they might share object references
 	// Create a new object with the updated quality to prevent affecting other instances
-	const order = ['white','green','blue','purple','orange'];
+	const order = ['white', 'green', 'blue', 'purple', 'orange'];
 	const cur = card._resolvedQuality || 'white';
 	const curIdx = order.indexOf(cur);
 	if (curIdx === -1 || curIdx >= order.length - 1) return false;
 	const next = order[curIdx + 1];
 	if (!card.qualityBands[next]) return false;
-	
+
 	// NEW: Check room-based upgrade limit
 	const roomNumber = (typeof Game !== 'undefined' && Game.roomNumber) ? Game.roomNumber : 1;
 	const maxQuality = getMaxUpgradeQualityForRoom(roomNumber);
 	const maxQualityIdx = order.indexOf(maxQuality);
-	
+
 	if (curIdx + 1 > maxQualityIdx) {
 		const unlockRoom = getRoomForQualityUnlock(next);
 		console.warn(`[UPGRADE] Cannot upgrade ${card.name || card.family} to ${next} in Room ${roomNumber}. Maximum upgrade quality is ${maxQuality}. Upgrade to ${next} available starting Room ${unlockRoom}.`);
 		return false;
 	}
-	
+
 	// Check if this card object is referenced elsewhere in the hand
 	const sameCardRefs = hand.filter(c => c === card);
 	if (sameCardRefs.length > 1) {
@@ -423,13 +579,19 @@ window.upgradeHandCardOneBand = function upgradeHandCardOneBand(index) {
 		card._resolvedQuality = next;
 		card._tempUpgradeSteps = (card._tempUpgradeSteps || 0) + 1;
 	}
+	
+	// Track that this quality band has been seen for this card
+	if (typeof SaveSystem !== 'undefined' && SaveSystem.seeCardQualityBand && card.id) {
+		SaveSystem.seeCardQualityBand(card.id, next);
+	}
+	
 	return true;
 };
 
 // Mulligan for starting hand indices
 window.mulligan = function mulligan(indices) {
 	if (!Array.isArray(indices) || indices.length === 0) return [];
-	const unique = Array.from(new Set(indices.filter(i => Number.isInteger(i) && i >= 0 && i < window.DeckState.hand.length))).sort((a,b)=>b-a);
+	const unique = Array.from(new Set(indices.filter(i => Number.isInteger(i) && i >= 0 && i < window.DeckState.hand.length))).sort((a, b) => b - a);
 	const putBack = [];
 	unique.forEach(idx => {
 		const [card] = window.DeckState.hand.splice(idx, 1);
@@ -466,5 +628,6 @@ window.getMaxUpgradeQualityForRoom = getMaxUpgradeQualityForRoom;
 window.getRoomForQualityUnlock = getRoomForQualityUnlock;
 window.canUpgradeAnyCard = canUpgradeAnyCard;
 window.countUpgradeableCards = countUpgradeableCards;
+window.resolveQualityForCard = resolveQualityForCard;
 
 

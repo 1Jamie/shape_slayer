@@ -188,11 +188,10 @@
 			body.appendChild(card);
 		}
 
-		// Room modifier picker
-		if (window.SaveSystem && SaveSystem.load) {
-			const save = SaveSystem.load();
-			const mods = Array.isArray(save.roomModifierCollection) ? save.roomModifierCollection : [];
-			const slots = SaveSystem.getDeckUpgrades ? (SaveSystem.getDeckUpgrades().roomModifierCarrySlots || 3) : 3;
+		// Room modifier picker - use run inventory instead of collection
+		if (window.Game && Array.isArray(Game.roomModifierInventory) && Game.roomModifierInventory.length > 0) {
+			const mods = Game.roomModifierInventory;
+			const slots = SaveSystem && SaveSystem.getDeckUpgrades ? (SaveSystem.getDeckUpgrades().roomModifierCarrySlots || 3) : 3;
 			if (mods.length > 0 && slots > 0) {
 				const title = document.createElement('div');
 				title.style.margin = '8px 0';

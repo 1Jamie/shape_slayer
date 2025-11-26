@@ -37,6 +37,17 @@
 			stats[key] = (stats[key] || 0) + (updates[key] || 0);
 		});
 		setLifetimeStats(stats);
+		// Auto-unlock any cards that now meet conditions
+		const unlocked = checkAndUnlockCards();
+		// Show toast notifications for unlocked cards (achievement-based unlocks)
+		if (unlocked.length > 0 && typeof window.showToast === 'function') {
+			unlocked.forEach((card, index) => {
+				const cardName = card.name || card.id || 'Card';
+				setTimeout(() => {
+					window.showToast(`New Card Unlocked: ${cardName}!`, 3000);
+				}, index * 200); // Stagger toasts slightly if multiple unlocks
+			});
+		}
 		return stats;
 	}
 
@@ -172,6 +183,18 @@
 			if (checkUnlockCondition(card)) {
 				if (typeof SaveSystem !== 'undefined' && SaveSystem.unlockCard) {
 					SaveSystem.unlockCard(card.id);
+					// Track discovery
+					if (card.category === 'Room' || card.category === 'Team') {
+						// Utility cards (room modifiers, team cards)
+						if (SaveSystem.discoverUtilityCard) {
+							SaveSystem.discoverUtilityCard(card.id);
+						}
+					} else {
+						// Regular cards
+						if (SaveSystem.discoverCard) {
+							SaveSystem.discoverCard(card.id);
+						}
+					}
 					unlocked.push(card);
 					console.log(`[CardUnlocks] Unlocked card: ${card.name || card.id}`);
 				}
@@ -192,7 +215,17 @@
 
 	// Check achievement unlocks (called periodically or on stat updates)
 	window.checkAchievementUnlocks = function checkAchievementUnlocks() {
-		return checkAndUnlockCards();
+		const unlocked = checkAndUnlockCards();
+		// Show toast notifications for unlocked cards
+		if (unlocked.length > 0 && typeof window.showToast === 'function') {
+			unlocked.forEach((card, index) => {
+				const cardName = card.name || card.id || 'Card';
+				setTimeout(() => {
+					window.showToast(`New Card Unlocked: ${cardName}!`, 3000);
+				}, index * 200); // Stagger toasts slightly if multiple unlocks
+			});
+		}
+		return unlocked;
 	};
 
 	// Update lifetime stats from run stats (called on run end)
@@ -259,7 +292,26 @@
 		SaveSystem.addCardShards(-cost);
 		SaveSystem.unlockCard(cardId);
 		
+		// Track discovery
+		if (card.category === 'Room' || card.category === 'Team') {
+			// Utility cards (room modifiers, team cards)
+			if (SaveSystem.discoverUtilityCard) {
+				SaveSystem.discoverUtilityCard(cardId);
+			}
+		} else {
+			// Regular cards
+			if (SaveSystem.discoverCard) {
+				SaveSystem.discoverCard(cardId);
+			}
+		}
+		
 		console.log(`[CardUnlocks] Purchased unlock for ${card.name || cardId} for ${cost} shards`);
+		
+		// Show toast notification for purchased unlock
+		if (typeof window.showToast === 'function') {
+			const cardName = card.name || cardId;
+			window.showToast(`Card Unlocked: ${cardName}!`, 3000);
+		}
 		
 		return { success: true, card: card.name || cardId, cost };
 	};
@@ -420,10 +472,8 @@
 			return;
 		}
 		const actualAmount = typeof amount === 'number' && !isNaN(amount) ? amount : 1;
-		console.log(`[CardUnlocks] Tracking ${statName}: +${actualAmount}`);
 		updateLifetimeStats({ [statName]: actualAmount });
-		const newStats = getLifetimeStats();
-		console.log(`[CardUnlocks] New ${statName} value:`, newStats[statName]);
+		// Note: updateLifetimeStats already calls checkAndUnlockCards, so cards will auto-unlock
 	};
 
 	// Expose lifetime stats getter and updater

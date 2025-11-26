@@ -1350,6 +1350,9 @@ class BossTwinPrism extends BossBase {
         
         // Render health bar
         this.renderHealthBar(ctx);
+
+        // Draw status effect indicators
+        this.renderStatusEffects(ctx);
     }
     
     renderLockedTargets(ctx) {

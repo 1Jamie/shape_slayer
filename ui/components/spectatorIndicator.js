@@ -20,7 +20,7 @@
 	}
 
 	function tick() {
-		if (!window.USE_DOM_UI || !window.Game) {
+		if (!window.Game) {
 			layer.style.display = 'none';
 		} else {
 			const inMultiplayer = Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
@@ -41,6 +41,9 @@
 		init();
 	}
 })();
+
+
+
 
 
 

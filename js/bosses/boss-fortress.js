@@ -673,7 +673,7 @@ class BossFortress extends BossBase {
         this.knockbackContextCooldown = Math.max(this.knockbackContextCooldown, cooldown);
         this.knockbackProximityDelay = this.config.knockbackPulse.proximityDelay || 0.45;
         if (typeof Game !== 'undefined') {
-            Game.triggerScreenShake(6, 0.35);
+            Game.triggerScreenShake(6, 0.35, 'boss');
         }
     }
 
@@ -1041,6 +1041,9 @@ class BossFortress extends BossBase {
         this.renderWeakPoints(ctx);
         this.renderHazards(ctx);
         this.renderHealthBar(ctx);
+
+        // Draw status effect indicators
+        this.renderStatusEffects(ctx);
     }
 
     drawNeonRect(ctx, x, y, width, height, fill, stroke, lineWidth = 3, glow = 10) {

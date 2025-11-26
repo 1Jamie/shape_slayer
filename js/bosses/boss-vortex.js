@@ -474,7 +474,7 @@ class BossVortex extends BossBase {
             this.createShockwave(this.x, this.y, 250, 1.4, this.damage * 2.5); // Increased duration from 1.0 to 1.4
             
             if (typeof Game !== 'undefined') {
-                Game.triggerScreenShake(8, 0.4);
+                Game.triggerScreenShake(8, 0.4, 'boss');
                 if (typeof createParticleBurst !== 'undefined') {
                     createParticleBurst(this.x, this.y, this.color, 40);
                 }
@@ -507,7 +507,7 @@ class BossVortex extends BossBase {
                     });
                 }
                 
-                Game.triggerScreenShake(10, 0.5);
+                Game.triggerScreenShake(10, 0.5, 'boss');
             }
         }
     }
@@ -524,7 +524,7 @@ class BossVortex extends BossBase {
         
         // Screen shake
         if (typeof Game !== 'undefined') {
-            Game.triggerScreenShake(5, 0.3);
+            Game.triggerScreenShake(5, 0.3, 'boss');
         }
     }
     
@@ -634,6 +634,9 @@ class BossVortex extends BossBase {
         
         // Render health bar
         this.renderHealthBar(ctx);
+
+        // Draw status effect indicators
+        this.renderStatusEffects(ctx);
     }
     
     renderTelegraph(ctx) {

@@ -809,6 +809,9 @@ window.addEventListener('keydown', () => {
     unlockAudioContext();
 }, { once: true });
 
+// Expose AudioManager globally
+window.AudioManager = AudioManager;
+
 // Also try to initialize immediately (will work if autoplay is allowed)
 if (document.readyState === 'complete') {
     AudioManager.init();

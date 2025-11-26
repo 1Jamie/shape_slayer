@@ -25,7 +25,8 @@
 		const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
 		svg.setAttribute('width', String(size));
 		svg.setAttribute('height', String(size));
-		svg.style.pointerEvents = 'auto';
+		// Cooldown indicators are display-only, should not block input
+		svg.style.pointerEvents = 'none';
 		const bg = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
 		bg.setAttribute('cx', String(size / 2));
 		bg.setAttribute('cy', String(size / 2));
@@ -57,7 +58,7 @@
 	}
 
 	function tick() {
-		if (!window.USE_DOM_UI || !window.Input || !Input.isTouchMode() || !window.Game || !Game.player || Game.player.dead) {
+		if ( !window.Input || !Input.isTouchMode() || !window.Game || !Game.player || Game.player.dead) {
 			layer.style.display = 'none';
 		} else {
 			layer.style.display = 'block';
@@ -101,6 +102,7 @@
 		init();
 	}
 })();
+
 
 
 

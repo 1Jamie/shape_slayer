@@ -17,6 +17,11 @@ window.CardEffects.applyPlayerStatModifiers = function applyPlayerStatModifiers(
 	let dodgeCooldownDelta = 0; // seconds, negative reduces cooldown
 	let bonusDodgeChargesAdd = 0; // integer
 	let thornsReflectAdd = 0;
+	let projectileCountBonus = 0; // Volley card
+	let volleyDamagePerProjectile = 1.0; // Volley damage multiplier per projectile
+	let volleyPierceChance = 0; // Volley pierce chance
+	let volleyPierceAll = false; // Volley pierce all
+	let volleyChain = false; // Volley chain
 
 	handCards.forEach(card => {
 		if (!card || !card.qualityBands) return;
@@ -63,6 +68,22 @@ window.CardEffects.applyPlayerStatModifiers = function applyPlayerStatModifiers(
 			case 'Prism Shield':
 				thornsReflectAdd += band.value || 0;
 				break;
+			case 'Volley':
+				// Volley adds projectile count and reduces damage per projectile
+				projectileCountBonus += Math.floor(band.value || 0);
+				if (band.bonus && band.bonus.dmgPerProjectile) {
+					volleyDamagePerProjectile = band.bonus.dmgPerProjectile; // Use latest non-stacking card
+				}
+				if (band.bonus && band.bonus.pierceChance) {
+					volleyPierceChance = band.bonus.pierceChance;
+				}
+				if (band.bonus && band.bonus.pierceAll) {
+					volleyPierceAll = true;
+				}
+				if (band.bonus && band.bonus.chain) {
+					volleyChain = true;
+				}
+				break;
 		}
 	});
 
@@ -79,7 +100,12 @@ window.CardEffects.applyPlayerStatModifiers = function applyPlayerStatModifiers(
 		cooldownReductionAdd,
 		dodgeCooldownDelta,
 		bonusDodgeChargesAdd,
-		thornsReflectAdd
+		thornsReflectAdd,
+		projectileCountBonus,
+		volleyDamagePerProjectile,
+		volleyPierceChance,
+		volleyPierceAll,
+		volleyChain
 	};
 };
 
@@ -90,7 +116,9 @@ window.CardEffects.getConditionalEffects = function getConditionalEffects(handCa
 		execute: null,
 		fractalConduit: null,
 		detonatingVertex: null,
-		overcharge: null
+		overcharge: null,
+		precision: null, // Precision bonuses (lifeOnCrit, vulnOnCrit)
+		bulwark: null // Bulwark bonuses (reflectOnBlock, invulnOnBlock)
 	};
 	
 	handCards.forEach(card => {
@@ -140,6 +168,48 @@ window.CardEffects.getConditionalEffects = function getConditionalEffects(handCa
 					moveSpeed: band.bonus?.moveSpeed || 0
 				};
 				break;
+			case 'Precision':
+				// Extract Precision bonuses (Purple/Orange)
+				if (band.bonus && (band.bonus.lifeOnCrit || band.bonus.vulnOnCrit)) {
+					effects.precision = {
+						lifeOnCrit: band.bonus.lifeOnCrit || 0,
+						vulnOnCrit: band.bonus.vulnOnCrit || null
+					};
+				}
+				break;
+			case 'Bulwark':
+				// Extract Bulwark bonuses (Purple/Orange)
+				if (band.bonus && (band.bonus.reflectOnBlock || band.bonus.invulnOnBlock)) {
+					effects.bulwark = {
+						reflectOnBlock: band.bonus.reflectOnBlock || 0,
+						invulnOnBlock: band.bonus.invulnOnBlock || 0
+					};
+				}
+				break;
+			case 'Velocity':
+				// Extract Velocity bonuses (Purple/Orange)
+				if (band.bonus && (band.bonus.speedToDamage || band.bonus.dodgeChance)) {
+					effects.velocity = {
+						speedToDamage: band.bonus.speedToDamage || 0,
+						dodgeChance: band.bonus.dodgeChance || 0
+					};
+				}
+				break;
+			case 'Fury':
+				// Extract Fury bonuses (Purple/Orange)
+				if (band.bonus && (band.bonus.stunOnCritChance || band.bonus.critExplosion)) {
+					effects.fury = {
+						stunOnCritChance: band.bonus.stunOnCritChance || 0,
+						stunDuration: band.bonus.stunDuration || 1.0,
+						critExplosion: band.bonus.critExplosion || null
+					};
+				}
+				// Also track damage taken penalty (blue+)
+				if (q === 'blue' || q === 'purple' || q === 'orange') {
+					effects.fury = effects.fury || {};
+					effects.fury.damageTakenPenalty = 0.03; // +3% damage taken
+				}
+				break;
 		}
 	});
 	
@@ -175,8 +245,34 @@ window.CardEffects.updateConditionalEffects = function updateConditionalEffects(
 		if (effects.overchargeTimer <= 0) {
 			effects.overchargeActive = true;
 			effects.overchargeTimer = 0; // Will be reset by effect handler
+			
+			// Overcharge Purple/Orange: Apply invulnerability and movement speed bonuses when burst activates
+			if (typeof DeckState !== 'undefined' && Array.isArray(DeckState.hand)) {
+				const condEffects = CardEffects.getConditionalEffects ? CardEffects.getConditionalEffects(DeckState.hand) : null;
+				if (condEffects && condEffects.overcharge) {
+					// Invulnerability during burst (Purple/Orange)
+					if (condEffects.overcharge.invuln && condEffects.overcharge.invuln > 0) {
+						player.invulnerabilityTime = condEffects.overcharge.invuln; // Brief invulnerability (0.3s)
+						// Visual feedback
+						if (typeof createParticleBurst !== 'undefined') {
+							createParticleBurst(player.x, player.y, '#ffff00', 15);
+						}
+					}
+					
+					// Movement speed bonus during burst (Orange only)
+					if (condEffects.overcharge.moveSpeed && condEffects.overcharge.moveSpeed > 0) {
+						if (typeof player.applyTemporarySpeedBoost === 'function') {
+							// Apply speed boost for the burst duration (typically until used)
+							player.applyTemporarySpeedBoost(condEffects.overcharge.moveSpeed, 0.5); // 0.5s duration
+						}
+					}
+				}
+			}
 		}
 	}
+	
+	// Reset overcharge active flag if it's been consumed (handled in combat.js)
+	// The invulnerability and speed boost are one-time applications when burst activates
 };
 
 // Get current momentum damage multiplier

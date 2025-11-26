@@ -6,11 +6,22 @@
 		layer = document.createElement('div');
 		layer.className = 'ui-layer';
 		layer.style.pointerEvents = 'none';
+		layer.style.userSelect = 'none';
+		layer.style.webkitUserSelect = 'none';
+		layer.style.mozUserSelect = 'none';
+		layer.style.msUserSelect = 'none';
 		layer.style.position = 'absolute';
 		layer.style.right = '12px';
 		layer.style.top = '90px';
 		layer.style.width = '220px';
 		layer.style.display = 'none';
+		
+		// Prevent right-click context menu (even when pointer-events is auto for swap)
+		layer.addEventListener('contextmenu', (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			return false;
+		});
 		list = document.createElement('div');
 		list.style.display = 'grid';
 		list.style.gap = '8px';
@@ -66,11 +77,12 @@
 			const row = document.createElement('button');
 			row.type = 'button';
 			row.className = 'btn';
-			row.style.pointerEvents = 'auto';
 			row.style.textAlign = 'left';
 			row.innerHTML = `<div style="font-weight:700">${(c && (c.name || c.family)) || 'Card'}</div>
 				<div style="opacity:.85">Q: ${(c && c._resolvedQuality) || 'white'} ${(c && c.origin === 'deck') ? 'D' : 'F'}</div>`;
 			if (Game.awaitingHandSwap && Game.pendingSwapCard) {
+				// Only make buttons interactive during swap mode
+				row.style.pointerEvents = 'auto';
 				row.addEventListener('click', (e) => {
 					e.preventDefault();
 					e.stopPropagation();
@@ -78,13 +90,14 @@
 				});
 			} else {
 				row.disabled = true;
+				// Disabled buttons should not block input
+				row.style.pointerEvents = 'none';
 			}
 			list.appendChild(row);
 		}
 	}
 
 	function visible() {
-		if (!window.USE_DOM_UI) return false;
 		// Hide swap preview when in swap mode (character sheet handles it now)
 		if (typeof Game !== 'undefined' && Game.awaitingHandSwap && Game.pendingSwapCard) return false;
 		if (!window.DeckState || !Array.isArray(DeckState.hand) || DeckState.hand.length === 0) return false;
@@ -96,7 +109,9 @@
 		if (visible()) {
 			build();
 			layer.style.display = 'block';
-			layer.style.pointerEvents = 'auto';
+			// Keep layer at pointer-events: none - only buttons should be interactive
+			// This allows input to pass through to the game canvas below
+			layer.style.pointerEvents = 'none';
 		} else {
 			layer.style.display = 'none';
 			layer.style.pointerEvents = 'none';

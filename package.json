@@ -5,11 +5,21 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "server": "node harness/index.js"
+    "server": "node harness/index.js",
+    "build:css": "sass css/ui/base.scss css/ui/base.css",
+    "watch:css": "sass --watch css/ui/base.scss css/ui/base.css"
   },
-  "keywords": ["game", "arpg", "canvas"],
+  "keywords": [
+    "game",
+    "arpg",
+    "canvas"
+  ],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "sass": "^1.94.2"
+  },
+  "dependencies": {
+    "pixi.js": "^8.14.3"
+  }
 }
-
-

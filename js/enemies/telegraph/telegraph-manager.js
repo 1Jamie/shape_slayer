@@ -14,6 +14,7 @@
             this.startTime = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
             this.elapsed = 0;
             this.progress = 0;
+            this.onEnd = options.onEnd || null;
         }
 
         update(deltaTime) {
@@ -112,6 +113,7 @@
             this.owner.activeTelegraph = null;
 
             this._invokeCallback(currentOptions.onEnd, finished, false);
+            this._invokeCallback(finished.onEnd, finished, false);
             if (this.owner.telegraphCallbacks && typeof this.owner.telegraphCallbacks.onEnd === 'function') {
                 this.owner.telegraphCallbacks.onEnd(finished, this.owner);
             }

@@ -193,6 +193,9 @@ class MultiplayerManager {
                 case 'currency_update':
                     this.handleCurrencyUpdate(msg.data);
                     break;
+                case 'shards_update':
+                    this.handleShardsUpdate(msg.data);
+                    break;
                 case 'upgrades_sync':
                     this.handleUpgradesSync(msg.data);
                     break;
@@ -202,8 +205,20 @@ class MultiplayerManager {
                 case 'final_stats':
                     this.handleFinalStats(msg.data);
                     break;
+                case 'item_pylon_interact':
+                    this.handleItemPylonInteract(msg.data);
+                    break;
+                case 'item_pylon_interact_request':
+                    this.handleItemPylonInteractRequest(msg.data);
+                    break;
                 case 'player_leveled_up':
                     this.handlePlayerLeveledUp(msg.data);
+                    break;
+                case 'player_list_update':
+                    this.handlePlayerListUpdate(msg.data);
+                    break;
+                case 'kicked_from_lobby':
+                    this.handleKickedFromLobby(msg.data);
                     break;
                 case 'player_list_update':
                     this.handlePlayerListUpdate(msg.data);
@@ -299,6 +314,9 @@ class MultiplayerManager {
         const damageBonus = (classUpgrades.damage || 0) * (config.damagePerLevel || 0);
         const defenseBonus = (classUpgrades.defense || 0) * (config.defensePerLevel || 0);
         const speedBonus = (classUpgrades.speed || 0) * (config.speedPerLevel || 0);
+        const cooldownBonus = (classUpgrades.cooldown || 0) * (config.cooldownPerLevel || 0);
+        const healthBonus = (classUpgrades.health || 0) * (config.healthPerLevel || 0);
+        const attackSpeedBonus = (classUpgrades.attackSpeed || 0) * (config.attackSpeedPerLevel || 0);
         
         if (typeof playerInstance.baseDamage !== 'undefined') {
             playerInstance.baseDamage = config.baseDamage + damageBonus;
@@ -310,7 +328,13 @@ class MultiplayerManager {
             playerInstance.baseMoveSpeed = config.baseSpeed + speedBonus;
         }
         if (typeof playerInstance.baseMaxHp !== 'undefined') {
-            playerInstance.baseMaxHp = config.baseHp;
+            playerInstance.baseMaxHp = config.baseHp + healthBonus;
+        }
+        if (typeof playerInstance.cooldownReduction !== 'undefined') {
+            playerInstance.cooldownReduction = Math.min(0.75, cooldownBonus); // Cap at 75%
+        }
+        if (typeof playerInstance.attackSpeedMultiplier !== 'undefined') {
+            playerInstance.attackSpeedMultiplier = 1.0 + attackSpeedBonus;
         }
         if (typeof playerInstance.syncBaseStatAnchors === 'function') {
             playerInstance.syncBaseStatAnchors();
@@ -638,7 +662,19 @@ class MultiplayerManager {
                 armorType: gear.armorType || null,   // NEW: Armor types
                 legendaryEffect: gear.legendaryEffect || null, // NEW: Legendary effects
                 name: gear.name               // NEW: Gear names
-            })) : []
+            })) : [],
+            
+            // Serialize item pylons (only if in PLAYING state and multiplayer)
+            // Each player gets a random item of the pylon's rarity
+            itemPylons: (Game.state === 'PLAYING') ? ((Game.itemPylons && Array.isArray(Game.itemPylons)) ? Game.itemPylons.map(pylon => ({
+                id: pylon.id,
+                x: pylon.x,
+                y: pylon.y,
+                rarity: pylon.rarity || 'common', // Store the rarity - all players get items of this rarity
+                interactedPlayers: pylon.interactedPlayers ? pylon.interactedPlayers.slice() : [],
+                disappearing: pylon.disappearing || false,
+                disappearProgress: pylon.disappearProgress || 0
+            })) : []) : []
         };
         
         return this.roundDeep(state, 2);
@@ -703,6 +739,17 @@ class MultiplayerManager {
         }
         if (lootDiff.removed.length) {
             payload.removedGroundLoot = lootDiff.removed;
+            hasChanges = true;
+        }
+        
+        // Item pylons
+        const pylonDiff = this.diffById(state.itemPylons || [], baseline.itemPylons || [], 'id', { numericTolerance: 0.1 });
+        if (pylonDiff.changed.length) {
+            payload.itemPylons = pylonDiff.changed;
+            hasChanges = true;
+        }
+        if (pylonDiff.removed.length) {
+            payload.removedItemPylons = pylonDiff.removed;
             hasChanges = true;
         }
         
@@ -1151,6 +1198,18 @@ class MultiplayerManager {
             Game.multiplayerEnabled = true;
         }
         
+        // Force gear mode in multiplayer (multiplayer only supports gear mode)
+        if (typeof nexusRoom !== 'undefined' && nexusRoom) {
+            nexusRoom.portalMode = 'gear';
+            console.log('[Multiplayer] Switched to gear mode (required for multiplayer)');
+        }
+        
+        // Set game mode to gear (multiplayer only supports gear mode)
+        if (typeof Game !== 'undefined') {
+            Game.gameMode = 'gear';
+            console.log('[Multiplayer] Set game mode to gear (required for multiplayer)');
+        }
+        
         console.log(`[Multiplayer] Lobby created: ${this.lobbyCode}`);
         if (typeof window !== 'undefined' && window.UIBus && UIBus.emit) {
             UIBus.emit('mp:lobby:created', { code: this.lobbyCode, isHost: !!this.isHost, players: (this.players || []).slice() });
@@ -1225,6 +1284,18 @@ class MultiplayerManager {
         // Enable multiplayer mode in the game
         if (typeof Game !== 'undefined') {
             Game.multiplayerEnabled = true;
+        }
+        
+        // Force gear mode in multiplayer (multiplayer only supports gear mode)
+        if (typeof nexusRoom !== 'undefined' && nexusRoom) {
+            nexusRoom.portalMode = 'gear';
+            console.log('[Multiplayer] Switched to gear mode (required for multiplayer)');
+        }
+        
+        // Set game mode to gear (multiplayer only supports gear mode)
+        if (typeof Game !== 'undefined') {
+            Game.gameMode = 'gear';
+            console.log('[Multiplayer] Set game mode to gear (required for multiplayer)');
         }
         
         // If this is a reconnection, log it
@@ -1327,6 +1398,29 @@ class MultiplayerManager {
         }
     }
     
+    // Handle being kicked from lobby
+    handleKickedFromLobby(data) {
+        console.log('[Multiplayer] Kicked from lobby:', data.reason || 'Kicked by host');
+        
+        // Clean up connection
+        this.cleanup();
+        
+        // Notify UI
+        if (typeof window !== 'undefined' && window.UIBus && UIBus.emit) {
+            UIBus.emit('mp:lobby:error', { message: 'Kicked from lobby' });
+        }
+        
+        // Show toast notification
+        if (typeof window !== 'undefined' && window.showToast) {
+            window.showToast('Kicked from Lobby', 3000);
+        }
+        
+        // Notify game
+        if (typeof onLobbyError === 'function') {
+            onLobbyError({ message: 'Kicked from lobby' });
+        }
+    }
+    
     // Handle player joined
     handlePlayerJoined(data) {
         this.players = data.players;
@@ -1393,6 +1487,8 @@ class MultiplayerManager {
         console.log('[Multiplayer] Player list updated:', this.players.map(p => `${p.name} (${p.id})`));
         if (typeof window !== 'undefined' && window.UIBus && UIBus.emit) {
             UIBus.emit('mp:lobby:players', { players: (this.players || []).slice() });
+            // Also emit a specific event for player list updates (name changes)
+            UIBus.emit('mp:player_list_update', { players: (this.players || []).slice() });
         }
         
         // Update Game.remotePlayers for rendering
@@ -1840,6 +1936,20 @@ class MultiplayerManager {
     handleGameStart(data) {
         console.log('[Multiplayer] Game starting');
         
+        // Ensure game mode is set to gear (multiplayer only supports gear mode)
+        if (typeof Game !== 'undefined') {
+            Game.gameMode = 'gear';
+            if (typeof nexusRoom !== 'undefined' && nexusRoom) {
+                nexusRoom.portalMode = 'gear';
+            }
+            
+            // Initialize item pylons array if it doesn't exist (for both host and clients)
+            if (!Game.itemPylons) {
+                Game.itemPylons = [];
+                console.log('[Multiplayer] Initialized Game.itemPylons array');
+            }
+        }
+        
         // FIRST: Reset all remote players to game start position BEFORE any rendering
         if (this.remotePlayers && this.remotePlayers.length > 0) {
             this.remotePlayers.forEach(rp => {
@@ -2238,6 +2348,157 @@ class MultiplayerManager {
         }
     }
     
+    // Handle item pylon interaction (received from server - updates pylon state on clients)
+    handleItemPylonInteract(data) {
+        // This is called when receiving a broadcast from server (after host processed it)
+        const { pylonId, playerId, itemId } = data;
+        if (!pylonId || !playerId || !itemId || !Game.itemPylons) return;
+        
+        const pylon = Game.itemPylons.find(p => p.id === pylonId);
+        if (!pylon) return;
+        
+        // Update pylon state (mark player as having interacted)
+        if (!pylon.interactedPlayers) {
+            pylon.interactedPlayers = [];
+        }
+        
+        if (!pylon.interactedPlayers.includes(playerId)) {
+            pylon.interactedPlayers.push(playerId);
+            
+            // If this is the local player, add the random item and show feedback
+            if (playerId === this.playerId && Game.player && Game.player.itemManager) {
+                const success = Game.player.itemManager.addItem(itemId);
+                if (success) {
+                    // Show pickup message
+                    if (typeof showItemPickupMessage === 'function') {
+                        let itemName = 'Item';
+                        let itemRarity = 'common';
+                        if (typeof ITEM_DEFINITIONS !== 'undefined' && ITEM_DEFINITIONS[itemId]) {
+                            itemName = ITEM_DEFINITIONS[itemId].name || 'Item';
+                            itemRarity = ITEM_DEFINITIONS[itemId].rarity || 'common';
+                        }
+                        showItemPickupMessage(itemName, itemRarity);
+                    }
+                    
+                    // Play sound
+                    if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.sounds.gearPickup) {
+                        AudioManager.sounds.gearPickup();
+                    }
+                    
+                    console.log(`[Client] Received random item ${itemId} from pylon ${pylonId}`);
+                }
+            }
+            
+            // Check if all players have interacted
+            const totalPlayers = this.players ? this.players.length : 1;
+            if (pylon.interactedPlayers.length >= totalPlayers) {
+                // Start disappear animation
+                pylon.disappearing = true;
+                pylon.disappearProgress = 0;
+            }
+        }
+    }
+    
+    // Handle item pylon interaction request (from client to host)
+    handleItemPylonInteractRequest(data) {
+        if (!this.isHost) return; // Only host processes requests
+        
+        const { pylonId, playerId } = data;
+        if (!pylonId || !playerId || !Game.itemPylons) return;
+        
+        const pylon = Game.itemPylons.find(p => p.id === pylonId);
+        if (!pylon) return;
+        
+        // Check if player already interacted
+        if (!pylon.interactedPlayers) {
+            pylon.interactedPlayers = [];
+        }
+        
+        if (pylon.interactedPlayers.includes(playerId)) {
+            return; // Already interacted
+        }
+        
+        // Find the player instance
+        let playerInstance = null;
+        if (playerId === this.playerId && Game.player) {
+            playerInstance = Game.player;
+        } else if (Game.remotePlayerInstances) {
+            playerInstance = Game.remotePlayerInstances.get(playerId);
+        }
+        
+        if (!playerInstance || !playerInstance.itemManager) {
+            return; // Player not found or no item manager
+        }
+        
+        // Generate a random item of the pylon's rarity for this player
+        // Each player gets their own random item, but all items will be of the same rarity
+        const pylonRarity = pylon.rarity || 'common';
+        let randomItemId = null;
+        let randomItemDef = null;
+        
+        if (typeof ITEM_DEFINITIONS !== 'undefined') {
+            // Get all items of the pylon's rarity
+            const itemsOfRarity = Object.values(ITEM_DEFINITIONS).filter(item => item.rarity === pylonRarity);
+            if (itemsOfRarity.length > 0) {
+                // Pick a random item from items of this rarity
+                randomItemDef = itemsOfRarity[Math.floor(Math.random() * itemsOfRarity.length)];
+                randomItemId = randomItemDef.id;
+            } else {
+                // Fallback: if no items of this rarity exist, use common
+                const commonItems = Object.values(ITEM_DEFINITIONS).filter(item => item.rarity === 'common');
+                if (commonItems.length > 0) {
+                    randomItemDef = commonItems[Math.floor(Math.random() * commonItems.length)];
+                    randomItemId = randomItemDef.id;
+                }
+            }
+        }
+        
+        if (!randomItemId || !randomItemDef) {
+            console.warn(`[Host] Cannot generate random ${pylonRarity} item for player ${playerId} from pylon ${pylonId}`);
+            return;
+        }
+        
+        // Add random item to player
+        const success = playerInstance.itemManager.addItem(randomItemId);
+        
+        if (success) {
+            // Mark player as having interacted
+            pylon.interactedPlayers.push(playerId);
+            
+            // If this is the local player, show pickup message and play sound
+            if (playerId === this.playerId) {
+                if (typeof showItemPickupMessage === 'function') {
+                    showItemPickupMessage(randomItemDef.name || 'Item', randomItemDef.rarity || 'common');
+                }
+                
+                if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.sounds.gearPickup) {
+                    AudioManager.sounds.gearPickup();
+                }
+            }
+            
+            // Check if all players have interacted
+            const totalPlayers = this.players ? this.players.length : 1;
+            if (pylon.interactedPlayers.length >= totalPlayers) {
+                // Start disappear animation
+                pylon.disappearing = true;
+                pylon.disappearProgress = 0;
+            }
+            
+            // Send interaction to server (server will broadcast to all clients)
+            // Include the itemId so clients know what item was given
+            this.send({
+                type: 'item_pylon_interact',
+                data: {
+                    pylonId: pylonId,
+                    playerId: playerId,
+                    itemId: randomItemId  // Send the random item ID to the client
+                }
+            });
+            
+            console.log(`[Host] Player ${playerId} interacted with pylon ${pylonId} and received ${randomItemDef.name} (${randomItemDef.rarity})`);
+        }
+    }
+    
     spawnDroppedGear(oldGear, playerInstance, playerId) {
         if (typeof groundLoot === 'undefined' || !oldGear) return;
         const drop = this.prepareGearDrop(oldGear, playerInstance);
@@ -2464,6 +2725,23 @@ class MultiplayerManager {
         Game.currentCurrency = flooredCurrency;
         
         console.log(`[Multiplayer] Currency updated: ${flooredCurrency} (reason: ${reason || 'unknown'})`);
+    }
+    
+    // Handle shards update (from host)
+    handleShardsUpdate(data) {
+        if (typeof Game === 'undefined' || typeof SaveSystem === 'undefined') return;
+        
+        const { shardsEarned, reason } = data;
+        const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
+        
+        // Only process if this is for the local player
+        if (data.targetPlayerId && data.targetPlayerId !== localPlayerId) return;
+        
+        // Award shards
+        if (shardsEarned > 0 && SaveSystem.addCardShards) {
+            SaveSystem.addCardShards(shardsEarned);
+            console.log(`[Multiplayer] Shards updated: +${shardsEarned} (reason: ${reason || 'unknown'})`);
+        }
     }
     
     // Handle upgrades sync (from host)
@@ -2709,6 +2987,30 @@ class MultiplayerManager {
             base.groundLoot = base.groundLoot.filter(l => !removedSet.has(l.id));
         }
         
+        // Item pylons
+        if (!Array.isArray(base.itemPylons)) {
+            base.itemPylons = [];
+        }
+        if (delta.itemPylons) {
+            const pylonMap = new Map(base.itemPylons.map(p => [p.id, p]));
+            delta.itemPylons.forEach(pylonUpdate => {
+                const existing = pylonMap.get(pylonUpdate.id);
+                if (existing) {
+                    // Update existing pylon
+                    Object.assign(existing, this.deepClone(pylonUpdate));
+                } else {
+                    // Add new pylon
+                    const clone = this.deepClone(pylonUpdate);
+                    base.itemPylons.push(clone);
+                    pylonMap.set(pylonUpdate.id, clone);
+                }
+            });
+        }
+        if (delta.removedItemPylons && delta.removedItemPylons.length) {
+            const removedSet = new Set(delta.removedItemPylons);
+            base.itemPylons = base.itemPylons.filter(p => !removedSet.has(p.id));
+        }
+        
         if (delta.projectiles) {
             base.projectiles = this.deepClone(delta.projectiles);
         }
@@ -2775,8 +3077,17 @@ class MultiplayerManager {
         if (state.allPlayersDead !== undefined) {
             const prevAllDead = Game.allPlayersDead;
             Game.allPlayersDead = state.allPlayersDead;
-            if (!prevAllDead && Game.allPlayersDead && typeof Game.triggerGameOverMusic === 'function') {
-                Game.triggerGameOverMusic();
+            if (!prevAllDead && Game.allPlayersDead) {
+                // Set death screen start time when all players die
+                if (!Game.deathScreenStartTime) {
+                    Game.deathScreenStartTime = Date.now();
+                }
+                if (!Game.endTime) {
+                    Game.endTime = Date.now();
+                }
+                if (typeof Game.triggerGameOverMusic === 'function') {
+                    Game.triggerGameOverMusic();
+                }
             }
         }
         if (state.deadPlayers !== undefined) {
@@ -3128,6 +3439,60 @@ class MultiplayerManager {
                     }
                 });
             }
+            
+            // Sync item pylons (clients only - host is authoritative)
+            if (state.itemPylons !== undefined && !this.isHost) {
+                // Ensure Game.itemPylons exists
+                if (!Game.itemPylons) {
+                    Game.itemPylons = [];
+                    console.log('[Client] Initialized Game.itemPylons array');
+                }
+                
+                if (Array.isArray(state.itemPylons) && state.itemPylons.length > 0) {
+                    console.log(`[Client] Syncing ${state.itemPylons.length} pylons from host`);
+                }
+                
+                const hostPylonIds = new Set(state.itemPylons.map(p => p.id));
+                
+                // Remove pylons that no longer exist on host
+                for (let i = Game.itemPylons.length - 1; i >= 0; i--) {
+                    if (!hostPylonIds.has(Game.itemPylons[i].id)) {
+                        Game.itemPylons.splice(i, 1);
+                    }
+                }
+                
+                // Add or update pylons by ID
+                state.itemPylons.forEach(pylonData => {
+                    let existingPylon = Game.itemPylons.find(p => p.id === pylonData.id);
+                    
+                    if (!existingPylon) {
+                        // New pylon from host - create it
+                        // Each player will get a random item of the pylon's rarity
+                        const pylon = {
+                            id: pylonData.id,
+                            x: pylonData.x,
+                            y: pylonData.y,
+                            size: 20,
+                            pulse: 0,
+                            rarity: pylonData.rarity || 'common', // Store the rarity
+                            interactedPlayers: pylonData.interactedPlayers ? pylonData.interactedPlayers.slice() : [],
+                            disappearing: pylonData.disappearing || false,
+                            disappearProgress: pylonData.disappearProgress || 0
+                        };
+                        
+                        Game.itemPylons.push(pylon);
+                        console.log(`[Client] New ${pylon.rarity} rarity pylon ${pylon.id} at (${pylon.x.toFixed(1)}, ${pylon.y.toFixed(1)}) - each player will get a random ${pylon.rarity} item`);
+                    } else {
+                        // Update existing pylon (sync interaction state and position)
+                        existingPylon.x = pylonData.x;
+                        existingPylon.y = pylonData.y;
+                        existingPylon.rarity = pylonData.rarity || existingPylon.rarity || 'common';
+                        existingPylon.interactedPlayers = pylonData.interactedPlayers ? pylonData.interactedPlayers.slice() : [];
+                        existingPylon.disappearing = pylonData.disappearing || false;
+                        existingPylon.disappearProgress = pylonData.disappearProgress || 0;
+                    }
+                });
+            }
         }
 
         if (typeof Game !== 'undefined' && typeof Game.updateMusicForCurrentRoom === 'function') {
@@ -3233,6 +3598,7 @@ class MultiplayerManager {
         
         if (typeof Game !== 'undefined') {
             Game.remotePlayers = [];
+            Game.multiplayerEnabled = false;
         }
         
         this.stopHeartbeat();
@@ -3269,6 +3635,10 @@ function initMultiplayer() {
     if (!multiplayerManager) {
         multiplayerManager = new MultiplayerManager();
         console.log('[Multiplayer] Module loaded');
+    }
+    // Ensure it's on window for global access
+    if (typeof window !== 'undefined') {
+        window.multiplayerManager = multiplayerManager;
     }
     return multiplayerManager;
 }

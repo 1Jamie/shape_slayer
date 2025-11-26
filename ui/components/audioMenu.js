@@ -68,46 +68,129 @@
 		root.appendChild(layer);
 
 		function attachHandlers() {
-			function clamp(v) { return Math.max(0, Math.min(1, v)); }
-			if (master) master.addEventListener('input', () => {
-				const v = clamp(parseFloat(master.value || '0'));
-				if (window.AudioManager && AudioManager.setVolume) {
-					AudioManager.setVolume(v);
-					if (AudioManager.muted && v > 0 && AudioManager.setMute) {
-						AudioManager.setMute(false);
+		function clamp(v) { return Math.max(0, Math.min(1, v)); }
+		function getAudioManager() {
+			return window.AudioManager || (typeof AudioManager !== 'undefined' ? AudioManager : null);
+		}
+		function updateMuteButtonText() {
+			const am = getAudioManager();
+			if (mute && am) {
+				mute.textContent = am.muted ? 'Unmute' : 'Mute';
+			}
+		}
+		
+		function handleMasterChange() {
+			const v = clamp(parseFloat(master.value || '0'));
+			const am = getAudioManager();
+			if (am) {
+				if (!am.initialized && am.init) {
+					am.init();
+				}
+				if (am.setVolume) {
+					am.setVolume(v);
+					if (am.muted && v > 0 && am.setMute) {
+						am.setMute(false);
+						updateMuteButtonText();
 					}
 				}
-			});
-			if (music) music.addEventListener('input', () => {
-				const v = clamp(parseFloat(music.value || '0'));
-				if (window.AudioManager && AudioManager.setMusicVolume) {
-					AudioManager.setMusicVolume(v);
-				}
-			});
-			if (sfx) sfx.addEventListener('input', () => {
-				const v = clamp(parseFloat(sfx.value || '0'));
-				if (window.AudioManager && AudioManager.setSfxVolume) {
-					AudioManager.setSfxVolume(v);
-				}
-			});
-			if (mute) mute.addEventListener('click', () => {
-				if (window.AudioManager && AudioManager.setMute) {
-					AudioManager.setMute(!AudioManager.muted);
-				}
-			});
+			} else {
+				console.warn('[AudioMenu] AudioManager not available');
+			}
 		}
+		function handleMusicChange() {
+			const v = clamp(parseFloat(music.value || '0'));
+			const am = getAudioManager();
+			if (am) {
+				if (!am.initialized && am.init) {
+					am.init();
+				}
+				if (am.setMusicVolume) {
+					am.setMusicVolume(v);
+				}
+			} else {
+				console.warn('[AudioMenu] AudioManager not available');
+			}
+		}
+		function handleSfxChange() {
+			const v = clamp(parseFloat(sfx.value || '0'));
+			const am = getAudioManager();
+			if (am) {
+				if (!am.initialized && am.init) {
+					am.init();
+				}
+				if (am.setSfxVolume) {
+					am.setSfxVolume(v);
+				}
+			} else {
+				console.warn('[AudioMenu] AudioManager not available');
+			}
+		}
+		
+		if (master) {
+			master.addEventListener('input', handleMasterChange);
+			master.addEventListener('change', handleMasterChange);
+		}
+		if (music) {
+			music.addEventListener('input', handleMusicChange);
+			music.addEventListener('change', handleMusicChange);
+		}
+		if (sfx) {
+			sfx.addEventListener('input', handleSfxChange);
+			sfx.addEventListener('change', handleSfxChange);
+		}
+		if (mute) mute.addEventListener('click', () => {
+			const am = getAudioManager();
+			if (am) {
+				if (!am.initialized && am.init) {
+					am.init();
+				}
+				if (am.setMute) {
+					am.setMute(!am.muted);
+					updateMuteButtonText();
+				}
+			} else {
+				console.warn('[AudioMenu] AudioManager not available');
+			}
+		});
+	}
 		attachHandlers();
 	}
 
 	function syncValues() {
-		if (!window.AudioManager) return;
-		if (typeof AudioManager.masterVolume === 'number' && master) master.value = String(AudioManager.masterVolume);
-		if (typeof AudioManager.musicVolume === 'number' && music) music.value = String(AudioManager.musicVolume);
-		if (typeof AudioManager.sfxVolume === 'number' && sfx) sfx.value = String(AudioManager.sfxVolume);
+		const am = window.AudioManager || (typeof AudioManager !== 'undefined' ? AudioManager : null);
+		if (!am) {
+			console.warn('[AudioMenu] AudioManager not available for sync');
+			return;
+		}
+		
+		// Ensure AudioManager is initialized and settings are loaded
+		if (!am.initialized && am.init) {
+			am.init();
+		}
+		
+		// Load settings from save system to ensure we have the latest values
+		if (am.loadSettings) {
+			am.loadSettings();
+		}
+		
+		// Sync slider values
+		if (typeof am.masterVolume === 'number' && master) {
+			master.value = String(am.masterVolume);
+		}
+		if (typeof am.musicVolume === 'number' && music) {
+			music.value = String(am.musicVolume);
+		}
+		if (typeof am.sfxVolume === 'number' && sfx) {
+			sfx.value = String(am.sfxVolume);
+		}
+		
+		// Update mute button text
+		if (mute) {
+			mute.textContent = am.muted ? 'Unmute' : 'Mute';
+		}
 	}
 
 	function show() {
-		if (!window.USE_DOM_UI) return;
 		if (!layer) return;
 		syncValues();
 		layer.style.display = 'flex';
@@ -117,8 +200,9 @@
 		if (!layer) return;
 		layer.style.display = 'none';
 		// Persist on close
-		if (window.AudioManager && AudioManager.saveSettings) {
-			AudioManager.saveSettings();
+		const am = window.AudioManager || (typeof AudioManager !== 'undefined' ? AudioManager : null);
+		if (am && am.saveSettings) {
+			am.saveSettings();
 		}
 	}
 

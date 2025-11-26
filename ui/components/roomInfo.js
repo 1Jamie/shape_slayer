@@ -46,20 +46,20 @@
 		statusEl = document.createElement('div');
 		statusEl.className = 'room-info__status';
 		statusEl.style.position = 'absolute';
-		statusEl.style.top = '100%';
+		statusEl.style.top = 'calc(100% + 8px)';
 		statusEl.style.left = '50%';
 		statusEl.style.transform = 'translateX(-50%)';
-		statusEl.style.marginTop = '8px';
 		statusEl.style.fontSize = '22px';
 		statusEl.style.fontWeight = 'bold';
 		statusEl.style.textShadow = '0 0 10px rgba(0, 0, 0, 1)';
 		statusEl.style.whiteSpace = 'nowrap';
 		statusEl.style.display = 'none';
+		statusEl.style.zIndex = '101';
 		
 		panel.appendChild(roomNumberEl);
 		panel.appendChild(enemyCountEl);
+		panel.appendChild(statusEl);
 		root.appendChild(panel);
-		root.appendChild(statusEl);
 	}
 
 	function getEnemyCount() {
@@ -113,59 +113,57 @@
 		// Update room number
 		roomNumberEl.textContent = `Room ${Game.roomNumber}`;
 		
-		// Update enemy count
+		// Update enemy count / door open status
 		const enemyCount = getEnemyCount();
 		const roomCleared = isRoomCleared();
 		const doorOpen = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.doorOpen : false;
 		const inMultiplayer = typeof Game !== 'undefined' && Game.multiplayerEnabled;
-		const playersOnDoorCount = (typeof Game !== 'undefined' && Array.isArray(Game.playersOnDoor)) ? Game.playersOnDoor.length : 0;
-		const shouldShowDoorOpenMessage = doorOpen && (!inMultiplayer || playersOnDoorCount === 0);
 		
 		if (!roomCleared && enemyCount > 0) {
+			// Show enemy count when there are enemies
 			enemyCountEl.textContent = `Enemies: ${enemyCount}`;
 			enemyCountEl.style.color = '#ffaaaa';
 			enemyCountEl.style.display = 'block';
-		} else if (shouldShowDoorOpenMessage) {
-			enemyCountEl.textContent = 'Door is open!';
-			enemyCountEl.style.color = '#aaffaa';
+		} else if (doorOpen) {
+			// Show "Door Open" in yellow (matching door color) when door is open
+			enemyCountEl.textContent = 'Door Open';
+			enemyCountEl.style.color = '#ffaa00';
 			enemyCountEl.style.display = 'block';
 		} else {
 			enemyCountEl.style.display = 'none';
 		}
 		
 		// Update multiplayer door waiting status
-		if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen) {
-			if (Game.multiplayerEnabled && Game.playersOnDoor && Game.totalAlivePlayers > 1) {
+		if (doorOpen && inMultiplayer) {
+			// Check if we have valid multiplayer door state
+			const playersOnDoor = (Array.isArray(Game.playersOnDoor)) ? Game.playersOnDoor : [];
+			const totalAlivePlayers = (typeof Game.totalAlivePlayers === 'number') ? Game.totalAlivePlayers : 0;
+			
+			// Show waiting messages if:
+			// - There are players on the door
+			// - There are alive players not on the door (totalAlivePlayers > playersOnDoor.length)
+			// - Total alive players > 1 (multiplayer requirement)
+			if (totalAlivePlayers > 1 && playersOnDoor.length > 0 && playersOnDoor.length < totalAlivePlayers) {
+				statusEl.style.display = 'block';
 				const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
-				const localPlayerOnDoor = Game.playersOnDoor.includes(localPlayerId);
-				const someoneWaiting = Game.playersOnDoor.length > 0 && Game.playersOnDoor.length < Game.totalAlivePlayers;
+				const localPlayerOnDoor = localPlayerId !== null && playersOnDoor.includes(localPlayerId);
 				
-				if (someoneWaiting) {
-					statusEl.style.display = 'block';
-					if (localPlayerOnDoor) {
-						// Local player is waiting for others
-						statusEl.textContent = 'Waiting for other players...';
-						statusEl.style.color = '#ffaa00';
-					} else {
-						// Local player not on door, others are waiting
-						statusEl.textContent = 'Other players are waiting for you!';
-						statusEl.style.color = '#ff4444';
-					}
-					
-		// Show count below
-		let countEl = statusEl.querySelector('.room-info__count');
-		if (!countEl) {
-			countEl = document.createElement('div');
-			countEl.className = 'room-info__count';
-			countEl.style.fontSize = '16px';
-			countEl.style.fontWeight = 'bold';
-			countEl.style.color = '#ffffff';
-			countEl.style.marginTop = '4px';
-			statusEl.appendChild(countEl);
-		}
-		countEl.textContent = `${Game.playersOnDoor.length}/${Game.totalAlivePlayers} on door`;
+				if (localPlayerOnDoor) {
+					// Player on door sees: "Waiting for other players"
+					statusEl.textContent = 'Waiting for other players';
+					statusEl.style.color = '#ffaa00';
 				} else {
-					statusEl.style.display = 'none';
+					// Player NOT on door sees: "Player(s) are waiting for them at the door"
+					const waitingCount = playersOnDoor.length;
+					const playerText = waitingCount === 1 ? 'player' : 'players';
+					statusEl.textContent = `${waitingCount} ${playerText} ${waitingCount === 1 ? 'is' : 'are'} waiting for you at the door`;
+					statusEl.style.color = '#ff4444';
+				}
+				
+				// Remove count element if it exists (not needed per requirements)
+				let countEl = statusEl.querySelector('.room-info__count');
+				if (countEl) {
+					countEl.remove();
 				}
 			} else {
 				statusEl.style.display = 'none';

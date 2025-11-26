@@ -23,7 +23,7 @@
 		header.textContent = 'Deck Builder';
 
 		body = document.createElement('div');
-		body.className = 'modal__body';
+		body.className = 'modal__body nexus-scrollbar';
 		body.style.display = 'grid';
 		body.style.gridTemplateColumns = '1fr 1fr';
 		body.style.gap = '20px';
@@ -71,7 +71,7 @@
 		filterBar.appendChild(categoryFilter);
 		
 		cardList = document.createElement('div');
-		cardList.className = 'deck-builder__card-list';
+		cardList.className = 'deck-builder__card-list nexus-scrollbar';
 		cardList.style.display = 'grid';
 		cardList.style.gridTemplateColumns = 'repeat(auto-fill, minmax(280px, 1fr))';
 		cardList.style.gap = '12px';
@@ -472,7 +472,6 @@
 	}
 
 	function visible() {
-		if (!window.USE_DOM_UI) return false;
 		return open && typeof Game !== 'undefined' && Game.state === 'NEXUS';
 	}
 
@@ -517,15 +516,29 @@
 		createDeckBuilder();
 		tick();
 		
-		// Keyboard shortcut: B key to toggle
+		// Keyboard shortcuts
 		document.addEventListener('keydown', (e) => {
+			// Don't intercept if user is typing in an input field
+			const target = e.target;
+			if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+				return;
+			}
+			
+			// B key to toggle
 			if (e.key === 'b' || e.key === 'B') {
-				if (typeof Game !== 'undefined' && Game.state === 'NEXUS' && !e.target.matches('input, textarea, select')) {
+				if (typeof Game !== 'undefined' && Game.state === 'NEXUS') {
 					e.preventDefault();
 					toggle();
 				}
 			}
-		});
+			
+			// Escape key to close
+			if (e.key === 'Escape' && visible()) {
+				toggle(false); // Close it
+				e.preventDefault();
+				e.stopPropagation();
+			}
+		}, { capture: true });
 	}
 
 	if (document.readyState === 'loading') {

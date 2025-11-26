@@ -139,6 +139,12 @@ class WorkerProcess {
             case 'gear_dropped':
                 this.handleGearDropped(ws, data);
                 break;
+            case 'item_pylon_interact':
+                this.handleItemPylonInteract(ws, data);
+                break;
+            case 'item_pylon_interact_request':
+                this.handleItemPylonInteractRequest(ws, data);
+                break;
             case 'upgrade_purchase':
                 this.handleUpgradePurchase(ws, data);
                 break;
@@ -160,6 +166,12 @@ class WorkerProcess {
             case 'heartbeat':
                 ws.send(JSON.stringify({ type: 'heartbeat_ack' }));
                 break;
+            case 'kick_player':
+                this.handleKickPlayer(ws, data);
+                break;
+            case 'update_player_name':
+                this.handleUpdatePlayerName(ws, data);
+                break;
             default:
                 console.warn('[Warning] Unknown message type:', type);
         }
@@ -170,6 +182,9 @@ class WorkerProcess {
         const playerId = this.generatePlayerId();
         const persistentPlayerId = data.persistentPlayerId || null;
         
+        // Use provided name if set, otherwise use Player 1
+        const playerName = (data.playerName && data.playerName.trim()) ? data.playerName.trim().slice(0, 20) : 'Player 1';
+        
         const lobby = {
             code,
             host: ws,
@@ -177,7 +192,7 @@ class WorkerProcess {
                 ws,
                 id: playerId,
                 persistentPlayerId: persistentPlayerId, // Store persistent ID for future reconnections
-                name: data.playerName || 'Player 1',
+                name: playerName,
                 class: data.class || 'square',
                 ready: false,
                 currency: data.currency || 0,
@@ -269,7 +284,10 @@ class WorkerProcess {
                 
                 // Update player entry with new WebSocket and data
                 existingPlayer.ws = ws;
-                existingPlayer.name = playerName || existingPlayer.name;
+                // Update name if provided, otherwise keep existing name
+                if (playerName && playerName.trim()) {
+                    existingPlayer.name = playerName.trim().slice(0, 20);
+                }
                 existingPlayer.class = playerClass || existingPlayer.class;
                 existingPlayer.currency = data.currency !== undefined ? data.currency : existingPlayer.currency;
                 existingPlayer.upgrades = data.upgrades || existingPlayer.upgrades;
@@ -291,11 +309,13 @@ class WorkerProcess {
             }
             
             playerId = this.generatePlayerId();
+            // Use provided name if set, otherwise use player number
+            const newPlayerName = (playerName && playerName.trim()) ? playerName.trim().slice(0, 20) : `Player ${lobby.players.length + 1}`;
             const player = {
                 ws,
                 id: playerId,
                 persistentPlayerId: persistentPlayerId || null, // Store persistent ID for future reconnections
-                name: playerName || `Player ${lobby.players.length + 1}`,
+                name: newPlayerName,
                 class: playerClass || 'square',
                 ready: false,
                 currency: data.currency || 0,
@@ -379,6 +399,95 @@ class WorkerProcess {
                 }
             });
         }
+    }
+    
+    handleUpdatePlayerName(ws, data) {
+        const code = this.playerToLobby.get(ws);
+        if (!code) return;
+        
+        const lobby = this.lobbies.get(code);
+        if (!lobby) return;
+        
+        const player = lobby.players.find(p => p.ws === ws);
+        if (!player) return;
+        
+        // Update player name - if name is provided and not empty, use it; otherwise use player number
+        const newName = data.name && data.name.trim() ? data.name.trim().slice(0, 20) : null;
+        const playerIndex = lobby.players.indexOf(player);
+        player.name = newName || `Player ${playerIndex + 1}`;
+        
+        // Broadcast updated player list to all players (including the one who updated)
+        this.broadcastToLobby(lobby, {
+            type: 'player_list_update',
+            data: {
+                players: lobby.players.map(p => ({
+                    id: p.id,
+                    name: p.name,
+                    class: p.class,
+                    ready: p.ready,
+                    currency: p.currency,
+                    upgrades: p.upgrades
+                }))
+            }
+        });
+        
+        console.log(`[Worker ${this.getWorkerId()}] Player ${player.id} updated name to "${player.name}" in lobby ${code}`);
+    }
+    
+    handleKickPlayer(ws, data) {
+        const code = this.playerToLobby.get(ws);
+        if (!code) return;
+        
+        const lobby = this.lobbies.get(code);
+        if (!lobby || lobby.host !== ws) return; // Only host can kick
+        
+        const { playerId } = data;
+        if (!playerId) return;
+        
+        // Find the player to kick
+        const playerToKick = lobby.players.find(p => p.id === playerId);
+        if (!playerToKick) return;
+        
+        // Don't allow host to kick themselves
+        if (playerToKick.ws === ws) return;
+        
+        // Send kick message to the player being kicked
+        if (playerToKick.ws && playerToKick.ws.readyState === WebSocket.OPEN) {
+            playerToKick.ws.send(JSON.stringify({
+                type: 'kicked_from_lobby',
+                data: { reason: 'Kicked by host' }
+            }));
+        }
+        
+        // Remove player from lobby (this will trigger handleLeaveLobby logic)
+        const playerIndex = lobby.players.findIndex(p => p.id === playerId);
+        if (playerIndex !== -1) {
+            lobby.players.splice(playerIndex, 1);
+            this.playerToLobby.delete(playerToKick.ws);
+            
+            // Close the connection
+            if (playerToKick.ws && playerToKick.ws.readyState === WebSocket.OPEN) {
+                playerToKick.ws.close();
+            }
+        }
+        
+        // Notify remaining players
+        this.broadcastToLobby(lobby, {
+            type: 'player_left',
+            data: {
+                playerId: playerId,
+                players: lobby.players.map(p => ({
+                    id: p.id,
+                    name: p.name,
+                    class: p.class,
+                    ready: p.ready,
+                    currency: p.currency,
+                    upgrades: p.upgrades
+                }))
+            }
+        });
+        
+        console.log(`[Worker ${this.getWorkerId()}] Player ${playerId} kicked from lobby ${code} by host`);
     }
     
     handleLeaveLobby(ws) {
@@ -631,6 +740,46 @@ class WorkerProcess {
             type: 'gear_dropped',
             data
         }, ws);
+    }
+    
+    handleItemPylonInteract(ws, data) {
+        const code = this.playerToLobby.get(ws);
+        if (!code) return;
+        
+        const lobby = this.lobbies.get(code);
+        if (!lobby || lobby.host !== ws) return;
+        
+        // Host broadcasts pylon interaction to all clients
+        if (config.logging.level === 'debug') {
+            console.log(`[Worker ${this.getWorkerId()}] Broadcasting item pylon interaction from player ${data.playerId} in lobby ${code}`);
+        }
+        
+        this.broadcastToLobby(lobby, {
+            type: 'item_pylon_interact',
+            data
+        }, ws);
+    }
+    
+    handleItemPylonInteractRequest(ws, data) {
+        const code = this.playerToLobby.get(ws);
+        if (!code) return;
+        
+        const lobby = this.lobbies.get(code);
+        if (!lobby) return;
+        
+        // Forward interaction request to host
+        if (lobby.host && lobby.host !== ws && lobby.host.readyState === WebSocket.OPEN) {
+            const player = lobby.players.find(p => p.ws === ws);
+            if (player) {
+                lobby.host.send(JSON.stringify({
+                    type: 'item_pylon_interact_request',
+                    data: {
+                        ...data,
+                        playerId: player.id
+                    }
+                }));
+            }
+        }
     }
     
     handleUpgradePurchase(ws, data) {

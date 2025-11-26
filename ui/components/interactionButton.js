@@ -30,6 +30,20 @@
 			return (window.checkNexusInteractions && checkNexusInteractions()) || null;
 		}
 		if (window.Game && Game.state === 'PLAYING') {
+			// Check for item pylon interaction first (multiplayer)
+			if (typeof window.checkItemPylonInteraction !== 'undefined' && window.Game.player) {
+				const pylon = window.checkItemPylonInteraction(window.Game.player);
+				if (pylon) {
+					const playerId = typeof window.multiplayerManager !== 'undefined' && 
+						window.multiplayerManager && 
+						window.multiplayerManager.playerId;
+					const hasInteracted = pylon.interactedPlayers && playerId && pylon.interactedPlayers.includes(playerId);
+					if (!hasInteracted) {
+						return { type: 'itemPylon', pylon: pylon };
+					}
+				}
+			}
+			
 			return (window.checkCardInteraction && checkCardInteraction())
 				|| (window.checkGearInteraction && checkGearInteraction())
 				|| null;
@@ -44,6 +58,17 @@
 		if (interaction.type === 'class') return 'Select Class';
 		if (interaction.type === 'upgrade') return 'Purchase Upgrade';
 		if (interaction.type === 'portal') return 'Enter Portal';
+		if (interaction.type === 'itemPylon') return 'Interact with Item Pylon';
+		if (interaction.type === 'modeSwitcher') {
+			// Check if in multiplayer lobby
+			const inMultiplayerLobby = typeof window.multiplayerManager !== 'undefined' && 
+				window.multiplayerManager && 
+				window.multiplayerManager.lobbyCode;
+			if (inMultiplayerLobby) {
+				return 'Cannot swap modes in multiplayer';
+			}
+			return 'Switch Mode';
+		}
 		return 'Interact';
 	}
 
@@ -62,14 +87,28 @@
 			purchaseUpgrade(interaction.classType, interaction.statType);
 		} else if (interaction.type === 'portal' && window.enterPortal) {
 			enterPortal();
+		} else if (interaction.type === 'itemPylon' && interaction.pylon && window.Game && window.Game.player) {
+			if (typeof window.interactWithItemPylon === 'function') {
+				window.interactWithItemPylon(interaction.pylon, window.Game.player);
+			}
+		} else if (interaction.type === 'modeSwitcher' && window.nexusRoom) {
+			// Check if in multiplayer lobby
+			const inMultiplayerLobby = typeof window.multiplayerManager !== 'undefined' && 
+				window.multiplayerManager && 
+				window.multiplayerManager.lobbyCode;
+			
+			if (inMultiplayerLobby) {
+				console.log('[Nexus] Cannot switch modes in multiplayer lobby');
+				return; // Don't allow mode switching in multiplayer
+			}
+			
+			// Toggle portal mode (single player only)
+			nexusRoom.portalMode = nexusRoom.portalMode === 'cards' ? 'gear' : 'cards';
+			console.log(`[Nexus] Switched portal mode to: ${nexusRoom.portalMode}`);
 		}
 	}
 
 	function refresh() {
-		if (!window.USE_DOM_UI || !window.Game) {
-			container.style.display = 'none';
-			return;
-		}
 		const inter = computeInteraction();
 		if (!inter) {
 			container.style.display = 'none';
@@ -96,6 +135,7 @@
 		init();
 	}
 })();
+
 
 
 

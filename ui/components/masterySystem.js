@@ -162,35 +162,7 @@
 		content.style.flex = '1';
 		content.style.overflowY = 'auto';
 		content.style.padding = '20px';
-		content.className = 'mastery-content-scroll';
-		
-		// Add custom scrollbar styling (only once)
-		if (!document.getElementById('mastery-scrollbar-style')) {
-			const style = document.createElement('style');
-			style.id = 'mastery-scrollbar-style';
-			style.textContent = `
-				.mastery-content-scroll {
-					scrollbar-width: thin;
-					scrollbar-color: rgba(120, 160, 255, 0.5) rgba(20, 20, 40, 0.3);
-				}
-				.mastery-content-scroll::-webkit-scrollbar {
-					width: 12px;
-				}
-				.mastery-content-scroll::-webkit-scrollbar-track {
-					background: rgba(20, 20, 40, 0.3);
-					border-radius: 6px;
-				}
-				.mastery-content-scroll::-webkit-scrollbar-thumb {
-					background: rgba(120, 160, 255, 0.5);
-					border-radius: 6px;
-					border: 2px solid rgba(20, 20, 40, 0.3);
-				}
-				.mastery-content-scroll::-webkit-scrollbar-thumb:hover {
-					background: rgba(120, 160, 255, 0.7);
-				}
-			`;
-			document.head.appendChild(style);
-		}
+		content.className = 'nexus-scrollbar';
 
 		cardList = document.createElement('div');
 		cardList.style.display = 'grid';
@@ -377,6 +349,15 @@
 	}
 
 	function buildUnlockTab() {
+		// Auto-unlock any cards that meet conditions before building the tab
+		if (typeof window.checkAchievementUnlocks === 'function') {
+			window.checkAchievementUnlocks();
+		}
+		if (typeof Game !== 'undefined' && Game.roomNumber && typeof window.checkRoomMilestoneUnlocks === 'function') {
+			window.checkRoomMilestoneUnlocks(Game.roomNumber);
+		}
+		
+		// Refresh unlocked list after auto-unlocking
 		const unlocked = getUnlockedCards();
 		const allCards = getAllCards();
 		
@@ -387,7 +368,19 @@
 				const status = typeof window.getCardUnlockStatus === 'function' ? window.getCardUnlockStatus(card.id) : { unlocked: false, canUnlock: false };
 				return { id: card.id, card, unlockStatus: status };
 			})
-			.filter(item => item.unlockStatus.canUnlock || (item.unlockStatus.condition && (item.unlockStatus.condition.type === 'purchase' || (item.unlockStatus.condition.alternative && item.unlockStatus.condition.alternative.type === 'purchase'))));
+			.filter(item => {
+				// Only show cards that can be purchased (cards with conditions met should already be auto-unlocked)
+				// But also show cards that have canUnlock true in case they weren't auto-unlocked yet
+				if (item.unlockStatus.canUnlock && item.unlockStatus.condition && item.unlockStatus.condition.type !== 'purchase') {
+					// This card should have been auto-unlocked, but if it wasn't, unlock it now
+					if (typeof SaveSystem !== 'undefined' && SaveSystem.unlockCard) {
+						SaveSystem.unlockCard(item.id);
+					}
+					return false; // Don't show in list, it's now unlocked
+				}
+				// Show cards that can be purchased or have purchase as alternative
+				return item.unlockStatus.condition && (item.unlockStatus.condition.type === 'purchase' || (item.unlockStatus.condition.alternative && item.unlockStatus.condition.alternative.type === 'purchase'));
+			});
 		
 		if (unlockableCards.length === 0) {
 			const emptyMsg = document.createElement('div');
@@ -682,8 +675,13 @@
 		unlockBtn.style.padding = '10px';
 		unlockBtn.style.fontSize = '14px';
 		unlockBtn.style.pointerEvents = 'auto';
-		unlockBtn.style.cursor = canAffordUnlock ? 'pointer' : 'not-allowed';
-		unlockBtn.disabled = !canAffordUnlock;
+		
+		// Check if card can be unlocked (either via purchase or condition met)
+		const canUnlock = unlockStatus && unlockStatus.canUnlock;
+		const shouldEnable = (unlockCost > 0 && canAffordUnlock) || (unlockCost === 0 && canUnlock);
+		
+		unlockBtn.style.cursor = shouldEnable ? 'pointer' : 'not-allowed';
+		unlockBtn.disabled = !shouldEnable;
 
 		if (unlockCost > 0) {
 			if (canAffordUnlock) {
@@ -709,10 +707,26 @@
 				unlockBtn.style.color = '#aaa';
 			}
 		} else {
-			unlockBtn.textContent = unlockStatus && unlockStatus.reason ? unlockStatus.reason : 'Cannot unlock yet';
-			unlockBtn.style.backgroundColor = '#666';
-			unlockBtn.style.color = '#aaa';
-			unlockBtn.disabled = true;
+			// No purchase cost - check if condition is met
+			if (canUnlock) {
+				unlockBtn.textContent = unlockStatus && unlockStatus.reason ? unlockStatus.reason : 'Unlock';
+				unlockBtn.style.backgroundColor = '#4caf50';
+				unlockBtn.style.color = '#fff';
+				unlockBtn.addEventListener('click', function(e) {
+					e.preventDefault();
+					e.stopPropagation();
+					// Unlock card via SaveSystem
+					if (typeof SaveSystem !== 'undefined' && SaveSystem.unlockCard) {
+						SaveSystem.unlockCard(cardId);
+						needsRebuild = true;
+						build();
+					}
+				}, false);
+			} else {
+				unlockBtn.textContent = unlockStatus && unlockStatus.reason ? unlockStatus.reason : 'Cannot unlock yet';
+				unlockBtn.style.backgroundColor = '#666';
+				unlockBtn.style.color = '#aaa';
+			}
 		}
 
 		cardEl.appendChild(header);
@@ -849,7 +863,6 @@
 	}
 
 	function visible() {
-		if (!window.USE_DOM_UI) return false;
 		return open && typeof Game !== 'undefined' && Game.state === 'NEXUS';
 	}
 
@@ -893,15 +906,29 @@
 		createMasterySystem();
 		tick();
 		
-		// Keyboard shortcut: M key to toggle
+		// Keyboard shortcuts
 		document.addEventListener('keydown', (e) => {
+			// Don't intercept if user is typing in an input field
+			const target = e.target;
+			if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+				return;
+			}
+			
+			// M key to toggle
 			if (e.key === 'm' || e.key === 'M') {
-				if (typeof Game !== 'undefined' && Game.state === 'NEXUS' && !e.target.matches('input, textarea, select')) {
+				if (typeof Game !== 'undefined' && Game.state === 'NEXUS') {
 					e.preventDefault();
 					toggle();
 				}
 			}
-		});
+			
+			// Escape key to close
+			if (e.key === 'Escape' && visible()) {
+				toggle(false); // Close it
+				e.preventDefault();
+				e.stopPropagation();
+			}
+		}, { capture: true });
 	}
 
 	if (document.readyState === 'loading') {

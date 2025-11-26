@@ -6,6 +6,10 @@
 		layer = document.createElement('div');
 		layer.className = 'ui-layer';
 		layer.style.pointerEvents = 'none';
+		layer.style.userSelect = 'none';
+		layer.style.webkitUserSelect = 'none';
+		layer.style.mozUserSelect = 'none';
+		layer.style.msUserSelect = 'none';
 		layer.style.position = 'absolute';
 		layer.style.left = '0';
 		layer.style.right = '0';
@@ -13,6 +17,13 @@
 		layer.style.display = 'flex';
 		layer.style.justifyContent = 'space-between';
 		layer.style.padding = '0 20px';
+		
+		// Prevent right-click context menu
+		layer.addEventListener('contextmenu', (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			return false;
+		});
 		roomEl = document.createElement('div');
 		roomEl.style.color = '#fff';
 		roomEl.style.fontWeight = '700';
@@ -25,7 +36,7 @@
 	}
 
 	function tick() {
-		if (!window.USE_DOM_UI || !window.Game) {
+		if (!window.Game) {
 			layer.style.display = 'none';
 		} else {
 			layer.style.display = 'flex';

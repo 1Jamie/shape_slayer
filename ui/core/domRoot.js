@@ -13,8 +13,36 @@
 			inset: '0',
 			pointerEvents: 'none', // UI components will re-enable on their own containers
 			display: 'block',
-			zIndex: '1000'
+			zIndex: '1000',
+			userSelect: 'none',
+			webkitUserSelect: 'none',
+			mozUserSelect: 'none',
+			msUserSelect: 'none'
 		});
+		
+		// Prevent context menu and text selection on the entire UI root
+		root.addEventListener('contextmenu', (e) => {
+			// Only prevent if the target is not an interactive element (button, input, etc.)
+			const target = e.target;
+			if (target && (target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) {
+				// Allow context menu on interactive elements (though pause button should still block it)
+				return;
+			}
+			e.preventDefault();
+			e.stopPropagation();
+			return false;
+		}, true); // Use capture phase to catch events early
+		
+		// Prevent text selection via mouse drag
+		root.addEventListener('selectstart', (e) => {
+			const target = e.target;
+			if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+				return; // Allow selection in input fields
+			}
+			e.preventDefault();
+			return false;
+		}, true);
+		
 		return root;
 	}
 
@@ -78,6 +106,7 @@
 		ensureUiRoot();
 	}
 })();
+
 
 
 

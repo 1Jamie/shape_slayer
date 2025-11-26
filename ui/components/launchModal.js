@@ -46,6 +46,10 @@
 			if (Game) {
 				Game.launchModalVisible = false;
 			}
+			// Mark launch modal as seen (only show on first run)
+			if (typeof SaveSystem !== 'undefined' && SaveSystem.setHasSeenLaunchModal) {
+				SaveSystem.setHasSeenLaunchModal(true);
+			}
 			refresh();
 		});
 		footer.appendChild(close);
@@ -87,6 +91,9 @@
 		init();
 	}
 })();
+
+
+
 
 
 

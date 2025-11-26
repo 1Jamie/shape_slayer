@@ -188,6 +188,11 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
             hitbox.hitEnemies = new Set();
         }
         
+        // Store original damage for pierce calculations (if not already stored)
+        if (!hitbox.originalDamage) {
+            hitbox.originalDamage = hitbox.damage;
+        }
+        
         enemies.forEach(enemy => {
             if (!enemy.alive || hitbox.hitEnemies.has(enemy)) return;
             
@@ -227,10 +232,15 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                 
                 // Apply crit multiplier if applicable
                 let critMultiplier = 1.0;
+                let isCrit = false;
                 if (hitbox.crit || (player.critChance && Math.random() < player.critChance)) {
                     critMultiplier = 2.0 * (player.critDamageMultiplier || 1.0); // Use affix crit damage
                     hitbox.displayCrit = true;
+                    isCrit = true;
                 }
+                
+                // Precision card bonuses: lifeOnCrit and vulnOnCrit (Purple/Orange) - applied after damage calculation
+                // Note: We'll apply these after finalDamage is calculated so we can use the correct damage value
                 
                 // Card effects: Momentum and Overcharge multipliers
                 let cardMultiplier = 1.0;
@@ -251,8 +261,46 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                     }
                 }
                 
+                // Apply pierce damage reduction if this is a pierced hit
+                let pierceDamageMultiplier = 1.0;
+                const enemiesHitBefore = hitbox.hitEnemies ? hitbox.hitEnemies.size : 0;
+                if (enemiesHitBefore > 0) {
+                    // This is a pierced hit (not the first enemy)
+                    if (player.itemPierceDamagePercent > 0) {
+                        // Use item pierce damage percent (80% for second target, etc.)
+                        pierceDamageMultiplier = player.itemPierceDamagePercent;
+                    } else {
+                        // Default: 25% damage reduction per pierce
+                        const damageReduction = 0.25 * enemiesHitBefore;
+                        pierceDamageMultiplier = Math.max(0, 1 - damageReduction);
+                    }
+                }
+                
                 // Calculate final damage with backstab and crit multipliers
-                let finalDamage = hitbox.damage * critMultiplier * cardMultiplier;
+                let finalDamage = hitbox.originalDamage * pierceDamageMultiplier * critMultiplier * cardMultiplier;
+                
+                // Velocity card bonus: speedToDamage (movement speed increases damage) - Purple/Orange
+                if (typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
+                    const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
+                    const condEffects = CardEffects.getConditionalEffects(handCards);
+                    if (condEffects.velocity && condEffects.velocity.speedToDamage && condEffects.velocity.speedToDamage > 0) {
+                        // Calculate speed multiplier: current speed / base speed
+                        const baseSpeed = player.baseMoveSpeed || 200; // Fallback if not set
+                        const currentSpeed = player.moveSpeed || baseSpeed;
+                        const speedMultiplier = currentSpeed / baseSpeed;
+                        // Apply speed-to-damage bonus (e.g., 5% per 100% speed = 10% damage at 200% speed)
+                        const speedDamageBonus = (speedMultiplier - 1.0) * condEffects.velocity.speedToDamage;
+                        if (speedDamageBonus > 0) {
+                            finalDamage *= (1 + speedDamageBonus);
+                        }
+                    }
+                }
+                
+                // Apply vulnerability debuff multiplier (Precision Orange bonus)
+                if (enemy.vulnerable && enemy.vulnerabilityMultiplier && enemy.vulnerabilityMultiplier > 1.0) {
+                    finalDamage *= enemy.vulnerabilityMultiplier;
+                }
+                
                 if (isBackstab) {
                     const backstabMultiplier = 2 + (player.backstabMultiplierBonus || 0); // Apply class modifier
                     finalDamage *= backstabMultiplier;
@@ -294,6 +342,15 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                     }
                 }
                 
+                // Executioner's Mark: bonus damage to low HP enemies
+                if (!executeTriggered && player.itemExecuteDamagePercent > 0 && player.itemExecuteThreshold > 0) {
+                    const hpPercent = (enemy.hp / (enemy.maxHp || enemy.hp)) * 100;
+                    if (hpPercent <= player.itemExecuteThreshold) {
+                        finalDamage *= (1 + player.itemExecuteDamagePercent / 100);
+                        hitbox.displayExecute = true;
+                    }
+                }
+                
                 // Rampage bonus: apply stacking damage
                 if (player.rampageStacks && player.rampageStacks > 0 && player.rampageBonus) {
                     const rampageMultiplier = 1 + (player.rampageStacks * player.rampageBonus);
@@ -307,6 +364,23 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                 // Only apply damage if we're the host or in solo mode
                 // Clients send damage events and wait for host's authoritative response
                 const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+                
+                // Apply Precision card bonuses: lifeOnCrit and vulnOnCrit (Purple/Orange) - applied after damage calculation
+                if (isCrit && !isClient && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
+                    const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
+                    const condEffects = CardEffects.getConditionalEffects(handCards);
+                    if (condEffects.precision) {
+                        // Apply vulnerability debuff on crit (Orange only) - applied before damage for this hit
+                        if (condEffects.precision.vulnOnCrit && enemy && typeof enemy.applyDebuff === 'function') {
+                            const vuln = condEffects.precision.vulnOnCrit;
+                            enemy.applyDebuff({
+                                type: 'vulnerability',
+                                multiplier: vuln.multiplier || 0.10,
+                                duration: vuln.duration || 3.0
+                            });
+                        }
+                    }
+                }
                 
                 // Calculate actual damage dealt BEFORE applying damage (accounting for weak point multiplier)
                 let damageDealt = hitWeakPoint ? finalDamage * 3 : finalDamage;
@@ -323,6 +397,89 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                     } else {
                         // Normal enemies: pass damage (with backstab multiplier if applicable) + attacker ID
                         enemy.takeDamage(finalDamage, attackerId);
+                    }
+                    
+                    // Bleeding Edge: Apply bleed debuff on hit
+                    if (player.itemBleedDamagePercent > 0 && enemy && typeof enemy.applyDebuff === 'function') {
+                        const enemyMaxHp = enemy.maxHp || enemy.hp;
+                        const bleedDPS = enemyMaxHp * (player.itemBleedDamagePercent / 100);
+                        enemy.applyDebuff({
+                            type: 'bleed',
+                            dps: bleedDPS,
+                            duration: player.itemBleedDuration,
+                            attackerId: attackerId,
+                            maxStacks: player.itemBleedMaxStacks
+                        });
+                        // Visual feedback for bleed application
+                        if (typeof createParticleBurst !== 'undefined') {
+                            createParticleBurst(enemy.x, enemy.y, '#ff0000', 5);
+                        }
+                    }
+                    
+                    // Volatile Core: Chance to explode on hit
+                    if (player.itemVolatileChance > 0 && Math.random() < player.itemVolatileChance) {
+                        const explosionDamage = damageDealt * (player.itemVolatileDamagePercent / 100);
+                        const explosionRadius = player.itemVolatileRadius;
+                        
+                        // Find nearby enemies and damage them
+                        enemies.forEach(nearbyEnemy => {
+                            if (!nearbyEnemy || !nearbyEnemy.alive || nearbyEnemy === enemy) return;
+                            
+                            const dx = nearbyEnemy.x - enemy.x;
+                            const dy = nearbyEnemy.y - enemy.y;
+                            const distance = Math.sqrt(dx * dx + dy * dy);
+                            
+                            if (distance <= explosionRadius) {
+                                nearbyEnemy.takeDamage(explosionDamage, attackerId);
+                                
+                                // Visual feedback
+                                if (typeof createDamageNumber !== 'undefined') {
+                                    createDamageNumber(nearbyEnemy.x, nearbyEnemy.y, Math.floor(explosionDamage), false, false);
+                                }
+                            }
+                        });
+                        
+                        // Visual feedback for explosion
+                        if (typeof createParticleBurst !== 'undefined') {
+                            createParticleBurst(enemy.x, enemy.y, '#ff6600', 15);
+                            createParticleBurst(enemy.x, enemy.y, '#ff9900', 10);
+                        }
+                    }
+                    
+                    // Precision card bonuses: lifeOnCrit healing (Purple/Orange) - applied after damage dealt
+                    if (isCrit && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
+                        const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
+                        const condEffects = CardEffects.getConditionalEffects(handCards);
+                        if (condEffects.precision && condEffects.precision.lifeOnCrit && condEffects.precision.lifeOnCrit > 0) {
+                            // Heal on crit based on damage dealt
+                            const healAmount = damageDealt * condEffects.precision.lifeOnCrit;
+                            player.hp = Math.min(player.hp + healAmount, player.maxHp);
+                            // Visual feedback
+                            if (typeof createParticleBurst !== 'undefined') {
+                                createParticleBurst(player.x, player.y, '#00ff00', 8);
+                            }
+                        }
+                    }
+                    
+                    // Fury card bonuses: stunOnCritChance and critExplosion (Purple/Orange) - applied after damage dealt
+                    if (isCrit && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
+                        const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
+                        const condEffects = CardEffects.getConditionalEffects(handCards);
+                        if (condEffects.fury) {
+                            // Stun on crit chance (Purple)
+                            if (condEffects.fury.stunOnCritChance && condEffects.fury.stunOnCritChance > 0 && 
+                                enemy && typeof enemy.applyStun === 'function' && Math.random() < condEffects.fury.stunOnCritChance) {
+                                enemy.applyStun(condEffects.fury.stunDuration || 1.0);
+                            }
+                            
+                            // Crit explosion (Orange) - AoE explosion on crit
+                            if (condEffects.fury.critExplosion && condEffects.fury.critExplosion.multiplier && 
+                                typeof createExplosion !== 'undefined') {
+                                const explosion = condEffects.fury.critExplosion;
+                                const explosionDamage = damageDealt * explosion.multiplier;
+                                createExplosion(enemy.x, enemy.y, explosion.radius || 90, explosionDamage, player, enemies);
+                            }
+                        }
                     }
                 }
                 

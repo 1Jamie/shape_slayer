@@ -30,7 +30,7 @@
 			{ text: 'Audio', action: () => { if (window.UIAudio) window.UIAudio.open(); } },
 			{ text: 'Fullscreen', action: () => Game && Game.toggleFullscreen && Game.toggleFullscreen() },
 			{ text: 'How to Play', action: () => { if (Game) { Game.launchModalVisible = true; } } },
-			{ text: 'Privacy', action: () => { if (Game && Game.openPrivacyModal) Game.openPrivacyModal('pause'); } },
+			{ text: 'Privacy', action: () => { if (Game && Game.openPrivacyModal) Game.openPrivacyModal('pause'); }, disabled: true, tooltip: 'currently disabled by dev, metrics server needs to be updated for new patch' },
 			{ text: 'Update Notes', action: () => { if (Game) { Game.updateModalVisible = true; } } }
 		];
 
@@ -43,10 +43,70 @@
 			btn.className = 'btn' + (a.primary ? ' btn--primary' : '');
 			btn.type = 'button';
 			btn.textContent = a.text;
-			btn.addEventListener('click', () => {
-				a.action();
-				refresh(); // reflect any state changes (e.g., resume closes)
-			});
+			
+			// Handle disabled state (telemetry disabled by dev)
+			if (a.disabled) {
+				btn.disabled = true;
+				btn.style.opacity = '0.5';
+				btn.style.cursor = 'not-allowed';
+				btn.style.filter = 'grayscale(50%)';
+				
+				// Create custom tooltip for disabled button
+				if (a.tooltip) {
+					let tooltip = null;
+					let tooltipTimeout = null;
+					
+					btn.addEventListener('mouseenter', (e) => {
+						// Clear any existing timeout
+						if (tooltipTimeout) {
+							clearTimeout(tooltipTimeout);
+							tooltipTimeout = null;
+						}
+						
+						// Create tooltip after a short delay
+						tooltipTimeout = setTimeout(() => {
+							tooltip = document.createElement('div');
+							tooltip.style.position = 'fixed';
+							tooltip.style.background = 'rgba(0, 0, 0, 0.95)';
+							tooltip.style.border = '2px solid #666';
+							tooltip.style.borderRadius = '6px';
+							tooltip.style.padding = '8px 12px';
+							tooltip.style.color = '#fff';
+							tooltip.style.fontSize = '12px';
+							tooltip.style.fontFamily = "'Orbitron', sans-serif";
+							tooltip.style.zIndex = '10003';
+							tooltip.style.pointerEvents = 'none';
+							tooltip.style.whiteSpace = 'nowrap';
+							tooltip.style.boxShadow = '0 4px 8px rgba(0,0,0,0.5)';
+							tooltip.textContent = a.tooltip;
+							
+							// Position tooltip near the button
+							const rect = btn.getBoundingClientRect();
+							tooltip.style.left = rect.left + 'px';
+							tooltip.style.top = (rect.bottom + 8) + 'px';
+							
+							document.body.appendChild(tooltip);
+						}, 300);
+					});
+					
+					btn.addEventListener('mouseleave', () => {
+						if (tooltipTimeout) {
+							clearTimeout(tooltipTimeout);
+							tooltipTimeout = null;
+						}
+						if (tooltip) {
+							tooltip.remove();
+							tooltip = null;
+						}
+					});
+				}
+			} else {
+				btn.addEventListener('click', () => {
+					a.action();
+					refresh(); // reflect any state changes (e.g., resume closes)
+				});
+			}
+			
 			list.appendChild(btn);
 		}
 
@@ -82,10 +142,6 @@
 
 	function refresh() {
 		if (!layer) return;
-		if (!window.USE_DOM_UI) {
-			layer.style.display = 'none';
-			return;
-		}
 		layer.style.display = isPauseVisible() ? 'flex' : 'none';
 	}
 
@@ -98,11 +154,29 @@
 		createMenu();
 		// ESC to resume when menu visible
 		document.addEventListener('keydown', (e) => {
-			if (!window.USE_DOM_UI) return;
+			// Don't intercept if user is typing in an input field
+			const target = e.target;
+			if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+				return;
+			}
+			
+			// Don't handle escape if multiplayer menu is open (let it handle it)
+			if (typeof window !== 'undefined' && window.multiplayerMenuVisible) {
+				return;
+			}
+			
+			// Don't handle escape if index machine is open (let it handle it)
+			if (typeof window !== 'undefined' && window.UIIndexMachine && window.UIIndexMachine.isOpen && window.UIIndexMachine.isOpen()) {
+				return;
+			}
+			
 			if (e.key === 'Escape' && isPauseVisible()) {
-				if (Game && Game.togglePause) Game.togglePause();
+				if (Game && Game.togglePause) {
+					Game.togglePause();
+				}
 				refresh();
 				e.preventDefault();
+				e.stopPropagation();
 			}
 		}, { capture: true });
 		tick();

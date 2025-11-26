@@ -76,6 +76,60 @@
 			? window.getMaxUpgradeQualityForRoom(roomNumber) 
 			: 'orange';
 		const maxQualityIdx = order.indexOf(maxQuality);
+		
+		// Add class card as upgrade option if it exists and can be upgraded
+		const classCard = (typeof DeckState !== 'undefined' && DeckState.classCard) ? DeckState.classCard : null;
+		if (classCard && typeof window.canUpgradeClassCard === 'function' && window.canUpgradeClassCard(roomNumber)) {
+			const q = classCard._resolvedQuality || 'white';
+			const idx = Math.max(0, order.indexOf(q));
+			const next = idx < order.length - 1 ? order[idx + 1] : '(max)';
+			const canUpgrade = idx < order.length - 1 && (idx + 1 <= maxQualityIdx);
+			
+			const btn = document.createElement('button');
+			btn.className = 'btn';
+			btn.type = 'button';
+			btn.style.textAlign = 'left';
+			btn.style.pointerEvents = 'auto';
+			btn.style.background = 'rgba(255, 102, 170, 0.1)';
+			btn.style.border = '2px solid rgba(255, 102, 170, 0.5)';
+			btn.disabled = !canUpgrade;
+			if (!canUpgrade && next !== '(max)') {
+				const unlockRoom = typeof window.getRoomForQualityUnlock === 'function'
+					? window.getRoomForQualityUnlock(next)
+					: 999;
+				btn.title = `Upgrade to ${next} available starting Room ${unlockRoom}`;
+				btn.style.opacity = '0.5';
+				btn.style.cursor = 'not-allowed';
+			}
+			const player = (typeof Game !== 'undefined' && Game.player) ? Game.player : null;
+			const levelText = player ? ` (Level ${player.level || 1})` : '';
+			btn.innerHTML = `<div style="font-weight:700; color: #ff66aa">${classCard.name || classCard.family || 'Class Card'}${levelText}</div>
+				<div style="opacity:.85">Quality: ${q} → ${next}</div>`;
+			btn.addEventListener('click', (e) => {
+				e.preventDefault();
+				e.stopPropagation();
+				console.log('[UPGRADE MODAL] Class card clicked');
+				if (typeof window !== 'undefined' && typeof window.upgradeClassCardOneBand === 'function') {
+					const ok = window.upgradeClassCardOneBand();
+					if (ok) {
+						// Apply shards if the upgrade option has them
+						if (typeof Game !== 'undefined' && Game.upgradeOption && Game.upgradeOption.payload && Number.isFinite(Game.upgradeOption.payload.shards)) {
+							if (typeof SaveSystem !== 'undefined' && SaveSystem.addCardShards) {
+								SaveSystem.addCardShards(Game.upgradeOption.payload.shards);
+							}
+						}
+						// Clear upgrade state
+						if (typeof Game !== 'undefined') {
+							Game.awaitingUpgradeSelection = false;
+							Game.upgradeOption = null;
+							Game.pendingUpgrade = null;
+						}
+					}
+				}
+			});
+			body.appendChild(btn);
+		}
+		
 		console.log('[UPGRADE MODAL] Building modal with hand:', hand.map((c, i) => ({
 			index: i,
 			name: c.name || c.family,
@@ -149,7 +203,13 @@
 	}
 
 	function visible() {
-		return window.USE_DOM_UI && Game && Game.awaitingUpgradeSelection && window.DeckState && Array.isArray(DeckState.hand) && DeckState.hand.length > 0;
+		if ( !Game || !Game.awaitingUpgradeSelection) return false;
+		const hand = (window.DeckState && Array.isArray(DeckState.hand)) ? DeckState.hand : [];
+		const classCard = (window.DeckState && window.DeckState.classCard) ? window.DeckState.classCard : null;
+		const roomNumber = (typeof Game !== 'undefined' && Game.roomNumber) ? Game.roomNumber : 1;
+		const hasUpgradeableHandCard = hand.length > 0;
+		const hasUpgradeableClassCard = classCard && typeof window.canUpgradeClassCard === 'function' && window.canUpgradeClassCard(roomNumber);
+		return hasUpgradeableHandCard || hasUpgradeableClassCard;
 	}
 
 	function refresh() {

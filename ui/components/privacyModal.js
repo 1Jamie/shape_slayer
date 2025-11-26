@@ -77,7 +77,9 @@
 	}
 
 	function isVisible() {
-		return window.USE_DOM_UI && typeof Game !== 'undefined' && !!Game.privacyModalVisible;
+		// Telemetry system disabled by dev - modal never shows
+		return false;
+		// return window.USE_DOM_UI && typeof Game !== 'undefined' && !!Game.privacyModalVisible;
 	}
 
 	function refresh() {
@@ -101,6 +103,9 @@
 		init();
 	}
 })();
+
+
+
 
 
 

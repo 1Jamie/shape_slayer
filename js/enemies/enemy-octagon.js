@@ -12,7 +12,7 @@ const OCTAGON_CONFIG = {
     moveSpeed: 115,                // Movement speed (pixels/second)
     xpValue: 50,                   // XP awarded when killed
     lootChance: 0.20,              // Chance to drop loot (0.20 = 20%, reduced for larger rooms)
-    
+
     // Attack Behavior
     attackCooldown: 3.0,           // Time between melee attacks (seconds)
     shootCooldown: 1.5,            // Time between projectile attacks (seconds)
@@ -20,7 +20,7 @@ const OCTAGON_CONFIG = {
     chargeDuration: 0.5,           // Duration of charge attack (seconds)
     attackRange: 75,               // Distance to initiate melee attack (pixels)
     postAttackPause: 0.3,          // Pause after attacks (seconds)
-    
+
     // Minion Summoning
     minionSummonCooldown: 8.0,     // Time between summons (seconds)
     minionMinCount: 2,             // Minimum minions to summon
@@ -33,7 +33,7 @@ const OCTAGON_CONFIG = {
     minionXpMultiplier: 0.5,       // Minion XP as % of basic enemy (0.5 = 50%)
     outOfRangeDistance: 400,       // Distance threshold for out-of-range behavior (pixels)
     outOfRangeSummonCooldown: 6.0, // Cooldown for out-of-range summons (seconds, faster than normal)
-    
+
     // Projectile Attack
     projectileCount: 3,            // Number of projectiles per volley
     projectileSpeed: 260,          // Speed of projectiles (pixels/second)
@@ -41,11 +41,11 @@ const OCTAGON_CONFIG = {
     projectileLifetime: 2.2,       // How long projectiles live (seconds)
     projectileSpread: 0.2,         // Spread angle between projectiles (radians)
     projectileDamageMultiplier: 0.7, // Damage multiplier for projectiles
-    
+
     // Movement Behavior
     separationRadius: 50,          // Minimum distance from other enemies (pixels)
     separationStrength: 120,       // Force strength for separation (pixels)
-    
+
     // Intelligence scaling thresholds (lowered for faster ramp-up)
     intelligenceThresholds: {
         adaptivePriorities: 8,     // Room when adaptive priorities unlock (was 13)
@@ -54,14 +54,14 @@ const OCTAGON_CONFIG = {
         playerActionCounters: 12,  // Room when player action counters unlock (was 19)
         advancedMinionTactics: 16  // Room when advanced minion tactics unlock (was 26)
     },
-    
+
     // Adaptive priority system
     adaptivePriorityWeight: 0.5,  // How much to weight player behavior patterns
-    
+
     // Combo sequences
     comboChanceBase: 0.30,         // Base combo chance at room 8 (increased from 0.20)
     comboChanceMax: 0.60,          // Max combo chance at room 11+ (increased from 0.50)
-    
+
     // Tactical summoning
     tacticalSummonFlankAngle: Math.PI / 3, // Angle for flanking minions (60 degrees)
     tacticalSummonDistance: 180,   // Distance to spawn flanking minions
@@ -70,7 +70,7 @@ const OCTAGON_CONFIG = {
 class OctagonEnemy extends EnemyBase {
     constructor(x, y, inheritedTarget = null) {
         super(x, y, inheritedTarget);
-        
+
         // Stats (from config)
         this.size = OCTAGON_CONFIG.size;
         this.maxHp = OCTAGON_CONFIG.maxHp;
@@ -78,13 +78,13 @@ class OctagonEnemy extends EnemyBase {
         this.damage = OCTAGON_CONFIG.damage;
         this.moveSpeed = OCTAGON_CONFIG.moveSpeed;
         this.baseMoveSpeed = OCTAGON_CONFIG.moveSpeed; // Store for stun system
-        
+
         // Properties
         this.color = '#9b59b6'; // Purple (distinct from yellow rangers)
         this.shape = 'octagon';
         this.xpValue = OCTAGON_CONFIG.xpValue;
         this.lootChance = OCTAGON_CONFIG.lootChance;
-        
+
         // Attack system
         this.state = 'chase'; // 'chase', 'spin', 'charge', 'shoot'
         this.attackCooldown = 0;
@@ -100,7 +100,7 @@ class OctagonEnemy extends EnemyBase {
         this.attackRange = OCTAGON_CONFIG.attackRange;
         this.postAttackPause = 0; // Brief pause after attacks
         this.postAttackPauseTime = OCTAGON_CONFIG.postAttackPause;
-        
+
         this.telegraphProfile = {
             spin: {
                 type: 'octagon-spin',
@@ -143,13 +143,13 @@ class OctagonEnemy extends EnemyBase {
 
         // Track spawned minions
         this.minions = [];
-        
+
         // Initial summon tracking (spawn minions when first activated)
         this.hasPerformedInitialSummon = false;
-        
+
         // Out-of-range summon tracking (spawn when player is far away)
         this.outOfRangeSummonElapsed = 0;
-        
+
         // Adaptive priority system (rooms 13+)
         this.playerBehaviorPatterns = {
             dodgeFrequency: 0,     // Track how often player dodges projectiles
@@ -157,61 +157,60 @@ class OctagonEnemy extends EnemyBase {
             attackFrequency: 0      // Track how often player attacks
         };
         this.behaviorSampleCount = 0;
-        
+
         // Combo sequence system (rooms 13+)
         this.comboSequence = [];
         this.comboIndex = 0;
         this.lastComboTime = 0;
-        
+
         // Player action counter tracking (rooms 12+)
         this.lastPlayerHeavyAttack = 0;
         this.lastPlayerDodge = 0;
         this.predictedDodgeLocation = null;
-        
+
         // Predictive aiming system (ALWAYS enabled from room 1)
         this.usePredictiveAiming = true; // Always use predictive aiming
         this.lastPlayerVelocity = { x: 0, y: 0 };
         this.lastPlayerPosition = null; // Initialize as null to detect first frame
         this.velocityHistory = []; // Track velocity over time for better prediction
     }
-    
+
     update(deltaTime) {
         if (!this.alive) return;
-        
+
         // Check detection range - only activate when any player is nearby
         if (!this.checkDetection()) {
             // Enemy is in standby, don't update AI
             return;
         }
-        
-        // Perform initial summon when first activated (spawn 2 minions immediately)
-        if (this.activated && !this.hasPerformedInitialSummon) {
-            this.hasPerformedInitialSummon = true;
-            // Summon exactly 2 minions as initial bodyguards
-            this.summonInitialMinions();
-        }
-        
+
         // Process stun first
         this.processStun(deltaTime);
-        
+
         // Process slow timer
         this.processSlow(deltaTime);
-        
+
         // Process burn DoT
         this.processBurn(deltaTime);
-        
+
+        // Process bleed DoT
+        this.processBleed(deltaTime);
+
+        // Process debuffs (vulnerability, etc.)
+        this.processDebuffs(deltaTime);
+
         this.updateTelegraph(deltaTime);
         this.updateRecoveryWindow(deltaTime);
-        
+
         // Update target lock timer
         this.updateTargetLock(deltaTime);
-        
+
         // Update aggro target based on sliding window threat calculation
         this.updateAggroTarget();
-        
+
         // Apply stun/slow to movement speed using base class helper
         this.moveSpeed = this.getEffectiveMoveSpeed();
-        
+
         // Update attack cooldowns (slower when stunned)
         const cooldownDelta = this.stunned ? deltaTime * this.stunSlowFactor : deltaTime;
         if (this.attackCooldown > 0) {
@@ -220,35 +219,44 @@ class OctagonEnemy extends EnemyBase {
         if (this.shootCooldown > 0) {
             this.shootCooldown -= cooldownDelta;
         }
-        
+
         if (this.postAttackPause > 0) {
             this.postAttackPause -= deltaTime;
         }
-        
+
         this.minionSummonElapsed += deltaTime;
         this.outOfRangeSummonElapsed += deltaTime;
-        
+
         // Get target (handles decoy/clone logic, uses internal getAllAlivePlayers)
+        // This must be called before minion spawning to ensure targetLock is set
         const target = this.findTarget(null);
         const targetX = target.x;
         const targetY = target.y;
-        
+
+        // Perform initial summon when first activated AND has target lock (engaged with player)
+        // Only spawn if elite is actively engaged and has a target
+        if (this.activated && !this.hasPerformedInitialSummon && this.currentTarget && this.targetLock) {
+            this.hasPerformedInitialSummon = true;
+            // Summon exactly 2 minions as initial bodyguards
+            this.summonInitialMinions();
+        }
+
         const dx = targetX - this.x;
         const dy = targetY - this.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
-        
+
         if (distance <= 0) return;
-        
+
         // Apply knockback
         this.processKnockback(deltaTime);
-        
+
         // Get enemies array for AI behaviors
         const enemies = (typeof Game !== 'undefined' && Game.enemies) ? Game.enemies : [];
         const projectileAvoidance = this.projectileDodgeEnabled ? this.getProjectileAvoidanceForce(deltaTime) : null;
         const dodgeSpeedMultiplier = projectileAvoidance && projectileAvoidance.speedMultiplier
             ? projectileAvoidance.speedMultiplier
             : 1.0;
-        
+
         // Track player velocity for predictive aiming (ALWAYS track, use when enabled)
         const allPlayers = this.getAllAlivePlayers();
         allPlayers.forEach(({ player: p }) => {
@@ -256,7 +264,7 @@ class OctagonEnemy extends EnemyBase {
                 // Calculate velocity - prefer direct velocity, fall back to position change
                 let currentVx = 0;
                 let currentVy = 0;
-                
+
                 // Try to get direct velocity first
                 if (p.vx !== undefined && p.vy !== undefined) {
                     currentVx = p.vx;
@@ -271,13 +279,13 @@ class OctagonEnemy extends EnemyBase {
                         currentVy = dy / dt;
                     }
                 }
-                
+
                 // Update velocity (always update, even if zero)
                 this.lastPlayerVelocity = { x: currentVx, y: currentVy };
-                
+
                 // Store position for next frame
                 this.lastPlayerPosition = { x: p.x, y: p.y };
-                
+
                 // Store velocity history for smoothing (always track - predictive aiming always enabled)
                 this.velocityHistory.push({
                     vx: currentVx,
@@ -289,7 +297,7 @@ class OctagonEnemy extends EnemyBase {
                 this.velocityHistory = this.velocityHistory.filter(v => now - v.timestamp < 200);
             }
         });
-        
+
         // Track player behavior patterns (rooms 8+)
         if (this.roomNumber >= OCTAGON_CONFIG.intelligenceThresholds.adaptivePriorities) {
             allPlayers.forEach(({ player: p }) => {
@@ -311,20 +319,20 @@ class OctagonEnemy extends EnemyBase {
                 this.behaviorSampleCount++;
             });
         }
-        
+
         // Player action counters (rooms 19+)
         if (this.roomNumber >= OCTAGON_CONFIG.intelligenceThresholds.playerActionCounters) {
             const allPlayers = this.getAllAlivePlayers();
             allPlayers.forEach(({ player: p }) => {
                 // Counter heavy attacks with spin interrupt
                 const timeSinceHeavyAttack = (Date.now() - this.lastPlayerHeavyAttack) / 1000;
-                if (timeSinceHeavyAttack < 0.5 && this.lastPlayerHeavyAttack > 0 && 
+                if (timeSinceHeavyAttack < 0.5 && this.lastPlayerHeavyAttack > 0 &&
                     this.state === 'chase' && distance < this.attackRange * 1.5 && this.attackCooldown <= 0) {
                     // Interrupt with spin
                     this.startSpinSequence();
                     return;
                 }
-                
+
                 // Predict dodge location and shoot there
                 if (p.isDodging) {
                     const dodgeDirX = Math.cos(p.rotation || 0);
@@ -337,7 +345,7 @@ class OctagonEnemy extends EnemyBase {
                 }
             });
         }
-        
+
         // AI behavior - state-based priority system
         if (this.state === 'chase') {
             // Skip decision making during post-attack pause
@@ -346,27 +354,27 @@ class OctagonEnemy extends EnemyBase {
                 const separation = this.getSeparationForce(enemies, OCTAGON_CONFIG.separationRadius, OCTAGON_CONFIG.separationStrength);
                 const dirX = dx / distance;
                 const dirY = dy / distance;
-                
+
                 let moveX = dirX;
                 let moveY = dirY;
-                
+
                 // Apply separation
                 const sepDist = Math.sqrt(separation.x * separation.x + separation.y * separation.y);
                 if (sepDist > 0) {
                     const sepNormX = separation.x / sepDist;
                     const sepNormY = separation.y / sepDist;
                     const sepStrength = Math.min(sepDist, 100) / 100;
-                    
+
                     moveX = moveX * 0.85 + sepNormX * 0.15 * sepStrength;
                     moveY = moveY * 0.85 + sepNormY * 0.15 * sepStrength;
-                    
+
                     const finalDist = Math.sqrt(moveX * moveX + moveY * moveY);
                     if (finalDist > 0) {
                         moveX /= finalDist;
                         moveY /= finalDist;
                     }
                 }
-                
+
                 if (projectileAvoidance) {
                     moveX += projectileAvoidance.x;
                     moveY += projectileAvoidance.y;
@@ -376,32 +384,34 @@ class OctagonEnemy extends EnemyBase {
                         moveY /= moveLen;
                     }
                 }
-                
+
                 const offsetX = moveX * this.moveSpeed * dodgeSpeedMultiplier * deltaTime;
                 const offsetY = moveY * this.moveSpeed * dodgeSpeedMultiplier * deltaTime;
                 this.applySmoothedOffset(offsetX, offsetY);
-                
+
                 if (moveX !== 0 || moveY !== 0) {
                     this.smoothRotateTo(Math.atan2(moveY, moveX));
                 }
                 return;
             }
-            
+
             // Out-of-range behavior: Only summon when far away, don't use combat moveset
             if (distance > OCTAGON_CONFIG.outOfRangeDistance) {
                 // When out of range, only summon minions (no combat abilities)
-                if (this.outOfRangeSummonElapsed >= OCTAGON_CONFIG.outOfRangeSummonCooldown) {
+                // Only spawn if elite is actively engaged and has a target
+                if (this.outOfRangeSummonElapsed >= OCTAGON_CONFIG.outOfRangeSummonCooldown &&
+                    this.currentTarget && this.targetLock) {
                     this.summonMinions();
                     this.outOfRangeSummonElapsed = 0;
                     this.postAttackPause = this.postAttackPauseTime;
                 }
-                
+
                 // Continue chasing player (handled below), but don't use combat abilities
                 // Skip all combat priority checks when out of range
             } else {
                 // In-range combat behavior: Use normal moveset, don't use out-of-range summon
                 const healthPercent = this.hp / this.maxHp;
-                
+
                 // Check if any player is attacking
                 let playerAttacking = false;
                 const allPlayers = this.getAllAlivePlayers();
@@ -411,8 +421,8 @@ class OctagonEnemy extends EnemyBase {
                         break;
                     }
                 }
-            
-                
+
+
                 // Count nearby enemies (same type) for group tactics
                 let nearbyEnemyCount = 0;
                 enemies.forEach(other => {
@@ -425,40 +435,40 @@ class OctagonEnemy extends EnemyBase {
                         }
                     }
                 });
-                
+
                 // Adaptive priority system (rooms 13+)
                 let adjustedPriorities = {
                     summon: 1.0,
                     shoot: 1.0,
                     spin: 1.0
                 };
-                
+
                 if (this.roomNumber >= OCTAGON_CONFIG.intelligenceThresholds.adaptivePriorities && this.behaviorSampleCount > 10) {
                     const avgDodgeFreq = this.playerBehaviorPatterns.dodgeFrequency / this.behaviorSampleCount;
                     const avgMeleePref = this.playerBehaviorPatterns.meleePreference / this.behaviorSampleCount;
-                    
+
                     // If player dodges projectiles often, prioritize melee
                     if (avgDodgeFreq > 0.3) {
                         adjustedPriorities.shoot *= 0.5;
                         adjustedPriorities.spin *= 1.5;
                     }
-                    
+
                     // If player prefers melee, prioritize ranged attacks
                     if (avgMeleePref > 0.6) {
                         adjustedPriorities.shoot *= 1.5;
                         adjustedPriorities.spin *= 0.7;
                     }
                 }
-                
+
                 // Combo sequence check (rooms 13+)
                 let useCombo = false;
-                if (this.roomNumber >= OCTAGON_CONFIG.intelligenceThresholds.comboSequences && 
+                if (this.roomNumber >= OCTAGON_CONFIG.intelligenceThresholds.comboSequences &&
                     this.comboSequence.length === 0) {
                     const roomsPastThreshold = Math.max(0, this.roomNumber - OCTAGON_CONFIG.intelligenceThresholds.comboSequences);
                     const comboScale = Math.min(1.0, roomsPastThreshold / 3); // Scales over 3 rooms (was 5)
-                    const comboChance = OCTAGON_CONFIG.comboChanceBase + 
-                                      (OCTAGON_CONFIG.comboChanceMax - OCTAGON_CONFIG.comboChanceBase) * comboScale;
-                    
+                    const comboChance = OCTAGON_CONFIG.comboChanceBase +
+                        (OCTAGON_CONFIG.comboChanceMax - OCTAGON_CONFIG.comboChanceBase) * comboScale;
+
                     if (Math.random() < comboChance * this.intelligenceLevel) {
                         // Choose combo sequence based on situation
                         if (distance < this.attackRange) {
@@ -470,7 +480,7 @@ class OctagonEnemy extends EnemyBase {
                         useCombo = true;
                     }
                 }
-                
+
                 // Execute combo sequence
                 if (this.comboSequence.length > 0 && this.comboIndex < this.comboSequence.length) {
                     const nextAction = this.comboSequence[this.comboIndex];
@@ -490,7 +500,7 @@ class OctagonEnemy extends EnemyBase {
                         // Charge will be triggered after spin completes
                         this.comboIndex++;
                     }
-                    
+
                     // Reset combo if all actions completed
                     if (this.comboIndex >= this.comboSequence.length) {
                         this.comboSequence = [];
@@ -498,9 +508,11 @@ class OctagonEnemy extends EnemyBase {
                         this.lastComboTime = Date.now();
                     }
                 }
-                
+
                 // Priority 1: Low HP → prioritize summoning
-                if (healthPercent < 0.4 && this.minionSummonElapsed >= this.minionSummonCooldown) {
+                // Only spawn if elite is actively engaged and has a target
+                if (healthPercent < 0.4 && this.minionSummonElapsed >= this.minionSummonCooldown &&
+                    this.currentTarget && this.targetLock) {
                     if (this.roomNumber >= OCTAGON_CONFIG.intelligenceThresholds.tacticalSummoning) {
                         this.summonTacticalMinions(targetX, targetY);
                     } else {
@@ -510,7 +522,7 @@ class OctagonEnemy extends EnemyBase {
                     this.postAttackPause = this.postAttackPauseTime;
                     return;
                 }
-                
+
                 // Priority 2: Player attacking → prioritize shooting (safer) - adjusted by adaptive system
                 if (playerAttacking && this.shootCooldown <= 0 && adjustedPriorities.shoot >= 0.8) {
                     const shootTarget = this.predictedDodgeLocation || { x: targetX, y: targetY };
@@ -520,23 +532,24 @@ class OctagonEnemy extends EnemyBase {
                     this.predictedDodgeLocation = null;
                     return;
                 }
-                
+
                 // Priority 3: Multiple nearby enemies → use spin attack (group coordination) - adjusted
-                if (nearbyEnemyCount >= 2 && distance < this.attackRange && this.attackCooldown <= 0 && 
+                if (nearbyEnemyCount >= 2 && distance < this.attackRange && this.attackCooldown <= 0 &&
                     adjustedPriorities.spin >= 0.8) {
                     this.startSpinSequence();
                     return;
                 }
-                
+
                 // Priority 4: Close range → spin attack - adjusted
                 if (distance < this.attackRange && this.attackCooldown <= 0 && adjustedPriorities.spin >= 0.8) {
                     this.startSpinSequence();
                     return;
                 }
-                
+
                 // Priority 5: Can summon and not in danger → summon (tactical if available)
-                if (this.minionSummonElapsed >= this.minionSummonCooldown && healthPercent > 0.5 && 
-                    adjustedPriorities.summon >= 0.8) {
+                // Only spawn if elite is actively engaged and has a target
+                if (this.minionSummonElapsed >= this.minionSummonCooldown && healthPercent > 0.5 &&
+                    adjustedPriorities.summon >= 0.8 && this.currentTarget && this.targetLock) {
                     if (this.roomNumber >= OCTAGON_CONFIG.intelligenceThresholds.tacticalSummoning) {
                         this.summonTacticalMinions(targetX, targetY);
                     } else {
@@ -546,7 +559,7 @@ class OctagonEnemy extends EnemyBase {
                     this.postAttackPause = this.postAttackPauseTime;
                     return;
                 }
-                
+
                 // Priority 6: Can shoot → shoot - adjusted
                 if (this.shootCooldown <= 0 && adjustedPriorities.shoot >= 0.8) {
                     const shootTarget = this.predictedDodgeLocation || { x: targetX, y: targetY };
@@ -557,32 +570,32 @@ class OctagonEnemy extends EnemyBase {
                     return;
                 }
             } // End of in-range combat behavior
-            
+
             // Normal chase with separation
             const separation = this.getSeparationForce(enemies, OCTAGON_CONFIG.separationRadius, OCTAGON_CONFIG.separationStrength);
             const dirX = dx / distance;
             const dirY = dy / distance;
-            
+
             let moveX = dirX;
             let moveY = dirY;
-            
+
             // Apply separation
             const sepDist = Math.sqrt(separation.x * separation.x + separation.y * separation.y);
             if (sepDist > 0) {
                 const sepNormX = separation.x / sepDist;
                 const sepNormY = separation.y / sepDist;
                 const sepStrength = Math.min(sepDist, 100) / 100;
-                
+
                 moveX = moveX * 0.85 + sepNormX * 0.15 * sepStrength;
                 moveY = moveY * 0.85 + sepNormY * 0.15 * sepStrength;
-                
+
                 const finalDist = Math.sqrt(moveX * moveX + moveY * moveY);
                 if (finalDist > 0) {
                     moveX /= finalDist;
                     moveY /= finalDist;
                 }
             }
-            
+
             if (projectileAvoidance) {
                 moveX += projectileAvoidance.x;
                 moveY += projectileAvoidance.y;
@@ -592,11 +605,11 @@ class OctagonEnemy extends EnemyBase {
                     moveY /= moveLen;
                 }
             }
-            
+
             const offsetX = moveX * this.moveSpeed * deltaTime;
             const offsetY = moveY * this.moveSpeed * deltaTime;
             this.applySmoothedOffset(offsetX, offsetY);
-            
+
             if (moveX !== 0 || moveY !== 0) {
                 this.smoothRotateTo(Math.atan2(moveY, moveX));
             }
@@ -610,13 +623,13 @@ class OctagonEnemy extends EnemyBase {
                     return;
                 }
             }
-            
+
             this.spinElapsed += deltaTime;
-            
+
             const spinOffsetX = Math.cos(this.spinElapsed * 10) * this.size * deltaTime * 2;
             const spinOffsetY = Math.sin(this.spinElapsed * 10) * this.size * deltaTime * 2;
             this.smoothMoveBy(spinOffsetX, spinOffsetY, 0.4);
-            
+
             if (this.spinElapsed >= this.spinDuration) {
                 this.startChargeSequence(targetX, targetY);
             }
@@ -630,9 +643,9 @@ class OctagonEnemy extends EnemyBase {
                     return;
                 }
             }
-            
+
             this.chargeElapsed += deltaTime;
-            
+
             const targetPoint = this.chargeTarget || { x: targetX, y: targetY };
             let dirX = targetPoint.x - this.x;
             let dirY = targetPoint.y - this.y;
@@ -644,9 +657,9 @@ class OctagonEnemy extends EnemyBase {
             }
             const normX = dirX / dirDist;
             const normY = dirY / dirDist;
-            
+
             this.applySmoothedDirectionalMovement(normX, normY, this.moveSpeed * 2, deltaTime, 0.4);
-            
+
             if (!this.chargeHitSuccessful) {
                 const allPlayers = this.getAllAlivePlayers();
                 for (const { player: p } of allPlayers) {
@@ -677,7 +690,7 @@ class OctagonEnemy extends EnemyBase {
                     }
                 }
             }
-            
+
             if (this.chargeElapsed >= this.chargeDuration) {
                 if (!this.chargeHitSuccessful) {
                     this.state = 'stagger';
@@ -717,14 +730,14 @@ class OctagonEnemy extends EnemyBase {
             // Chase during cooldown
             const dirX = dx / distance;
             const dirY = dy / distance;
-            
+
             this.applySmoothedDirectionalMovement(dirX, dirY, this.moveSpeed, deltaTime, 0.35);
-            
+
             if (this.attackCooldown <= 0) {
                 this.state = 'chase';
             }
         }
-        
+
         if (this.pendingShot) {
             this.pendingShot.timer -= deltaTime;
             if (this.pendingShot.timer <= 0) {
@@ -734,21 +747,21 @@ class OctagonEnemy extends EnemyBase {
                 this.shootRapidProjectiles(shot.x, shot.y, true);
             }
         }
-        
+
         // Resolve stacking with other enemies
         if (enemies.length > 0) {
             this.resolveStacking(enemies);
         }
-        
+
         // Keep within bounds
         this.keepInBounds();
     }
-    
+
     // Override die() to use octagon (elite) difficulty for loot
     // NOTE: Only called on host or in solo mode. Clients receive death via game_state sync.
     die() {
         this.alive = false;
-        
+
         // Track kill for the last attacker
         if (this.lastAttacker) {
             // Track lifetime kills stat
@@ -756,7 +769,7 @@ class OctagonEnemy extends EnemyBase {
             if (!isClient && typeof window.trackLifetimeStat === 'function') {
                 window.trackLifetimeStat('totalKills', 1);
             }
-            
+
             if (typeof Game !== 'undefined' && Game.getPlayerStats) {
                 const stats = Game.getPlayerStats(this.lastAttacker);
                 if (stats) {
@@ -764,17 +777,78 @@ class OctagonEnemy extends EnemyBase {
                 }
             }
         }
-        
+
+        // Track elite kill for credits reward (octagon enemies are elites)
+        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+        if (!isClient && typeof Game !== 'undefined') {
+            if (typeof Game.elitesKilled === 'number') {
+                Game.elitesKilled++;
+            } else {
+                Game.elitesKilled = 1;
+            }
+        }
+
         // Emit particles on death
         if (typeof createParticleBurst !== 'undefined') {
             createParticleBurst(this.x, this.y, this.color, 12);
         }
-        
+
         // Give XP to all alive players (multiplayer: host distributes; solo: local player)
         if (typeof Game !== 'undefined' && Game.distributeXPToAllPlayers && this.xpValue) {
             Game.distributeXPToAllPlayers(this.xpValue);
         }
-        
+
+        // Item drop system
+        if (typeof Game !== 'undefined' && typeof ITEM_DEFINITIONS !== 'undefined' && typeof getRandomItem === 'function') {
+            // Get drop chance based on enemy type
+            const dropChances = {
+                'Enemy': 0.040,           // 4.0% - Basic circle (lowest)
+                'StarEnemy': 0.050,       // 5.0% - Star
+                'DiamondEnemy': 0.060,    // 6.0% - Diamond
+                'RectangleEnemy': 0.070,  // 7.0% - Rectangle
+                'OctagonEnemy': 0.200     // 20.0% - Octagon (elite, higher)
+            };
+
+            const enemyType = this.constructor.name;
+            const dropChance = dropChances[enemyType] || 0.040;
+
+            // Roll for item drop
+            if (Math.random() < dropChance) {
+                const itemDef = getRandomItem();
+
+                // Check if in multiplayer - use pylons instead of ground items
+                const inMultiplayer = typeof multiplayerManager !== 'undefined' &&
+                    multiplayerManager &&
+                    multiplayerManager.lobbyCode;
+
+                if (inMultiplayer) {
+                    // Create item pylon (multiplayer)
+                    if (typeof createItemPylon === 'function') {
+                        createItemPylon(this.x, this.y, itemDef);
+                        console.log(`[Item Pylon] ${itemDef.name} (${itemDef.rarity}) from ${enemyType}`);
+                    }
+                } else {
+                    // Create ground item (single player)
+                    const groundItem = {
+                        id: 'item_' + Date.now() + '_' + Math.random(),
+                        itemId: itemDef.id,
+                        definition: itemDef,
+                        x: this.x,
+                        y: this.y,
+                        size: 12,
+                        pulse: 0,
+                        pickupRadius: 30
+                    };
+
+                    // Add to ground items
+                    if (!Game.groundItems) Game.groundItems = [];
+                    Game.groundItems.push(groundItem);
+
+                    console.log(`[Item Drop] ${itemDef.name} (${itemDef.rarity}) from ${enemyType}`);
+                }
+            }
+        }
+
         // Drop loot based on lootChance (loot syncs via game_state in multiplayer)
         if (typeof generateGear !== 'undefined' && typeof groundLoot !== 'undefined') {
             if (Math.random() < this.lootChance) {
@@ -787,27 +861,34 @@ class OctagonEnemy extends EnemyBase {
             }
         }
     }
-    
+
     summonInitialMinions() {
         if (typeof Game === 'undefined') return;
-        
+
+        // Only spawn if elite is actively engaged and has a target
+        if (!this.currentTarget || !this.targetLock) {
+            return;
+        }
+
         // Always spawn exactly 2 minions as initial bodyguards
         const count = 2;
-        
+
         for (let i = 0; i < count; i++) {
             const angle = (Math.PI * 2 / count) * i;
             const distance = OCTAGON_CONFIG.minionSpawnDistance + Math.random() * OCTAGON_CONFIG.minionSpawnVariance;
-            
+
             const minionX = this.x + Math.cos(angle) * distance;
             const minionY = this.y + Math.sin(angle) * distance;
-            
+
             // Pass parent's currentTarget to minion constructor for aggro inheritance
-            const minion = new Enemy(minionX, minionY, this.currentTarget);
+            // Ensure we have a valid target before spawning
+            const inheritedTarget = this.currentTarget || null;
+            const minion = new Enemy(minionX, minionY, inheritedTarget);
             // Use helper function to scale minion stats based on current room progression
             if (typeof scaleMinionStats !== 'undefined') {
-                scaleMinionStats(minion, OCTAGON_CONFIG.minionHealthMultiplier, 
-                                OCTAGON_CONFIG.minionDamageMultiplier, 
-                                OCTAGON_CONFIG.minionXpMultiplier);
+                scaleMinionStats(minion, OCTAGON_CONFIG.minionHealthMultiplier,
+                    OCTAGON_CONFIG.minionDamageMultiplier,
+                    OCTAGON_CONFIG.minionXpMultiplier);
             } else {
                 // Fallback if helper not available (shouldn't happen)
                 minion.maxHp = Math.floor(minion.maxHp * OCTAGON_CONFIG.minionHealthMultiplier);
@@ -816,55 +897,62 @@ class OctagonEnemy extends EnemyBase {
                 minion.xpValue = Math.floor(minion.xpValue * OCTAGON_CONFIG.minionXpMultiplier);
             }
             minion.lootChance = 0.0; // No loot from minions
-            
+
             if (typeof currentRoom !== 'undefined' && currentRoom) {
                 currentRoom.enemies.push(minion);
             }
             if (typeof Game !== 'undefined') {
                 Game.enemies.push(minion);
             }
-            
+
             // Track the minion
             this.minions.push(minion);
         }
     }
-    
+
     summonMinions() {
         if (typeof Game === 'undefined') return;
-        
+
+        // Only spawn if elite is actively engaged and has a target
+        if (!this.currentTarget || !this.targetLock) {
+            return;
+        }
+
         // Clean up dead minions from tracking array
         this.minions = this.minions.filter(minion => minion.alive);
-        
+
         // Check how many minions are currently alive
         const currentMinionCount = this.minions.length;
-        
+
         // Calculate available slots
         const availableSlots = OCTAGON_CONFIG.maxMinionLimit - currentMinionCount;
-        
+
         // Don't spawn if we're at the limit
         if (availableSlots <= 0) {
             return;
         }
-        
+
         // Determine how many minions to spawn (respecting available slots)
         // Can only summon 2-3 minions per summon attempt, but never more than what fits
         const desiredCount = OCTAGON_CONFIG.minionMinCount + Math.floor(Math.random() * (OCTAGON_CONFIG.minionMaxCount - OCTAGON_CONFIG.minionMinCount + 1));
         const count = Math.min(desiredCount, availableSlots, 2); // Cap at 2 per summon
-        
+
         for (let i = 0; i < count; i++) {
             const angle = (Math.PI * 2 / count) * i;
             const distance = OCTAGON_CONFIG.minionSpawnDistance + Math.random() * OCTAGON_CONFIG.minionSpawnVariance;
-            
+
             const minionX = this.x + Math.cos(angle) * distance;
             const minionY = this.y + Math.sin(angle) * distance;
-            
+
             // Pass parent's currentTarget to minion constructor for aggro inheritance
-            const minion = new Enemy(minionX, minionY, this.currentTarget);
+            // Ensure we have a valid target before spawning
+            const inheritedTarget = this.currentTarget || null;
+            const minion = new Enemy(minionX, minionY, inheritedTarget);
             // Use helper function to scale minion stats based on current room progression
             if (typeof scaleMinionStats !== 'undefined') {
-                scaleMinionStats(minion, OCTAGON_CONFIG.minionHealthMultiplier, 
-                                OCTAGON_CONFIG.minionDamageMultiplier, 
-                                OCTAGON_CONFIG.minionXpMultiplier);
+                scaleMinionStats(minion, OCTAGON_CONFIG.minionHealthMultiplier,
+                    OCTAGON_CONFIG.minionDamageMultiplier,
+                    OCTAGON_CONFIG.minionXpMultiplier);
             } else {
                 // Fallback if helper not available (shouldn't happen)
                 minion.maxHp = Math.floor(minion.maxHp * OCTAGON_CONFIG.minionHealthMultiplier);
@@ -873,70 +961,78 @@ class OctagonEnemy extends EnemyBase {
                 minion.xpValue = Math.floor(minion.xpValue * OCTAGON_CONFIG.minionXpMultiplier);
             }
             minion.lootChance = 0.0; // No loot from minions
-            
+
             if (typeof currentRoom !== 'undefined' && currentRoom) {
                 currentRoom.enemies.push(minion);
             }
             if (typeof Game !== 'undefined') {
                 Game.enemies.push(minion);
             }
-            
+
             // Track the minion
             this.minions.push(minion);
         }
     }
-    
+
     summonTacticalMinions(targetX, targetY) {
         if (typeof Game === 'undefined') return;
-        
+
+        // Only spawn if elite is actively engaged and has a target
+        if (!this.currentTarget || !this.targetLock) {
+            return;
+        }
+
         // Clean up dead minions
         this.minions = this.minions.filter(minion => minion.alive);
         const currentMinionCount = this.minions.length;
         const availableSlots = OCTAGON_CONFIG.maxMinionLimit - currentMinionCount;
-        
+
         if (availableSlots <= 0) return;
-        
+
         const count = Math.min(2, availableSlots);
         const angleToPlayer = Math.atan2(targetY - this.y, targetX - this.x);
-        
+
         // Spawn minions to flank player
         for (let i = 0; i < count; i++) {
             // Alternate sides for flanking
             const flankAngle = angleToPlayer + (i % 2 === 0 ? 1 : -1) * OCTAGON_CONFIG.tacticalSummonFlankAngle;
             const spawnX = targetX + Math.cos(flankAngle) * OCTAGON_CONFIG.tacticalSummonDistance;
             const spawnY = targetY + Math.sin(flankAngle) * OCTAGON_CONFIG.tacticalSummonDistance;
-            
-            const minion = new Enemy(spawnX, spawnY, this.currentTarget);
+
+            // Pass parent's currentTarget to minion constructor for aggro inheritance
+            // Ensure we have a valid target before spawning
+            const inheritedTarget = this.currentTarget || null;
+            const minion = new Enemy(spawnX, spawnY, inheritedTarget);
             if (typeof scaleMinionStats !== 'undefined') {
-                scaleMinionStats(minion, OCTAGON_CONFIG.minionHealthMultiplier, 
-                                OCTAGON_CONFIG.minionDamageMultiplier, 
-                                OCTAGON_CONFIG.minionXpMultiplier);
+                scaleMinionStats(minion, OCTAGON_CONFIG.minionHealthMultiplier,
+                    OCTAGON_CONFIG.minionDamageMultiplier,
+                    OCTAGON_CONFIG.minionXpMultiplier);
             }
             minion.lootChance = 0.0;
-            
+
             if (typeof currentRoom !== 'undefined' && currentRoom) {
                 currentRoom.enemies.push(minion);
             }
             if (typeof Game !== 'undefined') {
                 Game.enemies.push(minion);
             }
-            
+
             this.minions.push(minion);
         }
     }
-    
+
     getSpinTelegraphDuration() {
         return Math.max(0.2, this.spinTelegraphDuration * (1 - this.intelligenceLevel * 0.2));
     }
-    
+
     getChargeTelegraphDuration() {
         return Math.max(0.2, this.chargeTelegraphDuration * (1 - this.intelligenceLevel * 0.2));
     }
-    
+
     getShotTelegraphDuration() {
         return Math.max(0.18, this.telegraphProfile.shoot.duration * (1 - this.intelligenceLevel * 0.25));
     }
-    
+
     startSpinSequence() {
         this.state = 'spin';
         this.spinElapsed = 0;
@@ -949,7 +1045,7 @@ class OctagonEnemy extends EnemyBase {
             projectRadius: profile.projectRadius
         });
     }
-    
+
     startChargeSequence(targetX, targetY) {
         this.state = 'charge';
         this.chargeElapsed = 0;
@@ -964,7 +1060,7 @@ class OctagonEnemy extends EnemyBase {
             projectRadius: profile.projectRadius
         });
     }
-    
+
     startShotSequence(targetX, targetY) {
         const duration = this.getShotTelegraphDuration();
         const profile = this.telegraphProfile.shoot;
@@ -980,14 +1076,14 @@ class OctagonEnemy extends EnemyBase {
             projectRadius: profile.projectRadius
         });
     }
-    
+
     shootRapidProjectiles(targetX, targetY, skipTelegraph = false) {
         if (typeof Game === 'undefined') return;
         if (!skipTelegraph) {
             this.startShotSequence(targetX, targetY);
             return;
         }
-        
+
         // Get actual player for better prediction - ensure we have velocity properties
         let targetPlayer = this.getPlayerById(this.currentTarget);
         if (!targetPlayer || !targetPlayer.vx) {
@@ -997,20 +1093,20 @@ class OctagonEnemy extends EnemyBase {
                 targetPlayer = matching ? matching.player : allPlayers[0].player;
             }
         }
-        
+
         const projectileSpeed = OCTAGON_CONFIG.projectileSpeed;
         let dx = targetX - this.x;
         let dy = targetY - this.y;
         let distance = Math.sqrt(dx * dx + dy * dy);
-        
+
         if (distance <= 0) return;
-        
+
         // Enhanced predictive aiming - ALWAYS enabled from room 1
         if (this.usePredictiveAiming && targetPlayer && targetPlayer.x !== undefined && targetPlayer.y !== undefined) {
             // Accuracy scales with room number: starts at 70% in room 1, reaches 95% by room 11+
             const accuracyScale = Math.min(1.0, (this.roomNumber - 1) / 10); // Scales over 10 rooms (room 1-11)
             const accuracy = 0.7 + (0.95 - 0.7) * accuracyScale; // 70% to 95% accuracy
-            
+
             // Use smoothed velocity from history if available
             let avgVx = this.lastPlayerVelocity.x;
             let avgVy = this.lastPlayerVelocity.y;
@@ -1029,7 +1125,7 @@ class OctagonEnemy extends EnemyBase {
                     avgVy = totalVy / count;
                 }
             }
-            
+
             // Calculate proper intercept time (time for projectile to reach player)
             // Use actual player position, not target (which might be clone)
             const playerX = targetPlayer.x;
@@ -1037,10 +1133,10 @@ class OctagonEnemy extends EnemyBase {
             const playerDx = playerX - this.x;
             const playerDy = playerY - this.y;
             const playerDist = Math.sqrt(playerDx * playerDx + playerDy * playerDy);
-            
+
             // ALWAYS apply prediction when enabled
             let timeToIntercept = playerDist / projectileSpeed;
-            
+
             // Use iterative prediction if player has meaningful velocity
             if (Math.abs(avgVx) > 1 || Math.abs(avgVy) > 1) {
                 for (let i = 0; i < 3; i++) {
@@ -1056,23 +1152,23 @@ class OctagonEnemy extends EnemyBase {
                     }
                 }
             }
-            
+
             // ALWAYS apply prediction with accuracy scaling
             const predictedX = playerX + avgVx * timeToIntercept * accuracy;
             const predictedY = playerY + avgVy * timeToIntercept * accuracy;
-            
+
             // Use predicted position for aiming
             dx = predictedX - this.x;
             dy = predictedY - this.y;
             distance = Math.sqrt(dx * dx + dy * dy);
             if (distance <= 0) return;
         }
-        
+
         // Shoot multiple projectiles in quick succession with predictive aiming
         for (let i = 0; i < OCTAGON_CONFIG.projectileCount; i++) {
             const offsetAngle = (i - 1) * OCTAGON_CONFIG.projectileSpread;
             const angle = Math.atan2(dy, dx) + offsetAngle;
-            
+
             Game.projectiles.push({
                 x: this.x,
                 y: this.y,
@@ -1085,12 +1181,12 @@ class OctagonEnemy extends EnemyBase {
             });
         }
     }
-    
+
     render(ctx) {
         let drawColor = this.color;
         const telegraphData = this.activeTelegraph;
         let scaleMultiplier = 1;
-        
+
         if (telegraphData) {
             const progress = telegraphData.progress !== undefined ? telegraphData.progress : 0.5;
             const pulse = 0.6 + Math.sin(progress * Math.PI * 3) * 0.4;
@@ -1099,15 +1195,15 @@ class OctagonEnemy extends EnemyBase {
         } else if (this.state === 'spin' || this.state === 'charge') {
             drawColor = '#bb86fc';
         }
-        
+
         // Draw octagon shape
         ctx.save();
         ctx.translate(this.x, this.y);
-        
+
         if (this.state === 'spin') {
             ctx.rotate(this.spinElapsed * 2); // Rotate when spinning
         }
-        
+
         ctx.fillStyle = drawColor;
         ctx.beginPath();
         for (let i = 0; i < 8; i++) {
@@ -1119,19 +1215,19 @@ class OctagonEnemy extends EnemyBase {
         }
         ctx.closePath();
         ctx.fill();
-        
+
         // Draw outline with purple glow effect
         ctx.strokeStyle = '#dda0dd'; // Light purple outline
         ctx.lineWidth = 3;
         ctx.stroke();
-        
+
         // Add subtle inner glow for elite distinction
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 1;
         ctx.stroke();
-        
+
         ctx.restore();
-        
+
         // Draw status effects (burn, freeze)
         if (typeof renderBurnEffect !== 'undefined') {
             renderBurnEffect(ctx, this);
@@ -1139,9 +1235,12 @@ class OctagonEnemy extends EnemyBase {
         if (typeof renderFreezeEffect !== 'undefined') {
             renderFreezeEffect(ctx, this);
         }
-        
+
         this.renderHealthBar(ctx);
-        
+
+        // Draw status effect indicators
+        this.renderStatusEffects(ctx);
+
         // Draw facing direction indicator (white dot)
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();
@@ -1151,7 +1250,7 @@ class OctagonEnemy extends EnemyBase {
             5, 0, Math.PI * 2
         );
         ctx.fill();
-        
+
         if (telegraphData) {
             ctx.save();
             ctx.strokeStyle = telegraphData.color || '#bb86fc';
@@ -1163,6 +1262,9 @@ class OctagonEnemy extends EnemyBase {
             ctx.stroke();
             ctx.restore();
         }
+
+        // Draw shield (Shielded Brood modifier)
+        this.renderShield(ctx);
     }
 }
 

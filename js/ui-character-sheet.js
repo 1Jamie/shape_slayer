@@ -85,20 +85,20 @@ function cs_drawCard(ctx, x, y, w, h, card) {
 	ctx.fillStyle = 'rgba(255,255,255,0.06)';
 	ctx.fillRect(x + 1, y + 1, w - 2, 24);
 	// name (left) + quality tag (right), origin badge at far right
-	ctx.font = 'bold 12px Arial';
+	ctx.font = 'bold 12px Orbitron';
 	ctx.textAlign = 'left';
 	ctx.fillStyle = '#ffffff';
 	const maxNameWidth = w - 70; // leave room for tag + origin
 	const displayName = fitText(name, maxNameWidth);
 	ctx.fillText(displayName, x + 10, y + 18);
 	// quality tag right-aligned with padding for origin badge
-	ctx.font = 'bold 10px Arial';
+	ctx.font = 'bold 10px Orbitron';
 	ctx.textAlign = 'right';
 	ctx.fillStyle = border;
 	const tag = `[${q.toUpperCase()}]`;
 	ctx.fillText(tag, x + w - 18, y + 18);
 	// origin badge at far right
-	ctx.font = 'bold 11px Arial';
+	ctx.font = 'bold 11px Orbitron';
 	ctx.fillStyle = card.origin === 'deck' ? '#00ffaa' : '#ffaa00';
 	ctx.fillText(card.origin === 'deck' ? 'D' : 'F', x + w - 6, y + 16);
 	// emblem
@@ -125,7 +125,7 @@ function cs_drawCard(ctx, x, y, w, h, card) {
 	const qb = card.qualityBands && card.qualityBands[q];
 	const desc = qb && qb.description ? qb.description : '';
 	ctx.textAlign = 'left';
-	ctx.font = '10px Arial';
+	ctx.font = 'bold 10px Orbitron';
 	ctx.fillStyle = '#cfd8ff';
 	cs_wrapText(ctx, desc, x + 10, y + 114, w - 20, 12);
 }
@@ -150,7 +150,7 @@ function cs_drawEmptyCard(ctx, x, y, w, h, label) {
 	ctx.stroke();
 	ctx.setLineDash([]);
 	ctx.textAlign = 'center';
-	ctx.font = 'bold 12px Arial';
+	ctx.font = 'bold 12px Orbitron';
 	ctx.fillStyle = 'rgba(200,200,220,0.7)';
 	ctx.fillText(label || 'Empty Slot', x + Math.floor(w / 2), y + h - 12);
 }
@@ -203,18 +203,18 @@ function renderCharacterSheet(ctx, player) {
 	const contentH = modalHeight - headerH - footerH;
 	// title
 	ctx.fillStyle = '#ffffff';
-	ctx.font = 'bold 24px Arial';
+	ctx.font = 'bold 24px Orbitron';
 	ctx.textAlign = 'center';
 	ctx.fillText('CHARACTER', modalX + modalWidth / 2, modalY + 30);
 	// class + bonuses
 	ctx.fillStyle = '#ff66aa';
-	ctx.font = 'bold 16px Arial';
+	ctx.font = 'bold 16px Orbitron';
 	ctx.fillText(`${player.playerClass ? player.playerClass : 'class'} - Level ${player.level || 1}`, modalX + modalWidth / 2, modalY + 54);
 	ctx.fillStyle = '#ffaa55';
-	ctx.font = '12px Arial';
+	ctx.font = 'bold 12px Orbitron';
 	ctx.fillText('CLASS BONUSES:', modalX + modalWidth / 2, modalY + 74);
 	ctx.fillStyle = '#ffcc88';
-	ctx.font = '12px Arial';
+	ctx.font = 'bold 12px Orbitron';
 	ctx.fillText('15% Base Crit Chance, High Speed', modalX + modalWidth / 2, modalY + 90);
 	// Grid: asymmetric columns with larger center and a shorter bottom row for aux panels
 	const pad = 24;
@@ -267,7 +267,7 @@ function renderCharacterSheet(ctx, player) {
 		stats.push({ label: 'SPD', value: `${player.moveSpeed.toFixed(0)}` });
 		if (player.maxDodgeCharges) stats.push({ label: 'DODGE', value: `${player.maxDodgeCharges}` });
 		let x = leftX + 12, y = row1Y + 12, chipH = 24, gap = 8, lineGap = 8, lineW = 0;
-		ctx.font = 'bold 12px Arial';
+		ctx.font = 'bold 12px Orbitron';
 		stats.forEach(s => {
 			const w = Math.min(leftW - 24, ctx.measureText(`${s.label}: ${s.value}`).width + 16);
 			if (x + w > leftX + leftW - 12) { x = leftX + 12; y += chipH + lineGap; }
@@ -285,12 +285,14 @@ function renderCharacterSheet(ctx, player) {
 	})();
 	// Upper-center: HAND row (dominant)
 	(function () {
-		ctx.font = 'bold 16px Arial';
+		ctx.font = 'bold 16px Orbitron';
 		ctx.fillStyle = '#ffaa88';
 		ctx.textAlign = 'center';
 		ctx.fillText('HAND', centerX + Math.floor(centerW / 2), row1Y + 18);
 		const hand = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.hand)) ? DeckState.hand : [];
-		const maxHand = (typeof SaveSystem !== 'undefined' && SaveSystem.getDeckUpgrades) ? (SaveSystem.getDeckUpgrades().handSize || 4) : 4;
+		const baseMaxHand = (typeof SaveSystem !== 'undefined' && SaveSystem.getDeckUpgrades) ? (SaveSystem.getDeckUpgrades().handSize || 4) : 4;
+		const runBonus = (typeof Game !== 'undefined' && Game.runHandSizeBonus) ? Game.runHandSizeBonus : 0;
+		const maxHand = baseMaxHand + runBonus;
 		const areaX = centerX + 12;
 		const areaW = centerW - 24;
 		// Baseline sizing (slightly smaller than before for better fit), dynamic rows
@@ -317,7 +319,7 @@ function renderCharacterSheet(ctx, player) {
 				cardW = Math.round(cardH / aspect);
 			}
 		}
-		ctx.font = '11px Arial';
+		ctx.font = 'bold 11px Orbitron';
 		ctx.fillStyle = '#dddddd';
 		ctx.textAlign = 'right';
 		ctx.fillText(`(${hand.length}/${maxHand})`, areaX + areaW, row1Y + 18);
@@ -342,7 +344,7 @@ function renderCharacterSheet(ctx, player) {
 		const spent = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.spent)) ? DeckState.spent.length : 0;
 		const items = [{ label: 'DRAW', value: draw }, { label: 'DISCARD', value: discard }, { label: 'SPENT', value: spent }];
 		let x = rightX + 12, y = row1Y + 12, chipH = 26, gap = 10;
-		ctx.font = 'bold 12px Arial';
+		ctx.font = 'bold 12px Orbitron';
 		items.forEach(it => {
 			const w = Math.min(rightW - 24, ctx.measureText(`${it.label}: ${it.value}`).width + 20);
 			ctx.fillStyle = 'rgba(255,255,255,0.08)';
@@ -358,13 +360,13 @@ function renderCharacterSheet(ctx, player) {
 	})();
 	// Lower-left: RESERVE cards preview
 	(function () {
-		ctx.font = 'bold 14px Arial';
+		ctx.font = 'bold 14px Orbitron';
 		ctx.fillStyle = '#ffaa88';
 		ctx.textAlign = 'left';
 		ctx.fillText('RESERVE', bLeftX + 10, row2Y + 20);
 		const reserve = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.reserve)) ? DeckState.reserve : [];
 		const reserveSlots = (typeof SaveSystem !== 'undefined' && SaveSystem.getDeckUpgrades) ? (SaveSystem.getDeckUpgrades().reserveSlots || 0) : 0;
-		ctx.font = '11px Arial';
+		ctx.font = 'bold 11px Orbitron';
 		ctx.fillStyle = '#dddddd';
 		ctx.fillText(`(${reserve.length}/${reserveSlots})`, bLeftX + 88, row2Y + 20);
 		const preview = reserve.slice(0, 2);
@@ -378,13 +380,13 @@ function renderCharacterSheet(ctx, player) {
 			ctx.strokeStyle = 'rgba(150,150,255,0.2)';
 			ctx.lineWidth = 1;
 			ctx.strokeRect(x, y, w, h);
-			ctx.font = '12px Arial';
+			ctx.font = 'bold 12px Orbitron';
 			ctx.fillStyle = '#ffffff';
 			ctx.fillText(c.name || c.family || 'Card', x + 8, y + 18);
 			x += w + 12;
 		});
 		if (reserve.length === 0) {
-			ctx.font = '12px Arial';
+			ctx.font = 'bold 12px Orbitron';
 			ctx.fillStyle = '#888888';
 			ctx.fillText('Empty', bLeftX + 10, row2Y + 48);
 		}
@@ -392,49 +394,139 @@ function renderCharacterSheet(ctx, player) {
 	// Lower-center: TEAM CARDS
 	(function () {
 		ctx.textAlign = 'center';
-		ctx.font = 'bold 14px Arial';
+		ctx.font = 'bold 14px Orbitron';
 		ctx.fillStyle = '#ffaa88';
 		ctx.fillText('TEAM CARDS', bCenterX + Math.floor(bColW / 2), row2Y + 20);
 		const team = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.activeTeamCards)) ? DeckState.activeTeamCards : [];
-		ctx.font = '12px Arial';
+		ctx.font = 'bold 12px Orbitron';
 		ctx.fillStyle = team.length > 0 ? '#dddddd' : '#888888';
 		const msg = team.length > 0 ? team.map(t => t.name || t.family).join(', ') : 'None';
 		ctx.fillText(msg, bCenterX + Math.floor(bColW / 2), row2Y + Math.floor(bottomRowH / 2));
 	})();
-	// Lower-right: ROOM MODIFIERS
+	// Lower-right: ITEMS
 	(function () {
 		ctx.textAlign = 'left';
-		ctx.font = 'bold 14px Arial';
+		ctx.font = 'bold 14px Orbitron';
 		ctx.fillStyle = '#ffaa88';
-		ctx.fillText('ROOM MODIFIERS', bRightX + 10, row2Y + 20);
-		const mods = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.roomModifierInventory)) ? DeckState.roomModifierInventory : [];
-		const carrySlots = (typeof SaveSystem !== 'undefined' && SaveSystem.getDeckUpgrades) ? (SaveSystem.getDeckUpgrades().roomModifierCarrySlots || 3) : 3;
-		ctx.font = '11px Arial';
+		ctx.fillText('ITEMS', bRightX + 10, row2Y + 20);
+		const items = (player && player.itemManager) ? player.itemManager.getItemsArray() : [];
+		ctx.font = 'bold 11px Orbitron';
 		ctx.fillStyle = '#dddddd';
-		ctx.fillText(`(${mods.length}/${carrySlots})`, bRightX + 150, row2Y + 20);
-		if (mods.length === 0) {
-			ctx.font = '12px Arial';
+		ctx.fillText(`(${items.length})`, bRightX + 80, row2Y + 20);
+		if (items.length === 0) {
+			ctx.font = 'bold 12px Orbitron';
 			ctx.fillStyle = '#888888';
 			ctx.fillText('None', bRightX + 10, row2Y + 48);
 		} else {
-			const list = mods.slice(0, 3);
+			const list = items.slice(0, 4);
 			let y = row2Y + 36;
-			list.forEach(m => {
-				ctx.font = '12px Arial';
-				ctx.fillStyle = '#cccccc';
-				ctx.fillText('• ' + (m.name || m.family || 'Modifier'), bRightX + 10, y);
+			const itemRarityColors = {
+				common: '#999999',
+				uncommon: '#4caf50',
+				rare: '#2196f3',
+				epic: '#9c27b0'
+			};
+			let hoveredItem = null;
+			const mouseX = (typeof Input !== 'undefined' && Input.mouse) ? Input.mouse.x : -1;
+			const mouseY = (typeof Input !== 'undefined' && Input.mouse) ? Input.mouse.y : -1;
+			list.forEach((item, index) => {
+				const rarityColor = itemRarityColors[item.definition.rarity] || '#999999';
+				ctx.font = 'bold 12px Orbitron';
+				ctx.fillStyle = rarityColor;
+				const stackText = item.stacks > 1 ? ` x${item.stacks}` : '';
+				const textX = bRightX + 10;
+				const textY = y;
+				ctx.fillText('• ' + (item.definition.name || 'Item') + stackText, textX, textY);
+				
+				// Check if mouse is hovering over this item
+				if (mouseX >= textX && mouseX <= textX + 200 && mouseY >= textY - 12 && mouseY <= textY + 6) {
+					hoveredItem = item;
+				}
+				
 				y += 18;
 			});
-			if (mods.length > 3) {
-				ctx.font = '12px Arial';
+			if (items.length > 4) {
+				ctx.font = 'bold 12px Orbitron';
 				ctx.fillStyle = '#aaaaaa';
-				ctx.fillText(`+${mods.length - 3} more...`, bRightX + 10, y);
+				ctx.fillText(`+${items.length - 4} more...`, bRightX + 10, y);
+			}
+			
+			// Render tooltip for hovered item
+			if (hoveredItem) {
+				const tooltipX = mouseX + 15;
+				const tooltipY = mouseY - 10;
+				const tooltipPadding = 8;
+				const tooltipLineHeight = 16;
+				
+				// Get tooltip text
+				const tooltipLines = [];
+				tooltipLines.push(hoveredItem.definition.name || 'Item');
+				if (hoveredItem.stacks > 1) {
+					tooltipLines.push(`Stacks: ${hoveredItem.stacks}`);
+				}
+				const tooltipText = hoveredItem.definition.getTooltip ? hoveredItem.definition.getTooltip(hoveredItem.stacks) : hoveredItem.definition.description || '';
+				if (tooltipText) {
+					// Split long tooltip text into lines
+					const words = tooltipText.split(' ');
+					let currentLine = '';
+					words.forEach(word => {
+						ctx.font = 'bold 11px Orbitron';
+						const testLine = currentLine ? currentLine + ' ' + word : word;
+						if (ctx.measureText(testLine).width > 250) {
+							if (currentLine) tooltipLines.push(currentLine);
+							currentLine = word;
+						} else {
+							currentLine = testLine;
+						}
+					});
+					if (currentLine) tooltipLines.push(currentLine);
+				}
+				
+				// Calculate tooltip size
+				ctx.font = 'bold 12px Orbitron';
+				const titleWidth = ctx.measureText(tooltipLines[0]).width;
+				ctx.font = 'bold 11px Orbitron';
+				let maxWidth = titleWidth;
+				tooltipLines.slice(1).forEach(line => {
+					const width = ctx.measureText(line).width;
+					if (width > maxWidth) maxWidth = width;
+				});
+				const tooltipW = maxWidth + tooltipPadding * 2;
+				const tooltipH = tooltipLines.length * tooltipLineHeight + tooltipPadding * 2;
+				
+				// Adjust position if tooltip goes off screen
+				let finalX = tooltipX;
+				let finalY = tooltipY;
+				if (finalX + tooltipW > screenWidth) finalX = mouseX - tooltipW - 15;
+				if (finalY + tooltipH > screenHeight) finalY = screenHeight - tooltipH - 10;
+				
+				// Draw tooltip background
+				ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
+				ctx.fillRect(finalX, finalY, tooltipW, tooltipH);
+				ctx.strokeStyle = itemRarityColors[hoveredItem.definition.rarity] || '#999999';
+				ctx.lineWidth = 2;
+				ctx.strokeRect(finalX, finalY, tooltipW, tooltipH);
+				
+				// Draw tooltip text
+				let textY = finalY + tooltipPadding + 12;
+				tooltipLines.forEach((line, index) => {
+					if (index === 0) {
+						ctx.font = 'bold 12px Orbitron';
+						ctx.fillStyle = itemRarityColors[hoveredItem.definition.rarity] || '#ffffff';
+					} else {
+						ctx.font = 'bold 11px Orbitron';
+						ctx.fillStyle = '#cccccc';
+					}
+					ctx.textAlign = 'left';
+					ctx.fillText(line, finalX + tooltipPadding, textY);
+					textY += tooltipLineHeight;
+				});
 			}
 		}
 	})();
 	// footer hint
 	ctx.textAlign = 'center';
-	ctx.font = '12px Arial';
+	ctx.font = 'bold 12px Orbitron';
 	ctx.fillStyle = '#ffff88';
 	const hintY = modalY + modalHeight - 15;
 	if (isMobile) ctx.fillText('Tap X to close  •  Swipe to scroll', modalX + modalWidth / 2, hintY);

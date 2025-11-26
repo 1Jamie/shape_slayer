@@ -15,20 +15,31 @@
 		layer.className = 'ui-layer';
 		layer.id = 'shard-display';
 		layer.style.pointerEvents = 'none';
+		layer.style.userSelect = 'none';
+		layer.style.webkitUserSelect = 'none';
+		layer.style.mozUserSelect = 'none';
+		layer.style.msUserSelect = 'none';
 		layer.style.position = 'fixed';
 		layer.style.left = '20px';
 		layer.style.top = '20px';
 		layer.style.zIndex = '2500'; // High z-index to appear above other UI elements
 		layer.style.display = 'none';
+		
+		// Prevent right-click context menu
+		layer.addEventListener('contextmenu', (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			return false;
+		});
 		layer.style.width = 'fit-content';
 		layer.style.height = 'auto';
 		layer.style.maxWidth = 'none';
 		
-		// Shard display container
+		// Shard and credit display container
 		const container = document.createElement('div');
 		container.style.display = 'inline-flex';
 		container.style.alignItems = 'center';
-		container.style.gap = '8px';
+		container.style.gap = '16px';
 		container.style.padding = '8px 16px';
 		container.style.background = 'rgba(20, 20, 40, 0.85)';
 		container.style.border = '2px solid rgba(120, 160, 255, 0.5)';
@@ -39,12 +50,17 @@
 		container.style.flexShrink = '0';
 		container.style.whiteSpace = 'nowrap';
 		
-		// Shard icon/label
-		const label = document.createElement('span');
-		label.textContent = 'Shards:';
-		label.style.color = '#aaa';
-		label.style.fontSize = '16px';
-		label.style.fontWeight = '600';
+		// Shard section
+		const shardSection = document.createElement('div');
+		shardSection.style.display = 'inline-flex';
+		shardSection.style.alignItems = 'center';
+		shardSection.style.gap = '8px';
+		
+		const shardLabel = document.createElement('span');
+		shardLabel.textContent = 'Shards:';
+		shardLabel.style.color = '#aaa';
+		shardLabel.style.fontSize = '16px';
+		shardLabel.style.fontWeight = '600';
 		
 		// Shard value
 		shardEl = document.createElement('span');
@@ -54,8 +70,42 @@
 		shardEl.style.textShadow = '0 0 4px rgba(255, 215, 0, 0.5)';
 		shardEl.textContent = '0';
 		
-		container.appendChild(label);
-		container.appendChild(shardEl);
+		shardSection.appendChild(shardLabel);
+		shardSection.appendChild(shardEl);
+		
+		// Divider
+		const divider = document.createElement('span');
+		divider.textContent = '|';
+		divider.style.color = '#666';
+		divider.style.fontSize = '16px';
+		divider.style.margin = '0 4px';
+		
+		// Credit section
+		const creditSection = document.createElement('div');
+		creditSection.style.display = 'inline-flex';
+		creditSection.style.alignItems = 'center';
+		creditSection.style.gap = '8px';
+		
+		const creditLabel = document.createElement('span');
+		creditLabel.textContent = 'Credits:';
+		creditLabel.style.color = '#aaa';
+		creditLabel.style.fontSize = '16px';
+		creditLabel.style.fontWeight = '600';
+		
+		const creditEl = document.createElement('span');
+		creditEl.style.color = '#00ffff';
+		creditEl.style.fontSize = '18px';
+		creditEl.style.fontWeight = 'bold';
+		creditEl.style.textShadow = '0 0 4px rgba(0, 255, 255, 0.5)';
+		creditEl.textContent = '0';
+		creditEl.id = 'credit-display-value';
+		
+		creditSection.appendChild(creditLabel);
+		creditSection.appendChild(creditEl);
+		
+		container.appendChild(shardSection);
+		container.appendChild(divider);
+		container.appendChild(creditSection);
 		layer.appendChild(container);
 		root.appendChild(layer);
 		
@@ -78,12 +128,6 @@
 			}
 		}
 		
-		if (!window.USE_DOM_UI) {
-			if (layer) layer.style.display = 'none';
-			requestAnimationFrame(tick);
-			return;
-		}
-		
 		// Always show the element if it exists and USE_DOM_UI is true
 		// We'll hide it later if Game exists and state doesn't match
 		if (layer && !window.Game) {
@@ -94,6 +138,11 @@
 			if (shardEl) {
 				const shards = typeof SaveSystem !== 'undefined' && SaveSystem.getCardShards ? SaveSystem.getCardShards() : 0;
 				shardEl.textContent = shards.toLocaleString();
+			}
+			const creditEl = document.getElementById('credit-display-value');
+			if (creditEl) {
+				const credits = typeof SaveSystem !== 'undefined' && SaveSystem.getCurrency ? SaveSystem.getCurrency() : 0;
+				creditEl.textContent = Math.floor(credits).toLocaleString();
 			}
 			requestAnimationFrame(tick);
 			return;
@@ -124,6 +173,13 @@
 			if (shardEl) {
 				const shards = typeof SaveSystem !== 'undefined' && SaveSystem.getCardShards ? SaveSystem.getCardShards() : 0;
 				shardEl.textContent = shards.toLocaleString();
+			}
+			// Update credits display
+			const creditEl = document.getElementById('credit-display-value');
+			if (creditEl) {
+				const credits = typeof SaveSystem !== 'undefined' && SaveSystem.getCurrency ? SaveSystem.getCurrency() : 
+				               (typeof Game !== 'undefined' && Game.currentCurrency !== undefined ? Game.currentCurrency : 0);
+				creditEl.textContent = Math.floor(credits).toLocaleString();
 			}
 		} else if (layer) {
 			layer.style.display = 'none';

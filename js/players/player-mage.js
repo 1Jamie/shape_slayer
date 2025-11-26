@@ -16,6 +16,9 @@ const MAGE_CONFIG = {
     damagePerLevel: 0.5,           // Damage increase per level
     defensePerLevel: 0.005,        // Defense increase per level (0.005 = 0.5%)
     speedPerLevel: 2,              // Speed increase per level (pixels/second)
+    cooldownPerLevel: 0.01,        // Cooldown reduction per level (0.01 = 1% per level)
+    healthPerLevel: 5,             // Health increase per level (flat HP)
+    attackSpeedPerLevel: 0.05,     // Attack speed increase per level (0.05 = 5% faster per level)
     
     // Basic Attack (Magic Bolt)
     boltSpeed: 400,                // Projectile speed (pixels/second)
@@ -69,23 +72,30 @@ class Mage extends PlayerBase {
         const classDef = CLASS_DEFINITIONS.hexagon;
         
         // Load upgrades from save system
-        let upgradeBonuses = { damage: 0, defense: 0, speed: 0 };
+        let upgradeBonuses = { damage: 0, defense: 0, speed: 0, cooldown: 0, health: 0, attackSpeed: 0 };
         if (typeof SaveSystem !== 'undefined') {
             const upgrades = SaveSystem.getUpgrades('hexagon');
             // Calculate bonuses using config values
             upgradeBonuses.damage = upgrades.damage * MAGE_CONFIG.damagePerLevel;
             upgradeBonuses.defense = upgrades.defense * MAGE_CONFIG.defensePerLevel;
             upgradeBonuses.speed = upgrades.speed * MAGE_CONFIG.speedPerLevel;
+            upgradeBonuses.cooldown = upgrades.cooldown * MAGE_CONFIG.cooldownPerLevel;
+            upgradeBonuses.health = upgrades.health * MAGE_CONFIG.healthPerLevel;
+            upgradeBonuses.attackSpeed = upgrades.attackSpeed * MAGE_CONFIG.attackSpeedPerLevel;
         }
-        
+
         // Set base stats from CONFIG (single source of truth)
         this.baseDamage = MAGE_CONFIG.baseDamage + upgradeBonuses.damage;
         this.baseMoveSpeed = MAGE_CONFIG.baseSpeed + upgradeBonuses.speed;
         this.initialBaseMoveSpeed = this.baseMoveSpeed; // Store original for level scaling
         this.baseDefense = MAGE_CONFIG.baseDefense + upgradeBonuses.defense;
-        this.baseMaxHp = MAGE_CONFIG.baseHp; // Store base max HP for gear calculations
-        this.maxHp = MAGE_CONFIG.baseHp;
-        this.hp = MAGE_CONFIG.baseHp;
+        this.baseMaxHp = MAGE_CONFIG.baseHp + upgradeBonuses.health; // Store base max HP for gear calculations
+        this.maxHp = MAGE_CONFIG.baseHp + upgradeBonuses.health;
+        this.hp = MAGE_CONFIG.baseHp + upgradeBonuses.health;
+        
+        // Apply cooldown and attack speed upgrades
+        this.cooldownReduction = Math.min(0.75, upgradeBonuses.cooldown); // Cap at 75%
+        this.attackSpeedMultiplier = 1.0 + upgradeBonuses.attackSpeed;
         this.baseCritChance = MAGE_CONFIG.critChance || 0; // Store base for updateEffectiveStats
         this.critChance = MAGE_CONFIG.critChance || 0;
         this.color = classDef.color;
@@ -98,12 +108,15 @@ class Mage extends PlayerBase {
         this.maxDodgeCharges = 1;
         this.dodgeChargeCooldowns = [0];
         
-        // Heavy attack cooldown and charges
+        // Heavy attack cooldown and charges - MUST be set BEFORE updateEffectiveStats is called
+        // Follow EXACT same pattern as rogue dodge charges
         this.heavyAttackCooldownTime = MAGE_CONFIG.heavyAttackCooldown;
         this.heavyAttackWindup = 0; // Instant fire for beam (no windup)
-        this.beamCharges = MAGE_CONFIG.beamCharges;
-        this.maxBeamCharges = MAGE_CONFIG.beamCharges;
-        this.beamChargeCooldowns = [0, 0]; // Track cooldown per charge
+        this.baseBeamCharges = MAGE_CONFIG.beamCharges; // Store base value (2) - same as baseDodgeCharges for rogue
+        this.maxBeamCharges = MAGE_CONFIG.beamCharges; // Set max (2) - same as maxDodgeCharges for rogue
+        this.beamCharges = MAGE_CONFIG.beamCharges; // Start with max charges (2) - same as dodgeCharges for rogue
+        this.beamChargeCooldowns = new Array(this.maxBeamCharges).fill(0); // Track cooldown per charge - same as dodgeChargeCooldowns for rogue
+        
         
         // Blink special ability - decoy system
         this.blinkDecoyActive = false;
@@ -148,10 +161,19 @@ class Mage extends PlayerBase {
         // Beam heavy attack state - support multiple simultaneous beams
         this.activeBeams = []; // Array of active beam objects
         
-        // Update effective stats
+        // Update effective stats (will adjust maxBeamCharges based on bonuses, same as dodge charges)
         this.updateEffectiveStats();
         
-        console.log('Mage class initialized');
+        // Reapply upgrade bonuses after updateEffectiveStats (which resets these values)
+        this.cooldownReduction = Math.min(0.75, upgradeBonuses.cooldown); // Cap at 75%
+        this.attackSpeedMultiplier = 1.0 + upgradeBonuses.attackSpeed;
+        
+        // After updateEffectiveStats, sync heavyAttackCooldown with charge system (same as dodge system)
+        // Set to 0 if we have charges, otherwise use time until the next charge is ready
+        this.heavyAttackCooldown = this.beamCharges > 0
+            ? 0
+            : this.getNextChargeReadyTime(this.beamChargeCooldowns);
+        
     }
     
     // Override updateEffectiveStats to apply beam bonuses
@@ -215,30 +237,30 @@ class Mage extends PlayerBase {
             }
         }
         
-        // Apply beam charge bonuses and resize cooldown array if needed
-        const newMaxBeamCharges = MAGE_CONFIG.beamCharges + this.bonusBeamCharges;
-        if (newMaxBeamCharges !== this.maxBeamCharges) {
-            const oldMaxBeamCharges = this.maxBeamCharges;
-            this.maxBeamCharges = newMaxBeamCharges;
-            
-            // Resize cooldown array
-            const oldCooldowns = this.beamChargeCooldowns || [];
-            this.beamChargeCooldowns = new Array(this.maxBeamCharges).fill(0);
-            
-            // Copy over existing cooldowns
-            for (let i = 0; i < Math.min(oldCooldowns.length, this.maxBeamCharges); i++) {
-                this.beamChargeCooldowns[i] = oldCooldowns[i];
-            }
-            
-            // Grant extra charges when max increases (e.g., from 2 to 3, grant 1 charge)
-            const chargeIncrease = this.maxBeamCharges - oldMaxBeamCharges;
-            if (chargeIncrease > 0) {
-                this.beamCharges = Math.min((this.beamCharges || 0) + chargeIncrease, this.maxBeamCharges);
-            } else {
-                // If max decreased, clamp current charges
-                this.beamCharges = Math.min(this.beamCharges || 0, this.maxBeamCharges);
-            }
+        // Apply beam charge bonuses and resize cooldown array - follow EXACT same pattern as dodge charges in base class
+        // Use baseBeamCharges (set in constructor) like base class uses baseDodgeCharges
+        const baseCharges = this.baseBeamCharges || MAGE_CONFIG.beamCharges; // Default to config value if not set
+        
+        // Match base class pattern: Math.max(1, baseCharges + bonusCharges)
+        // Since baseCharges is 2 for mage, this will be Math.max(1, 2 + bonusBeamCharges) = at least 2
+        this.maxBeamCharges = Math.max(1, baseCharges + (this.bonusBeamCharges || 0));
+        
+        // Resize cooldown array if needed (same pattern as dodge charges)
+        if (!this.beamChargeCooldowns) {
+            this.beamChargeCooldowns = [];
         }
+        while (this.beamChargeCooldowns.length < this.maxBeamCharges) {
+            this.beamChargeCooldowns.push(0);
+        }
+        while (this.beamChargeCooldowns.length > this.maxBeamCharges) {
+            this.beamChargeCooldowns.pop();
+        }
+        
+        // Calculate current charges based on ready cooldowns (EXACT same pattern as base class for dodge)
+        // Use helper function to count ready charges, just like base class does with getReadyDodgeCharges()
+        // IMPORTANT: During base class constructor, beamChargeCooldowns might be newly created with all 0s
+        // In that case, all charges should be ready (just like dodge system)
+        this.beamCharges = this.maxBeamCharges > 1 ? this.getReadyBeamCharges() : (this.heavyAttackCooldown <= 0 ? 1 : 0);
         
         // Apply tick rate and duration multipliers
         this.effectiveBeamTickRate = MAGE_CONFIG.beamTickRate * Math.max(0.1, this.beamTickRateMultiplier);
@@ -246,6 +268,21 @@ class Mage extends PlayerBase {
         
         // Apply penetration bonus
         this.effectiveBeamMaxPenetration = MAGE_CONFIG.beamMaxPenetration + this.bonusBeamPenetration;
+    }
+    
+    // Helper function to count ready beam charges (same pattern as getReadyDodgeCharges in base class)
+    getReadyBeamCharges() {
+        if (!this.beamChargeCooldowns || this.beamChargeCooldowns.length === 0) {
+            return 0;
+        }
+        let ready = 0;
+        for (let i = 0; i < this.beamChargeCooldowns.length; i++) {
+            const cooldown = Number.isFinite(this.beamChargeCooldowns[i]) ? this.beamChargeCooldowns[i] : 0;
+            if (cooldown <= 0) {
+                ready++;
+            }
+        }
+        return ready;
     }
     
     // Override to apply Mage-specific class modifiers
@@ -286,9 +323,11 @@ class Mage extends PlayerBase {
     
     // Override applyHeavyAttackCooldown to use charge system
     applyHeavyAttackCooldown() {
+        // No defensive checks needed - updateEffectiveStats handles maxBeamCharges and array sizing
+        
         // Don't use base cooldown, use our charge system instead
         // Consume a charge
-        this.beamCharges--;
+        this.beamCharges = Math.max(0, this.beamCharges - 1);
         const longestActive = this.getLongestActiveCooldown(this.beamChargeCooldowns);
         
         // Find the first available charge slot and start its cooldown
@@ -301,7 +340,6 @@ class Mage extends PlayerBase {
                 
                 // Overcharge: Chance to refund charge
                 if (this.overchargeChance && this.overchargeChance > 0 && Math.random() < this.overchargeChance) {
-                    console.log('[Overcharge] Beam charge refunded!');
                     this.beamChargeCooldowns[i] = 0;
                     this.beamCharges++; // Refund the charge
                 } else {
@@ -352,9 +390,16 @@ class Mage extends PlayerBase {
         const numProjectiles = 1 + this.projectileCountBonus + (this.multishotCount || 0);
         const spreadAngle = MAGE_CONFIG.boltSpreadAngle;
         const isMultishot = numProjectiles > 1;
+        const hasVolley = (this.projectileCountBonus || 0) > 0; // Volley adds to projectileCountBonus
         
         // Apply multishot multipliers (damage and range reduction for shotgun-like behavior)
-        const damageMultiplier = isMultishot ? MAGE_CONFIG.multishotDamageMultiplier : 1.0;
+        // If Volley is active, use Volley's damage per projectile multiplier instead
+        let damageMultiplier = 1.0;
+        if (hasVolley && this.volleyDamagePerProjectile) {
+            damageMultiplier = this.volleyDamagePerProjectile; // Volley's reduced damage per projectile
+        } else if (isMultishot) {
+            damageMultiplier = MAGE_CONFIG.multishotDamageMultiplier;
+        }
         const rangeMultiplier = isMultishot ? MAGE_CONFIG.multishotRangeMultiplier : 1.0;
         
         for (let i = 0; i < numProjectiles; i++) {
@@ -364,7 +409,7 @@ class Mage extends PlayerBase {
             const projDirX = Math.cos(angle);
             const projDirY = Math.sin(angle);
             
-            Game.projectiles.push({
+            const projectile = {
                 x: pos.x,
                 y: pos.y,
                 vx: projDirX * MAGE_CONFIG.boltSpeed * (this.projectileSpeedMultiplier || 1.0),
@@ -376,7 +421,21 @@ class Mage extends PlayerBase {
                 type: 'magic',
                 color: this.color,
                 playerId: this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null) // For damage attribution
-            });
+            };
+            
+            // Apply Volley pierce/chain bonuses if active
+            if (hasVolley) {
+                if (this.volleyPierceAll) {
+                    projectile.pierceAll = true;
+                } else if (this.volleyPierceChance && Math.random() < this.volleyPierceChance) {
+                    projectile.pierce = true;
+                }
+                if (this.volleyChain) {
+                    projectile.hasChainEffect = true; // Mark for chain lightning on hit
+                }
+            }
+            
+            Game.projectiles.push(projectile);
         }
     }
     
@@ -408,10 +467,8 @@ class Mage extends PlayerBase {
         
         this.isAttacking = true;
         
-        // Apply standardized heavy cooldown for UI parity
-        if (this.applyHeavyAttackCooldown) {
-            this.applyHeavyAttackCooldown();
-        }
+        // NOTE: applyHeavyAttackCooldown is called by the base class after createHeavyAttack returns
+        // Do NOT call it here or it will be called twice!
         
         // Trigger screen shake
         if (typeof Game !== 'undefined') {
@@ -786,7 +843,6 @@ class Mage extends PlayerBase {
         this.invulnerable = true;
         this.invulnerabilityTime = 1.2; // 1.2s post-teleport i-frames for safer dashing through enemies
         this.updateBlinkDecoyEntity();
-        console.log('Blink activated!');
     }
     
     updateBlinkDecoyEntity() {
@@ -862,25 +918,63 @@ class Mage extends PlayerBase {
     
     // Override updateClassAbilities for Mage-specific updates
     updateClassAbilities(deltaTime, input) {
-        // Update beam charge cooldowns
+        // Update beam charge cooldowns - follow EXACT same pattern as dodge charges in base class update()
+        // Tick down cooldowns for each charge
         for (let i = 0; i < this.maxBeamCharges; i++) {
-            let cooldown = Number.isFinite(this.beamChargeCooldowns[i]) ? this.beamChargeCooldowns[i] : 0;
+            const rawValue = this.beamChargeCooldowns[i];
+            let cooldown = Number.isFinite(rawValue) ? rawValue : 0;
             if (cooldown > 0) {
                 cooldown = Math.max(0, cooldown - deltaTime);
-                if (cooldown <= 0 && this.beamCharges < this.maxBeamCharges) {
-                    this.beamCharges++;
-                }
                 this.beamChargeCooldowns[i] = cooldown;
             } else {
                 this.beamChargeCooldowns[i] = 0;
             }
         }
         
+        // Update beamCharges count using helper function (same as dodge system)
+        this.beamCharges = this.getReadyBeamCharges();
+        
         // Sync heavyAttackCooldown with charge system for UI and base class checks
         // Set to 0 if we have charges, otherwise use time until the next charge is ready
         this.heavyAttackCooldown = this.beamCharges > 0
             ? 0
             : this.getNextChargeReadyTime(this.beamChargeCooldowns);
+        
+        // Override UIBus emission for Mage to send beam charge data instead of single heavy bar
+        // This prevents the base class's single "Heavy" bar from overriding our segmented bars
+        if (typeof window !== 'undefined' && window.UIBus && typeof window.UIBus.emit === 'function') {
+            try {
+                const bars = [];
+                // Dodge bars (use base class logic)
+                const dodgeMaxForUi = Math.max(0.0001, Number.isFinite(this.dodgeCooldownTime) ? this.dodgeCooldownTime : 2.0);
+                if (this.dodgeChargeCooldowns && Array.isArray(this.dodgeChargeCooldowns) && this.dodgeChargeCooldowns.length > 0) {
+                    for (let i = 0; i < this.dodgeChargeCooldowns.length; i++) {
+                        const rem = Math.max(0, Number.isFinite(this.dodgeChargeCooldowns[i]) ? this.dodgeChargeCooldowns[i] : 0);
+                        bars.push({ type: 'dodge', label: 'D', remaining: rem, max: dodgeMaxForUi });
+                    }
+                } else {
+                    bars.push({ type: 'dodge', label: 'Dodge', remaining: this.cooldowns.dodge.remaining, max: dodgeMaxForUi });
+                }
+                // Special (blink)
+                bars.push({ type: 'special', label: 'Special', remaining: this.cooldowns.special.remaining, max: this.cooldowns.special.max });
+                // Beam charges (MAGE-SPECIFIC - send per-charge data instead of single heavy bar)
+                const beamMaxForUi = Math.max(0.0001, Number.isFinite(this.heavyAttackCooldownTime) ? this.heavyAttackCooldownTime : 2.0);
+                if (this.beamChargeCooldowns && Array.isArray(this.beamChargeCooldowns) && this.beamChargeCooldowns.length > 0) {
+                    for (let i = 0; i < this.beamChargeCooldowns.length; i++) {
+                        const rem = Math.max(0, Number.isFinite(this.beamChargeCooldowns[i]) ? this.beamChargeCooldowns[i] : 0);
+                        bars.push({ type: 'beam', label: 'B', remaining: rem, max: beamMaxForUi });
+                    }
+                } else {
+                    // Fallback to single bar if charge system not initialized
+                    bars.push({ type: 'heavy', label: 'Heavy', remaining: this.cooldowns.heavy.remaining, max: this.cooldowns.heavy.max });
+                }
+                window.UIBus.emit('cooldowns:update', { bars });
+                // Set flag to prevent base class from emitting and overwriting our beam charge data
+                this._cooldownsAlreadyEmitted = true;
+            } catch (e) {
+                // Avoid spamming console on every frame
+            }
+        }
         
         // Update blink decoy - health decay system
         if (this.blinkDecoyActive) {
@@ -1245,7 +1339,7 @@ class Mage extends PlayerBase {
             
             // Draw distance indicator (small text showing distance)
             ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-            ctx.font = 'bold 12px Arial';
+            ctx.font = 'bold 12px Orbitron';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'top';
             ctx.fillText(`${Math.round(this.blinkPreviewDistance)}px`, this.blinkPreviewX, this.blinkPreviewY + indicatorRadius + 8);
