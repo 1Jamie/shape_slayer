@@ -172,16 +172,16 @@
 			statusEl.style.display = 'none';
 		}
 		
-		// Mobile scaling
+		// Mobile scaling and repositioning
 		const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
 		if (isMobile) {
-			panel.style.top = '10px';
-			panel.style.width = '210px';
-			panel.style.minHeight = '52px';
-			panel.style.padding = '8px 12px';
-			roomNumberEl.style.fontSize = '28px';
-			enemyCountEl.style.fontSize = '14px';
-			statusEl.style.fontSize = '16px';
+			panel.style.top = '8px';
+			panel.style.width = '180px';
+			panel.style.minHeight = '45px';
+			panel.style.padding = '6px 10px';
+			roomNumberEl.style.fontSize = '24px';
+			enemyCountEl.style.fontSize = '12px';
+			statusEl.style.fontSize = '14px';
 		} else {
 			panel.style.top = '15px';
 			panel.style.width = '280px';

@@ -105,13 +105,46 @@ const Input = {
     // Device detection - check user agent for mobile/tablet
     // DISABLED: Always return false to force desktop mode
     isMobileDevice() {
-        return false; // Mobile UI disabled - always desktop mode
+        // Primary detection: User Agent patterns
+        const ua = navigator.userAgent || '';
+        const platform = navigator.platform || '';
+
+        // Android mobile (must have "Mobile" in UA to exclude desktop Android)
+        const isAndroidMobile = /Android.*Mobile/i.test(ua);
+
+        // iOS mobile devices (iPhone, iPod - exclude iPad if treating as tablet)
+        const isIOSMobile = /iPhone|iPod/i.test(ua);
+
+        // Platform check as secondary validation
+        const isMobilePlatform = /iPhone|iPod|Android/i.test(platform);
+
+        // Mobile browser indicators
+        const isMobileBrowser = /Mobile|Android|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+
+        // Combine checks: must match user agent pattern AND platform (or mobile browser indicator)
+        const isMobile = (isAndroidMobile || isIOSMobile || (isMobileBrowser && isMobilePlatform));
+
+        return isMobile;
     },
 
     // Check if touch mode is active
-    // DISABLED: Always return false to force desktop mode
     isTouchMode() {
-        return false; // Mobile UI disabled - always desktop mode
+        // Check if we're on a mobile device
+        if (this.isMobileDevice()) {
+            return true;
+        }
+
+        // Check control mode setting (if user manually enabled touch controls)
+        if (this.controlMode === 'touch') {
+            return true;
+        }
+
+        // Auto mode: only enable if mobile device
+        if (this.controlMode === 'auto') {
+            return this.isMobileDevice();
+        }
+
+        return false;
     },
 
     // Initialize input handlers
@@ -319,26 +352,39 @@ const Input = {
         const buttonSize = Math.floor(baseButtonSize * widthScale);
         const buttonHeight = Math.floor(52 * widthScale);
 
-        // LEFT SIDE - Movement joystick (left thumb zone)
-        // Position: Lower for better thumb reach, especially on tall phones
-        const leftX = Math.max(100, width * 0.08); // ~8% from left edge, min 100px
-        const leftY = height - Math.max(120, height * 0.16); // Dynamic: ~16% from bottom, min 120px
-        this.touchJoysticks.movement = new VirtualJoystick(leftX, leftY, movementRadius, 20);
+        // Check if mobile
+        const isMobile = this.isTouchMode();
 
         // RIGHT SIDE - Combat controls (right thumb zone)
         // Radial layout: Main attack joystick in center, ability buttons arranged around it
-        // Position: Lower for better thumb reach
+        // Position: Lower for better thumb reach, but ensure all controls stay on screen
         const rightX = width - Math.max(130, width * 0.10); // ~10% from right edge, min 130px
-        const rightY = height - Math.max(140, height * 0.18); // Dynamic: ~18% from bottom, min 140px
+
+        // Radial button layout around the central joystick
+        // Create a cohesive cluster with proper spacing (increased spacing to prevent accidental hits)
+        const radialRadius = basicAttackRadius + Math.floor(75 * widthScale); // Distance from center (scaled)
+
+        // Ensure all buttons/joysticks stay on screen (account for radial radius + button size)
+        // Calculate AFTER radialRadius is defined
+        const maxControlReach = Math.max(basicAttackRadius + radialRadius + buttonSize / 2, 140);
+        const safeBottomMarginRight = maxControlReach + 20; // max reach + padding
+        const rightY = isMobile
+            ? height - Math.max(safeBottomMarginRight, height * 0.20) // Mobile: higher up, ~20% from bottom to avoid fingers
+            : height - Math.max(140, height * 0.18); // Desktop: ~18% from bottom
 
         // Basic attack joystick (CENTRAL - primary action, main right thumb position)
         const centerX = rightX;
         const centerY = rightY;
         this.touchJoysticks.basicAttack = new VirtualJoystick(centerX, centerY, basicAttackRadius, 20);
 
-        // Radial button layout around the central joystick
-        // Create a cohesive cluster with proper spacing (increased spacing to prevent accidental hits)
-        const radialRadius = basicAttackRadius + Math.floor(75 * widthScale); // Distance from center (scaled)
+        // LEFT SIDE - Movement joystick (left thumb zone)
+        // Position: Aligned with center of right cluster (centerY) for consistent thumb height
+        const leftX = Math.max(100, width * 0.08); // ~8% from left edge, min 100px
+        // On mobile, align with right cluster center; on desktop, use original positioning
+        const leftY = isMobile
+            ? centerY // Mobile: same height as right cluster center
+            : height - Math.max(120, height * 0.16); // Desktop: ~16% from bottom
+        this.touchJoysticks.movement = new VirtualJoystick(leftX, leftY, movementRadius, 20);
 
         // Position buttons at angles around the circle (3 buttons: Heavy, Special, Dodge)
         // Angles optimized for thumb reach: Heavy (upper-left), Special (upper-right), Dodge (bottom)
@@ -494,6 +540,14 @@ const Input = {
                 if (x >= bounds.x && x <= bounds.x + bounds.width &&
                     y >= bounds.y && y <= bounds.y + bounds.height) {
                     CharacterSheet.isOpen = false;
+                    return;
+                }
+            }
+
+            // Check interaction button (high priority UI element)
+            if (typeof handleInteractionButtonClick === 'function') {
+                if (handleInteractionButtonClick(x, y)) {
+                    // Interaction button handled the touch
                     return;
                 }
             }
@@ -1129,6 +1183,202 @@ const Input = {
     // Get key state
     getKeyState(key) {
         return this.keys[key.toLowerCase()] || false;
+    },
+
+    // Render touch controls
+    render(ctx) {
+        if (!this.isTouchMode()) return;
+
+        // Helper to safely get numeric values
+        const getVal = (obj, keys, fallback = 0) => {
+            if (!obj) return fallback;
+            for (const k of keys) {
+                const v = obj[k];
+                if (typeof v === 'number' && !Number.isNaN(v)) return v;
+            }
+            return fallback;
+        };
+
+        // Get player for cooldown data
+        const player = (typeof Game !== 'undefined') ? Game.player : null;
+        const playerClass = player ? (player.playerClass || 'square') : 'square';
+
+        // --- BACKGROUNDS ---
+
+        // LEFT SIDE: Movement joystick background
+        if (this.touchJoysticks && this.touchJoysticks.movement) {
+            const movement = this.touchJoysticks.movement;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+            ctx.beginPath();
+            ctx.arc(movement.centerX, movement.centerY, movement.radius + 20, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // RIGHT SIDE: Combat control cluster background
+        if (this.touchJoysticks && this.touchJoysticks.basicAttack) {
+            const basicAttack = this.touchJoysticks.basicAttack;
+            const centerX = basicAttack.centerX;
+            const centerY = basicAttack.centerY;
+
+            // Calculate cluster bounds
+            let maxDistance = basicAttack.radius + 20;
+            if (this.touchButtons) {
+                for (const button of Object.values(this.touchButtons)) {
+                    if (button) {
+                        const btnCenterX = button.x + button.width / 2;
+                        const btnCenterY = button.y + button.height / 2;
+                        const dx = btnCenterX - centerX;
+                        const dy = btnCenterY - centerY;
+                        const dist = Math.sqrt(dx * dx + dy * dy) + Math.max(button.width, button.height) / 2;
+                        if (dist > maxDistance) maxDistance = dist;
+                    }
+                }
+            }
+
+            // Draw unified cluster background
+            const backgroundRadius = maxDistance / 3;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, backgroundRadius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Outer glow ring
+            ctx.strokeStyle = 'rgba(150, 150, 200, 0.2)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, backgroundRadius, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
+        // --- JOYSTICKS ---
+        for (const key in this.touchJoysticks) {
+            const joystick = this.touchJoysticks[key];
+            if (!joystick) continue;
+
+            // Class-specific visibility logic
+            if (key === 'specialAbility' && (playerClass === 'triangle' || playerClass === 'square')) {
+                continue; // Hide special joystick for Rogue/Warrior
+            }
+            if (key === 'dodge') {
+                if (playerClass !== 'triangle') continue; // Only Rogue uses dodge joystick
+            }
+
+            joystick.render(ctx);
+
+            // Radial cooldowns for joysticks (e.g. Rogue Dodge)
+            if (key === 'dodge' && playerClass === 'triangle' && player && player.dodgeChargeCooldowns) {
+                const radius = joystick.radius + 8;
+                const charges = player.dodgeChargeCooldowns.length;
+                const anglePerCharge = (Math.PI * 2) / charges;
+
+                for (let i = 0; i < charges; i++) {
+                    const cooldown = player.dodgeChargeCooldowns[i];
+                    const maxCooldown = Math.max(0.0001, getVal(player, ['dodgeCooldownTime', 'dashCooldownTime'], 1));
+                    const clampedCooldown = Math.min(Math.max(cooldown, 0), maxCooldown);
+                    const startAngle = -Math.PI / 2 + (anglePerCharge * i);
+
+                    // Draw cooldown arc
+                    if (cooldown > 0) {
+                        const progress = Math.max(0, Math.min(1, 1 - (clampedCooldown / maxCooldown)));
+                        const currentAngle = startAngle + (anglePerCharge * progress);
+
+                        ctx.lineWidth = 4;
+                        ctx.strokeStyle = '#ff4444'; // Charging
+                        ctx.beginPath();
+                        ctx.arc(joystick.centerX, joystick.centerY, radius, startAngle, currentAngle);
+                        ctx.stroke();
+                    } else {
+                        // Ready
+                        ctx.lineWidth = 4;
+                        ctx.strokeStyle = '#44ff44';
+                        ctx.beginPath();
+                        ctx.arc(joystick.centerX, joystick.centerY, radius, startAngle, startAngle + anglePerCharge - 0.1);
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+
+        // --- BUTTONS ---
+        for (const key in this.touchButtons) {
+            const button = this.touchButtons[key];
+            if (!button) continue;
+
+            // Class-specific visibility
+            if (key === 'dodge' && playerClass === 'triangle') continue; // Rogue uses joystick
+
+            let cooldown = 0;
+            let maxCooldown = 0;
+            let charges = null;
+
+            if (player) {
+                if (key === 'heavyAttack') {
+                    // Check for Hexagon (Beam) which has charges
+                    if (player.playerClass === 'hexagon') {
+                        const maxCharges = Math.max(1, getVal(player, ['maxBeamCharges'], 2));
+                        const chargeCooldowns = player.beamChargeCooldowns || player.heavyChargeCooldowns;
+                        maxCooldown = Math.max(0.0001, getVal(player, ['heavyAttackCooldownTime', 'heavyCooldownTime'], 1.5));
+
+                        // Calculate available charges
+                        let availableCharges = maxCharges;
+                        if (Array.isArray(chargeCooldowns)) {
+                            for (let i = 0; i < maxCharges; i++) {
+                                if ((chargeCooldowns[i] || 0) > 0) {
+                                    availableCharges--;
+                                }
+                            }
+                        }
+                        charges = availableCharges;
+
+                        // For cooldown visualization, show the cooldown of the *next* charge to recover
+                        if (availableCharges < maxCharges && Array.isArray(chargeCooldowns)) {
+                            let maxRem = 0;
+                            for (let i = 0; i < maxCharges; i++) {
+                                maxRem = Math.max(maxRem, chargeCooldowns[i] || 0);
+                            }
+                            cooldown = maxRem;
+                        }
+                    } else {
+                        // Standard heavy attack
+                        cooldown = getVal(player, ['heavyAttackCooldown', 'heavyCooldown', 'heavyRemaining'], 0);
+                        maxCooldown = Math.max(0.0001, getVal(player, ['heavyAttackCooldownTime', 'heavyCooldownTime'], 1.5));
+                    }
+                } else if (key === 'specialAbility') {
+                    cooldown = getVal(player, ['specialCooldown', 'specialRemaining'], 0);
+                    maxCooldown = Math.max(0.0001, getVal(player, ['specialCooldownTime', 'specialTime'], 1));
+                } else if (key === 'dodge') {
+                    const maxCharges = Math.max(1, getVal(player, ['maxDodgeCharges', 'maxDashCharges'], 1));
+                    const chargeCooldowns = player.dodgeChargeCooldowns || player.dashChargeCooldowns;
+                    maxCooldown = Math.max(0.0001, getVal(player, ['dodgeCooldownTime', 'dashCooldownTime', 'dodgeMaxCooldown'], 1));
+
+                    if (maxCharges > 1) {
+                        // Calculate available charges
+                        let availableCharges = maxCharges;
+                        if (Array.isArray(chargeCooldowns)) {
+                            for (let i = 0; i < maxCharges; i++) {
+                                if ((chargeCooldowns[i] || 0) > 0) {
+                                    availableCharges--;
+                                }
+                            }
+                        }
+                        charges = availableCharges;
+
+                        // For visualization, show cooldown if not at full charges
+                        if (availableCharges < maxCharges && Array.isArray(chargeCooldowns)) {
+                            let maxRem = 0;
+                            for (let i = 0; i < maxCharges; i++) {
+                                maxRem = Math.max(maxRem, chargeCooldowns[i] || 0);
+                            }
+                            cooldown = maxRem;
+                        }
+                    } else {
+                        cooldown = getVal(player, ['dodgeCooldown', 'dashCooldown', 'dodgeRemaining', 'dashRemaining'], 0);
+                    }
+                }
+            }
+
+            button.render(ctx, cooldown, maxCooldown, charges);
+        }
     }
 };
 

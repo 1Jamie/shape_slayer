@@ -40,6 +40,34 @@
 		panel.appendChild(body);
 		layer.appendChild(panel);
 		root.appendChild(layer);
+		
+		// Add mobile scaling styles
+		if (!document.getElementById('upgrade-selection-mobile-styles')) {
+			const style = document.createElement('style');
+			style.id = 'upgrade-selection-mobile-styles';
+			style.textContent = `
+				@media (min-aspect-ratio: 2/1) and (max-width: 1024px) {
+					.modal.upgrade-selection {
+						max-width: 90vw !important;
+						max-height: 90vh !important;
+					}
+					.modal.upgrade-selection .modal__header {
+						padding: 12px 16px !important;
+						font-size: 0.9em !important;
+					}
+					.modal.upgrade-selection .modal__body {
+						padding: 12px 16px !important;
+						grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important;
+						gap: 8px !important;
+					}
+					.modal.upgrade-selection .modal__body .btn {
+						padding: 8px 12px !important;
+						font-size: 0.9em !important;
+					}
+				}
+			`;
+			document.head.appendChild(style);
+		}
 	}
 
 	let lastHandLength = 0;

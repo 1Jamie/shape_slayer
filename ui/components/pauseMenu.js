@@ -1,5 +1,5 @@
 (function () {
-	let layer, modal;
+	let layer, modal, modalBody;
 
 	function createMenu() {
 		const rootLayer = document.createElement('div');
@@ -18,6 +18,7 @@
 
 		const body = document.createElement('div');
 		body.className = 'modal__body';
+		modalBody = body; // Store reference for refresh function
 
 		const footer = document.createElement('div');
 		footer.className = 'modal__footer';
@@ -38,31 +39,50 @@
 		list.style.display = 'grid';
 		list.style.gridTemplateColumns = '1fr';
 		list.style.gap = '10px';
+		list.style.position = 'relative'; // For scroll indicator positioning
+		list.style.overflowY = 'auto';
+		list.style.maxHeight = '60vh';
+		list.style.paddingRight = '12px'; // Space for scroll indicator
+
+		// Hide default scrollbar (we're using custom indicator)
+		list.style.scrollbarWidth = 'none'; // Firefox
+		list.style.msOverflowStyle = 'none'; // IE/Edge
+
+		// Create a style element to hide webkit scrollbar
+		const style = document.createElement('style');
+		style.textContent = `
+			.pause-menu-list::-webkit-scrollbar {
+				display: none;
+			}
+		`;
+		document.head.appendChild(style);
+		list.className = 'pause-menu-list';
+
 		for (const a of actions) {
 			const btn = document.createElement('button');
 			btn.className = 'btn' + (a.primary ? ' btn--primary' : '');
 			btn.type = 'button';
 			btn.textContent = a.text;
-			
+
 			// Handle disabled state (telemetry disabled by dev)
 			if (a.disabled) {
 				btn.disabled = true;
 				btn.style.opacity = '0.5';
 				btn.style.cursor = 'not-allowed';
 				btn.style.filter = 'grayscale(50%)';
-				
+
 				// Create custom tooltip for disabled button
 				if (a.tooltip) {
 					let tooltip = null;
 					let tooltipTimeout = null;
-					
+
 					btn.addEventListener('mouseenter', (e) => {
 						// Clear any existing timeout
 						if (tooltipTimeout) {
 							clearTimeout(tooltipTimeout);
 							tooltipTimeout = null;
 						}
-						
+
 						// Create tooltip after a short delay
 						tooltipTimeout = setTimeout(() => {
 							tooltip = document.createElement('div');
@@ -79,16 +99,16 @@
 							tooltip.style.whiteSpace = 'nowrap';
 							tooltip.style.boxShadow = '0 4px 8px rgba(0,0,0,0.5)';
 							tooltip.textContent = a.tooltip;
-							
+
 							// Position tooltip near the button
 							const rect = btn.getBoundingClientRect();
 							tooltip.style.left = rect.left + 'px';
 							tooltip.style.top = (rect.bottom + 8) + 'px';
-							
+
 							document.body.appendChild(tooltip);
 						}, 300);
 					});
-					
+
 					btn.addEventListener('mouseleave', () => {
 						if (tooltipTimeout) {
 							clearTimeout(tooltipTimeout);
@@ -106,25 +126,83 @@
 					refresh(); // reflect any state changes (e.g., resume closes)
 				});
 			}
-			
+
 			list.appendChild(btn);
 		}
 
-		body.appendChild(list);
+		// Add custom scroll indicator for mobile (attached to body, not list)
+		const scrollIndicator = document.createElement('div');
+		scrollIndicator.className = 'pause-menu-scroll-indicator';
+		scrollIndicator.style.position = 'absolute';
+		scrollIndicator.style.right = '8px';
+		scrollIndicator.style.top = '0';
+		scrollIndicator.style.bottom = '0';
+		scrollIndicator.style.width = '8px';
+		scrollIndicator.style.background = 'rgba(20, 20, 40, 0.6)';
+		scrollIndicator.style.borderRadius = '4px';
+		scrollIndicator.style.pointerEvents = 'none';
+		scrollIndicator.style.zIndex = '10';
 
-		const closeBtn = document.createElement('button');
-		closeBtn.className = 'btn';
-		closeBtn.type = 'button';
-		closeBtn.textContent = 'Close';
-		closeBtn.addEventListener('click', () => {
-			if (Game && Game.togglePause) Game.togglePause();
-			refresh();
-		});
-		footer.appendChild(closeBtn);
+		const scrollThumb = document.createElement('div');
+		scrollThumb.style.position = 'absolute';
+		scrollThumb.style.right = '0';
+		scrollThumb.style.width = '8px';
+		scrollThumb.style.background = 'rgba(74, 144, 226, 0.9)';
+		scrollThumb.style.borderRadius = '4px';
+		scrollThumb.style.boxShadow = '0 0 4px rgba(74, 144, 226, 0.5)';
+		scrollIndicator.appendChild(scrollThumb);
+
+		// Append to body (modal body) not list, so it doesn't scroll with content
+		body.style.position = 'relative';
+		body.appendChild(list);
+		body.appendChild(scrollIndicator); // Add after list
+
+		// Update scroll indicator position
+		function updateScrollIndicator() {
+			// Only show on mobile
+			const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+
+			if (!isMobile) {
+				scrollIndicator.style.display = 'none';
+				return;
+			}
+
+			// Wait for next frame to ensure layout is complete
+			requestAnimationFrame(() => {
+				const scrollHeight = list.scrollHeight;
+				const clientHeight = list.clientHeight;
+				const scrollTop = list.scrollTop;
+
+				// Only show if content is scrollable
+				if (scrollHeight <= clientHeight + 1) { // +1 for rounding
+					scrollIndicator.style.display = 'none';
+					return;
+				}
+
+				scrollIndicator.style.display = 'block';
+
+				// Calculate thumb height and position
+				const scrollableHeight = scrollHeight - clientHeight;
+				const thumbHeight = Math.max(30, (clientHeight / scrollHeight) * clientHeight);
+				const maxThumbTop = clientHeight - thumbHeight;
+				const thumbTop = (scrollTop / scrollableHeight) * maxThumbTop;
+
+				scrollThumb.style.height = thumbHeight + 'px';
+				scrollThumb.style.top = thumbTop + 'px';
+			});
+		}
+
+		// Update on scroll with passive listener for better performance
+		list.addEventListener('scroll', updateScrollIndicator, { passive: true });
+
+		// Update on resize
+		window.addEventListener('resize', updateScrollIndicator);
+
+		// Store update function for external access
+		list._updateScrollIndicator = updateScrollIndicator;
 
 		panel.appendChild(header);
 		panel.appendChild(body);
-		panel.appendChild(footer);
 
 		rootLayer.appendChild(panel);
 
@@ -143,6 +221,15 @@
 	function refresh() {
 		if (!layer) return;
 		layer.style.display = isPauseVisible() ? 'flex' : 'none';
+
+		// Update scroll indicator when menu becomes visible
+		if (isPauseVisible() && modalBody) {
+			// Find the list element and update its scroll indicator
+			const listElement = modalBody.querySelector('div[style*="grid"]');
+			if (listElement && listElement._updateScrollIndicator) {
+				setTimeout(() => listElement._updateScrollIndicator(), 50);
+			}
+		}
 	}
 
 	function tick() {
@@ -159,17 +246,17 @@
 			if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
 				return;
 			}
-			
+
 			// Don't handle escape if multiplayer menu is open (let it handle it)
 			if (typeof window !== 'undefined' && window.multiplayerMenuVisible) {
 				return;
 			}
-			
+
 			// Don't handle escape if index machine is open (let it handle it)
 			if (typeof window !== 'undefined' && window.UIIndexMachine && window.UIIndexMachine.isOpen && window.UIIndexMachine.isOpen()) {
 				return;
 			}
-			
+
 			if (e.key === 'Escape' && isPauseVisible()) {
 				if (Game && Game.togglePause) {
 					Game.togglePause();

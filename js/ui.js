@@ -1231,6 +1231,208 @@ function checkNexusInteractions() {
         }
     }
 
+    // Check mode switcher
+    if (nexusRoom.modeSwitcherPos) {
+        const switcherDx = nexusRoom.modeSwitcherPos.x - Game.player.x;
+        const switcherDy = nexusRoom.modeSwitcherPos.y - Game.player.y;
+        const switcherDistance = Math.sqrt(switcherDx * switcherDx + switcherDy * switcherDy);
+
+        if (switcherDistance < 60) {
+            // Check if in multiplayer lobby
+            const inMultiplayerLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+            if (!inMultiplayerLobby) {
+                return { type: 'modeSwitcher' };
+            }
+        }
+    }
+
+    // Check room modifier station
+    if (typeof roomModifierStation !== 'undefined' && roomModifierStation) {
+        const modDx = roomModifierStation.x - Game.player.x;
+        const modDy = roomModifierStation.y - Game.player.y;
+        const modDistance = Math.sqrt(modDx * modDx + modDy * modDy);
+
+        if (modDistance < 50) {
+            return { type: 'roomModifier' };
+        }
+    }
+
+    // Check deck builder station
+    if (typeof deckBuilderStation !== 'undefined' && deckBuilderStation) {
+        const deckDx = deckBuilderStation.x - Game.player.x;
+        const deckDy = deckBuilderStation.y - Game.player.y;
+        const deckDistance = Math.sqrt(deckDx * deckDx + deckDy * deckDy);
+
+        if (deckDistance < 50) {
+            return { type: 'deckBuilder' };
+        }
+    }
+
+    // Check deck upgrade station
+    if (typeof deckUpgradeStation !== 'undefined' && deckUpgradeStation) {
+        const upgradeDx = deckUpgradeStation.x - Game.player.x;
+        const upgradeDy = deckUpgradeStation.y - Game.player.y;
+        const upgradeDistance = Math.sqrt(upgradeDx * upgradeDx + upgradeDy * upgradeDy);
+
+        if (upgradeDistance < 50) {
+            return { type: 'deckUpgrade' };
+        }
+    }
+
+    // Check mastery station
+    if (typeof masteryStation !== 'undefined' && masteryStation) {
+        const masteryDx = masteryStation.x - Game.player.x;
+        const masteryDy = masteryStation.y - Game.player.y;
+        const masteryDistance = Math.sqrt(masteryDx * masteryDx + masteryDy * masteryDy);
+
+        if (masteryDistance < 50) {
+            return { type: 'mastery' };
+        }
+    }
+
+    // Check index machine
+    if (nexusRoom.indexMachinePos) {
+        const indexDx = nexusRoom.indexMachinePos.x - Game.player.x;
+        const indexDy = nexusRoom.indexMachinePos.y - Game.player.y;
+        const indexDistance = Math.sqrt(indexDx * indexDx + indexDy * indexDy);
+
+        if (indexDistance < 50) {
+            return { type: 'indexMachine' };
+        }
+    }
+
+    return null;
+}
+
+// Interaction button class for canvas rendering
+class InteractionButton {
+    constructor(x, y, width, height, label = 'Interact') {
+        this.x = x;
+        this.y = y;
+        this.width = width;
+        this.height = height;
+        this.label = label;
+        this.pressed = false;
+        this.justPressed = false;
+    }
+
+    // Check if point is within button
+    contains(x, y) {
+        // Add padding for easier mobile tapping
+        const padding = 8;
+        return x >= this.x - padding && x <= this.x + this.width + padding &&
+            y >= this.y - padding && y <= this.y + this.height + padding;
+    }
+
+    // Helper function to draw rounded rectangle
+    drawRoundedRect(ctx, x, y, width, height, radius) {
+        ctx.beginPath();
+        ctx.moveTo(x + radius, y);
+        ctx.lineTo(x + width - radius, y);
+        ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+        ctx.lineTo(x + width, y + height - radius);
+        ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+        ctx.lineTo(x + radius, y + height);
+        ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+        ctx.lineTo(x, y + radius);
+        ctx.quadraticCurveTo(x, y, x + radius, y);
+        ctx.closePath();
+    }
+
+    // Render button
+    render(ctx) {
+        const isPressed = this.pressed;
+        const radius = 8;
+        const bgAlpha = isPressed ? 0.85 : 0.65;
+
+        // Background with rounded corners
+        ctx.fillStyle = `rgba(100, 100, 255, ${bgAlpha})`;
+        this.drawRoundedRect(ctx, this.x, this.y, this.width, this.height, radius);
+        ctx.fill();
+
+        // Border
+        const borderWidth = isPressed ? 4 : 3;
+        ctx.strokeStyle = isPressed ? 'rgba(200, 200, 255, 1.0)' : 'rgba(150, 150, 200, 0.7)';
+        ctx.lineWidth = borderWidth;
+        this.drawRoundedRect(ctx, this.x, this.y, this.width, this.height, radius);
+        ctx.stroke();
+
+        // Label
+        if (this.label) {
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 17px Orbitron';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            // Text shadow for better readability
+            ctx.shadowBlur = 3;
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+            ctx.fillText(this.label, this.x + this.width / 2, this.y + this.height / 2);
+            ctx.shadowBlur = 0;
+        }
+    }
+
+    // Update (call at end of frame to reset justPressed)
+    update() {
+        this.justPressed = false;
+    }
+}
+
+// Global interaction button instance
+let interactionButton = null;
+let currentInteraction = null;
+
+// Helper function to check door interaction
+function checkDoorPackInteraction() {
+    if (typeof checkDoorInteraction === 'function' && Game.player) {
+        const door = checkDoorInteraction(Game.player);
+        if (door) {
+            return { type: 'doorpack', data: door };
+        }
+    }
+    return null;
+}
+
+// Helper function to check card interaction
+function checkCardInteraction() {
+    if (typeof CardGround !== 'undefined' && CardGround.getSelected) {
+        const card = CardGround.getSelected();
+        if (card && Game.player) {
+            // Double check distance
+            const dx = card.x - Game.player.x;
+            const dy = card.y - Game.player.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist <= 100) { // Match pickR in ground.js
+                return { type: 'card', data: card };
+            }
+        }
+    }
+    return null;
+}
+
+// Helper function to check gear interaction
+function checkGearInteraction() {
+    // Check LootSelection first
+    if (typeof LootSelection !== 'undefined' && LootSelection.getSelectedGear) {
+        const gear = LootSelection.getSelectedGear();
+        if (gear) return { type: 'gear', data: gear };
+    }
+
+    // Fallback to manual check if LootSelection not available
+    if (typeof groundLoot !== 'undefined' && Game.player) {
+        let closest = null;
+        let closestDist = 100; // Interaction radius
+        groundLoot.forEach(gear => {
+            const dx = gear.x - Game.player.x;
+            const dy = gear.y - Game.player.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < closestDist) {
+                closestDist = dist;
+                closest = gear;
+            }
+        });
+        if (closest) return { type: 'gear', data: closest };
+    }
     return null;
 }
 
@@ -1263,7 +1465,7 @@ function updateInteractionState() {
                 }
             }
         }
-        
+
         currentInteraction = checkDoorPackInteraction() ||
             upgradeInteraction ||
             checkCardInteraction() ||
@@ -1310,6 +1512,24 @@ function renderInteractionButton(ctx) {
         label = 'Enter Portal';
     } else if (currentInteraction.type === 'itemPylon') {
         label = 'Interact with Item Pylon';
+    } else if (currentInteraction.type === 'modeSwitcher') {
+        // Check if in multiplayer lobby
+        const inMultiplayerLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+        if (inMultiplayerLobby) {
+            label = 'Cannot swap modes in multiplayer';
+        } else {
+            label = 'Switch Mode';
+        }
+    } else if (currentInteraction.type === 'roomModifier') {
+        label = 'Open Room Modifiers';
+    } else if (currentInteraction.type === 'deckBuilder') {
+        label = 'Open Deck Builder';
+    } else if (currentInteraction.type === 'deckUpgrade') {
+        label = 'Open Deck Upgrades';
+    } else if (currentInteraction.type === 'mastery') {
+        label = 'Open Mastery';
+    } else if (currentInteraction.type === 'indexMachine') {
+        label = 'Open Index';
     }
 
     // Position button (center-bottom, low on screen but above touch controls)
@@ -1318,8 +1538,12 @@ function renderInteractionButton(ctx) {
     const buttonWidth = 200;
     const buttonHeight = 60;
     const buttonX = (canvasWidth - buttonWidth) / 2;
-    // Position at ~150px from bottom (above touch controls at ~16-18% from bottom)
-    const buttonY = canvasHeight - 150;
+    // Position above touch controls
+    // Touch controls are at ~12-14% from bottom on mobile, so position button higher
+    // On mobile, position at ~220px from bottom to be above touch controls and HUD
+    // On desktop, position at ~150px from bottom
+    const isMobile = Input && Input.isTouchMode && Input.isTouchMode();
+    const buttonY = isMobile ? canvasHeight - 220 : canvasHeight - 150;
 
     // Create or update button
     if (!interactionButton) {
@@ -1334,6 +1558,9 @@ function renderInteractionButton(ctx) {
 
     // Render button
     interactionButton.render(ctx);
+
+    // Update button state (reset justPressed)
+    interactionButton.update();
 }
 
 // Handle interaction button click
@@ -1399,16 +1626,57 @@ function handleInteractionButtonClick(x, y) {
                 CardGround.pickAt(Game.player.x, Game.player.y);
             }
         } else if (Game && Game.state === 'NEXUS') {
-            // Trigger nexus interaction by simulating G key press
-            // We need to use the existing interaction logic
-            if (Input && Input.keys) {
-                const originalGState = Input.keys['g'];
-                Input.keys['g'] = true;
-                Game.lastGKeyState = false; // Force it to trigger
-                // The updateNexus will handle it on next frame
-                setTimeout(() => {
-                    Input.keys['g'] = originalGState;
-                }, 10);
+            // Handle specific nexus interaction types
+            if (currentInteraction.type === 'modeSwitcher') {
+                // Check if in multiplayer lobby
+                const inMultiplayerLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+                if (!inMultiplayerLobby && typeof nexusRoom !== 'undefined' && nexusRoom) {
+                    // Toggle portal mode (single player only)
+                    nexusRoom.portalMode = nexusRoom.portalMode === 'cards' ? 'gear' : 'cards';
+                    console.log(`[Nexus] Switched portal mode to: ${nexusRoom.portalMode}`);
+                }
+            } else if (currentInteraction.type === 'roomModifier') {
+                // Open room modifier selection
+                if (typeof Game !== 'undefined') {
+                    // Initialize selected modifiers if not set
+                    if (!Array.isArray(Game.selectedRoomModifiers)) {
+                        Game.selectedRoomModifiers = [];
+                    }
+                    // Toggle showing selection UI
+                    Game.showingRoomModifierSelection = !Game.showingRoomModifierSelection;
+                }
+            } else if (currentInteraction.type === 'deckBuilder') {
+                // Open deck builder
+                if (typeof window !== 'undefined' && typeof window.toggleDeckBuilder === 'function') {
+                    window.toggleDeckBuilder();
+                }
+            } else if (currentInteraction.type === 'deckUpgrade') {
+                // Open deck upgrades
+                if (typeof window !== 'undefined' && typeof window.toggleDeckUpgrades === 'function') {
+                    window.toggleDeckUpgrades();
+                }
+            } else if (currentInteraction.type === 'mastery') {
+                // Open mastery system
+                if (typeof window !== 'undefined' && typeof window.toggleMasterySystem === 'function') {
+                    window.toggleMasterySystem();
+                }
+            } else if (currentInteraction.type === 'indexMachine') {
+                // Open index machine
+                if (typeof window !== 'undefined' && typeof window.UIIndexMachine !== 'undefined' && typeof window.UIIndexMachine.open === 'function') {
+                    window.UIIndexMachine.open();
+                }
+            } else {
+                // Fallback: Trigger nexus interaction by simulating G key press
+                // We need to use the existing interaction logic
+                if (Input && Input.keys) {
+                    const originalGState = Input.keys['g'];
+                    Input.keys['g'] = true;
+                    Game.lastGKeyState = false; // Force it to trigger
+                    // The updateNexus will handle it on next frame
+                    setTimeout(() => {
+                        Input.keys['g'] = originalGState;
+                    }, 10);
+                }
             }
         }
 
@@ -1543,282 +1811,9 @@ function handleMobileLootSelectionClick(x, y) {
 
 // Render touch controls (virtual joysticks and buttons)
 function renderTouchControls(ctx) {
-    if (!Input || !Input.isTouchMode || !Input.isTouchMode()) return;
-
-    const width = Game ? Game.config.width : 1280;
-    const height = Game ? Game.config.height : 720;
-
-    // Debug: Show touch control bounds and pause button
-    if (Input.touchJoysticks && Input.touchJoysticks.basicAttack) {
-        const joystick = Input.touchJoysticks.basicAttack;
-        ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(joystick.centerX, joystick.centerY, joystick.radius * 2, 0, Math.PI * 2);
-        ctx.stroke();
-
-        // Show center point
-        ctx.fillStyle = 'rgba(255, 0, 0, 0.8)';
-        ctx.beginPath();
-        ctx.arc(joystick.centerX, joystick.centerY, 5, 0, Math.PI * 2);
-        ctx.fill();
-    }
-
-    // Debug: Show pause button bounds
-    if (Game && Game.state === 'PLAYING') {
-        const canvasWidth = Game.config.width;
-        const size = pauseButtonOverlay.size;
-        const padding = 10;
-        const buttonX = canvasWidth - size - padding;
-        const buttonY = padding;
-
-        ctx.strokeStyle = 'rgba(0, 255, 0, 0.8)';
-        ctx.lineWidth = 3;
-        ctx.strokeRect(buttonX, buttonY, size, size);
-
-        // Show text
-        ctx.fillStyle = 'rgba(0, 255, 0, 0.8)';
-        ctx.font = 'bold 12px Orbitron';
-        ctx.fillText(`Pause: ${buttonX},${buttonY}`, buttonX - 50, buttonY - 5);
-    }
-
-    // LEFT SIDE: Movement joystick with subtle background
-    if (Input.touchJoysticks && Input.touchJoysticks.movement) {
-        const movement = Input.touchJoysticks.movement;
-        // Subtle glow/background for movement joystick
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
-        ctx.beginPath();
-        ctx.arc(movement.centerX, movement.centerY, movement.radius + 20, 0, Math.PI * 2);
-        ctx.fill();
-
-        movement.render(ctx);
-    }
-
-    // RIGHT SIDE: Combat control cluster with unified background
-    if (Input.touchJoysticks && Input.touchJoysticks.basicAttack) {
-        const basicAttack = Input.touchJoysticks.basicAttack;
-        const centerX = basicAttack.centerX;
-        const centerY = basicAttack.centerY;
-
-        // Calculate cluster bounds (encompass all controls)
-        let maxDistance = basicAttack.radius + 20;
-        if (Input.touchButtons) {
-            for (const button of Object.values(Input.touchButtons)) {
-                if (button) {
-                    const btnCenterX = button.x + button.width / 2;
-                    const btnCenterY = button.y + button.height / 2;
-                    const dx = btnCenterX - centerX;
-                    const dy = btnCenterY - centerY;
-                    const dist = Math.sqrt(dx * dx + dy * dy) + Math.max(button.width, button.height) / 2;
-                    if (dist > maxDistance) maxDistance = dist;
-                }
-            }
-        }
-
-        // Draw unified cluster background (subtle glow/outline) - much tighter, 1/3 size
-        const backgroundRadius = maxDistance / 3;
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, backgroundRadius, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Outer glow ring for cohesion
-        ctx.strokeStyle = 'rgba(150, 150, 200, 0.2)';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, backgroundRadius, 0, Math.PI * 2);
-        ctx.stroke();
-    }
-
-    // Get player class for conditional rendering
-    const playerClass = typeof Game !== 'undefined' && Game.player ? Game.player.playerClass : null;
-
-    // Render joysticks (conditionally based on class)
-    if (Input.touchJoysticks) {
-        for (const [name, joystick] of Object.entries(Input.touchJoysticks)) {
-            if (joystick) {
-                // Hide special ability joystick for triangle and square (they use buttons)
-                if (name === 'specialAbility' && (playerClass === 'triangle' || playerClass === 'square')) {
-                    continue;
-                }
-                // Show dodge joystick for triangle (replaces button)
-                if (name === 'dodge' && playerClass === 'triangle') {
-                    joystick.render(ctx);
-                    continue;
-                }
-                // Hide dodge joystick for other classes (they use button)
-                if (name === 'dodge' && playerClass !== 'triangle') {
-                    continue;
-                }
-                // Render all other joysticks
-                joystick.render(ctx);
-            }
-        }
-    }
-
-    // Render buttons with cooldowns (conditionally based on class)
-    if (Input.touchButtons && typeof Game !== 'undefined' && Game.player) {
-        const player = Game.player;
-        const playerClass = player.playerClass || 'square';
-
-        // Heavy attack button (always show)
-        if (Input.touchButtons.heavyAttack) {
-            // For Mage, show charge count instead of cooldown
-            if (player.playerClass === 'hexagon' && player.maxBeamCharges > 1) {
-                // Pass charges instead of cooldown for touch button display
-                const heavyMaxCooldown = player.heavyAttackCooldownTime || 1.5;
-                const heavyCooldown = Math.min(Math.max(player.heavyAttackCooldown || 0, 0), heavyMaxCooldown);
-                Input.touchButtons.heavyAttack.render(ctx,
-                    heavyCooldown,
-                    heavyMaxCooldown,
-                    player.beamCharges); // Pass current charges
-            } else {
-                Input.touchButtons.heavyAttack.render(ctx,
-                    player.heavyAttackCooldown || 0,
-                    player.heavyAttackCooldownTime || 1.5);
-            }
-        }
-
-        // Special ability button (always show, joystick hidden for triangle/square)
-        if (Input.touchButtons.specialAbility) {
-            Input.touchButtons.specialAbility.render(ctx,
-                player.specialCooldown || 0,
-                player.specialCooldownTime || 5.0);
-        }
-
-        // Dodge button (hide for triangle, show for others)
-        if (Input.touchButtons.dodge && playerClass !== 'triangle') {
-            const dodgeMaxCooldown = player.dodgeCooldownTime || 2.0;
-            const hasMultipleDodgeCharges = (player.maxDodgeCharges || 0) > 1;
-
-            if (hasMultipleDodgeCharges && player.dodgeChargeCooldowns) {
-                const chargeCooldowns = player.dodgeChargeCooldowns;
-                const nextCooldown = Math.min(Math.max(player.dodgeCooldown || 0, 0), dodgeMaxCooldown);
-                const readyCharges = chargeCooldowns.filter(c => c <= 0).length;
-                Input.touchButtons.dodge.render(ctx, nextCooldown, dodgeMaxCooldown, readyCharges);
-            } else {
-                const dodgeCooldown = player.dodgeCooldown || 0;
-                Input.touchButtons.dodge.render(ctx, dodgeCooldown, dodgeMaxCooldown);
-            }
-        }
-
-        // Character sheet button (always show in top-right)
-        if (Input.touchButtons.characterSheet) {
-            Input.touchButtons.characterSheet.render(ctx, 0, 1);
-        }
-
-        // RADIAL COOLDOWN INDICATORS around joysticks (mobile only)
-        // (playerClass already declared above)
-
-        // Dodge joystick cooldown (for triangle/rogue - shows as radial arc)
-        if (Input.touchJoysticks.dodge && playerClass === 'triangle' && player.dodgeChargeCooldowns) {
-            const joystick = Input.touchJoysticks.dodge;
-            const radius = joystick.radius + 8; // Slightly outside joystick
-
-            // Render each charge as a segment
-            const charges = player.dodgeChargeCooldowns.length;
-            const anglePerCharge = (Math.PI * 2) / charges;
-
-            for (let i = 0; i < charges; i++) {
-                const cooldown = player.dodgeChargeCooldowns[i];
-                const maxCooldown = player.dodgeCooldownTime || 1;
-                const safeMaxCooldown = Math.max(maxCooldown, 0.0001);
-                const clampedCooldown = Math.min(Math.max(cooldown, 0), safeMaxCooldown);
-                const startAngle = -Math.PI / 2 + (anglePerCharge * i);
-                const endAngle = startAngle + anglePerCharge;
-
-                // Draw cooldown arc
-                ctx.lineWidth = 4;
-                ctx.strokeStyle = cooldown > 0 ? '#ff4444' : '#44ff44';
-                ctx.beginPath();
-                if (cooldown > 0) {
-                    // Show progress
-                    const progress = Math.max(0, Math.min(1, 1 - (clampedCooldown / safeMaxCooldown)));
-                    ctx.arc(joystick.centerX, joystick.centerY, radius, startAngle, startAngle + anglePerCharge * progress);
-                } else {
-                    // Full charge
-                    ctx.arc(joystick.centerX, joystick.centerY, radius, startAngle, endAngle);
-                }
-                ctx.stroke();
-            }
-
-            // Draw charge count
-            ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 16px Orbitron';
-            ctx.textAlign = 'center';
-            ctx.shadowBlur = 2;
-            ctx.shadowColor = '#000000';
-            const readyCharges = player.dodgeChargeCooldowns.filter(c => c <= 0).length;
-            ctx.fillText(readyCharges, joystick.centerX + radius + 15, joystick.centerY - radius - 5);
-            ctx.shadowBlur = 0;
-        }
-
-        // Heavy attack joystick cooldown (for classes with directional heavy)
-        if (Input.touchJoysticks.heavyAttack && player.heavyAttackCooldown !== undefined) {
-            const joystick = Input.touchJoysticks.heavyAttack;
-            if (joystick.centerX && joystick.centerY) {
-                const radius = joystick.radius + 6;
-                // For Mage with charges, use time until next charge is ready
-                const rawCooldown = player.heavyAttackCooldown;
-                const maxCooldown = player.heavyAttackCooldownTime || 1.5;
-                const safeMaxCooldown = Math.max(maxCooldown, 0.0001);
-                const clampedCooldown = Math.min(Math.max(rawCooldown || 0, 0), safeMaxCooldown);
-
-                // Draw cooldown arc (full circle)
-                ctx.lineWidth = 4;
-                if (clampedCooldown > 0) {
-                    const progress = Math.max(0, Math.min(1, 1 - (clampedCooldown / safeMaxCooldown)));
-                    ctx.strokeStyle = '#ff4444';
-                    ctx.beginPath();
-                    ctx.arc(joystick.centerX, joystick.centerY, radius, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * progress));
-                    ctx.stroke();
-                } else {
-                    ctx.strokeStyle = '#44ff44';
-                    ctx.beginPath();
-                    ctx.arc(joystick.centerX, joystick.centerY, radius, 0, Math.PI * 2);
-                    ctx.stroke();
-                }
-
-                // Show charge count for Mage beam
-                if (player.playerClass === 'hexagon' && player.maxBeamCharges > 1) {
-                    ctx.font = 'bold 18px Orbitron';
-                    ctx.fillStyle = '#ffffff';
-                    ctx.textAlign = 'left';
-                    ctx.textBaseline = 'middle';
-                    ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-                    ctx.shadowBlur = 4;
-                    const readyCharges = player.beamCharges || 0;
-                    ctx.fillText(readyCharges, joystick.centerX + radius + 15, joystick.centerY - radius - 5);
-                    ctx.shadowBlur = 0;
-                }
-            }
-        }
-
-        // Special ability joystick cooldown
-        if (Input.touchJoysticks.specialAbility && player.specialCooldown !== undefined) {
-            const joystick = Input.touchJoysticks.specialAbility;
-            if (joystick.centerX && joystick.centerY) {
-                const radius = joystick.radius + 6;
-                const cooldown = player.specialCooldown;
-                const maxCooldown = player.specialCooldownTime || 5.0;
-
-                // Draw cooldown arc (full circle)
-                ctx.lineWidth = 4;
-                if (cooldown > 0) {
-                    const progress = 1 - (cooldown / maxCooldown);
-                    ctx.strokeStyle = '#ff4444';
-                    ctx.beginPath();
-                    ctx.arc(joystick.centerX, joystick.centerY, radius, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * progress));
-                    ctx.stroke();
-                } else {
-                    ctx.strokeStyle = '#44ff44';
-                    ctx.beginPath();
-                    ctx.arc(joystick.centerX, joystick.centerY, radius, 0, Math.PI * 2);
-                    ctx.stroke();
-                }
-            }
-        }
-    }
+    // Logic moved to Input.render() in js/input.js to prevent double rendering
+    // and ensure consistency across all game states (including Nexus)
+    return;
 }
 
 // Render spectator mode indicator

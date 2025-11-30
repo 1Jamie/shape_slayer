@@ -191,6 +191,50 @@
 				e.stopPropagation();
 			}
 		}, { capture: true });
+		
+		// Add mobile scaling styles
+		if (!document.getElementById('room-modifier-selection-mobile-styles')) {
+			const style = document.createElement('style');
+			style.id = 'room-modifier-selection-mobile-styles';
+			style.textContent = `
+				@media (min-aspect-ratio: 2/1) and (max-width: 1024px) {
+					.modal.room-modifier-selection {
+						width: min(90vw, 1200px) !important;
+						max-height: 90vh !important;
+					}
+					.modal.room-modifier-selection .modal__header {
+						padding: 12px 16px !important;
+					}
+					.modal.room-modifier-selection .modal__header > div {
+						font-size: 18px !important;
+					}
+					.modal.room-modifier-selection .modal__header .btn {
+						padding: 6px 12px !important;
+						font-size: 16px !important;
+					}
+					.modal.room-modifier-selection .modal__body {
+						padding: 12px 16px !important;
+						gap: 12px !important;
+						grid-template-columns: 1fr !important;
+					}
+					.modal.room-modifier-selection .modal__body > div > div[style*="fontSize: 18px"] {
+						font-size: 16px !important;
+					}
+					.modal.room-modifier-selection .modal__body > div > div[style*="fontSize: 12px"] {
+						font-size: 11px !important;
+					}
+					.modal.room-modifier-selection .modal__footer {
+						padding: 10px 12px !important;
+						gap: 8px !important;
+					}
+					.modal.room-modifier-selection .modal__footer .btn {
+						padding: 8px 12px !important;
+						font-size: 0.9em !important;
+					}
+				}
+			`;
+			document.head.appendChild(style);
+		}
 	}
 
 	function build() {

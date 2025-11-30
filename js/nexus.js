@@ -765,7 +765,7 @@ function renderClassStationTooltip(ctx, player, station) {
         // Round coordinates to avoid sub-pixel rendering artifacts
         const tooltipXRounded = Math.round(tooltipX - tooltipWidth / 2);
         const tooltipYRounded = Math.round(tooltipY - tooltipHeight / 2);
-        
+
         // Draw tooltip background
         ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
         ctx.fillRect(tooltipXRounded, tooltipYRounded, tooltipWidth, tooltipHeight);
@@ -1396,7 +1396,7 @@ function renderNexus(ctx) {
     // Round coordinates to avoid sub-pixel rendering artifacts
     const switcherX = Math.round(nexusRoom.modeSwitcherPos.x - nexusRoom.modeSwitcherPos.width / 2);
     const switcherY = Math.round(nexusRoom.modeSwitcherPos.y - nexusRoom.modeSwitcherPos.height / 2);
-    
+
     // Machine body (grayed out if disabled)
     ctx.fillStyle = isDisabled ? '#222222' : '#444444';
     ctx.fillRect(
@@ -1538,7 +1538,7 @@ function renderNexus(ctx) {
         // Round coordinates to avoid sub-pixel rendering artifacts
         const panelXRounded = Math.round(panelX);
         const panelYRounded = Math.round(panelY);
-        
+
         // Panel background
         ctx.fillStyle = 'rgba(30, 30, 50, 0.9)';
         ctx.fillRect(panelXRounded, panelYRounded, panelWidth, panelHeight);
@@ -1697,7 +1697,7 @@ function renderNexus(ctx) {
     }
 
     ctx.restore(); // Restore to source-over
-    
+
     // Explicitly reset canvas state to prevent artifacts
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1.0;

@@ -13,10 +13,12 @@
 		layer.style.position = 'absolute';
 		layer.style.left = '0';
 		layer.style.right = '0';
-		layer.style.top = '12px';
+		// Mobile: adjust positioning
+		const isMobileInit = typeof window.Input !== 'undefined' && window.Input.isTouchMode && window.Input.isTouchMode();
+		layer.style.top = isMobileInit ? '8px' : '12px';
 		layer.style.display = 'flex';
 		layer.style.justifyContent = 'space-between';
-		layer.style.padding = '0 20px';
+		layer.style.padding = isMobileInit ? '0 12px' : '0 20px';
 		
 		// Prevent right-click context menu
 		layer.addEventListener('contextmenu', (e) => {
@@ -27,9 +29,11 @@
 		roomEl = document.createElement('div');
 		roomEl.style.color = '#fff';
 		roomEl.style.fontWeight = '700';
+		roomEl.style.fontSize = isMobileInit ? '14px' : '16px';
 		levelEl = document.createElement('div');
 		levelEl.style.color = '#ffea8a';
 		levelEl.style.fontWeight = '700';
+		levelEl.style.fontSize = isMobileInit ? '14px' : '16px';
 		layer.appendChild(roomEl);
 		layer.appendChild(levelEl);
 		root.appendChild(layer);

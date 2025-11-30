@@ -351,9 +351,10 @@
 		container.id = 'dom-teammate-health';
 		container.style.position = 'fixed';
 		container.style.left = '20px';
-		// Position above local HUD (local HUD is at bottom: 60px)
-		// Position teammate bars above it with spacing
-		container.style.bottom = '180px'; // Above local HUD (which is at bottom: 60px)
+		// Position above local HUD
+		// Mobile: HUD is at bottom: 200px, so position teammate bars higher
+		const isMobileInit = typeof window.Input !== 'undefined' && window.Input.isTouchMode && window.Input.isTouchMode();
+		container.style.bottom = isMobileInit ? '280px' : '180px'; // Above local HUD
 		container.style.pointerEvents = 'none';
 		container.style.userSelect = 'none';
 		container.style.webkitUserSelect = 'none';
