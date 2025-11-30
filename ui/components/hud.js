@@ -8,17 +8,37 @@
 		container.className = 'hud';
 		container.id = 'dom-hud';
 		container.style.position = 'fixed';
-		container.style.left = '20px';
-		container.style.right = '20px';
-		// Place above the XP bar so cooldowns are visible
-		container.style.bottom = '60px';
+
+		// Mobile: completely different layout - top-left for health/XP
+		// Desktop: bottom-left as before
+		// Mobile: completely different layout - top-left for health/XP
+		// Desktop: bottom-left as before
+		const inp = (typeof Input !== 'undefined' ? Input : (window.Input || null));
+		const isMobile = inp && inp.isTouchMode && inp.isTouchMode();
+		if (isMobile) {
+			container.style.left = '10px';
+			container.style.right = 'auto';
+			container.style.top = '60px'; // Below room info and currency
+			container.style.bottom = 'auto';
+			container.style.width = 'auto';
+			container.style.display = 'flex';
+			container.style.flexDirection = 'column';
+			container.style.gap = '6px';
+			container.style.alignItems = 'flex-start';
+		} else {
+			container.style.left = '20px';
+			container.style.right = '20px';
+			container.style.bottom = '60px';
+			container.style.top = 'auto';
+		}
+
 		container.style.pointerEvents = 'none';
 		container.style.userSelect = 'none';
 		container.style.webkitUserSelect = 'none';
 		container.style.mozUserSelect = 'none';
 		container.style.msUserSelect = 'none';
 		container.style.zIndex = '2000';
-		
+
 		// Prevent right-click context menu
 		container.addEventListener('contextmenu', (e) => {
 			e.preventDefault();
@@ -37,6 +57,17 @@
 		shieldBar.style.maxWidth = '420px';
 		shieldBar.style.marginBottom = '4px';
 		shieldBar.style.display = 'none'; // Hidden by default, shown when shield exists
+
+		// Mobile: scale down shield bar and adjust width
+		// Mobile: scale down shield bar and adjust width
+		const inpInit = (typeof Input !== 'undefined' ? Input : (window.Input || null));
+		const isMobileInit = inpInit && inpInit.isTouchMode && inpInit.isTouchMode();
+		if (isMobileInit) {
+			shieldBar.style.maxWidth = '200px'; // Compact for top-left
+			shieldBar.style.width = '200px'; // Force width
+			shieldBar.style.height = '10px';
+			shieldBar.style.marginBottom = '2px';
+		}
 		const shieldBarFill = document.createElement('div');
 		shieldBarFill.id = 'dom-shield-bar-fill';
 		shieldBarFill.style.height = '100%';
@@ -67,6 +98,13 @@
 		hpBar.style.overflow = 'hidden';
 		hpBar.style.maxWidth = '420px';
 		hpBar.style.position = 'relative';
+
+		// Mobile: scale down HP bar for top-left positioning
+		if (isMobileInit) {
+			hpBar.style.maxWidth = '200px'; // Compact for top-left
+			hpBar.style.width = '200px'; // Force width
+			hpBar.style.height = '12px';
+		}
 		hpBarFill = document.createElement('div');
 		hpBarFill.id = 'dom-hp-bar-fill';
 		hpBarFill.style.height = '100%';
@@ -97,35 +135,90 @@
 		xpBar.style.overflow = 'hidden';
 		xpBar.style.maxWidth = '420px';
 		xpBar.style.marginTop = '8px';
+
+		// Mobile: scale down XP bar for top-left positioning
+		if (isMobileInit) {
+			xpBar.style.maxWidth = '200px'; // Compact for top-left
+			xpBar.style.width = '200px'; // Force width
+			xpBar.style.height = '8px';
+			xpBar.style.marginTop = '4px';
+		}
 		xpBarFill = document.createElement('div');
 		xpBarFill.style.height = '100%';
 		xpBarFill.style.width = '0%';
 		xpBarFill.style.background = '#3498db';
 		xpBar.appendChild(xpBarFill);
 
-		// Cooldowns placeholder + title (for visibility)
+		// Cooldowns - different layout for mobile vs desktop
 		const cdContainer = document.createElement('div');
-		cdContainer.style.display = 'flex';
-		cdContainer.style.alignItems = 'flex-end';
-		cdContainer.style.gap = '10px';
+		cdContainer.id = 'dom-cooldowns-container';
+
+		if (isMobileInit) {
+			// Mobile: position at top-right, vertical stack
+			cdContainer.style.position = 'fixed';
+			cdContainer.style.top = '60px'; // Below room info and currency
+			cdContainer.style.right = '10px';
+			cdContainer.style.left = 'auto';
+			cdContainer.style.bottom = 'auto';
+			cdContainer.style.display = 'flex';
+			cdContainer.style.flexDirection = 'column';
+			cdContainer.style.gap = '6px';
+			cdContainer.style.alignItems = 'flex-end';
+			cdContainer.style.zIndex = '2000';
+			cdContainer.style.pointerEvents = 'none';
+		} else {
+			// Desktop: horizontal layout at bottom
+			cdContainer.style.display = 'flex';
+			cdContainer.style.alignItems = 'flex-end';
+			cdContainer.style.gap = '10px';
+		}
+
 		const cdTitle = document.createElement('div');
 		cdTitle.textContent = 'Cooldowns';
 		cdTitle.style.color = '#fff';
 		cdTitle.style.fontWeight = '700';
-		cdTitle.style.marginRight = '6px';
+
+		if (isMobileInit) {
+			cdTitle.style.fontSize = '11px';
+			cdTitle.style.marginBottom = '2px';
+		} else {
+			cdTitle.style.marginRight = '6px';
+		}
+
 		cdWrap = document.createElement('div');
 		cdWrap.id = 'dom-cooldowns-row';
-		cdWrap.style.display = 'flex';
-		cdWrap.style.gap = '16px';
-		cdWrap.style.marginTop = '10px';
+
+		if (isMobileInit) {
+			// Mobile: vertical stack
+			cdWrap.style.display = 'flex';
+			cdWrap.style.flexDirection = 'column';
+			cdWrap.style.gap = '6px';
+			cdWrap.style.alignItems = 'flex-end';
+		} else {
+			// Desktop: horizontal row
+			cdWrap.style.display = 'flex';
+			cdWrap.style.gap = '16px';
+			cdWrap.style.marginTop = '10px';
+		}
+
 		// Start empty - updateHUD will create the correct bars dynamically
 		cdContainer.appendChild(cdTitle);
 		cdContainer.appendChild(cdWrap);
 
 		container.appendChild(hpBar);
 		container.appendChild(xpBar);
-		container.appendChild(cdContainer);
+
+		// Desktop: cooldowns in main container, mobile: separate fixed position
+		if (!isMobileInit) {
+			container.appendChild(cdContainer);
+		}
+
 		root.appendChild(container);
+
+		// Mobile: append cooldowns container separately
+		if (isMobileInit) {
+			// root.appendChild(cdContainer); // Don't append cooldowns on mobile
+		}
 	}
 
 	function updateHUD() {
@@ -139,7 +232,119 @@
 			return;
 		}
 		container.style.display = 'block';
-		
+
+		// Apply mobile layout dynamically (runs every frame to handle state changes)
+		const inp = (typeof Input !== 'undefined' ? Input : (window.Input || null));
+		const isMobile = inp && inp.isTouchMode && inp.isTouchMode();
+
+		if (isMobile) {
+			// Mobile: top-left layout - move higher up
+			container.style.left = '10px';
+			container.style.right = 'auto';
+			container.style.top = '25px'; // Moved up from 60px
+			container.style.bottom = 'auto';
+			container.style.width = 'auto';
+			container.style.display = 'flex';
+			container.style.flexDirection = 'column';
+			container.style.gap = '6px';
+			container.style.alignItems = 'flex-start';
+			container.style.transform = 'none';
+
+			// Hide cooldowns container on mobile (cooldowns are built into touch controls)
+			const cdContainer = document.getElementById('dom-cooldowns-container');
+			if (cdContainer) {
+				cdContainer.style.display = 'none';
+				cdContainer.style.visibility = 'hidden';
+			}
+			// Also hide the cooldowns row directly
+			if (cdWrap) {
+				cdWrap.style.display = 'none';
+				cdWrap.style.visibility = 'hidden';
+			}
+		} else {
+			// Desktop: bottom layout (original)
+			container.style.bottom = '60px';
+			container.style.left = '20px';
+			container.style.right = '20px';
+			container.style.top = 'auto';
+			container.style.width = 'auto';
+			container.style.display = 'block';
+			container.style.flexDirection = 'row';
+			container.style.gap = '0';
+			container.style.alignItems = 'flex-start';
+			container.style.transform = 'none';
+
+			// Desktop: cooldowns in main container
+			const cdContainer = document.getElementById('dom-cooldowns-container');
+			if (cdContainer) {
+				cdContainer.style.position = 'static';
+				cdContainer.style.display = 'flex';
+				cdContainer.style.flexDirection = 'row';
+				cdContainer.style.alignItems = 'flex-end';
+				cdContainer.style.gap = '10px';
+
+				if (cdWrap) {
+					cdWrap.style.display = 'flex';
+					cdWrap.style.flexDirection = 'row';
+					cdWrap.style.gap = '16px';
+					cdWrap.style.marginTop = '10px';
+					cdWrap.style.alignItems = 'center';
+				}
+			}
+		}
+
+		// Update shield bar, HP bar, and XP bar sizes based on mobile/desktop
+		if (isMobile) {
+			// Update shield bar width for mobile
+			const shieldBar = document.getElementById('dom-shield-bar');
+			if (shieldBar) {
+				shieldBar.style.maxWidth = '200px';
+				shieldBar.style.width = '200px';
+				shieldBar.style.height = '10px';
+				shieldBar.style.marginBottom = '2px';
+			}
+
+			// Update HP bar width for mobile
+			const hpBar = document.getElementById('dom-hp-bar');
+			if (hpBar) {
+				hpBar.style.maxWidth = '200px';
+				hpBar.style.width = '200px';
+				hpBar.style.height = '12px';
+			}
+
+			// Update XP bar width for mobile
+			const xpBar = document.getElementById('dom-xp-bar');
+			if (xpBar) {
+				xpBar.style.maxWidth = '200px';
+				xpBar.style.width = '200px';
+				xpBar.style.height = '8px';
+				xpBar.style.marginTop = '4px';
+			}
+		} else {
+			// Update shield bar width for desktop
+			const shieldBar = document.getElementById('dom-shield-bar');
+			if (shieldBar) {
+				shieldBar.style.maxWidth = '420px';
+				shieldBar.style.height = '12px';
+				shieldBar.style.marginBottom = '4px';
+			}
+
+			// Update HP bar width for desktop
+			const hpBar = document.getElementById('dom-hp-bar');
+			if (hpBar) {
+				hpBar.style.maxWidth = '420px';
+				hpBar.style.height = '14px';
+			}
+
+			// Update XP bar width for desktop
+			const xpBar = document.getElementById('dom-xp-bar');
+			if (xpBar) {
+				xpBar.style.maxWidth = '420px';
+				xpBar.style.height = '10px';
+				xpBar.style.marginTop = '8px';
+			}
+		}
+
 		// Update shield bar
 		const shieldBar = document.getElementById('dom-shield-bar');
 		const shieldBarFill = document.getElementById('dom-shield-bar-fill');
@@ -156,16 +361,31 @@
 				shieldBar.style.display = 'none';
 			}
 		}
-		
+
 		const hp = Math.max(0, Math.floor(player.hp || 0));
 		const maxHp = Math.max(1, Math.floor(player.maxHp || 1));
 		const hpPct = Math.max(0, Math.min(100, Math.round((hp / maxHp) * 100)));
 		hpBarFill.style.width = hpPct + '%';
-		
+
 		// Update HP bar text
 		const hpBarText = document.getElementById('dom-hp-bar-text');
 		if (hpBarText) {
 			hpBarText.textContent = `${hp}/${maxHp}`;
+			// Mobile: scale down HP bar text
+			if (isMobile) {
+				hpBarText.style.fontSize = '9px';
+			} else {
+				hpBarText.style.fontSize = '10px';
+			}
+		}
+
+		// Update shield bar text size for mobile (shieldBarText already retrieved above)
+		if (shieldBarText) {
+			if (isMobile) {
+				shieldBarText.style.fontSize = '9px';
+			} else {
+				shieldBarText.style.fontSize = '10px';
+			}
 		}
 
 		// XP bar: shows progress from current level (0 XP) to next level (xpToNext XP)
@@ -177,7 +397,20 @@
 		xpBarFill.style.width = xpPct + '%';
 
 		// Desktop cooldown bars (event-driven preferred, fallback to raw fields)
-		{
+		// Mobile: hide cooldowns (they're built into touch controls)
+		if (isMobile) {
+			// Ensure cooldowns are completely hidden on mobile
+			if (cdWrap) {
+				cdWrap.style.display = 'none';
+				cdWrap.style.visibility = 'hidden';
+			}
+			const cdContainer = document.getElementById('dom-cooldowns-container');
+			if (cdContainer) {
+				cdContainer.style.display = 'none';
+				cdContainer.style.visibility = 'hidden';
+			}
+			return; // Skip all cooldown rendering on mobile
+		} else {
 			cdWrap.style.display = 'flex';
 			cdWrap.style.flexDirection = 'row';
 			cdWrap.style.alignItems = 'flex-end';
@@ -214,7 +447,7 @@
 								return v;
 							}
 						}
-					} catch {}
+					} catch { }
 					return fallback;
 				}
 				// Group bars by type to combine multiple charges into single divided bars
@@ -258,84 +491,84 @@
 						}
 					}
 				} else {
-				// Prefer raw class fields (authoritative), ignore normalized if present
-				// Dodge
-				// CRITICAL: Use maxDodgeCharges for the loop, not current ready count
-				// This ensures we always show all charge slots
-				let maxDodgeCharges = Math.max(1, pickNumber(player, ['maxDodgeCharges', 'maxDashCharges'], 1));
-				const dodgeChargeCooldowns = pickArray(player, ['dodgeChargeCooldowns', 'dashChargeCooldowns']);
-				let dodgeMax = Math.max(0.0001, pickNumber(player, ['dodgeCooldownTime', 'dashCooldownTime', 'dodgeMaxCooldown'], 1));
-				if (!dodgeMax || dodgeMax === 1) {
-					// Fallback: scan for something like dodge...Time or dash...Time
-					const scannedMax = findNumberByPattern(player, /(dodge|dash).*time/i, dodgeMax);
-					if (scannedMax) dodgeMax = scannedMax;
-				}
-				if (maxDodgeCharges > 1 && Array.isArray(dodgeChargeCooldowns)) {
-					// Group multiple dodge charges into one segmented bar
-					// Loop over maxDodgeCharges to show all slots (not current ready count)
-					const segments = [];
-					for (let i = 0; i < maxDodgeCharges; i++) {
-						const rem = Math.max(0, dodgeChargeCooldowns[i] || 0);
-						segments.push({ label: 'D', cooldown: rem, max: dodgeMax });
+					// Prefer raw class fields (authoritative), ignore normalized if present
+					// Dodge
+					// CRITICAL: Use maxDodgeCharges for the loop, not current ready count
+					// This ensures we always show all charge slots
+					let maxDodgeCharges = Math.max(1, pickNumber(player, ['maxDodgeCharges', 'maxDashCharges'], 1));
+					const dodgeChargeCooldowns = pickArray(player, ['dodgeChargeCooldowns', 'dashChargeCooldowns']);
+					let dodgeMax = Math.max(0.0001, pickNumber(player, ['dodgeCooldownTime', 'dashCooldownTime', 'dodgeMaxCooldown'], 1));
+					if (!dodgeMax || dodgeMax === 1) {
+						// Fallback: scan for something like dodge...Time or dash...Time
+						const scannedMax = findNumberByPattern(player, /(dodge|dash).*time/i, dodgeMax);
+						if (scannedMax) dodgeMax = scannedMax;
 					}
-					bars.push({ type: 'dodge', label: 'Dodge', segments: segments, max: dodgeMax });
-				} else {
-					let rem = pickNumber(player, ['dodgeCooldown', 'dashCooldown', 'dodgeRemaining', 'dashRemaining'], 0);
-					if (rem === 0) {
-						rem = findNumberByPattern(player, /(dodge|dash).*(cooldown|remaining)/i, 0);
-					}
-					bars.push({ type: 'dodge', label: 'Dodge', cooldown: Math.max(0, rem), max: dodgeMax });
-				}
-				// Special (varies per class)
-				const specialLabel = (player.playerClass === 'triangle') ? 'Clones'
-					: (player.playerClass === 'square') ? 'Whirlwind'
-					: (player.playerClass === 'pentagon') ? 'Shield'
-					: 'Blink';
-				let specialRem = pickNumber(player, ['specialCooldown'], 0);
-				let specialMax = Math.max(0.0001, pickNumber(player, ['specialCooldownTime'], 1));
-				if (specialRem === 0) specialRem = findNumberByPattern(player, /(special|clone|whirl|shield|blink).*(cooldown|remaining)/i, 0);
-				if (!specialMax || specialMax === 1) {
-					const scannedMax = findNumberByPattern(player, /(special|clone|whirl|shield|blink).*time/i, specialMax);
-					if (scannedMax) specialMax = scannedMax;
-				}
-				bars.push({ type: 'special', label: specialLabel, cooldown: Math.max(0, specialRem), max: specialMax });
-				// Heavy or Mage beam charges
-				if (player.playerClass === 'hexagon') {
-					// CRITICAL: Use maxBeamCharges for the loop, not beamCharges (current ready count)
-					// This ensures we always show all charge slots, just like dodge
-					const maxBeamCharges = Math.max(1, pickNumber(player, ['maxBeamCharges'], 2));
-					const beamCooldowns = pickArray(player, ['beamChargeCooldowns', 'heavyChargeCooldowns']);
-					let heavyMax = Math.max(0.0001, pickNumber(player, ['heavyAttackCooldownTime', 'heavyCooldownTime'], 1.5));
-					if (!heavyMax || heavyMax === 1.5) {
-						const scanned = findNumberByPattern(player, /(beam|heavy).*time/i, heavyMax);
-						if (scanned) heavyMax = scanned;
-					}
-					
-					if (maxBeamCharges > 1 && Array.isArray(beamCooldowns)) {
-						// Group multiple beam charges into one segmented bar
-						// Loop over maxBeamCharges to show all slots (not current ready count)
+					if (maxDodgeCharges > 1 && Array.isArray(dodgeChargeCooldowns)) {
+						// Group multiple dodge charges into one segmented bar
+						// Loop over maxDodgeCharges to show all slots (not current ready count)
 						const segments = [];
-						for (let i = 0; i < maxBeamCharges; i++) {
-							const rem = Math.max(0, beamCooldowns[i] || 0);
-							segments.push({ label: 'B', cooldown: rem, max: heavyMax });
+						for (let i = 0; i < maxDodgeCharges; i++) {
+							const rem = Math.max(0, dodgeChargeCooldowns[i] || 0);
+							segments.push({ label: 'D', cooldown: rem, max: dodgeMax });
 						}
-						bars.push({ type: 'beam', label: 'Beam', segments: segments, max: heavyMax });
+						bars.push({ type: 'dodge', label: 'Dodge', segments: segments, max: dodgeMax });
 					} else {
-						// Falling back to single bar
-						let rem = pickNumber(player, ['heavyAttackCooldown'], 0);
-						if (rem === 0) rem = findNumberByPattern(player, /(heavy|beam).*(cooldown|remaining)/i, 0);
-						bars.push({ type: 'heavy', label: 'Heavy', cooldown: Math.max(0, rem), max: heavyMax });
+						let rem = pickNumber(player, ['dodgeCooldown', 'dashCooldown', 'dodgeRemaining', 'dashRemaining'], 0);
+						if (rem === 0) {
+							rem = findNumberByPattern(player, /(dodge|dash).*(cooldown|remaining)/i, 0);
+						}
+						bars.push({ type: 'dodge', label: 'Dodge', cooldown: Math.max(0, rem), max: dodgeMax });
 					}
-				} else {
-					let heavyRem = pickNumber(player, ['heavyAttackCooldown'], 0);
-					let heavyMax = Math.max(0.0001, pickNumber(player, ['heavyAttackCooldownTime'], 1.5));
-					if (heavyRem === 0) heavyRem = findNumberByPattern(player, /(heavy).*(cooldown|remaining)/i, 0);
-					if (!heavyMax || heavyMax === 1.5) {
-						const scannedH = findNumberByPattern(player, /(heavy).*time/i, heavyMax);
-						if (scannedH) heavyMax = scannedH;
+					// Special (varies per class)
+					const specialLabel = (player.playerClass === 'triangle') ? 'Clones'
+						: (player.playerClass === 'square') ? 'Whirlwind'
+							: (player.playerClass === 'pentagon') ? 'Shield'
+								: 'Blink';
+					let specialRem = pickNumber(player, ['specialCooldown'], 0);
+					let specialMax = Math.max(0.0001, pickNumber(player, ['specialCooldownTime'], 1));
+					if (specialRem === 0) specialRem = findNumberByPattern(player, /(special|clone|whirl|shield|blink).*(cooldown|remaining)/i, 0);
+					if (!specialMax || specialMax === 1) {
+						const scannedMax = findNumberByPattern(player, /(special|clone|whirl|shield|blink).*time/i, specialMax);
+						if (scannedMax) specialMax = scannedMax;
 					}
-					bars.push({ type: 'heavy', label: 'Heavy', cooldown: Math.max(0, heavyRem), max: heavyMax });
-				}
+					bars.push({ type: 'special', label: specialLabel, cooldown: Math.max(0, specialRem), max: specialMax });
+					// Heavy or Mage beam charges
+					if (player.playerClass === 'hexagon') {
+						// CRITICAL: Use maxBeamCharges for the loop, not beamCharges (current ready count)
+						// This ensures we always show all charge slots, just like dodge
+						const maxBeamCharges = Math.max(1, pickNumber(player, ['maxBeamCharges'], 2));
+						const beamCooldowns = pickArray(player, ['beamChargeCooldowns', 'heavyChargeCooldowns']);
+						let heavyMax = Math.max(0.0001, pickNumber(player, ['heavyAttackCooldownTime', 'heavyCooldownTime'], 1.5));
+						if (!heavyMax || heavyMax === 1.5) {
+							const scanned = findNumberByPattern(player, /(beam|heavy).*time/i, heavyMax);
+							if (scanned) heavyMax = scanned;
+						}
+
+						if (maxBeamCharges > 1 && Array.isArray(beamCooldowns)) {
+							// Group multiple beam charges into one segmented bar
+							// Loop over maxBeamCharges to show all slots (not current ready count)
+							const segments = [];
+							for (let i = 0; i < maxBeamCharges; i++) {
+								const rem = Math.max(0, beamCooldowns[i] || 0);
+								segments.push({ label: 'B', cooldown: rem, max: heavyMax });
+							}
+							bars.push({ type: 'beam', label: 'Beam', segments: segments, max: heavyMax });
+						} else {
+							// Falling back to single bar
+							let rem = pickNumber(player, ['heavyAttackCooldown'], 0);
+							if (rem === 0) rem = findNumberByPattern(player, /(heavy|beam).*(cooldown|remaining)/i, 0);
+							bars.push({ type: 'heavy', label: 'Heavy', cooldown: Math.max(0, rem), max: heavyMax });
+						}
+					} else {
+						let heavyRem = pickNumber(player, ['heavyAttackCooldown'], 0);
+						let heavyMax = Math.max(0.0001, pickNumber(player, ['heavyAttackCooldownTime'], 1.5));
+						if (heavyRem === 0) heavyRem = findNumberByPattern(player, /(heavy).*(cooldown|remaining)/i, 0);
+						if (!heavyMax || heavyMax === 1.5) {
+							const scannedH = findNumberByPattern(player, /(heavy).*time/i, heavyMax);
+							if (scannedH) heavyMax = scannedH;
+						}
+						bars.push({ type: 'heavy', label: 'Heavy', cooldown: Math.max(0, heavyRem), max: heavyMax });
+					}
 				}
 				// Update predefined fills based on first matching bars
 				function setFill(el, rem, max) {
@@ -352,12 +585,20 @@
 						el.style.background = '#00cc00';
 					}
 				}
-			// Rebuild columns to exactly match desired bars each frame (cheap, ensures correctness)
-			const desiredCount = bars.length;
-			
-			// DEBUG: Log the bars array structure on first few renders
-			// Check if we need to rebuild (count changed or structure changed)
-			let needsRebuild = cdWrap.children.length !== desiredCount;
+				// Mobile: skip cooldown bar rendering (cooldowns are in touch controls)
+				if (isMobile) {
+					if (cdWrap) {
+						cdWrap.style.display = 'none';
+					}
+					return; // Skip the rest of cooldown bar rendering on mobile
+				}
+
+				// Rebuild columns to exactly match desired bars each frame (cheap, ensures correctness)
+				const desiredCount = bars.length;
+
+				// DEBUG: Log the bars array structure on first few renders
+				// Check if we need to rebuild (count changed or structure changed)
+				let needsRebuild = cdWrap.children.length !== desiredCount;
 				if (!needsRebuild) {
 					// Check if segment structure matches
 					for (let i = 0; i < desiredCount; i++) {
@@ -379,57 +620,71 @@
 					cdWrap.innerHTML = '';
 					for (let i = 0; i < desiredCount; i++) {
 						const col = document.createElement('div');
+						// Mobile: vertical stack alignment, desktop: center
+						const inpCol = (typeof Input !== 'undefined' ? Input : (window.Input || null));
+						const isMobileCol = inpCol && inpCol.isTouchMode && inpCol.isTouchMode();
 						col.style.display = 'flex';
 						col.style.flexDirection = 'column';
-						col.style.alignItems = 'center';
-						col.style.gap = '4px';
-					const bar = document.createElement('div');
-					bar.style.width = '160px';
-					bar.style.height = '14px';
-					bar.style.background = 'rgba(255,255,255,0.08)';
-					bar.style.border = '1px solid rgba(150,150,255,0.3)';
-					bar.style.borderRadius = '6px';
-					bar.style.overflow = 'hidden';
-					bar.style.position = 'relative';
-					bar.style.display = 'block'; // Use block for inline-block children
-					bar.style.fontSize = '0'; // Remove whitespace between inline-block elements
-					bar.style.lineHeight = '0';
-						
-					const b = bars[i];
-					const segmentCount = (b && b.segments && Array.isArray(b.segments)) ? b.segments.length : 1;
-					
-					// Create segments container
-					for (let segIdx = 0; segIdx < segmentCount; segIdx++) {
-						const segment = document.createElement('div');
-						// Make segments display inline-block and give them equal widths
-						segment.style.display = 'inline-block';
-						segment.style.width = `${100 / segmentCount}%`;
-						segment.style.height = '100%';
-						segment.style.position = 'relative';
-						segment.style.overflow = 'hidden';
-						segment.style.boxSizing = 'border-box'; // Include border in width calculation
-						segment.style.verticalAlign = 'top'; // Prevent baseline alignment issues
-						// Add visible divider between segments (except last)
-						if (segIdx < segmentCount - 1) {
-							segment.style.borderRight = '2px solid rgba(30,30,60,0.8)';
+						col.style.alignItems = isMobileCol ? 'flex-end' : 'center';
+						col.style.gap = isMobileCol ? '2px' : '4px';
+						const bar = document.createElement('div');
+						// Mobile: scale down cooldown bars for vertical stack
+						const inpBar = (typeof Input !== 'undefined' ? Input : (window.Input || null));
+						const isMobileBar = inpBar && inpBar.isTouchMode && inpBar.isTouchMode();
+						bar.style.width = isMobileBar ? '100px' : '160px';
+						bar.style.height = isMobileBar ? '10px' : '14px';
+						bar.style.background = 'rgba(255,255,255,0.08)';
+						bar.style.border = '1px solid rgba(150,150,255,0.3)';
+						bar.style.borderRadius = '6px';
+						bar.style.overflow = 'hidden';
+						bar.style.position = 'relative';
+						bar.style.display = 'block'; // Use block for inline-block children
+						bar.style.fontSize = '0'; // Remove whitespace between inline-block elements
+						bar.style.lineHeight = '0';
+
+						const b = bars[i];
+						const segmentCount = (b && b.segments && Array.isArray(b.segments)) ? b.segments.length : 1;
+
+						// Create segments container
+						for (let segIdx = 0; segIdx < segmentCount; segIdx++) {
+							const segment = document.createElement('div');
+							// Make segments display inline-block and give them equal widths
+							segment.style.display = 'inline-block';
+							segment.style.width = `${100 / segmentCount}%`;
+							segment.style.height = '100%';
+							segment.style.position = 'relative';
+							segment.style.overflow = 'hidden';
+							segment.style.boxSizing = 'border-box'; // Include border in width calculation
+							segment.style.verticalAlign = 'top'; // Prevent baseline alignment issues
+							// Add visible divider between segments (except last)
+							if (segIdx < segmentCount - 1) {
+								segment.style.borderRight = '2px solid rgba(30,30,60,0.8)';
+							}
+							const fill = document.createElement('div');
+							fill.style.height = '100%';
+							fill.style.width = '100%';
+							fill.style.background = '#00cc00';
+							fill.style.position = 'absolute';
+							fill.style.top = '0';
+							fill.style.left = '0';
+							segment.appendChild(fill);
+							bar.appendChild(segment);
 						}
-						const fill = document.createElement('div');
-						fill.style.height = '100%';
-						fill.style.width = '100%';
-						fill.style.background = '#00cc00';
-						fill.style.position = 'absolute';
-						fill.style.top = '0';
-						fill.style.left = '0';
-						segment.appendChild(fill);
-						bar.appendChild(segment);
-					}
-						
+
 						const lab = document.createElement('div');
 						lab.textContent = (b && b.label) ? b.label : 'CD';
 						lab.style.color = '#fff';
 						lab.style.fontWeight = '700';
-						lab.style.fontSize = '12px';
-						lab.style.marginTop = '2px';
+						// Mobile: scale down cooldown labels
+						const inpLabel = (typeof Input !== 'undefined' ? Input : (window.Input || null));
+						const isMobileLabel = inpLabel && inpLabel.isTouchMode && inpLabel.isTouchMode();
+						lab.style.fontSize = isMobileLabel ? '9px' : '12px';
+						lab.style.marginTop = isMobileLabel ? '1px' : '2px';
+						// Mobile: align text right for vertical stack
+						if (isMobileLabel) {
+							lab.style.textAlign = 'right';
+							lab.style.width = '100%';
+						}
 						col.appendChild(bar);
 						col.appendChild(lab);
 						cdWrap.appendChild(col);
@@ -441,16 +696,16 @@
 					if (!col) continue;
 					const b = bars[i];
 					const bar = col.firstChild;
-					
-				if (b && b.segments && Array.isArray(b.segments)) {
-					// Segmented bar: update each segment
-					const segments = Array.from(bar.children);
-					for (let segIdx = 0; segIdx < segments.length && segIdx < b.segments.length; segIdx++) {
-						const segment = segments[segIdx];
-						const fill = segment.firstChild;
-						const segData = b.segments[segIdx];
-						setFill(fill, segData ? segData.cooldown : 0, segData ? segData.max : 1);
-					}
+
+					if (b && b.segments && Array.isArray(b.segments)) {
+						// Segmented bar: update each segment
+						const segments = Array.from(bar.children);
+						for (let segIdx = 0; segIdx < segments.length && segIdx < b.segments.length; segIdx++) {
+							const segment = segments[segIdx];
+							const fill = segment.firstChild;
+							const segData = b.segments[segIdx];
+							setFill(fill, segData ? segData.cooldown : 0, segData ? segData.max : 1);
+						}
 					} else {
 						// Single bar: update first segment
 						const firstSegment = bar.firstChild;

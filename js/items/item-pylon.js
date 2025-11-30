@@ -314,11 +314,13 @@ function renderItemPylons(ctx) {
 
                         if (!hasInteracted) {
                             // Show interaction prompt
-                            ctx.fillStyle = '#ffff00';
-                            ctx.globalAlpha = alpha;
-                            ctx.font = 'bold 12px Orbitron';
-                            ctx.textAlign = 'center';
-                            ctx.fillText('Press G to interact', pylon.x, pylon.y + radius + 20);
+                            if (typeof Input !== 'undefined' && !Input.isTouchMode()) {
+                                ctx.fillStyle = '#ffff00';
+                                ctx.globalAlpha = alpha;
+                                ctx.font = 'bold 12px Orbitron';
+                                ctx.textAlign = 'center';
+                                ctx.fillText('Press G to interact', pylon.x, pylon.y + radius + 20);
+                            }
                         } else {
                             // Show "Already claimed" message
                             ctx.fillStyle = '#888888';
@@ -407,7 +409,9 @@ function renderItemPylons(ctx) {
                         ctx.globalAlpha = alpha;
                         ctx.font = 'bold 12px Orbitron';
                         ctx.textAlign = 'center';
-                        ctx.fillText('Press G to interact', pylon.x, pylon.y + radius + 20);
+                        if (typeof Input !== 'undefined' && !Input.isTouchMode()) {
+                            ctx.fillText('Press G to interact', pylon.x, pylon.y + radius + 20);
+                        }
                         ctx.restore();
                     } else {
                         // Show "Already claimed" message

@@ -225,6 +225,55 @@ const DeckUpgradeMenu = {
                     border-bottom: 1px solid rgba(255, 215, 0, 0.2);
                     padding-bottom: 10px;
                 }
+                @media (min-aspect-ratio: 2/1) and (max-width: 1024px) {
+                    #deck-upgrade-modal .modal-content {
+                        max-width: 90vw;
+                        max-height: 90vh;
+                    }
+                    #deck-upgrade-modal .modal-header {
+                        padding: 12px 16px;
+                    }
+                    #deck-upgrade-modal .modal-header h2 {
+                        font-size: 20px;
+                    }
+                    #deck-upgrade-modal .modal-body {
+                        padding: 12px 16px;
+                    }
+                    .upgrades-grid {
+                        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+                        gap: 12px;
+                        margin-top: 12px;
+                    }
+                    .upgrade-card {
+                        padding: 12px;
+                    }
+                    .upgrade-icon {
+                        font-size: 28px;
+                        margin-bottom: 8px;
+                    }
+                    .upgrade-name {
+                        font-size: 14px;
+                        margin-bottom: 6px;
+                    }
+                    .upgrade-desc {
+                        font-size: 11px;
+                        margin-bottom: 10px;
+                        height: 35px;
+                    }
+                    .upgrade-level {
+                        font-size: 12px;
+                        margin-bottom: 8px;
+                    }
+                    .upgrade-cost {
+                        font-size: 13px;
+                        margin-bottom: 10px;
+                    }
+                    .currency-display {
+                        font-size: 18px;
+                        margin-bottom: 12px;
+                        padding-bottom: 8px;
+                    }
+                }
             `;
             document.head.appendChild(style);
         }

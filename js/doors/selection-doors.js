@@ -382,9 +382,13 @@
 					ctx.fillStyle = '#00ff00';
 					ctx.font = 'bold 12px Orbitron';
 					if (hasModifiers) {
-						ctx.fillText('Press G to Select or M for Modifier', pack.x, cardY - 25);
+						if (typeof Input !== 'undefined' && !Input.isTouchMode()) {
+							ctx.fillText('Press G to Select or M for Modifier', pack.x, cardY - 25);
+						}
 					} else {
-						ctx.fillText('Press G to Select', pack.x, cardY - 25);
+						if (typeof Input !== 'undefined' && !Input.isTouchMode()) {
+							ctx.fillText('Press G to Select', pack.x, cardY - 25);
+						}
 					}
 
 					// Show modifier indicator if door has one
@@ -492,9 +496,11 @@
 			ctx.fillText('Upgrade', upgrade.x, upgrade.y - (upgrade.size + 16));
 
 			// Interaction hint
-			ctx.fillStyle = '#00ff00';
-			ctx.font = 'bold 10px Orbitron';
-			ctx.fillText('Press G', upgrade.x, upgrade.y + (upgrade.size + 14));
+			if (typeof Input !== 'undefined' && !Input.isTouchMode()) {
+				ctx.fillStyle = '#00ff00';
+				ctx.font = 'bold 10px Orbitron';
+				ctx.fillText('Press G', upgrade.x, upgrade.y + (upgrade.size + 14));
+			}
 
 			ctx.restore();
 		});

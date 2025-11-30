@@ -402,7 +402,7 @@ const Game = {
             //         this.launchModalVisible = true;
             //     }
             // }
-            
+
             // Check if launch modal should show (first time ever)
             if (!SaveSystem.getHasSeenLaunchModal()) {
                 this.launchModalVisible = true;
@@ -646,8 +646,8 @@ const Game = {
         let canvasWidth = Math.floor(availableWidth);
         let canvasHeight = Math.floor(availableHeight);
 
-        // Mobile UI disabled - always treat as desktop
-        const isMobileDevice = false;
+        // Detect mobile device using Input system
+        const isMobileDevice = typeof Input !== 'undefined' && Input.isMobileDevice && Input.isMobileDevice();
         this.isMobileDevice = isMobileDevice;
 
         // Desktop: enforce minimum size for playability
@@ -708,15 +708,15 @@ const Game = {
         this.config.width = canvasWidth;
         this.config.height = canvasHeight;
 
-        // Touch controls disabled - mobile UI is disabled
-        // if (typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode()) {
-        //     // Small delay to ensure canvas rect is updated
-        //     setTimeout(() => {
-        //         if (Input.initTouchControls) {
-        //             Input.initTouchControls(this.canvas);
-        //         }
-        //     }, 50);
-        // }
+        // Initialize touch controls if in touch mode
+        if (typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode()) {
+            // Small delay to ensure canvas rect is updated
+            setTimeout(() => {
+                if (Input.initTouchControls) {
+                    Input.initTouchControls(this.canvas);
+                }
+            }, 50);
+        }
 
         // Force a reflow to ensure the canvas is positioned
         void this.canvas.offsetWidth;
@@ -1065,7 +1065,7 @@ const Game = {
             // Generate random shake offset with directional bias
             let xOffset, yOffset;
             const baseShake = this.screenShakeIntensity * 10;
-            
+
             if (this.screenShakeDirection === 'player') {
                 // Player damage: Almost purely vertical (like being knocked back/staggered upward)
                 // Very minimal horizontal movement, strong vertical movement
@@ -1083,7 +1083,7 @@ const Game = {
                 xOffset = (Math.random() - 0.5) * baseShake;
                 yOffset = (Math.random() - 0.5) * baseShake;
             }
-            
+
             this.screenShakeOffset.x = xOffset;
             this.screenShakeOffset.y = yOffset;
 
@@ -2154,7 +2154,7 @@ const Game = {
             playerInstance.hp = state.hp;
             playerInstance.invulnerable = true;
             playerInstance.invulnerabilityTime = 0.5;
-            
+
             // Set lastDamageTime and lastDamageAmount for visual effects (chromatic aberration)
             // Screen shake will be triggered on client side when HP syncs via applyState
             // Only set if HP actually decreased (not just invulnerability refresh)
@@ -2208,11 +2208,11 @@ const Game = {
                 if (!this.endTime) {
                     this.endTime = Date.now();
                 }
-                
+
                 if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
                     this.sendFinalStats();
                 }
-                
+
                 if (typeof this.triggerGameOverMusic === 'function') {
                     this.triggerGameOverMusic();
                 }
@@ -3460,7 +3460,7 @@ const Game = {
             // Use a threshold of 0.5 seconds for the glitch effect
             const now = Date.now() / 1000;
             const damageTraumaDuration = 0.5;
-            
+
             // Check local player or client's remote player instance
             let playerToCheck = this.player;
             if (!playerToCheck && this.multiplayerEnabled && typeof this.getLocalPlayerId === 'function') {
@@ -3469,7 +3469,7 @@ const Game = {
                     playerToCheck = this.remotePlayerInstances.get(localPlayerId);
                 }
             }
-            
+
             const isDamaged = playerToCheck && playerToCheck.lastDamageTime && (now - playerToCheck.lastDamageTime < damageTraumaDuration);
 
             if (isDamaged) {
@@ -3558,7 +3558,7 @@ const Game = {
                 // Normalize to 0.1-1.0, capped at 45% of max HP (0.1 at 0% damage, 1.0 at 45%+ damage)
                 const normalizedDamage = Math.min(hitDamagePercentage / 0.45, 1.0);
                 const damagePercentage = 0.1 + (1.0 - 0.1) * normalizedDamage; // Scale from 0.1 to 1.0
-                
+
                 // Scale maxOffset based on damage percentage
                 // At 0% damage: minimal separation (2px)
                 // At 45% damage: maximum separation (16px)
@@ -3648,6 +3648,16 @@ const Game = {
 
             // --- DYNAMIC VIGNETTE (Light-Aware) ---
             this.renderVignette(this.ctx);
+        }
+
+        // Render touch controls (on top of everything)
+        if (typeof Input !== 'undefined' && Input.render) {
+            Input.render(this.ctx);
+        }
+
+        // Render interaction button (on top of touch controls)
+        if (typeof renderInteractionButton === 'function') {
+            renderInteractionButton(this.ctx);
         }
     },
 

@@ -29,6 +29,67 @@
 		panel.style.maxHeight = '90vh';
 		panel.style.display = 'flex';
 		panel.style.flexDirection = 'column';
+		
+		// Add mobile scaling styles
+		if (!document.getElementById('index-machine-mobile-styles')) {
+			const style = document.createElement('style');
+			style.id = 'index-machine-mobile-styles';
+			style.textContent = `
+				@media (min-aspect-ratio: 2/1) and (max-width: 1024px) {
+					.modal.index-machine {
+						width: min(90vw, 1200px) !important;
+						max-height: 90vh !important;
+					}
+					.modal.index-machine .modal__header {
+						padding: 12px 16px !important;
+					}
+					.modal.index-machine .modal__header h2 {
+						font-size: 18px !important;
+					}
+					.modal.index-machine .modal__header .btn {
+						padding: 6px 12px !important;
+						font-size: 16px !important;
+					}
+					.modal.index-machine > div[style*="display: flex"][style*="gap: 10px"] {
+						padding: 8px 12px !important;
+						gap: 8px !important;
+					}
+					.modal.index-machine > div[style*="display: flex"][style*="gap: 10px"] .btn {
+						padding: 8px 12px !important;
+						font-size: 12px !important;
+					}
+					.modal.index-machine .modal__body {
+						padding: 12px 16px !important;
+						font-size: 0.9em !important;
+					}
+					.modal.index-machine .index-preview {
+						width: 300px !important;
+						padding: 12px 16px !important;
+					}
+					.modal.index-machine .index-preview h3 {
+						font-size: 18px !important;
+						margin-bottom: 12px !important;
+					}
+					.modal.index-machine .index-preview > div {
+						font-size: 13px !important;
+					}
+					.modal.index-machine [style*="grid-template-columns: repeat(auto-fill, minmax(250px"] {
+						grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)) !important;
+						gap: 12px !important;
+					}
+					.modal.index-machine [style*="padding: 15px"][style*="borderRadius: 8px"] {
+						padding: 12px !important;
+					}
+					.modal.index-machine [style*="fontSize: 16px"][style*="fontWeight: bold"] {
+						font-size: 14px !important;
+					}
+					.modal.index-machine [style*="fontSize: 12px"] {
+						font-size: 11px !important;
+					}
+				}
+			`;
+			document.head.appendChild(style);
+		}
 
 		const header = document.createElement('div');
 		header.className = 'modal__header';

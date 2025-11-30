@@ -587,10 +587,10 @@
 
 						const tooltipDesc = document.createElement('div');
 						tooltipDesc.style.color = '#ccc';
-					tooltipDesc.style.fontSize = '11px';
-					tooltipDesc.style.lineHeight = '1.4';
-					tooltipDesc.style.fontWeight = '500';
-					tooltipDesc.textContent = item.tooltip || item.definition.description || 'No description';
+						tooltipDesc.style.fontSize = '11px';
+						tooltipDesc.style.lineHeight = '1.4';
+						tooltipDesc.style.fontWeight = '500';
+						tooltipDesc.textContent = item.tooltip || item.definition.description || 'No description';
 						tooltip.appendChild(tooltipDesc);
 
 						// Append to body instead of item card
@@ -1119,7 +1119,8 @@
 
 		open = typeof force === 'boolean' ? force : !open;
 		if (!layer) return;
-		layer.style.display = (window.USE_DOM_UI && open) ? 'flex' : 'none';
+		// DOM UI is always in use now
+		layer.style.display = open ? 'flex' : 'none';
 		if (open) render();
 	}
 
@@ -1153,7 +1154,7 @@
 			if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
 				return;
 			}
-			
+
 			// Allow character sheet to open even if other modals are active (they should handle their own blocking)
 			// Only block if we're explicitly in swap mode
 			const key = e.key.toLowerCase();
@@ -1183,7 +1184,7 @@
 			if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
 				return;
 			}
-			
+
 			// Allow character sheet to open even if other modals are active (they should handle their own blocking)
 			const key = e.key.toLowerCase();
 			if (key === 'i') {
@@ -1226,6 +1227,10 @@
 				e.preventDefault();
 			}
 		}, { capture: true });
+
+		// Expose toggle function globally for mobile button
+		window.CharacterSheet = window.CharacterSheet || {};
+		window.CharacterSheet.toggle = toggle;
 	}
 
 	if (document.readyState === 'loading') {
