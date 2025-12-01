@@ -2,7 +2,7 @@
 // Update this file when releasing new versions
 
 const GameVersion = {
-  VERSION: '0.6.0',
+  VERSION: '0.6.1',
 
   UPDATE_MESSAGES: {
     '0.2.1': 'Initial early access release! Please report any bugs you find at https://github.com/1jamie/shape_slayer/issues',
@@ -430,6 +430,37 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
   *"Simple. Effective. Boring? Maybe. But you'll pick them anyway because math."*
 
 *TL;DR:* Card system (single-player only), 30+ cards with mastery levels, room modifiers for risk/reward, item system with infinite stacking and logarithmic scaling, rendering rewrite with caching and culling, visual overhaul with biomes and glow effects, DOM-based UI, Index Machine for discovery tracking. Scope creep is a hell of a drug.`,
+  '0.6.1': `**📱 UPDATE 0.6.1: THE "THUMBS & NUMBERS" UPDATE** (12/01/2025)
+*"We broke mobile. Then we fixed it. Then we broke the math. Then we fixed that too. Development is easy."*
+
+**📱 Mobile UI Returns (The "Do You Guys Not Have Phones?" Edition):**
+*"We realized that playing a PC game on a touch screen without buttons was... suboptimal. Who knew?"*
+• **Mobile Support Restored:** Full touch controls, UI scaling, and layout adjustments are back.
+• **Performance Roulette:** Will it run at 60fps? Will it melt your battery? Only one way to find out.
+  *"Optimized the renderer to stop cache trashing. Your phone might still get warm, but at least it's efficient warmth."*
+
+**⚖️ Balancing (The "Fun Police" Arrive):**
+• **Enemy Scaling:** +2% scaling speed.
+  *"You were looking too comfortable."*
+• **The Horde Leaks:** Room 18 cap now leaks +1 enemy count per room thereafter.
+  *"The 'Cap' is now more of a 'Guideline'. Good luck."*
+
+**🔮 Item & Aura Tweaks (Math Corrections):**
+• **Regenerative Matrix Fix:** Fixed a "small" typo where scaling was 1.0 instead of 0.01.
+  *"Turns out 100x healing makes you immortal. We fixed the decimal point. You are now mortal again. Oops. (I'm not sorry)"*
+• **Damage Aura Rework:** Now scales off **Player Damage** instead of Enemy Max HP.
+  *"% HP damage was cheese. We removed the cheese. Eat your vegetables."*
+• **Damage Aura Range:** Increased 100px → 120px.
+  *"A consolation prize for the changes."*
+• **Slow Aura:** Massively increased decay time.
+  *"Enemies now stay slowed after leaving the circle. It's called 'thermal conductivity'. Look it up."*
+
+**☠️ Boss Rotation (Gear Mode):**
+• **Endless Cycle:** Bosses now cycle every 5 rooms starting at Room 10.
+  *"There is no escape. Only more geometry."*
+
+*TL;DR:* Mobile works again, Regen Matrix no longer makes you God, Damage Aura is fair now and doesnt feel useless, enemies multiply faster, and bosses are infinite. Touch grass? No, touch screen.*
+`,
   },
 
   // Update type labels - can be: 'major', 'feature', 'minor', 'hotfix', 'bugfix', 'refactor', 'rebalance'
@@ -445,7 +476,8 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
     '0.5.2': ['minor', 'hotfix'],
     '0.5.3': ['minor'],
     '0.5.3.1': ['minor', 'feature', 'rebalance'],
-    '0.6.0': ['major', 'feature', 'visuals']
+    '0.6.0': ['major', 'feature', 'visuals'],
+    '0.6.1': ['minor', 'feature', 'hotfix']
   }
 };
 

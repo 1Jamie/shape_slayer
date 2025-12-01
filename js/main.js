@@ -4092,53 +4092,46 @@ const Game = {
         }
 
         // Helper to get or create a cached glow sprite
-        const getCachedGlow = (size, color) => {
-            // Round size to nearest integer to reduce cache fragmentation
-            const keySize = Math.ceil(size);
-            const key = `${keySize}_${color}`;
+        // Helper to get or create a cached glow sprite
+        const getCachedGlow = (color) => {
+            // Use a fixed large size for the cache key to avoid fragmentation/thrashing
+            // We'll scale this texture down/up as needed
+            const key = color;
 
             if (this.glowCache.has(key)) {
                 return this.glowCache.get(key);
             }
 
             // Create new cached glow
+            // Use a reasonably high resolution (e.g., 128px radius = 256px diameter)
+            // This allows scaling up to ~256px radius without too much blur, and scales down well
+            const size = 128;
             const canvas = document.createElement('canvas');
-            const diameter = keySize * 2;
+            const diameter = size * 2;
             // Add padding to avoid clipping at edges
-            const padding = 2;
+            const padding = 4;
             canvas.width = diameter + padding * 2;
             canvas.height = diameter + padding * 2;
             const gCtx = canvas.getContext('2d');
 
-            const center = keySize + padding;
+            const center = size + padding;
 
             const grad = gCtx.createRadialGradient(
-                center, center, keySize * 0.1,
-                center, center, keySize
+                center, center, size * 0.1,
+                center, center, size
             );
             grad.addColorStop(0, color);
             grad.addColorStop(1, 'rgba(0,0,0,0)');
 
             gCtx.fillStyle = grad;
             gCtx.beginPath();
-            gCtx.arc(center, center, keySize, 0, Math.PI * 2);
+            gCtx.arc(center, center, size, 0, Math.PI * 2);
             gCtx.fill();
 
             this.glowCache.set(key, canvas);
-
-            // Limit cache size to prevent memory leaks (simple LRU-ish by clearing if too big)
-            if (this.glowCache.size > 100) {
-                // Clear half the cache if it gets too big
-                const keys = Array.from(this.glowCache.keys());
-                for (let i = 0; i < 50; i++) {
-                    this.glowCache.delete(keys[i]);
-                }
-            }
-
             return canvas;
         };
 
-        // Optimized drawGlow using cache
         // Optimized drawGlow using cache
         const drawGlow = (x, y, size, color) => {
             // Check debug flag
@@ -4158,11 +4151,22 @@ const Game = {
                 return;
             }
 
-            const cachedCanvas = getCachedGlow(size, color);
+            const cachedCanvas = getCachedGlow(color);
+
+            // Calculate scale factor
+            // Cached image has radius 128 (plus padding)
+            // We want to draw it with radius 'size'
+            const cachedRadius = 128;
+            const scale = size / cachedRadius;
+
+            // Draw centered and scaled
             const offset = cachedCanvas.width / 2;
 
-            // Draw the cached image centered at x, y
-            ctx.drawImage(cachedCanvas, x - offset, y - offset);
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.scale(scale, scale);
+            ctx.drawImage(cachedCanvas, -offset, -offset);
+            ctx.restore();
         };
 
         // Draw Enemy Glows (Culled)

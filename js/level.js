@@ -101,8 +101,8 @@ function getMultiplayerScaling() {
 }
 
 // Enemy stat growth per room (compounded)
-const ENEMY_HP_GROWTH_PER_ROOM = 0.08;       // 8% per room (reduced from 11% for better balance)
-const ENEMY_DAMAGE_GROWTH_PER_ROOM = 0.13;   // 13% per room (slightly outpaces player HP growth)
+const ENEMY_HP_GROWTH_PER_ROOM = 0.10;       // 10% per room (increased from 8%)
+const ENEMY_DAMAGE_GROWTH_PER_ROOM = 0.15;   // 15% per room (increased from 13%)
 
 // Boss stat growth per boss room (compounded)
 const BOSS_HP_GROWTH_PER_ROOM = 0.09;        // 9% per room (reduced from 12% to match new balance)
@@ -232,8 +232,9 @@ function generateRoom(roomNumber) {
         // Phase 1: Normal scaling (Rooms 1-18)
         baseEnemyCount = 6 + Math.floor(roomNumber * 1.05);
     } else {
-        // Phase 2: Capped count to avoid overcrowding
-        baseEnemyCount = CAPPED_ROOM_ENEMY_COUNT;
+        // Phase 2: Continued scaling (Rooms 19+)
+        // Start from cap and add ~1 enemy per room
+        baseEnemyCount = CAPPED_ROOM_ENEMY_COUNT + Math.floor((roomNumber - ENEMY_COUNT_CAP_ROOM) * 1.0);
     }
 
     // Apply room type modifiers to enemy count

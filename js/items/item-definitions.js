@@ -30,7 +30,7 @@ const ITEM_DEFINITIONS = {
             const totalValue = this.baseValue * stacks;
             const oldPercent = player.itemShieldPercent || 0;
             player.itemShieldPercent = (player.itemShieldPercent || 0) + totalValue;
-            
+
             // Initialize shield health to max when first applied or when max increases
             if (player.itemShieldPercent > 0 && player.maxHp > 0) {
                 const newMaxShield = player.maxHp * (player.itemShieldPercent / 100);
@@ -269,12 +269,12 @@ const ITEM_DEFINITIONS = {
         name: 'Damage Aura',
         rarity: 'uncommon',
         category: 'offensive',
-        description: 'Enemies within {radius}px take {damage}% max HP/sec damage (damage scales logarithmically, radius scales linearly)',
-        stackDescription: '{damage}% max HP/sec damage within {radius}px (damage scales logarithmically)',
+        description: 'Enemies within {radius}px take {damage}% of your damage per second (damage scales logarithmically, radius scales linearly)',
+        stackDescription: '{damage}% player damage/sec within {radius}px (damage scales logarithmically)',
         icon: 'aura_damage',
         effectType: 'damage_aura',
-        baseRadius: 100,
-        baseDamagePercent: 2,
+        baseRadius: 120,
+        baseDamagePercent: 50,
         stackingType: 'logarithmic',
         maxStacks: null, // Infinite stacking, logarithmic scaling (damage), linear (radius)
 

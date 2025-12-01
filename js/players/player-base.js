@@ -160,7 +160,7 @@ class PlayerBase {
         this.itemShieldPercent = 0;
         this.itemHpRegenPercent = 0;
         this.itemReflectPercent = 0;
-        
+
         // Offensive item effects
         this.itemChainReactionDamage = 0;
         this.itemChainReactionRadius = 0;
@@ -296,7 +296,7 @@ class PlayerBase {
 
         // Apply item HP regeneration
         if (this.itemHpRegenPercent > 0 && this.hp < this.maxHp) {
-            const regenAmount = this.maxHp * this.itemHpRegenPercent * deltaTime;
+            const regenAmount = this.maxHp * (this.itemHpRegenPercent / 100) * deltaTime;
             this.hp = Math.min(this.maxHp, this.hp + regenAmount);
         }
 
@@ -1534,19 +1534,19 @@ class PlayerBase {
         // Match the satisfying feel of boss weak point hits (intensity 3.0)
         if (typeof Game !== 'undefined') {
             // Calculate what percentage of max HP this hit represents
-            const hitDamagePercentage = this.maxHp > 0 
+            const hitDamagePercentage = this.maxHp > 0
                 ? damage / this.maxHp
                 : 0;
             // Normalize to 0.1-1.0, capped at 45% of max HP (0.1 at 0% damage, 1.0 at 45%+ damage)
             const normalizedDamage = Math.min(hitDamagePercentage / 0.45, 1.0);
             const damagePercentage = 0.1 + (1.0 - 0.1) * normalizedDamage; // Scale from 0.1 to 1.0
-            
+
             // Scale intensity from 0.5 (at 0% damage) to 3.0 (at 45% damage)
             // This matches boss weak point hit intensity (3.0) for maximum satisfaction
             const baseIntensity = 0.5; // Minimum intensity at full health
             const maxIntensity = 3.0; // Maximum intensity at 45% damage (matches boss weak point)
             const intensity = baseIntensity + (maxIntensity - baseIntensity) * damagePercentage;
-            
+
             // Use longer duration (0.25s) for more satisfying, less "jittery" feel
             // 'player' direction gives vertical bias (staggered/hit feeling)
             Game.triggerScreenShake(intensity, 0.25, 'player');
@@ -1782,13 +1782,13 @@ class PlayerBase {
     computeDamageReduction() {
         const defenseReduction = clamp(this.defense || 0, 0, 0.95);
         const classReduction = clamp(this.getDamageReduction() || 0, 0, 0.95);
-        
+
         // Reactive Armor: Add damage reduction from stacks
         let reactiveArmorReduction = 0;
         if (this.reactiveArmorValue > 0 && this.reactiveArmorStacks > 0) {
             reactiveArmorReduction = clamp((this.reactiveArmorStacks * this.reactiveArmorValue) / 100, 0, this.reactiveArmorMaxCap / 100);
         }
-        
+
         // Combine all reductions multiplicatively
         const combinedReduction = 1 - (1 - defenseReduction) * (1 - classReduction) * (1 - reactiveArmorReduction);
         return clamp(combinedReduction, 0, 0.95);
@@ -3649,7 +3649,7 @@ class PlayerBase {
     // Render status effect indicators above player
     renderStatusEffects(ctx) {
         if (!this.statusEffects) return;
-        
+
         const effects = [];
         const iconSize = 8;
         const iconSpacing = 12;
@@ -4065,13 +4065,13 @@ class PlayerBase {
             const oldHp = this.hp;
             if (state.hp !== undefined) this.hp = state.hp;
             if (state.maxHp !== undefined) this.maxHp = state.maxHp;
-            
+
             // Detect damage taken (HP decreased) and trigger visual effects
             if (oldHp !== undefined && state.hp !== undefined && state.hp < oldHp) {
                 const damageAmount = oldHp - state.hp;
                 this.lastDamageTime = Date.now() / 1000;
                 this.lastDamageAmount = damageAmount; // Track damage amount from this hit for visual effects
-                
+
                 // Trigger screen shake for this player (only if they're the local client's player)
                 const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
                 if (isClient && typeof Game !== 'undefined' && typeof Game.getLocalPlayerId === 'function') {
@@ -4080,13 +4080,13 @@ class PlayerBase {
                         // Calculate damage amount from this hit (HP change)
                         const damageAmount = oldHp - state.hp;
                         // Calculate what percentage of max HP this hit represents
-                        const hitDamagePercentage = this.maxHp > 0 
+                        const hitDamagePercentage = this.maxHp > 0
                             ? damageAmount / this.maxHp
                             : 0;
                         // Normalize to 0.1-1.0, capped at 45% of max HP (0.1 at 0% damage, 1.0 at 45%+ damage)
                         const normalizedDamage = Math.min(hitDamagePercentage / 0.45, 1.0);
                         const damagePercentage = 0.1 + (1.0 - 0.1) * normalizedDamage; // Scale from 0.1 to 1.0
-                        
+
                         const baseIntensity = 0.5;
                         const maxIntensity = 3.0;
                         const intensity = baseIntensity + (maxIntensity - baseIntensity) * damagePercentage;
