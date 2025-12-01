@@ -849,10 +849,14 @@ class EnemyBase {
     }
 
     // Apply slow effect (separate from stun, activates after stun if both applied)
-    applySlow(slowAmount, duration) {
+    applySlow(slowAmount, duration, decayDuration = 0) {
         this.slowed = true;
         this.slowAmount = slowAmount;
         this.slowDuration = duration;
+        this.slowDecayDuration = decayDuration;
+        this.slowDecayElapsed = 0;
+        this.initialSlowAmount = slowAmount; // Store for decay calculation
+
         // Store base move speed if not already stored
         if (this.baseMoveSpeed === undefined || this.baseMoveSpeed === null) {
             this.baseMoveSpeed = this.moveSpeed;
@@ -861,11 +865,31 @@ class EnemyBase {
 
     // Process slow (should be called in update before movement)
     processSlow(deltaTime) {
-        if (this.slowed && this.slowDuration > 0) {
-            this.slowDuration -= deltaTime;
-            if (this.slowDuration <= 0) {
+        if (this.slowed) {
+            if (this.slowDuration > 0) {
+                // Active phase
+                this.slowDuration -= deltaTime;
+                // Reset decay if refreshed
+                if (this.slowDuration > 0) {
+                    this.slowDecayElapsed = 0;
+                    this.slowAmount = this.initialSlowAmount;
+                }
+            } else if (this.slowDecayDuration > 0) {
+                // Decay phase
+                this.slowDecayElapsed += deltaTime;
+                if (this.slowDecayElapsed < this.slowDecayDuration) {
+                    // Linear decay: from initialSlowAmount to 0
+                    const decayProgress = this.slowDecayElapsed / this.slowDecayDuration;
+                    this.slowAmount = this.initialSlowAmount * (1 - decayProgress);
+                } else {
+                    // Decay complete
+                    this.slowed = false;
+                    this.slowAmount = 0;
+                    this.slowDecayDuration = 0;
+                }
+            } else {
+                // No decay, end immediately
                 this.slowed = false;
-                this.slowDuration = 0;
                 this.slowAmount = 0;
             }
         }
@@ -961,7 +985,7 @@ class EnemyBase {
                 if (typeof createParticleBurst !== 'undefined') {
                     createParticleBurst(this.x, this.y, '#ff0000', 5);
                 }
-                
+
                 // Create damage number for bleed tick
                 if (typeof createDamageNumber !== 'undefined') {
                     createDamageNumber(this.x, this.y, Math.floor(tickDamage), false, false);
@@ -1453,29 +1477,29 @@ class EnemyBase {
             if (!isClient) {
                 // Find the player who killed this enemy
                 let killerPlayer = null;
-                if (Game.player && (Game.player.playerId === this.lastAttacker || 
+                if (Game.player && (Game.player.playerId === this.lastAttacker ||
                     (typeof Game.getLocalPlayerId === 'function' && Game.getLocalPlayerId() === this.lastAttacker))) {
                     killerPlayer = Game.player;
                 } else if (Game.remotePlayerInstances && Game.remotePlayerInstances.has(this.lastAttacker)) {
                     killerPlayer = Game.remotePlayerInstances.get(this.lastAttacker);
                 }
-                
+
                 if (killerPlayer && killerPlayer.itemChainReactionDamage > 0 && killerPlayer.itemChainReactionRadius > 0) {
                     const aoeDamage = (this.maxHp || this.hp) * (killerPlayer.itemChainReactionDamage / 100);
                     const aoeRadius = killerPlayer.itemChainReactionRadius;
-                    
+
                     // Find nearby enemies and damage them
                     if (Game.enemies && Array.isArray(Game.enemies)) {
                         Game.enemies.forEach(nearbyEnemy => {
                             if (!nearbyEnemy || !nearbyEnemy.alive || nearbyEnemy === this) return;
-                            
+
                             const dx = nearbyEnemy.x - this.x;
                             const dy = nearbyEnemy.y - this.y;
                             const distance = Math.sqrt(dx * dx + dy * dy);
-                            
+
                             if (distance <= aoeRadius) {
                                 nearbyEnemy.takeDamage(aoeDamage, this.lastAttacker);
-                                
+
                                 // Visual feedback
                                 if (typeof createDamageNumber !== 'undefined') {
                                     createDamageNumber(nearbyEnemy.x, nearbyEnemy.y, Math.floor(aoeDamage), false, false);
@@ -1483,7 +1507,7 @@ class EnemyBase {
                             }
                         });
                     }
-                    
+
                     // Visual feedback for chain reaction
                     if (typeof createParticleBurst !== 'undefined') {
                         createParticleBurst(this.x, this.y, '#ffaa00', 20);

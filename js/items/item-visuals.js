@@ -35,7 +35,7 @@ function renderItemVisuals(ctx) {
             }
         });
     }
-    
+
     // Also check client shadow instances (for clients rendering their own player)
     if (Game.remotePlayerShadowInstances) {
         Game.remotePlayerShadowInstances.forEach((shadowPlayer, playerId) => {
@@ -204,28 +204,94 @@ function getCachedAura(type, radius) {
     return canvas;
 }
 
+// Ring Cache System (for animated overlays)
+const ringCache = new Map();
+
+// Helper to get or create a cached ring sprite
+function getCachedRing(type, radius) {
+    // Round radius to reduce cache fragmentation
+    const keyRadius = Math.ceil(radius);
+    const key = `${type}_${keyRadius}`;
+
+    if (ringCache.has(key)) {
+        return ringCache.get(key);
+    }
+
+    // Create new cached ring
+    const canvas = document.createElement('canvas');
+    const diameter = keyRadius * 2;
+    // Add padding for glow/stroke
+    const padding = 20;
+    canvas.width = diameter + padding * 2;
+    canvas.height = diameter + padding * 2;
+    const ctx = canvas.getContext('2d');
+    const center = keyRadius + padding;
+
+    if (type === 'damage') {
+        // Draw main range ring (dashed red/orange)
+        ctx.strokeStyle = '#ff3333';
+        ctx.lineWidth = 4;
+        ctx.setLineDash([10, 6]); // Dashed pattern
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#ff6600';
+        ctx.beginPath();
+        ctx.arc(center, center, keyRadius, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Draw inner solid ring (thinner, more transparent)
+        ctx.strokeStyle = 'rgba(255, 150, 50, 0.7)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([]); // Solid line
+        ctx.shadowBlur = 6;
+        ctx.shadowColor = '#ff8844';
+        ctx.beginPath();
+        ctx.arc(center, center, keyRadius * 0.95, 0, Math.PI * 2);
+        ctx.stroke();
+    } else if (type === 'slow') {
+        // Draw main range ring (dashed frosty blue)
+        ctx.strokeStyle = '#66aaff';
+        ctx.lineWidth = 4;
+        ctx.setLineDash([8, 5]); // Different dash pattern
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#88ccff';
+        ctx.beginPath();
+        ctx.arc(center, center, keyRadius, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Draw inner solid ring (thinner, more transparent)
+        ctx.strokeStyle = 'rgba(150, 200, 255, 0.7)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([]); // Solid line
+        ctx.shadowBlur = 6;
+        ctx.shadowColor = '#88aaff';
+        ctx.beginPath();
+        ctx.arc(center, center, keyRadius * 0.95, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+
+    ringCache.set(key, canvas);
+    return canvas;
+}
+
 // Render damage aura (red/orange ring showing range)
 function renderDamageAura(ctx, player, radius) {
     // Validate inputs to prevent NaN/Infinity
     if (!player || !isFinite(radius) || radius <= 0 || !isFinite(player.x) || !isFinite(player.y)) {
         return;
     }
-    
+
     const anim = auraAnimations.damageAura;
     const pulseScale = 1.0 + Math.sin(anim.pulse) * 0.03; // Subtle pulse 0.97-1.03
-    const effectiveRadius = radius * pulseScale;
-    
-    // Validate effectiveRadius
-    if (!isFinite(effectiveRadius) || effectiveRadius <= 0) {
-        return;
-    }
+
+    // OPTIMIZATION: Use base radius for caching to avoid thrashing
+    // Apply pulseScale via transform instead of requesting new cache size every frame
 
     ctx.save();
 
     // Use world coordinates (camera transform is already applied in renderGameWorld)
     const worldX = player.x;
     const worldY = player.y;
-    
+
     // Validate world coordinates
     if (!isFinite(worldX) || !isFinite(worldY)) {
         ctx.restore();
@@ -233,10 +299,10 @@ function renderDamageAura(ctx, player, radius) {
     }
 
     // Use cached aura sprite for base (includes glow, spikes, inner circle)
-    const cachedAura = getCachedAura('damage', effectiveRadius);
+    const cachedAura = getCachedAura('damage', radius);
     if (cachedAura) {
         const padding = 20;
-        const center = Math.ceil(effectiveRadius) + padding;
+        const center = Math.ceil(radius) + padding;
         ctx.save(); // Save state before transforms
         ctx.translate(worldX, worldY);
         ctx.rotate(anim.rotation); // Apply rotation
@@ -245,29 +311,23 @@ function renderDamageAura(ctx, player, radius) {
         ctx.restore(); // Restore state after drawing cached sprite
     }
 
-    // Draw animated dashed ring on top (needs to be drawn each frame for animation)
-    // Draw main range ring (dashed red/orange) - make it very visible
-    ctx.strokeStyle = '#ff3333';
-    ctx.lineWidth = 4;
-    ctx.setLineDash([10, 6]); // Dashed pattern
-    ctx.lineDashOffset = anim.rotation * 20; // Animate dash offset
-    ctx.shadowBlur = 10;
-    ctx.shadowColor = '#ff6600';
-    ctx.beginPath();
-    ctx.arc(worldX, worldY, effectiveRadius, 0, Math.PI * 2);
-    ctx.stroke();
+    // Use cached ring for the animated overlay
+    // We rotate the entire cached ring to simulate the dashing animation
+    const cachedRing = getCachedRing('damage', radius);
+    if (cachedRing) {
+        const padding = 20;
+        const center = Math.ceil(radius) + padding;
+        ctx.save();
+        ctx.translate(worldX, worldY);
+        // Rotate the ring to simulate dashes moving
+        // The original code used lineDashOffset = anim.rotation * 20
+        // Rotating the ring gives a similar visual effect of spinning
+        ctx.rotate(anim.rotation);
+        ctx.scale(pulseScale, pulseScale);
+        ctx.drawImage(cachedRing, -center, -center);
+        ctx.restore();
+    }
 
-    // Draw inner solid ring (thinner, more transparent)
-    ctx.strokeStyle = 'rgba(255, 150, 50, 0.7)';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([]); // Solid line
-    ctx.shadowBlur = 6;
-    ctx.shadowColor = '#ff8844';
-    ctx.beginPath();
-    ctx.arc(worldX, worldY, effectiveRadius * 0.95, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.shadowBlur = 0;
     ctx.restore();
 }
 
@@ -277,22 +337,18 @@ function renderSlowAura(ctx, player, radius) {
     if (!player || !isFinite(radius) || radius <= 0 || !isFinite(player.x) || !isFinite(player.y)) {
         return;
     }
-    
+
     const anim = auraAnimations.slowAura;
     const pulseScale = 1.0 + Math.sin(anim.pulse) * 0.03; // Subtle pulse 0.97-1.03
-    const effectiveRadius = radius * pulseScale;
-    
-    // Validate effectiveRadius
-    if (!isFinite(effectiveRadius) || effectiveRadius <= 0) {
-        return;
-    }
+
+    // OPTIMIZATION: Use base radius for caching
 
     ctx.save();
 
     // Use world coordinates (camera transform is already applied in renderGameWorld)
     const worldX = player.x;
     const worldY = player.y;
-    
+
     // Validate world coordinates
     if (!isFinite(worldX) || !isFinite(worldY)) {
         ctx.restore();
@@ -300,10 +356,10 @@ function renderSlowAura(ctx, player, radius) {
     }
 
     // Use cached aura sprite for base (includes glow, crystals, inner circle)
-    const cachedAura = getCachedAura('slow', effectiveRadius);
+    const cachedAura = getCachedAura('slow', radius);
     if (cachedAura) {
         const padding = 20;
-        const center = Math.ceil(effectiveRadius) + padding;
+        const center = Math.ceil(radius) + padding;
         ctx.save(); // Save state before transforms
         ctx.translate(worldX, worldY);
         ctx.rotate(anim.rotation); // Apply rotation
@@ -312,29 +368,20 @@ function renderSlowAura(ctx, player, radius) {
         ctx.restore(); // Restore state after drawing cached sprite
     }
 
-    // Draw animated dashed ring on top (needs to be drawn each frame for animation)
-    // Draw main range ring (dashed frosty blue - distinct from shield) - make it very visible
-    ctx.strokeStyle = '#66aaff'; // More purple-blue than shield's cyan
-    ctx.lineWidth = 4;
-    ctx.setLineDash([8, 5]); // Different dash pattern from damage aura
-    ctx.lineDashOffset = -anim.rotation * 15; // Animate dash offset (opposite direction)
-    ctx.shadowBlur = 10;
-    ctx.shadowColor = '#88ccff';
-    ctx.beginPath();
-    ctx.arc(worldX, worldY, effectiveRadius, 0, Math.PI * 2);
-    ctx.stroke();
+    // Use cached ring for the animated overlay
+    const cachedRing = getCachedRing('slow', radius);
+    if (cachedRing) {
+        const padding = 20;
+        const center = Math.ceil(radius) + padding;
+        ctx.save();
+        ctx.translate(worldX, worldY);
+        // Rotate opposite direction for slow aura
+        ctx.rotate(-anim.rotation);
+        ctx.scale(pulseScale, pulseScale);
+        ctx.drawImage(cachedRing, -center, -center);
+        ctx.restore();
+    }
 
-    // Draw inner solid ring (thinner, more transparent)
-    ctx.strokeStyle = 'rgba(150, 200, 255, 0.7)';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([]); // Solid line
-    ctx.shadowBlur = 6;
-    ctx.shadowColor = '#88aaff';
-    ctx.beginPath();
-    ctx.arc(worldX, worldY, effectiveRadius * 0.95, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.shadowBlur = 0;
     ctx.restore();
 }
 
