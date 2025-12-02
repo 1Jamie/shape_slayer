@@ -97,36 +97,37 @@ const ITEM_DEFINITIONS = {
         }
     },
 
-    regenerative_matrix: {
-        id: 'regenerative_matrix',
-        name: 'Regenerative Matrix',
-        rarity: 'common',
-        category: 'defensive',
-        description: 'Regenerate {value}% max HP per second',
-        stackDescription: 'Regenerate {totalValue}% max HP/sec (+{value}% per stack)',
-        icon: 'regen',
-        effectType: 'hp_regen',
-        baseValue: 1,
-        stackingType: 'additive',
-        maxStacks: null, // Infinite stacking, linear scaling
+    // DISABLED: Regenerative Matrix - healing too fast, needs rebalancing
+    // regenerative_matrix: {
+    //     id: 'regenerative_matrix',
+    //     name: 'Regenerative Matrix',
+    //     rarity: 'common',
+    //     category: 'defensive',
+    //     description: 'Regenerate {value}% max HP per second',
+    //     stackDescription: 'Regenerate {totalValue}% max HP/sec (+{value}% per stack)',
+    //     icon: 'regen',
+    //     effectType: 'hp_regen',
+    //     baseValue: 1,
+    //     stackingType: 'additive',
+    //     maxStacks: null, // Infinite stacking, linear scaling
 
-        applyEffect: function (player, stacks) {
-            const totalValue = this.baseValue * stacks;
-            player.itemHpRegenPercent = (player.itemHpRegenPercent || 0) + totalValue;
-        },
+    //     applyEffect: function (player, stacks) {
+    //         const totalValue = this.baseValue * stacks;
+    //         player.itemHpRegenPercent = (player.itemHpRegenPercent || 0) + totalValue;
+    //     },
 
-        removeEffect: function (player, stacks) {
-            const totalValue = this.baseValue * stacks;
-            player.itemHpRegenPercent = Math.max(0, (player.itemHpRegenPercent || 0) - totalValue);
-        },
+    //     removeEffect: function (player, stacks) {
+    //         const totalValue = this.baseValue * stacks;
+    //         player.itemHpRegenPercent = Math.max(0, (player.itemHpRegenPercent || 0) - totalValue);
+    //     },
 
-        getTooltip: function (stacks) {
-            const totalValue = this.baseValue * stacks;
-            return this.stackDescription
-                .replace('{totalValue}', totalValue)
-                .replace('{value}', this.baseValue);
-        }
-    },
+    //     getTooltip: function (stacks) {
+    //         const totalValue = this.baseValue * stacks;
+    //         return this.stackDescription
+    //             .replace('{totalValue}', totalValue)
+    //             .replace('{value}', this.baseValue);
+    //     }
+    // },
 
     thornmail_fragment: {
         id: 'thornmail_fragment',
