@@ -121,6 +121,11 @@ const Game = {
     lastTime: 0,
     gameOverMusicPlaying: false,
 
+    // Fixed timestep variables
+    accumulator: 0, // Accumulated real time for fixed timestep updates
+    fixedTimestep: 1 / 60, // 60 Hz fixed timestep (0.016666... seconds)
+    maxCatchupUpdates: 5, // Maximum fixed updates per frame to prevent stuttering
+
     // Modal states
     launchModalVisible: false,
     updateModalVisible: false,
@@ -621,24 +626,27 @@ const Game = {
         // Use actual available viewport - must account for browser chrome on mobile
         let availableWidth, availableHeight;
 
+        // Detect mobile device FIRST (before using it in viewport calculation)
+        const isMobileDevice = typeof Input !== 'undefined' && Input.isMobileDevice && Input.isMobileDevice();
+        this.isMobileDevice = isMobileDevice;
+
         // Check if we're in fullscreen mode
         const isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement ||
             document.mozFullScreenElement || document.msFullscreenElement);
 
         // MOBILE CHROME FIX: Use visualViewport as primary source (most accurate)
         // Fallback chain for maximum compatibility
-        if (window.visualViewport) {
-            // VisualViewport is the most accurate - it shows ACTUAL visible area
+        // On mobile, prefer window.innerWidth/Height to get full screen size
+        if (isFullscreen) {
+            // Fullscreen: use window dimensions
+            availableWidth = window.innerWidth;
+            availableHeight = window.innerHeight;
+        } else if (window.visualViewport && !isMobileDevice) {
+            // Desktop with visualViewport: use it for accuracy
             availableWidth = window.visualViewport.width;
             availableHeight = window.visualViewport.height;
-        } else if (!isFullscreen) {
-            // Fallback for browsers without visualViewport in windowed mode
-            // Use the body's actual visible dimensions
-            const bodyRect = document.body.getBoundingClientRect();
-            availableWidth = bodyRect.width || document.documentElement.clientWidth || window.innerWidth;
-            availableHeight = bodyRect.height || document.documentElement.clientHeight || window.innerHeight;
         } else {
-            // Fullscreen fallback
+            // Mobile or fallback: use window dimensions to fill screen
             availableWidth = window.innerWidth;
             availableHeight = window.innerHeight;
         }
@@ -646,35 +654,56 @@ const Game = {
         let canvasWidth = Math.floor(availableWidth);
         let canvasHeight = Math.floor(availableHeight);
 
-        // Detect mobile device using Input system
-        const isMobileDevice = typeof Input !== 'undefined' && Input.isMobileDevice && Input.isMobileDevice();
-        this.isMobileDevice = isMobileDevice;
-
         // Desktop: enforce minimum size for playability
         const minWidth = 800;
         const minHeight = 600;
-        if (canvasWidth < minWidth || canvasHeight < minHeight) {
-            const scaleToMin = Math.max(minWidth / canvasWidth, minHeight / canvasHeight);
+        if (!isMobileDevice && (canvasWidth < minWidth || canvasHeight < minHeight)) {
             canvasWidth = Math.max(canvasWidth, minWidth);
             canvasHeight = Math.max(canvasHeight, minHeight);
         }
 
-        // Clamp aspect ratio to reasonable range
-        const aspectRatio = canvasWidth / canvasHeight;
-        const minAspect = 0.428; // 9:21 portrait
-        const maxAspect = 2.333; // 21:9 landscape
+        // Calculate aspect ratio early (used for clamping, zoom calculation, and logging)
+        let aspectRatio = canvasWidth / canvasHeight;
 
-        if (aspectRatio < minAspect) {
-            // Too tall - clamp height
-            canvasHeight = canvasWidth / minAspect;
-        } else if (aspectRatio > maxAspect) {
-            // Too wide - clamp width
-            canvasWidth = canvasHeight * maxAspect;
+        // On mobile, use exact viewport dimensions (no aspect ratio clamping)
+        // On desktop, clamp aspect ratio to reasonable range
+        if (!isMobileDevice) {
+            const minAspect = 0.428; // 9:21 portrait
+            const maxAspect = 2.333; // 21:9 landscape
+
+            if (aspectRatio < minAspect) {
+                // Too tall - clamp height
+                canvasHeight = canvasWidth / minAspect;
+                aspectRatio = canvasWidth / canvasHeight; // Recalculate
+            } else if (aspectRatio > maxAspect) {
+                // Too wide - clamp width
+                canvasWidth = canvasHeight * maxAspect;
+                aspectRatio = canvasWidth / canvasHeight; // Recalculate
+            }
         }
 
         // Round to whole pixels
         canvasWidth = Math.floor(canvasWidth);
         canvasHeight = Math.floor(canvasHeight);
+        
+        // Recalculate aspect ratio after rounding
+        aspectRatio = canvasWidth / canvasHeight;
+
+        // Calculate mobile zoom based on aspect ratio (zoom out for 21:9 landscape)
+        if (isMobileDevice) {
+            // For 21:9 landscape (aspect ratio > 2.0), zoom out to show more vertical space
+            if (aspectRatio > 2.0) {
+                // Zoom out more for wider aspect ratios
+                // 21:9 (2.33) -> 0.85, wider -> more zoom out
+                const zoomFactor = Math.max(0.85, 1.0 - (aspectRatio - 2.0) * 0.15);
+                this.mobileZoom = zoomFactor;
+            } else {
+                // For other mobile aspect ratios, use 1.0 (no zoom)
+                this.mobileZoom = 1.0;
+            }
+        } else {
+            this.mobileZoom = 1.0; // Not used on desktop, but set for consistency
+        }
 
         // High DPI Support (Fix Aliasing)
         // Force minimum 2.0 DPR for supersampling (General AA)
@@ -686,11 +715,17 @@ const Game = {
         this.canvas.width = canvasWidth * dpr;
         this.canvas.height = canvasHeight * dpr;
 
-        // Set CSS size to match logical pixels (1:1 scaling, no stretching)
+        // Set CSS size to match logical canvas size exactly (1:1, no stretching)
+        // This ensures canvas fills viewport without distortion
         this.canvas.style.width = canvasWidth + 'px';
         this.canvas.style.height = canvasHeight + 'px';
-        this.canvas.style.maxWidth = canvasWidth + 'px';
-        this.canvas.style.maxHeight = canvasHeight + 'px';
+        this.canvas.style.maxWidth = '100vw';
+        this.canvas.style.maxHeight = '100vh';
+        this.canvas.style.position = 'fixed';
+        this.canvas.style.top = '0';
+        this.canvas.style.left = '0';
+        this.canvas.style.margin = '0';
+        this.canvas.style.padding = '0';
 
         // Scale the context so drawing commands use logical pixels
         this.ctx.scale(dpr, dpr);
@@ -772,12 +807,18 @@ const Game = {
 
     // Convert screen coordinates to game coordinates
     screenToGame(x, y) {
-        // With dynamic canvas sizing, scale is 1:1 (no scaling needed)
         const rect = this.canvas.getBoundingClientRect();
-
-        // Simple offset conversion (canvas matches screen 1:1, no scaling)
-        const gameX = x - rect.left;
-        const gameY = y - rect.top;
+        
+        // Calculate scale factors based on actual canvas display size vs logical size
+        // This handles cases where canvas CSS size might differ from logical size
+        const scaleX = this.config.width / rect.width;
+        const scaleY = this.config.height / rect.height;
+        
+        // Convert screen coordinates to canvas coordinates, then scale to logical coordinates
+        const canvasX = x - rect.left;
+        const canvasY = y - rect.top;
+        const gameX = canvasX * scaleX;
+        const gameY = canvasY * scaleY;
 
         // Clamp to game bounds to prevent out-of-range coordinates
         const clampedX = Math.max(0, Math.min(this.config.width, gameX));
@@ -950,6 +991,7 @@ const Game = {
     // Start the game loop
     start() {
         this.lastTime = performance.now();
+        this.accumulator = 0; // Reset accumulator for fixed timestep
         this.useSetTimeoutLoop = false;
         this.loopStopped = false;
 
@@ -971,24 +1013,35 @@ const Game = {
             currentTime = performance.now();
         }
 
-        // Calculate delta time
-        let deltaTime = (currentTime - this.lastTime) / 1000;
-        const realDeltaTime = deltaTime; // Store real delta for metrics
+        // Calculate real time delta (for metrics and accumulation)
+        const realDeltaTime = (currentTime - this.lastTime) / 1000;
         this.lastTime = currentTime;
 
-        // Cap delta time to prevent huge jumps (max 16ms)
-        deltaTime = Math.min(deltaTime, 0.016);
+        // Cap real delta time to prevent huge jumps (max 250ms to prevent spiral of death)
+        const cappedRealDeltaTime = Math.min(realDeltaTime, 0.25);
 
-        // Update debug panel metrics
-        // Moved to end of loop to track process time
+        // Accumulate real time for fixed timestep updates
+        this.accumulator += cappedRealDeltaTime;
 
-        // Handle hit pause
+        // Measure CPU process time
+        const processStart = performance.now();
+
+        // Handle hit pause (uses fixed timestep for consistency)
         if (this.hitPauseTime > 0) {
-            this.hitPauseTime -= deltaTime;
-            if (this.hitPauseTime <= 0) {
-                this.hitPauseTime = 0;
-            } else {
-                // Skip update but still render
+            // Process hit pause with fixed timestep
+            const maxUpdates = this.maxCatchupUpdates || 5;
+            let updatesRun = 0;
+            while (this.accumulator >= this.fixedTimestep && this.hitPauseTime > 0 && updatesRun < maxUpdates) {
+                this.hitPauseTime -= this.fixedTimestep;
+                if (this.hitPauseTime <= 0) {
+                    this.hitPauseTime = 0;
+                }
+                this.accumulator -= this.fixedTimestep;
+                updatesRun++;
+            }
+
+            // If still in hit pause, skip updates but still render
+            if (this.hitPauseTime > 0) {
                 this.render();
 
                 // Schedule next frame based on mode
@@ -1001,7 +1054,7 @@ const Game = {
             }
         }
 
-        // FPS tracking
+        // FPS tracking (uses real time delta)
         this.frameCount++;
         if (currentTime - this.lastFpsUpdate >= 1000) {
             this.fps = this.frameCount;
@@ -1015,18 +1068,24 @@ const Game = {
         // Update and render based on state
         // In multiplayer, continue updating even when pause menu is shown (showPauseMenu is visual only)
 
-        // Measure CPU process time
-        const processStart = performance.now();
-
-        if (this.state === 'PLAYING') {
-            this.update(deltaTime);
-        } else if (this.state === 'NEXUS') {
-            if (typeof updateNexus !== 'undefined') {
-                updateNexus(this.ctx, deltaTime);
+        // Run fixed timestep updates (catch-up if behind)
+        const maxUpdates = this.maxCatchupUpdates || 5;
+        let updatesRun = 0;
+        while (this.accumulator >= this.fixedTimestep && updatesRun < maxUpdates) {
+            if (this.state === 'PLAYING') {
+                this.update(this.fixedTimestep);
+            } else if (this.state === 'NEXUS') {
+                if (typeof updateNexus !== 'undefined') {
+                    updateNexus(this.ctx, this.fixedTimestep);
+                }
             }
+            this.accumulator -= this.fixedTimestep;
+            updatesRun++;
         }
+
         // Note: In multiplayer, showPauseMenu doesn't stop updates - game continues running
 
+        // Render once per frame (variable rate, smooth visuals)
         this.render();
 
         const processEnd = performance.now();
@@ -1211,7 +1270,7 @@ const Game = {
         // Account for zoom - with zoom, we see less world space, so bounds are tighter
         if (typeof currentRoom !== 'undefined' && currentRoom) {
             const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
-            const currentZoom = isMobile ? 1.0 : this.baseZoom;
+            const currentZoom = isMobile ? (this.mobileZoom || 1.0) : this.baseZoom;
 
             // Visible world space is smaller when zoomed
             const halfVisibleWorldW = (this.config.width / 2) / currentZoom;
@@ -1257,7 +1316,7 @@ const Game = {
 
         // Clamp to nexus boundaries (account for zoom)
         const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
-        const currentZoom = isMobile ? 1.0 : this.baseZoom;
+        const currentZoom = isMobile ? (this.mobileZoom || 1.0) : this.baseZoom;
 
         // Visible world space is smaller when zoomed
         const halfVisibleWorldW = (this.config.width / 2) / currentZoom;
@@ -2376,8 +2435,8 @@ const Game = {
                             }
                         }
 
-                        // Update heavy attack preview for Warrior/Triangle
-                        if ((this.player.playerClass === 'square' || this.player.playerClass === 'triangle') &&
+                        // Update heavy attack preview for Warrior/Triangle/Mage
+                        if ((this.player.playerClass === 'square' || this.player.playerClass === 'triangle' || this.player.playerClass === 'hexagon') &&
                             Input.touchButtons && Input.touchButtons.heavyAttack) {
                             const button = Input.touchButtons.heavyAttack;
                             if (button.pressed && Input.touchJoysticks && Input.touchJoysticks.heavyAttack) {
@@ -3503,7 +3562,7 @@ const Game = {
 
                 // Detect if desktop (for zoom)
                 const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
-                const currentZoom = isMobile ? 1.0 : this.baseZoom;
+                const currentZoom = isMobile ? (this.mobileZoom || 1.0) : this.baseZoom;
 
                 // Camera transform
                 const centerX = logicalWidth / 2;
@@ -3622,7 +3681,7 @@ const Game = {
 
                 // Detect if desktop (for zoom)
                 const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
-                const currentZoom = isMobile ? 1.0 : this.baseZoom;
+                const currentZoom = isMobile ? (this.mobileZoom || 1.0) : this.baseZoom;
 
                 // Camera transform
                 const centerX = this.config.width / 2;
@@ -3738,7 +3797,7 @@ const Game = {
         const getScreenPos = (x, y) => {
             // Camera transform logic from renderGameWorld
             const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
-            const currentZoom = isMobile ? 1.0 : this.baseZoom;
+            const currentZoom = isMobile ? (this.mobileZoom || 1.0) : this.baseZoom;
             const centerX = logicalWidth / 2;
             const centerY = logicalHeight / 2;
 
@@ -3773,7 +3832,7 @@ const Game = {
             // Check if light affects visible area
             // Account for light radius when culling
             const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
-            const zoom = isMobile ? 1.0 : (this.baseZoom || 1.1);
+            const zoom = isMobile ? (this.mobileZoom || 1.0) : (this.baseZoom || 1.1);
             const margin = radius; // Use light radius as margin
 
             const screenW = logicalWidth / zoom;
@@ -4008,7 +4067,7 @@ const Game = {
         );
 
         const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
-        const currentZoom = isMobile ? 1.0 : this.baseZoom;
+        const currentZoom = isMobile ? (this.mobileZoom || 1.0) : this.baseZoom;
 
         vCtx.scale(currentZoom, currentZoom);
         vCtx.translate(-this.camera.x, -this.camera.y);

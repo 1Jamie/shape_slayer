@@ -8,10 +8,10 @@ const MAGE_CONFIG = {
     // Base Stats (from CLASS_DEFINITIONS)
     baseHp: 80,                    // Starting health points
     baseDamage: 10,                // Base damage per attack
-    baseSpeed: 155,                // Movement speed (pixels/second)
+    baseSpeed: 175,                // Movement speed (pixels/second)
     baseDefense: 0,                // Damage reduction (0-1 range)
     critChance: 0,                 // Critical hit chance (0 = 0%)
-    
+
     // Level Up Bonuses (per upgrade level purchased in nexus)
     damagePerLevel: 0.5,           // Damage increase per level
     defensePerLevel: 0.005,        // Defense increase per level (0.005 = 0.5%)
@@ -19,7 +19,7 @@ const MAGE_CONFIG = {
     cooldownPerLevel: 0.01,        // Cooldown reduction per level (0.01 = 1% per level)
     healthPerLevel: 5,             // Health increase per level (flat HP)
     attackSpeedPerLevel: 0.05,     // Attack speed increase per level (0.05 = 5% faster per level)
-    
+
     // Basic Attack (Magic Bolt)
     boltSpeed: 400,                // Projectile speed (pixels/second)
     boltLifetime: 1.14,            // How long bolt travels (seconds) - reduced by 20% from 1.6
@@ -27,7 +27,7 @@ const MAGE_CONFIG = {
     boltSpreadAngle: Math.PI / 24, // Spread angle for multiple projectiles (7.5 degrees) - reduced for better accuracy
     multishotDamageMultiplier: 0.5, // Damage multiplier for multishot projectiles (50% damage per projectile)
     multishotRangeMultiplier: 0.75, // Range multiplier for multishot projectiles (75% range - shotgun-like)
-    
+
     // Heavy Attack (Energy Beam)
     heavyAttackCooldown: 2,    // Cooldown for heavy attack (seconds) - increased by 5%
     beamDuration: 1.5,             // Total beam fire time (seconds)
@@ -37,7 +37,7 @@ const MAGE_CONFIG = {
     beamWidth: 30,                 // Beam hitbox width (pixels)
     beamMaxPenetration: 2,         // Max enemies beam can pass through
     beamCharges: 2,                // Number of beam charges available
-    
+
     // Special Ability (Blink)
     specialCooldown: 5.0,          // Special ability cooldown (seconds)
     blinkRange: 250,               // Maximum blink distance (pixels)
@@ -49,7 +49,7 @@ const MAGE_CONFIG = {
     blinkExplosionRadius: 60,      // Radius of blink explosion (pixels)
     blinkExplosionKnockback: 250,  // Knockback force of blink explosion (pixels)
     blinkKnockbackDecay: 5.0,      // Knockback decay rate (per second)
-    
+
     // Descriptions for UI (tooltips, character sheet)
     descriptions: {
         playstyle: "Ranged attacker with beam and mobility",
@@ -64,13 +64,13 @@ const MAGE_CONFIG = {
 class Mage extends PlayerBase {
     constructor(x = 400, y = 300) {
         super(x, y);
-        
+
         // Set class identifier
         this.playerClass = 'hexagon';
-        
+
         // Load class definition (visual properties only)
         const classDef = CLASS_DEFINITIONS.hexagon;
-        
+
         // Load upgrades from save system
         let upgradeBonuses = { damage: 0, defense: 0, speed: 0, cooldown: 0, health: 0, attackSpeed: 0 };
         if (typeof SaveSystem !== 'undefined') {
@@ -92,7 +92,7 @@ class Mage extends PlayerBase {
         this.baseMaxHp = MAGE_CONFIG.baseHp + upgradeBonuses.health; // Store base max HP for gear calculations
         this.maxHp = MAGE_CONFIG.baseHp + upgradeBonuses.health;
         this.hp = MAGE_CONFIG.baseHp + upgradeBonuses.health;
-        
+
         // Apply cooldown and attack speed upgrades
         this.cooldownReduction = Math.min(0.75, upgradeBonuses.cooldown); // Cap at 75%
         this.attackSpeedMultiplier = 1.0 + upgradeBonuses.attackSpeed;
@@ -101,13 +101,13 @@ class Mage extends PlayerBase {
         this.color = classDef.color;
         this.shape = classDef.shape;
         this.syncBaseStatAnchors();
-        
+
         // Standard single dodge for Mage
         this.baseDodgeCharges = 1; // Store base value for updateEffectiveStats
         this.dodgeCharges = 1;
         this.maxDodgeCharges = 1;
         this.dodgeChargeCooldowns = [0];
-        
+
         // Heavy attack cooldown and charges - MUST be set BEFORE updateEffectiveStats is called
         // Follow EXACT same pattern as rogue dodge charges
         this.heavyAttackCooldownTime = MAGE_CONFIG.heavyAttackCooldown;
@@ -116,8 +116,8 @@ class Mage extends PlayerBase {
         this.maxBeamCharges = MAGE_CONFIG.beamCharges; // Set max (2) - same as maxDodgeCharges for rogue
         this.beamCharges = MAGE_CONFIG.beamCharges; // Start with max charges (2) - same as dodgeCharges for rogue
         this.beamChargeCooldowns = new Array(this.maxBeamCharges).fill(0); // Track cooldown per charge - same as dodgeChargeCooldowns for rogue
-        
-        
+
+
         // Blink special ability - decoy system
         this.blinkDecoyActive = false;
         this.blinkDecoyX = 0;
@@ -126,24 +126,24 @@ class Mage extends PlayerBase {
         this.blinkDecoyMaxHealth = MAGE_CONFIG.blinkDecoyMaxHealth;
         this.blinkDecoyHealthDecay = MAGE_CONFIG.blinkDecoyHealthDecay;
         this.blinkDecoyEntity = null;
-        
+
         // Blink explosion at destination
         this.blinkExplosionActive = false;
         this.blinkExplosionElapsed = 0;
         this.blinkExplosionDuration = MAGE_CONFIG.blinkExplosionDuration;
         this.blinkExplosionX = 0;
         this.blinkExplosionY = 0;
-        
+
         // Blink knockback (from explosion)
         this.blinkKnockbackVx = 0;
         this.blinkKnockbackVy = 0;
-        
+
         // Blink preview system
         this.blinkPreviewActive = false;
         this.blinkPreviewX = 0;
         this.blinkPreviewY = 0;
         this.blinkPreviewDistance = 0;
-        
+
         // Class modifier storage
         this.projectileCountBonus = 0;
         this.blinkRangeBonus = 0;
@@ -157,25 +157,25 @@ class Mage extends PlayerBase {
         this.beamPenetrationBonus = 0;
         this.beamSplitOnHit = false;
         this.aoeRadiusBonus = 0;
-        
+
         // Beam heavy attack state - support multiple simultaneous beams
         this.activeBeams = []; // Array of active beam objects
-        
+
         // Update effective stats (will adjust maxBeamCharges based on bonuses, same as dodge charges)
         this.updateEffectiveStats();
-        
+
         // Reapply upgrade bonuses after updateEffectiveStats (which resets these values)
         this.cooldownReduction = Math.min(0.75, upgradeBonuses.cooldown); // Cap at 75%
         this.attackSpeedMultiplier = 1.0 + upgradeBonuses.attackSpeed;
-        
+
         // After updateEffectiveStats, sync heavyAttackCooldown with charge system (same as dodge system)
         // Set to 0 if we have charges, otherwise use time until the next charge is ready
         this.heavyAttackCooldown = this.beamCharges > 0
             ? 0
             : this.getNextChargeReadyTime(this.beamChargeCooldowns);
-        
+
     }
-    
+
     // Override updateEffectiveStats to apply beam bonuses
     updateEffectiveStats() {
         // Reset class modifier storage
@@ -191,15 +191,15 @@ class Mage extends PlayerBase {
         this.beamPenetrationBonus = 0;
         this.beamSplitOnHit = false;
         this.aoeRadiusBonus = 0;
-        
+
         // Call parent first (applies stat modifiers from cards)
         super.updateEffectiveStats();
-        
+
         // Apply ability mutator card effects
         if (typeof DeckState !== 'undefined' && typeof CardEffects !== 'undefined' && CardEffects.getAbilityModifiers) {
             const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
             const abilityMods = CardEffects.getAbilityModifiers(this, handCards);
-            
+
             if (abilityMods.blink) {
                 if (abilityMods.blink.rangeBonus) {
                     this.blinkRangeBonus += abilityMods.blink.rangeBonus;
@@ -217,7 +217,7 @@ class Mage extends PlayerBase {
                     this.blinkResetOnKill = true;
                 }
             }
-            
+
             if (abilityMods.beam) {
                 if (abilityMods.beam.chargeBonus) {
                     this.beamChargeBonus += abilityMods.beam.chargeBonus;
@@ -236,15 +236,15 @@ class Mage extends PlayerBase {
                 }
             }
         }
-        
+
         // Apply beam charge bonuses and resize cooldown array - follow EXACT same pattern as dodge charges in base class
         // Use baseBeamCharges (set in constructor) like base class uses baseDodgeCharges
         const baseCharges = this.baseBeamCharges || MAGE_CONFIG.beamCharges; // Default to config value if not set
-        
+
         // Match base class pattern: Math.max(1, baseCharges + bonusCharges)
         // Since baseCharges is 2 for mage, this will be Math.max(1, 2 + bonusBeamCharges) = at least 2
         this.maxBeamCharges = Math.max(1, baseCharges + (this.bonusBeamCharges || 0));
-        
+
         // Resize cooldown array if needed (same pattern as dodge charges)
         if (!this.beamChargeCooldowns) {
             this.beamChargeCooldowns = [];
@@ -255,21 +255,21 @@ class Mage extends PlayerBase {
         while (this.beamChargeCooldowns.length > this.maxBeamCharges) {
             this.beamChargeCooldowns.pop();
         }
-        
+
         // Calculate current charges based on ready cooldowns (EXACT same pattern as base class for dodge)
         // Use helper function to count ready charges, just like base class does with getReadyDodgeCharges()
         // IMPORTANT: During base class constructor, beamChargeCooldowns might be newly created with all 0s
         // In that case, all charges should be ready (just like dodge system)
         this.beamCharges = this.maxBeamCharges > 1 ? this.getReadyBeamCharges() : (this.heavyAttackCooldown <= 0 ? 1 : 0);
-        
+
         // Apply tick rate and duration multipliers
         this.effectiveBeamTickRate = MAGE_CONFIG.beamTickRate * Math.max(0.1, this.beamTickRateMultiplier);
         this.effectiveBeamDuration = MAGE_CONFIG.beamDuration * this.beamDurationMultiplier;
-        
+
         // Apply penetration bonus
         this.effectiveBeamMaxPenetration = MAGE_CONFIG.beamMaxPenetration + this.bonusBeamPenetration;
     }
-    
+
     // Helper function to count ready beam charges (same pattern as getReadyDodgeCharges in base class)
     getReadyBeamCharges() {
         if (!this.beamChargeCooldowns || this.beamChargeCooldowns.length === 0) {
@@ -284,15 +284,15 @@ class Mage extends PlayerBase {
         }
         return ready;
     }
-    
+
     // Override to apply Mage-specific class modifiers
     applyClassModifier(modifier) {
         // Call parent for universal modifiers
         super.applyClassModifier(modifier);
-        
+
         // Handle Mage-specific modifiers
         if (modifier.class === 'hexagon') {
-            switch(modifier.type) {
+            switch (modifier.type) {
                 case 'projectile_count':
                     this.projectileCountBonus += modifier.value;
                     break;
@@ -320,16 +320,16 @@ class Mage extends PlayerBase {
             }
         }
     }
-    
+
     // Override applyHeavyAttackCooldown to use charge system
     applyHeavyAttackCooldown() {
         // No defensive checks needed - updateEffectiveStats handles maxBeamCharges and array sizing
-        
+
         // Don't use base cooldown, use our charge system instead
         // Consume a charge
         this.beamCharges = Math.max(0, this.beamCharges - 1);
         const longestActive = this.getLongestActiveCooldown(this.beamChargeCooldowns);
-        
+
         // Find the first available charge slot and start its cooldown
         for (let i = 0; i < this.maxBeamCharges; i++) {
             const cooldown = Number.isFinite(this.beamChargeCooldowns[i]) ? this.beamChargeCooldowns[i] : 0;
@@ -337,7 +337,7 @@ class Mage extends PlayerBase {
                 // Apply attack speed and weapon type to heavy attack cooldown
                 const weaponCooldownMult = this.weaponCooldownMultiplier || 1.0;
                 const effectiveHeavyCooldown = this.heavyAttackCooldownTime * weaponCooldownMult / (1 + (this.attackSpeedMultiplier - 1));
-                
+
                 // Overcharge: Chance to refund charge
                 if (this.overchargeChance && this.overchargeChance > 0 && Math.random() < this.overchargeChance) {
                     this.beamChargeCooldowns[i] = 0;
@@ -348,50 +348,50 @@ class Mage extends PlayerBase {
                 break;
             }
         }
-        
+
         this.heavyAttackCooldown = this.beamCharges > 0
             ? 0
             : this.getNextChargeReadyTime(this.beamChargeCooldowns);
     }
-    
+
     // Override executeAttack for Mage projectile
     executeAttack(input) {
         this.shootProjectile(input);
-        
+
         // Reset cooldown and set attacking state with attack speed and weapon type
         const weaponCooldownMult = this.weaponCooldownMultiplier || 1.0;
         const effectiveAttackCooldown = this.attackCooldownTime * weaponCooldownMult / (1 + (this.attackSpeedMultiplier - 1));
         this.attackCooldown = effectiveAttackCooldown;
         this.isAttacking = true;
-        
+
         // Clear attacking state after duration
         setTimeout(() => {
             this.isAttacking = false;
         }, this.attackDuration * 1000);
     }
-    
+
     shootProjectile(input) {
         // Play mage basic attack sound
         if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
             AudioManager.sounds.mageBasicAttack();
         }
-        
+
         // Mage: Shoot magic bolt
         if (typeof Game === 'undefined') return;
-        
+
         // Get gameplay position (authoritative position in multiplayer)
         const pos = this.getGameplayPosition();
-        
+
         // Use character rotation (already correctly calculated from mouse/joystick)
         const dirX = Math.cos(this.rotation);
         const dirY = Math.sin(this.rotation);
-        
+
         // Fire multiple projectiles if projectile count bonus is active
         const numProjectiles = 1 + this.projectileCountBonus + (this.multishotCount || 0);
         const spreadAngle = MAGE_CONFIG.boltSpreadAngle;
         const isMultishot = numProjectiles > 1;
         const hasVolley = (this.projectileCountBonus || 0) > 0; // Volley adds to projectileCountBonus
-        
+
         // Apply multishot multipliers (damage and range reduction for shotgun-like behavior)
         // If Volley is active, use Volley's damage per projectile multiplier instead
         let damageMultiplier = 1.0;
@@ -401,14 +401,14 @@ class Mage extends PlayerBase {
             damageMultiplier = MAGE_CONFIG.multishotDamageMultiplier;
         }
         const rangeMultiplier = isMultishot ? MAGE_CONFIG.multishotRangeMultiplier : 1.0;
-        
+
         for (let i = 0; i < numProjectiles; i++) {
             // Calculate angle for this projectile
             const angleOffset = numProjectiles > 1 ? (i - (numProjectiles - 1) / 2) * spreadAngle : 0;
             const angle = Math.atan2(dirY, dirX) + angleOffset;
             const projDirX = Math.cos(angle);
             const projDirY = Math.sin(angle);
-            
+
             const projectile = {
                 x: pos.x,
                 y: pos.y,
@@ -422,7 +422,7 @@ class Mage extends PlayerBase {
                 color: this.color,
                 playerId: this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null) // For damage attribution
             };
-            
+
             // Apply Volley pierce/chain bonuses if active
             if (hasVolley) {
                 if (this.volleyPierceAll) {
@@ -434,21 +434,21 @@ class Mage extends PlayerBase {
                     projectile.hasChainEffect = true; // Mark for chain lightning on hit
                 }
             }
-            
+
             Game.projectiles.push(projectile);
         }
     }
-    
+
     // Override createHeavyAttack for energy beam
     createHeavyAttack() {
         // Play mage heavy attack beam sound
         if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
             AudioManager.sounds.mageHeavyAttackBeam();
         }
-        
+
         // Get gameplay position (authoritative position in multiplayer)
         const pos = this.getGameplayPosition();
-        
+
         // Create a new beam object
         const newBeam = {
             elapsed: 0,
@@ -461,36 +461,36 @@ class Mage extends PlayerBase {
             hitEnemies: new Map(), // Track hit count per enemy for this beam
             playerId: this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null) // For damage attribution
         };
-        
+
         // Add to active beams array
         this.activeBeams.push(newBeam);
-        
+
         this.isAttacking = true;
-        
+
         // NOTE: applyHeavyAttackCooldown is called by the base class after createHeavyAttack returns
         // Do NOT call it here or it will be called twice!
-        
+
         // Trigger screen shake
         if (typeof Game !== 'undefined') {
             Game.triggerScreenShake(0.3, 0.15);
         }
     }
-    
+
     // Override handleSpecialAbility for blink preview behavior
     handleSpecialAbility(input) {
         // Check for special ability input (Spacebar or touch button)
         let specialJustPressed = false;
         let specialPressed = false;
-        
+
         if (input.isTouchMode && input.isTouchMode()) {
             // Touch mode: check for special ability button
             if (input.touchButtons && input.touchButtons.specialAbility) {
                 const button = input.touchButtons.specialAbility;
                 specialPressed = button.pressed;
-                
+
                 // Blink: press-and-release (directional, one-time)
                 specialJustPressed = button.justReleased;
-                
+
                 // Show preview while holding
                 if (button.pressed && this.specialCooldown <= 0 && !this.blinkDecoyActive) {
                     this.updateBlinkPreview(input);
@@ -503,7 +503,7 @@ class Mage extends PlayerBase {
             this.lastSpacebar = input.getKeyState(' ');
             specialJustPressed = spaceJustPressed;
             specialPressed = input.getKeyState(' ');
-            
+
             // Show preview for blink while spacebar held
             if (specialPressed && this.specialCooldown <= 0 && !this.blinkDecoyActive) {
                 this.updateBlinkPreview(input);
@@ -512,31 +512,31 @@ class Mage extends PlayerBase {
                 this.blinkPreviewActive = false;
             }
         }
-        
+
         // Check if cooldown ready and not already using another ability
         if (specialJustPressed && this.specialCooldown <= 0) {
             // For hexagon blink, update preview one last time before activating
             if (input.isTouchMode && input.isTouchMode()) {
                 this.updateBlinkPreview(input);
             }
-            
+
             // Activate blink
             this.activateBlink(input);
         }
     }
-    
+
     // Override activateSpecialAbility for blink
     activateSpecialAbility(input) {
         this.activateBlink(input);
     }
-    
+
     updateBlinkPreview(input) {
         this.blinkPreviewActive = true;
-        
+
         // Get target position based on input method
         let targetX, targetY;
         let distance = 400; // Max blink range
-        
+
         if (input.isTouchMode && input.isTouchMode() && input.touchJoysticks && input.touchJoysticks.specialAbility) {
             // Touch mode: use joystick direction and magnitude
             const joystick = input.touchJoysticks.specialAbility;
@@ -561,7 +561,7 @@ class Mage extends PlayerBase {
             const dx = mouseX - this.x;
             const dy = mouseY - this.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
-            
+
             if (dist > 0) {
                 distance = Math.min(400, dist);
                 const angle = Math.atan2(dy, dx);
@@ -573,7 +573,7 @@ class Mage extends PlayerBase {
                 distance = 200;
             }
         }
-        
+
         // Clamp to bounds
         if (typeof Game !== 'undefined' && Game.canvas) {
             // Use room bounds instead of canvas bounds
@@ -582,31 +582,31 @@ class Mage extends PlayerBase {
             targetX = clamp(targetX, this.size, roomWidth - this.size);
             targetY = clamp(targetY, this.size, roomHeight - this.size);
         }
-        
+
         this.blinkPreviewX = targetX;
         this.blinkPreviewY = targetY;
         this.blinkPreviewDistance = distance;
     }
-    
+
     activateBlink(input) {
         // Track ability use for lifetime stats
         if (typeof window.trackLifetimeStat === 'function') {
             window.trackLifetimeStat('totalAbilityUses', 1);
         }
-        
+
         // Play mage blink sound
         if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
             AudioManager.sounds.mageBlink();
         }
-        
+
         // Save old position for decoy
         const oldX = this.x;
         const oldY = this.y;
-        
+
         // Get target position (use preview if available, otherwise calculate)
         let targetX, targetY;
         let usedPreview = false;
-        
+
         // For touch mode, prioritize stored joystick state from button release
         if (input.isTouchMode && input.isTouchMode()) {
             // Check if button has stored final joystick state (captured on release)
@@ -623,7 +623,7 @@ class Mage extends PlayerBase {
                 } else {
                     // Magnitude too low, use preview or fallback
                     const previewDistance = Math.sqrt(
-                        (this.blinkPreviewX - this.x) ** 2 + 
+                        (this.blinkPreviewX - this.x) ** 2 +
                         (this.blinkPreviewY - this.y) ** 2
                     );
                     if (this.blinkPreviewActive || previewDistance > 20) {
@@ -639,10 +639,10 @@ class Mage extends PlayerBase {
             } else {
                 // No stored state, check preview position
                 const previewDistance = Math.sqrt(
-                    (this.blinkPreviewX - this.x) ** 2 + 
+                    (this.blinkPreviewX - this.x) ** 2 +
                     (this.blinkPreviewY - this.y) ** 2
                 );
-                
+
                 if (this.blinkPreviewActive || previewDistance > 20) {
                     // Use preview position
                     targetX = this.blinkPreviewX;
@@ -683,14 +683,14 @@ class Mage extends PlayerBase {
                 targetY = mouseY;
             }
         }
-        
+
         // Clear preview after using it
         this.blinkPreviewActive = false;
-        
+
         const dx = targetX - this.x;
         const dy = targetY - this.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
-        
+
         let newX, newY;
         const maxBlinkRange = 400 + this.blinkRangeBonus; // Apply class modifier
         if (distance > maxBlinkRange) {
@@ -702,7 +702,7 @@ class Mage extends PlayerBase {
             newX = targetX;
             newY = targetY;
         }
-        
+
         // Clamp to bounds
         if (typeof Game !== 'undefined' && Game.canvas) {
             // Use room bounds instead of canvas bounds
@@ -714,24 +714,24 @@ class Mage extends PlayerBase {
             this.x = newX;
             this.y = newY;
         }
-        
+
         // Create decoy at old position with full health
         this.blinkDecoyActive = true;
         this.blinkDecoyX = oldX;
         this.blinkDecoyY = oldY;
         this.blinkDecoyHealth = this.blinkDecoyMaxHealth;
-        
+
         // Clear enemy target locks for enemies within detection range of the decoy
         // This provides proximity-based aggro for the decoy
         if (typeof Game !== 'undefined' && Game.enemies) {
             Game.enemies.forEach(enemy => {
                 if (!enemy.alive) return;
-                
+
                 // Check if enemy is within detection range of the decoy
                 const dx = oldX - enemy.x;
                 const dy = oldY - enemy.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
-                
+
                 // Only clear lock if nearby AND enemy was targeting this player
                 if (distance <= enemy.detectionRange && enemy.targetLock && enemy.targetLock.playerRef === this) {
                     enemy.targetLock = null;
@@ -739,39 +739,39 @@ class Mage extends PlayerBase {
                 }
             });
         }
-        
+
         // Create explosion at new position
         this.blinkExplosionActive = true;
         this.blinkExplosionElapsed = 0;
         this.blinkExplosionX = newX;
         this.blinkExplosionY = newY;
         this.blinkHasChainedLegendary = false; // Reset chain flag for this blink
-        
+
         // Deal damage at destination
         if (typeof Game !== 'undefined' && Game.enemies) {
             const explosionRadius = MAGE_CONFIG.blinkExplosionRadius + this.aoeRadiusBonus; // Apply class modifier
             const baseExplosionDamage = this.damage * MAGE_CONFIG.blinkExplosionDamage * this.blinkDamageMultiplier; // Apply class modifier
-            
+
             Game.enemies.forEach(enemy => {
                 if (enemy.alive) {
                     const dx = enemy.x - this.x;
                     const dy = enemy.y - this.y;
                     const distance = Math.sqrt(dx * dx + dy * dy);
-                    
+
                     if (distance < explosionRadius) {
                         // Check for crit
                         const isCrit = Math.random() < this.critChance;
                         const critMultiplier = isCrit ? (2.0 * (this.critDamageMultiplier || 1.0)) : 1.0;
                         const explosionDamage = baseExplosionDamage * critMultiplier;
-                        
+
                         // Calculate damage dealt BEFORE applying damage
                         const damageDealt = Math.min(explosionDamage, enemy.hp);
-                        
+
                         // Get player ID for damage attribution
                         const attackerId = this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null);
-                        
+
                         enemy.takeDamage(explosionDamage, attackerId);
-                        
+
                         // Track stats (host/solo only)
                         const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
                         if (!isClient && typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
@@ -779,7 +779,7 @@ class Mage extends PlayerBase {
                             if (stats) {
                                 stats.addStat('damageDealt', damageDealt);
                             }
-                            
+
                             // Track kill if enemy died
                             if (enemy.hp <= 0) {
                                 const killStats = Game.getPlayerStats(attackerId);
@@ -788,12 +788,12 @@ class Mage extends PlayerBase {
                                 }
                             }
                         }
-                        
+
                         // Apply lifesteal
                         if (typeof applyLifesteal !== 'undefined') {
                             applyLifesteal(this, damageDealt);
                         }
-                        
+
                         // Apply legendary effects
                         if (typeof applyLegendaryEffects !== 'undefined') {
                             applyLegendaryEffects(this, enemy, damageDealt, attackerId);
@@ -807,10 +807,10 @@ class Mage extends PlayerBase {
                                 }
                             });
                         }
-                        
+
                         if (typeof createDamageNumber !== 'undefined') {
                             createDamageNumber(enemy.x, enemy.y, damageDealt, isCrit, false);
-                            
+
                             // In multiplayer, send damage number event to clients
                             if (typeof Game !== 'undefined' && Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
                                 multiplayerManager.send({
@@ -826,7 +826,7 @@ class Mage extends PlayerBase {
                                 });
                             }
                         }
-                        
+
                         // Push enemies away from explosion
                         const pushForce = MAGE_CONFIG.blinkExplosionKnockback;
                         const pushDirX = (enemy.x - this.x) / distance;
@@ -836,7 +836,7 @@ class Mage extends PlayerBase {
                 }
             });
         }
-        
+
         // Apply cooldown reduction
         const effectiveSpecialCooldown = this.specialCooldownTime * (1 - this.cooldownReduction);
         this.specialCooldown = effectiveSpecialCooldown;
@@ -844,7 +844,7 @@ class Mage extends PlayerBase {
         this.invulnerabilityTime = 1.2; // 1.2s post-teleport i-frames for safer dashing through enemies
         this.updateBlinkDecoyEntity();
     }
-    
+
     updateBlinkDecoyEntity() {
         if (!this.blinkDecoyEntity) {
             this.blinkDecoyEntity = {
@@ -853,7 +853,7 @@ class Mage extends PlayerBase {
                 invulnerable: false
             };
         }
-        
+
         const entity = this.blinkDecoyEntity;
         entity.x = this.blinkDecoyX;
         entity.y = this.blinkDecoyY;
@@ -865,11 +865,11 @@ class Mage extends PlayerBase {
         entity.dead = !entity.alive;
         entity.playerClass = this.playerClass;
         entity.ownerId = this.playerId || null;
-        entity.applyKnockback = entity.applyKnockback || (() => {});
-        
+        entity.applyKnockback = entity.applyKnockback || (() => { });
+
         return entity;
     }
-    
+
     getBlinkDecoyTarget() {
         if (!this.blinkDecoyActive || this.blinkDecoyHealth <= 0) {
             if (this.blinkDecoyEntity) {
@@ -882,40 +882,40 @@ class Mage extends PlayerBase {
         }
         return this.updateBlinkDecoyEntity();
     }
-    
+
     applyBlinkDecoyDamage(amount = 0, options = {}) {
         if (!this.blinkDecoyActive || this.blinkDecoyHealth <= 0) {
             return 0;
         }
-        
+
         const damage = Math.max(0, amount);
         if (damage <= 0) return 0;
-        
+
         this.blinkDecoyHealth = Math.max(0, this.blinkDecoyHealth - damage);
-        
+
         const {
             showNumber = true,
             particleColor = '#96c8ff',
             particleCount = 4
         } = options;
-        
+
         if (showNumber && typeof createDamageNumber !== 'undefined') {
             createDamageNumber(this.blinkDecoyX, this.blinkDecoyY, damage, false, false);
         }
-        
+
         if (particleColor && typeof createParticleBurst !== 'undefined') {
             createParticleBurst(this.blinkDecoyX, this.blinkDecoyY, particleColor, particleCount);
         }
-        
+
         if (this.blinkDecoyHealth <= 0) {
             this.blinkDecoyHealth = 0;
             this.blinkDecoyActive = false;
         }
-        
+
         this.updateBlinkDecoyEntity();
         return damage;
     }
-    
+
     // Override updateClassAbilities for Mage-specific updates
     updateClassAbilities(deltaTime, input) {
         // Update beam charge cooldowns - follow EXACT same pattern as dodge charges in base class update()
@@ -930,16 +930,16 @@ class Mage extends PlayerBase {
                 this.beamChargeCooldowns[i] = 0;
             }
         }
-        
+
         // Update beamCharges count using helper function (same as dodge system)
         this.beamCharges = this.getReadyBeamCharges();
-        
+
         // Sync heavyAttackCooldown with charge system for UI and base class checks
         // Set to 0 if we have charges, otherwise use time until the next charge is ready
         this.heavyAttackCooldown = this.beamCharges > 0
             ? 0
             : this.getNextChargeReadyTime(this.beamChargeCooldowns);
-        
+
         // Override UIBus emission for Mage to send beam charge data instead of single heavy bar
         // This prevents the base class's single "Heavy" bar from overriding our segmented bars
         if (typeof window !== 'undefined' && window.UIBus && typeof window.UIBus.emit === 'function') {
@@ -975,29 +975,29 @@ class Mage extends PlayerBase {
                 // Avoid spamming console on every frame
             }
         }
-        
+
         // Update blink decoy - health decay system
         if (this.blinkDecoyActive) {
             this.blinkDecoyHealth = Math.max(0, this.blinkDecoyHealth - this.blinkDecoyHealthDecay * deltaTime);
-            
+
             if (this.blinkDecoyHealth <= 0) {
                 this.blinkDecoyHealth = 0;
                 this.blinkDecoyActive = false;
             }
-            
+
             this.updateBlinkDecoyEntity();
         }
-        
+
         // Check for damage to blink decoy from enemy projectiles
         if (this.blinkDecoyActive && typeof Game !== 'undefined' && Game.projectiles) {
             Game.projectiles.forEach(projectile => {
                 // Skip player projectiles
                 if (projectile.type === 'magic' || projectile.playerClass) return;
-                
+
                 const dx = projectile.x - this.blinkDecoyX;
                 const dy = projectile.y - this.blinkDecoyY;
                 const distance = Math.sqrt(dx * dx + dy * dy);
-                
+
                 // Check collision with decoy (use player size as decoy size)
                 if (distance < this.size + (projectile.size || 5)) {
                     this.applyBlinkDecoyDamage(projectile.damage || 10, {
@@ -1007,40 +1007,40 @@ class Mage extends PlayerBase {
                 }
             });
         }
-        
+
         // Update blink explosion animation
         if (this.blinkExplosionActive) {
             this.blinkExplosionElapsed += deltaTime;
-            
+
             if (this.blinkExplosionElapsed >= this.blinkExplosionDuration) {
                 this.blinkExplosionActive = false;
                 this.blinkExplosionElapsed = 0;
             }
         }
-        
+
         // Apply blink knockback if active
         if (this.blinkKnockbackVx !== 0 || this.blinkKnockbackVy !== 0) {
             this.x += this.blinkKnockbackVx * deltaTime;
             this.y += this.blinkKnockbackVy * deltaTime;
-            
+
             // Decay knockback
             this.blinkKnockbackVx *= 0.85;
             this.blinkKnockbackVy *= 0.85;
-            
+
             if (Math.abs(this.blinkKnockbackVx) < 1) this.blinkKnockbackVx = 0;
             if (Math.abs(this.blinkKnockbackVy) < 1) this.blinkKnockbackVy = 0;
         }
-        
+
         // Update all active beams
         for (let i = this.activeBeams.length - 1; i >= 0; i--) {
             const beam = this.activeBeams[i];
             beam.elapsed += deltaTime;
             beam.lastTickTime += deltaTime;
-            
+
             // Use effective beam duration (with affixes)
             const effectiveDuration = this.effectiveBeamDuration || MAGE_CONFIG.beamDuration;
             const effectiveTickRate = this.effectiveBeamTickRate || MAGE_CONFIG.beamTickRate;
-            
+
             // Check if beam duration expired
             if (beam.elapsed >= effectiveDuration) {
                 // Remove expired beam
@@ -1056,55 +1056,55 @@ class Mage extends PlayerBase {
             }
         }
     }
-    
+
     // Calculate visual endpoint for beam based on penetration
     calculateBeamVisualEndpoint(beam) {
         if (typeof Game === 'undefined' || !Game.enemies) {
-            return { 
+            return {
                 endX: beam.origin.x + beam.direction.x * MAGE_CONFIG.beamRange,
                 endY: beam.origin.y + beam.direction.y * MAGE_CONFIG.beamRange,
                 enemiesHit: 0
             };
         }
-        
+
         const beamRange = MAGE_CONFIG.beamRange;
         const beamWidth = MAGE_CONFIG.beamWidth;
         const maxPenetration = this.effectiveBeamMaxPenetration || MAGE_CONFIG.beamMaxPenetration;
-        
+
         // Find all enemies in beam path
         const hitCandidates = [];
-        
+
         Game.enemies.forEach(enemy => {
             if (!enemy.alive) return;
-            
+
             // Calculate point-to-line distance
             const dx = enemy.x - beam.origin.x;
             const dy = enemy.y - beam.origin.y;
-            
+
             // Project enemy position onto beam direction
             const projection = dx * beam.direction.x + dy * beam.direction.y;
-            
+
             // Check if enemy is in range
             if (projection < 0 || projection > beamRange) return;
-            
+
             // Calculate perpendicular distance to beam line
             const perpX = dx - projection * beam.direction.x;
             const perpY = dy - projection * beam.direction.y;
             const perpDist = Math.sqrt(perpX * perpX + perpY * perpY);
-            
+
             // Check if within beam width
             if (perpDist <= beamWidth / 2 + enemy.size) {
                 hitCandidates.push({ enemy, distance: projection });
             }
         });
-        
+
         // Sort by distance (closest first)
         hitCandidates.sort((a, b) => a.distance - b.distance);
-        
+
         // Determine actual endpoint
         let actualEndDistance = beamRange;
         let enemiesHit = 0;
-        
+
         if (hitCandidates.length > maxPenetration) {
             // More enemies than we can penetrate - stop at the last penetrated enemy
             actualEndDistance = hitCandidates[maxPenetration - 1].distance + 10; // Slight overshoot
@@ -1113,81 +1113,81 @@ class Mage extends PlayerBase {
             // Fewer enemies than max penetration - beam goes through all
             enemiesHit = hitCandidates.length;
         }
-        
+
         return {
             endX: beam.origin.x + beam.direction.x * actualEndDistance,
             endY: beam.origin.y + beam.direction.y * actualEndDistance,
             enemiesHit: enemiesHit
         };
     }
-    
+
     processBeamDamageTick(beam) {
         if (typeof Game === 'undefined' || !Game.enemies) return;
-        
+
         const beamRange = MAGE_CONFIG.beamRange;
         const beamWidth = MAGE_CONFIG.beamWidth;
         const maxPenetration = this.effectiveBeamMaxPenetration || MAGE_CONFIG.beamMaxPenetration;
         const baseTickDamage = this.damage * MAGE_CONFIG.beamDamagePerTick;
-        
+
         // Find enemies in beam path, sorted by distance
         const hitCandidates = [];
-        
+
         Game.enemies.forEach(enemy => {
             if (!enemy.alive) return;
-            
+
             // Calculate point-to-line distance
             const dx = enemy.x - beam.origin.x;
             const dy = enemy.y - beam.origin.y;
-            
+
             // Project enemy position onto beam direction
             const projection = dx * beam.direction.x + dy * beam.direction.y;
-            
+
             // Check if enemy is in range
             if (projection < 0 || projection > beamRange) return;
-            
+
             // Calculate perpendicular distance to beam line
             const perpX = dx - projection * beam.direction.x;
             const perpY = dy - projection * beam.direction.y;
             const perpDist = Math.sqrt(perpX * perpX + perpY * perpY);
-            
+
             // Check if within beam width
             if (perpDist <= beamWidth / 2 + enemy.size) {
                 hitCandidates.push({ enemy, distance: projection });
             }
         });
-        
+
         // Sort by distance (closest first)
         hitCandidates.sort((a, b) => a.distance - b.distance);
-        
+
         // Hit up to maxPenetration enemies
         let hitCount = 0;
         for (const candidate of hitCandidates) {
             const enemy = candidate.enemy;
-            
+
             // Track how many times this enemy has been hit by this beam
             const currentHits = beam.hitEnemies.get(enemy) || 0;
             beam.hitEnemies.set(enemy, currentHits + 1);
-            
+
             // Calculate distance-based damage falloff
             // Full damage at origin (0), reduced damage at max range
             // Linear falloff: 1.0 at 0px, ~0.1 at max range (90% reduction at far end)
             const distanceRatio = candidate.distance / beamRange;
             const damageFalloff = 1.0 - (distanceRatio * 0.9); // 100% at origin, 10% at max range
             const tickDamage = baseTickDamage * Math.max(0.1, damageFalloff); // Minimum 10% damage at max range
-            
+
             // Check for crit
             const isCrit = Math.random() < this.critChance;
             const critMultiplier = isCrit ? (2.0 * (this.critDamageMultiplier || 1.0)) : 1.0;
             const finalDamage = tickDamage * critMultiplier;
-            
+
             // Calculate actual damage dealt
             const damageDealt = Math.min(finalDamage, enemy.hp);
-            
+
             // Get player ID from beam for damage attribution
             const attackerId = beam.playerId;
-            
+
             enemy.takeDamage(finalDamage, attackerId);
-            
+
             // Track damage stats for end scene (host/solo only)
             const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
             if (!isClient && typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
@@ -1195,7 +1195,7 @@ class Mage extends PlayerBase {
                 if (stats) {
                     stats.addStat('damageDealt', damageDealt);
                 }
-                
+
                 // Track kill if enemy died
                 if (enemy.hp <= 0) {
                     const killStats = Game.getPlayerStats(attackerId);
@@ -1204,17 +1204,17 @@ class Mage extends PlayerBase {
                     }
                 }
             }
-            
+
             // Track beam damage for lifetime stats
             if (typeof window.trackLifetimeStat === 'function') {
                 window.trackLifetimeStat('totalBeamDamage', damageDealt);
             }
-            
+
             // Apply lifesteal
             if (typeof applyLifesteal !== 'undefined') {
                 applyLifesteal(this, damageDealt);
             }
-            
+
             // Apply legendary effects (burn, freeze) and chain lightning
             if (typeof applyLegendaryEffects !== 'undefined') {
                 applyLegendaryEffects(this, enemy, damageDealt, attackerId);
@@ -1228,10 +1228,10 @@ class Mage extends PlayerBase {
                     }
                 });
             }
-            
+
             if (typeof createDamageNumber !== 'undefined') {
                 createDamageNumber(enemy.x, enemy.y, damageDealt, isCrit, false);
-                
+
                 // In multiplayer, send damage number event to clients
                 if (typeof Game !== 'undefined' && Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
                     multiplayerManager.send({
@@ -1247,12 +1247,12 @@ class Mage extends PlayerBase {
                     });
                 }
             }
-            
+
             hitCount++;
             if (hitCount >= maxPenetration) break;
         }
     }
-    
+
     // Override renderClassVisuals for Mage-specific visuals
     renderClassVisuals(ctx) {
         // Draw blink decoy - semi-transparent clone at old position
@@ -1261,51 +1261,51 @@ class Mage extends PlayerBase {
             const healthPercent = this.blinkDecoyHealth / this.blinkDecoyMaxHealth;
             const decoyAlpha = 0.5 * healthPercent; // Fade out as health depletes
             const decoySize = this.size; // Keep constant size
-            
+
             ctx.save();
             ctx.globalAlpha = decoyAlpha;
             ctx.fillStyle = this.color;
             ctx.beginPath();
             ctx.arc(this.blinkDecoyX, this.blinkDecoyY, decoySize, 0, Math.PI * 2);
             ctx.fill();
-            
+
             // Draw outline to make it more visible
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
             ctx.lineWidth = 2;
             ctx.stroke();
-            
+
             ctx.restore();
-            
+
             // Draw health bar above decoy (not rotated)
             ctx.save();
             ctx.globalAlpha = decoyAlpha;
-            
+
             // healthPercent already defined above
             const barWidth = this.size * 2;
             const barHeight = 4;
             const barX = this.blinkDecoyX - barWidth / 2;
             const barY = this.blinkDecoyY - this.size - 10;
-            
+
             // Background (red)
             ctx.fillStyle = '#ff0000';
             ctx.fillRect(barX, barY, barWidth, barHeight);
-            
+
             // Foreground (blue, scaled by health)
             ctx.fillStyle = healthPercent > 0.5 ? '#00aaff' : (healthPercent > 0.25 ? '#ffaa00' : '#ff0000');
             ctx.fillRect(barX, barY, barWidth * healthPercent, barHeight);
-            
+
             // Border
             ctx.strokeStyle = '#ffffff';
             ctx.lineWidth = 1;
             ctx.strokeRect(barX, barY, barWidth, barHeight);
-            
+
             ctx.restore();
         }
-        
+
         // Draw blink preview - shows teleport destination while aiming
         if (this.blinkPreviewActive) {
             ctx.save();
-            
+
             // Draw line from player to destination
             ctx.strokeStyle = 'rgba(150, 200, 255, 0.6)';
             ctx.lineWidth = 3;
@@ -1315,75 +1315,75 @@ class Mage extends PlayerBase {
             ctx.lineTo(this.blinkPreviewX, this.blinkPreviewY);
             ctx.stroke();
             ctx.setLineDash([]); // Reset dash
-            
+
             // Draw destination indicator (pulsing circle)
             const pulse = Math.sin(Date.now() / 150) * 0.3 + 0.7; // Pulse between 0.4 and 1.0
             const indicatorRadius = 15 * pulse;
-            
+
             // Outer glow
             ctx.fillStyle = `rgba(150, 200, 255, ${0.4 * pulse})`;
             ctx.beginPath();
             ctx.arc(this.blinkPreviewX, this.blinkPreviewY, indicatorRadius + 5, 0, Math.PI * 2);
             ctx.fill();
-            
+
             // Inner circle
             ctx.fillStyle = `rgba(200, 220, 255, ${0.8 * pulse})`;
             ctx.beginPath();
             ctx.arc(this.blinkPreviewX, this.blinkPreviewY, indicatorRadius, 0, Math.PI * 2);
             ctx.fill();
-            
+
             // Border
             ctx.strokeStyle = `rgba(255, 255, 255, ${pulse})`;
             ctx.lineWidth = 2;
             ctx.stroke();
-            
+
             // Draw distance indicator (small text showing distance)
             ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
             ctx.font = 'bold 12px Orbitron';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'top';
             ctx.fillText(`${Math.round(this.blinkPreviewDistance)}px`, this.blinkPreviewX, this.blinkPreviewY + indicatorRadius + 8);
-            
+
             ctx.restore();
         }
-        
+
         // Draw blink explosion - expanding circle at destination
         if (this.blinkExplosionActive) {
             const explosionProgress = this.blinkExplosionElapsed / this.blinkExplosionDuration;
             const maxRadius = 80;
-            
+
             ctx.save();
-            
+
             // Multiple expanding rings for more dramatic effect
             for (let i = 0; i < 3; i++) {
                 const offsetProgress = Math.max(0, explosionProgress - i * 0.2);
                 const radius = maxRadius * offsetProgress;
                 const alpha = (1 - explosionProgress) * 0.6;
-                
+
                 // Outer glow
                 ctx.fillStyle = `rgba(150, 100, 255, ${alpha})`;
                 ctx.beginPath();
                 ctx.arc(this.blinkExplosionX, this.blinkExplosionY, radius, 0, Math.PI * 2);
                 ctx.fill();
-                
+
                 // Inner core
                 ctx.fillStyle = `rgba(255, 150, 255, ${alpha * 1.5})`;
                 ctx.beginPath();
                 ctx.arc(this.blinkExplosionX, this.blinkExplosionY, radius * 0.5, 0, Math.PI * 2);
                 ctx.fill();
             }
-            
+
             ctx.restore();
         }
-        
+
         // Draw heavy charge effect - Mage magical build-up circles
         if (this.heavyChargeEffectActive) {
             const chargeProgress = this.heavyChargeEffectElapsed / this.heavyChargeEffectDuration;
             const pulseSize = 1.0 + Math.sin(chargeProgress * Math.PI * 4) * 0.1;
-            
+
             ctx.save();
             ctx.globalAlpha = 0.6;
-            
+
             // Mage: Magical build-up circles
             ctx.strokeStyle = '#673ab7';
             ctx.lineWidth = 3;
@@ -1393,25 +1393,25 @@ class Mage extends PlayerBase {
                 ctx.arc(this.x, this.y, (this.size + offset) * pulseSize, 0, Math.PI * 2);
                 ctx.stroke();
             }
-            
+
             ctx.restore();
         }
-        
+
         // Draw all active energy beams
         this.activeBeams.forEach(beam => {
             ctx.save();
-            
+
             const beamWidth = MAGE_CONFIG.beamWidth;
-            
+
             // Calculate actual beam endpoint based on penetration
             const beamEndpoint = this.calculateBeamVisualEndpoint(beam);
             const endX = beamEndpoint.endX;
             const endY = beamEndpoint.endY;
             const enemiesHit = beamEndpoint.enemiesHit;
-            
+
             // Pulsing effect based on elapsed time
             const pulse = Math.sin(beam.elapsed * 20) * 0.3 + 0.7;
-            
+
             // Calculate intensity degradation based on enemies hit
             const maxPenetration = this.effectiveBeamMaxPenetration || MAGE_CONFIG.beamMaxPenetration;
             let intensityMultiplier = 1.0;
@@ -1419,7 +1419,7 @@ class Mage extends PlayerBase {
                 intensityMultiplier = 1.0 - (enemiesHit / maxPenetration) * 0.4;
                 intensityMultiplier = Math.max(0.6, intensityMultiplier); // Never below 60%
             }
-            
+
             // Draw outer glow with intensity degradation
             const gradient = ctx.createLinearGradient(
                 beam.origin.x, beam.origin.y,
@@ -1428,7 +1428,7 @@ class Mage extends PlayerBase {
             gradient.addColorStop(0, `rgba(156, 39, 176, ${0.6 * pulse * intensityMultiplier})`);
             gradient.addColorStop(0.5, `rgba(156, 39, 176, ${0.4 * pulse * intensityMultiplier})`);
             gradient.addColorStop(1, 'rgba(156, 39, 176, 0)');
-            
+
             ctx.strokeStyle = gradient;
             ctx.lineWidth = beamWidth * 1.5 * intensityMultiplier;
             ctx.lineCap = 'round';
@@ -1436,7 +1436,7 @@ class Mage extends PlayerBase {
             ctx.moveTo(beam.origin.x, beam.origin.y);
             ctx.lineTo(endX, endY);
             ctx.stroke();
-            
+
             // Draw core beam with intensity degradation
             const coreGradient = ctx.createLinearGradient(
                 beam.origin.x, beam.origin.y,
@@ -1445,14 +1445,14 @@ class Mage extends PlayerBase {
             coreGradient.addColorStop(0, `rgba(255, 255, 255, ${0.9 * pulse * intensityMultiplier})`);
             coreGradient.addColorStop(0.5, `rgba(200, 150, 255, ${0.7 * pulse * intensityMultiplier})`);
             coreGradient.addColorStop(1, 'rgba(156, 39, 176, 0)');
-            
+
             ctx.strokeStyle = coreGradient;
             ctx.lineWidth = beamWidth * 0.5 * intensityMultiplier;
             ctx.beginPath();
             ctx.moveTo(beam.origin.x, beam.origin.y);
             ctx.lineTo(endX, endY);
             ctx.stroke();
-            
+
             // Draw particle effects along beam (use actual endpoint distance)
             const beamLength = Math.sqrt((endX - beam.origin.x) ** 2 + (endY - beam.origin.y) ** 2);
             const numParticles = 8;
@@ -1461,17 +1461,17 @@ class Mage extends PlayerBase {
                 const px = beam.origin.x + (endX - beam.origin.x) * t;
                 const py = beam.origin.y + (endY - beam.origin.y) * t;
                 const particleAlpha = (1 - t) * 0.8 * intensityMultiplier;
-                
+
                 ctx.fillStyle = `rgba(255, 200, 255, ${particleAlpha})`;
                 ctx.beginPath();
                 ctx.arc(px, py, 4 * intensityMultiplier, 0, Math.PI * 2);
                 ctx.fill();
             }
-            
+
             ctx.restore();
         });
     }
-    
+
     // Override serialize to include Mage-specific state
     serialize() {
         const baseState = super.serialize();
@@ -1495,7 +1495,7 @@ class Mage extends PlayerBase {
             beamChargeCooldowns: this.beamChargeCooldowns
         };
     }
-    
+
     // Override applyState to handle Mage-specific state
     applyState(state) {
         super.applyState(state);
@@ -1553,7 +1553,7 @@ class Mage extends PlayerBase {
         if (!this.canPlayClientAudio() || !AudioManager.sounds) {
             return;
         }
-        
+
         const heavyTriggered = this.didHeavyAttackTrigger(prevState, currentState);
         if (prevState.beamCharges !== undefined && currentState.beamCharges !== undefined &&
             currentState.beamCharges < prevState.beamCharges &&

@@ -455,8 +455,8 @@ class PlayerBase {
                 input.getAbilityInputType &&
                 input.getAbilityInputType(this.playerClass, 'heavyAttack') === 'joystick-press-release';
 
-            if (usesHeavyJoystick && (this.playerClass === 'square' || this.playerClass === 'triangle')) {
-                // Warrior/Triangle on mobile: for joystick-press-release mode, check for button release
+            if (usesHeavyJoystick && (this.playerClass === 'square' || this.playerClass === 'triangle' || this.playerClass === 'hexagon')) {
+                // Warrior/Triangle/Mage on mobile: for joystick-press-release mode, check for button release
                 if (input.touchButtons && input.touchButtons.heavyAttack) {
                     const button = input.touchButtons.heavyAttack;
 

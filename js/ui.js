@@ -856,9 +856,9 @@ function handleCharacterSheetScroll(x, y, deltaY) {
 // Convert world coordinates to screen coordinates (accounting for camera and zoom)
 // Expose worldToScreen globally for DOM components
 window.worldToScreen = function worldToScreen(worldX, worldY) {
-    // Get current zoom level (desktop only)
+    // Get current zoom level
     const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
-    const zoom = isMobile ? 1.0 : (typeof Game !== 'undefined' && Game.baseZoom ? Game.baseZoom : 1.1);
+    const zoom = isMobile ? (typeof Game !== 'undefined' && Game.mobileZoom ? Game.mobileZoom : 1.0) : (typeof Game !== 'undefined' && Game.baseZoom ? Game.baseZoom : 1.1);
 
     if (typeof Game !== 'undefined' && Game.camera && Game.state === 'PLAYING') {
         const centerX = Game.config.width / 2;
@@ -1539,11 +1539,13 @@ function renderInteractionButton(ctx) {
     const buttonHeight = 60;
     const buttonX = (canvasWidth - buttonWidth) / 2;
     // Position above touch controls
-    // Touch controls are at ~12-14% from bottom on mobile, so position button higher
-    // On mobile, position at ~220px from bottom to be above touch controls and HUD
-    // On desktop, position at ~150px from bottom
+    // Touch controls are now at ~23% from bottom on mobile, so position button accordingly
+    // On mobile, position button above controls with some spacing
+    // Calculate based on control position: controls are at ~23% from bottom, button should be ~28-30% from bottom
     const isMobile = Input && Input.isTouchMode && Input.isTouchMode();
-    const buttonY = isMobile ? canvasHeight - 220 : canvasHeight - 150;
+    // Use percentage-based positioning to match control positioning
+    const mobileBottomOffset = Math.max(canvasHeight * 0.28, 140); // ~28% from bottom, minimum 140px
+    const buttonY = isMobile ? canvasHeight - mobileBottomOffset : canvasHeight - 150;
 
     // Create or update button
     if (!interactionButton) {
