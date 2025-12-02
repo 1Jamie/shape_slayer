@@ -91,7 +91,7 @@ const Input = {
         },
         hexagon: { // Mage
             dodge: 'button',                        // Standard dodge
-            heavyAttack: 'button',                  // Energy beam (charge-based)
+            heavyAttack: 'joystick-press-release',  // Energy beam (charge-based, aim with drag)
             specialAbility: 'joystick-press-release' // Blink (directional teleport with aim)
         }
     },
@@ -329,11 +329,15 @@ const Input = {
         const width = (typeof Game !== 'undefined' && Game.config) ? Game.config.width : canvas.width;
         const height = (typeof Game !== 'undefined' && Game.config) ? Game.config.height : canvas.height;
 
+        // Get mobile zoom level to adjust positioning
+        const mobileZoom = (typeof Game !== 'undefined' && Game.mobileZoom) ? Game.mobileZoom : 1.0;
+
         // Debug: Log initialization
         if (typeof Game !== 'undefined' && Game.fullscreenEnabled) {
             console.log(`[INIT TOUCH CONTROLS] Canvas: ${canvas.width}x${canvas.height}`);
             const rect = canvas.getBoundingClientRect();
             console.log(`[INIT TOUCH CONTROLS] Display rect: ${rect.width.toFixed(0)}x${rect.height.toFixed(0)} at (${rect.left.toFixed(0)}, ${rect.top.toFixed(0)})`);
+            console.log(`[INIT TOUCH CONTROLS] Mobile zoom: ${mobileZoom.toFixed(2)}`);
         }
 
         // Mobile-optimized layout for thumb reach
@@ -354,6 +358,9 @@ const Input = {
 
         // Check if mobile
         const isMobile = this.isTouchMode();
+        
+        // Note: Controls are rendered in screen space (canvas coordinates), not world space
+        // Zoom affects world view, not screen space, so controls don't need zoom adjustment
 
         // RIGHT SIDE - Combat controls (right thumb zone)
         // Radial layout: Main attack joystick in center, ability buttons arranged around it
@@ -368,9 +375,20 @@ const Input = {
         // Calculate AFTER radialRadius is defined
         const maxControlReach = Math.max(basicAttackRadius + radialRadius + buttonSize / 2, 140);
         const safeBottomMarginRight = maxControlReach + 20; // max reach + padding
+        
+        // On mobile, position controls lower for better thumb reach
+        // Use a smaller fixed offset from bottom - prioritize percentage over safe margin
+        // This ensures controls are positioned lower on the screen
+        const mobileBottomOffset = Math.max(height * 0.23, 120); // At least 15% from bottom, minimum 95px
         const rightY = isMobile
-            ? height - Math.max(safeBottomMarginRight, height * 0.20) // Mobile: higher up, ~20% from bottom to avoid fingers
+            ? height - mobileBottomOffset // Mobile: fixed offset from bottom
             : height - Math.max(140, height * 0.18); // Desktop: ~18% from bottom
+        
+        // Debug: Log control positioning to verify changes
+        if (isMobile) {
+            const percentFromBottom = ((height - rightY) / height * 100).toFixed(1);
+            console.log(`[TOUCH CONTROLS] Mobile positioning: height=${height}, rightY=${rightY.toFixed(0)}, ${percentFromBottom}% from bottom, mobileBottomOffset=${mobileBottomOffset.toFixed(0)}`);
+        }
 
         // Basic attack joystick (CENTRAL - primary action, main right thumb position)
         const centerX = rightX;
@@ -458,16 +476,7 @@ const Input = {
             14
         );
 
-        // Character sheet button (top-right corner, away from combat controls and pause button)
-        const charButtonWidth = Math.floor(90 * widthScale);
-        const charButtonHeight = Math.floor(40 * widthScale);
-        this.touchButtons.characterSheet = new TouchButton(
-            width - 220 - (charButtonWidth - 90), // Adjust position for scaled size
-            20,
-            charButtonWidth,
-            charButtonHeight,
-            'Char'
-        );
+        // Character sheet button removed - now handled by DOM UI
     },
 
     // Handle touch start
@@ -552,16 +561,7 @@ const Input = {
                 }
             }
 
-            // Check character sheet button (top priority UI element)
-            if (this.touchButtons.characterSheet && this.touchButtons.characterSheet.contains(x, y)) {
-                if (this.touchButtons.characterSheet.startTouch(touchId, x, y)) {
-                    // Toggle character sheet when button is pressed
-                    if (typeof CharacterSheet !== 'undefined') {
-                        CharacterSheet.isOpen = !CharacterSheet.isOpen;
-                    }
-                    return;
-                }
-            }
+            // Character sheet button removed - now handled by DOM UI
 
             // Priority-based touch assignment for mobile usability
             // Check buttons FIRST (they have smaller hit areas), then joysticks
@@ -1303,6 +1303,9 @@ const Input = {
         for (const key in this.touchButtons) {
             const button = this.touchButtons[key];
             if (!button) continue;
+
+            // Skip character sheet button - now handled by DOM UI
+            if (key === 'characterSheet') continue;
 
             // Class-specific visibility
             if (key === 'dodge' && playerClass === 'triangle') continue; // Rogue uses joystick

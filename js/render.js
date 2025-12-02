@@ -383,7 +383,7 @@ function renderParticles(ctx) {
 
     if (Game.camera && Game.config) {
         const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
-        const zoom = isMobile ? 1.0 : (Game.baseZoom || 1.1);
+        const zoom = isMobile ? (Game.mobileZoom || 1.0) : (Game.baseZoom || 1.1);
         const padding = 100; // Margin for particles
 
         const screenW = Game.config.width / zoom;
@@ -591,7 +591,7 @@ function drawBiomeGrid(ctx, roomNumber, isVignetteMask = false) {
     if (typeof Game !== 'undefined' && Game.camera && Game.config) {
         // Get camera position and zoom
         const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
-        zoom = isMobile ? 1.0 : (Game.baseZoom || 1.1);
+        zoom = isMobile ? (Game.mobileZoom || 1.0) : (Game.baseZoom || 1.1);
 
         // Calculate visible world area
         const padding = 200;

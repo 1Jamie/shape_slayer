@@ -241,7 +241,7 @@
 			// Mobile: top-left layout - move higher up
 			container.style.left = '10px';
 			container.style.right = 'auto';
-			container.style.top = '25px'; // Moved up from 60px
+			container.style.top = '25px';
 			container.style.bottom = 'auto';
 			container.style.width = 'auto';
 			container.style.display = 'flex';

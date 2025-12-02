@@ -455,11 +455,19 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 • **Slow Aura:** Massively increased decay time.
   *"Enemies now stay slowed after leaving the circle. It's called 'thermal conductivity'. Look it up."*
 
+**⏱️ Fixed Timestep Game Loop (The "Time Is Now Real"):**
+• **Frame-Rate Independent Timing:** Game logic now runs at a fixed 60 Hz timestep, completely separate from frame rate.
+  *"Remember when your game slowed down because your FPS dropped? Yeah, that was embarrassing. Time is now time, not 'time but only if your GPU cooperates.'"*
+• **Consistent Game Speed:** 1 second of game time = 1 second of real time, regardless of whether you're running at 30 FPS or 144 FPS.
+  *"Your potato laptop and your NASA supercomputer now experience the same game speed. Revolutionary concept, I know."*
+• **Catch-Up System:** If the game falls behind, it catches up intelligently without causing stuttering.
+  *"I added a catch-up system that's smarter than a GPS recalculating your route. It knows when to catch up and when to just... not... I hope..."*
+
 **☠️ Boss Rotation (Gear Mode):**
 • **Endless Cycle:** Bosses now cycle every 5 rooms starting at Room 10.
   *"There is no escape. Only more geometry."*
 
-*TL;DR:* Mobile works again, Regen Matrix no longer makes you God, Damage Aura is fair now and doesnt feel useless, enemies multiply faster, and bosses are infinite. Touch grass? No, touch screen.*
+*TL;DR:* Mobile works again, Regen Matrix no longer makes you God, Damage Aura is fair now and doesnt feel useless, enemies multiply faster, bosses are infinite, and time is now actually time. Touch grass? No, touch screen.*
 `,
   },
 
