@@ -362,7 +362,16 @@
 							beamCharges: 'beam Charges',
 							beamTickRate: 'beam Tick Rate',
 							beamDuration: 'beam Duration',
-							beamPenetration: 'beam Penetration'
+							beamPenetration: 'beam Penetration',
+							whirlwindRadius: 'Whirlwind Radius',
+							thrustSpeed: 'Thrust Speed',
+							cleaveArea: 'Cleave Area',
+							cloneDuration: 'Clone Duration',
+							dashCooldown: 'Dash Cooldown',
+							fanCount: 'Fan Knives',
+							shieldWidth: 'Shield Width',
+							shoutStun: 'Shout Stun',
+							hammerHeal: 'Hammer Heal'
 						};
 						return nameMap[type] || type.replace(/([A-Z])/g, ' $1').trim();
 					}
@@ -381,12 +390,18 @@
 						const affixRow = document.createElement('div');
 						affixRow.style.fontSize = '11px';
 
-						const isIntegerAffix = ['dodgeCharges', 'maxHealth', 'pierce', 'chainLightning', 'multishot', 'beamCharges', 'beamPenetration'].includes(affix.type);
+						const isIntegerAffix = ['dodgeCharges', 'maxHealth', 'pierce', 'chainLightning', 'multishot', 'beamCharges', 'beamPenetration', 'fanCount'].includes(affix.type);
 						let displayValue;
 
 						// Special handling for beam affixes
 						if (affix.type === 'beamTickRate') {
 							displayValue = `-${(affix.value * 100).toFixed(0)}%`;
+						} else if (affix.type === 'dashCooldown') {
+							displayValue = `-${(affix.value * 100).toFixed(0)}%`;
+						} else if (affix.type === 'shoutStun') {
+							displayValue = `+${affix.value.toFixed(1)}s`;
+						} else if (affix.type === 'hammerHeal') {
+							displayValue = `+${(affix.value * 100).toFixed(1)}%`;
 						} else if (affix.type === 'critDamage') {
 							displayValue = `+${(affix.value * 100).toFixed(0)}%`;
 						} else if (affix.type === 'areaOfEffect') {

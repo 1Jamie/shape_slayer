@@ -21,8 +21,8 @@ const TIER_BONUSES = {
 // Affix tiers by power level
 const AFFIX_TIERS = {
     basic: ['movementSpeed', 'attackSpeed', 'projectileSpeed', 'maxHealth', 'knockbackPower'],
-    advanced: ['critChance', 'critDamage', 'lifesteal', 'cooldownReduction', 'areaOfEffect', 'beamTickRate', 'beamDuration'],
-    rare: ['dodgeCharges', 'pierce', 'chainLightning', 'execute', 'rampage', 'multishot', 'phasing', 'explosiveAttacks', 'fortify', 'overcharge', 'beamCharges', 'beamPenetration']
+    advanced: ['critChance', 'critDamage', 'lifesteal', 'cooldownReduction', 'areaOfEffect', 'beamTickRate', 'beamDuration', 'whirlwindRadius', 'thrustSpeed', 'cloneDuration', 'dashCooldown', 'shieldWidth'],
+    rare: ['dodgeCharges', 'pierce', 'chainLightning', 'execute', 'rampage', 'multishot', 'phasing', 'explosiveAttacks', 'fortify', 'overcharge', 'beamCharges', 'beamPenetration', 'cleaveArea', 'fanCount', 'shoutStun', 'hammerHeal']
 };
 
 // Affix pool with balanced value ranges
@@ -41,6 +41,21 @@ const AFFIX_POOL = {
     cooldownReduction: { min: 0.08, max: 0.15, slot: ['accessory', 'armor'], weight: 1.0, tier: 'advanced' }, // Reduced from 0.2 max
     areaOfEffect: { min: 0.12, max: 0.28, slot: ['weapon'], weight: 1.0, tier: 'advanced' },
     
+    // WARRIOR-SPECIFIC (Square)
+    whirlwindRadius: { min: 0.15, max: 0.35, slot: ['weapon', 'accessory'], weight: 1.0, tier: 'advanced', class: 'square' },
+    thrustSpeed: { min: 0.10, max: 0.25, slot: ['weapon', 'accessory'], weight: 1.0, tier: 'advanced', class: 'square' },
+    
+    // ROGUE-SPECIFIC (Triangle)
+    cloneDuration: { min: 0.20, max: 0.50, slot: ['accessory', 'armor'], weight: 1.0, tier: 'advanced', class: 'triangle' },
+    dashCooldown: { min: 0.15, max: 0.25, slot: ['armor', 'accessory'], weight: 1.0, tier: 'advanced', class: 'triangle' },
+    
+    // TANK-SPECIFIC (Pentagon)
+    shieldWidth: { min: 0.20, max: 0.40, slot: ['armor', 'accessory'], weight: 1.0, tier: 'advanced', class: 'pentagon' },
+    
+    // MAGE-SPECIFIC (Hexagon)
+    beamTickRate: { min: 0.15, max: 0.35, slot: ['weapon', 'accessory'], weight: 1.0, tier: 'advanced', class: 'hexagon' },
+    beamDuration: { min: 0.2, max: 0.5, slot: ['weapon', 'accessory'], weight: 1.0, tier: 'advanced', class: 'hexagon' },
+    
     // RARE TIER
     dodgeCharges: { min: 1, max: 1, slot: ['armor', 'accessory'], weight: 0.3, tier: 'rare' },
     pierce: { min: 1, max: 3, slot: ['weapon'], weight: 0.5, tier: 'rare' },
@@ -52,12 +67,20 @@ const AFFIX_POOL = {
     explosiveAttacks: { min: 0.12, max: 0.25, slot: ['weapon'], weight: 0.5, tier: 'rare' },
     fortify: { min: 0.05, max: 0.15, slot: ['armor'], weight: 0.5, tier: 'rare' },
     overcharge: { min: 0.15, max: 0.3, slot: ['accessory'], weight: 0.3, tier: 'rare' },
-    beamCharges: { min: 1, max: 1, slot: ['weapon', 'accessory'], weight: 0.3, tier: 'rare' },
-    beamPenetration: { min: 1, max: 2, slot: ['weapon', 'accessory'], weight: 0.4, tier: 'rare' },
     
-    // MAGE-SPECIFIC ADVANCED TIER
-    beamTickRate: { min: 0.15, max: 0.35, slot: ['weapon', 'accessory'], weight: 1.0, tier: 'advanced' },
-    beamDuration: { min: 0.2, max: 0.5, slot: ['weapon', 'accessory'], weight: 1.0, tier: 'advanced' }
+    // WARRIOR-SPECIFIC (Square)
+    cleaveArea: { min: 0.15, max: 0.30, slot: ['weapon'], weight: 1.0, tier: 'rare', class: 'square' },
+    
+    // ROGUE-SPECIFIC (Triangle)
+    fanCount: { min: 1, max: 2, slot: ['weapon'], weight: 1.0, tier: 'rare', class: 'triangle' },
+    
+    // TANK-SPECIFIC (Pentagon)
+    shoutStun: { min: 0.3, max: 0.8, slot: ['weapon', 'armor'], weight: 1.0, tier: 'rare', class: 'pentagon' },
+    hammerHeal: { min: 0.02, max: 0.04, slot: ['weapon'], weight: 1.0, tier: 'rare', class: 'pentagon' },
+    
+    // MAGE-SPECIFIC (Hexagon)
+    beamCharges: { min: 1, max: 1, slot: ['weapon', 'accessory'], weight: 0.3, tier: 'rare', class: 'hexagon' },
+    beamPenetration: { min: 1, max: 2, slot: ['weapon', 'accessory'], weight: 0.4, tier: 'rare', class: 'hexagon' }
 };
 
 // Tiered affix slot allocation per gear tier
@@ -227,6 +250,20 @@ function generateAffixes(gearTier, slot) {
     const slotConfig = TIERED_AFFIX_SLOTS[gearTier];
     if (!slotConfig) return [];
     
+    // Determine active classes for smart loot distribution
+    const activeClasses = new Set();
+    if (typeof Game !== 'undefined') {
+        if (Game.player && Game.player.playerClass) {
+            activeClasses.add(Game.player.playerClass);
+        }
+        // Check other players in multiplayer
+        if (Game.players) {
+            Game.players.forEach(p => {
+                if (p && p.playerClass) activeClasses.add(p.playerClass);
+            });
+        }
+    }
+    
     const selectedAffixes = [];
     const usedAffixTypes = new Set(); // Prevent duplicates across all tiers
     
@@ -241,10 +278,27 @@ function generateAffixes(gearTier, slot) {
         for (const affixType of tierAffixes) {
             const affixData = AFFIX_POOL[affixType];
             if (affixData && affixData.slot.includes(slot) && !usedAffixTypes.has(affixType)) {
+                // Smart Loot Logic:
+                // 1. If affix has no class requirement, add it (universal)
+                // 2. If affix has class requirement AND that class is active, add it with boosted weight
+                // 3. If affix has class requirement BUT class is NOT active, skip it (or add with very low weight)
+                
+                let weight = affixData.weight || 1.0;
+                
+                if (affixData.class) {
+                    if (activeClasses.has(affixData.class)) {
+                        // Boost weight for active class affixes to ensure they drop
+                        weight *= 4.0; 
+                    } else {
+                        // Skip affixes for inactive classes
+                        continue; 
+                    }
+                }
+                
                 compatible.push({
                     type: affixType,
                     data: affixData,
-                    weight: affixData.weight || 1.0
+                    weight: weight
                 });
             }
         }
@@ -274,7 +328,10 @@ function generateAffixes(gearTier, slot) {
             
             let value = selected.data.min + Math.random() * (selected.data.max - selected.data.min);
             // Round integer affixes to whole numbers
-            const integerAffixes = ['dodgeCharges', 'maxHealth', 'pierce', 'chainLightning', 'multishot', 'beamCharges', 'beamPenetration'];
+            const integerAffixes = [
+                'dodgeCharges', 'maxHealth', 'pierce', 'chainLightning', 'multishot', 
+                'beamCharges', 'beamPenetration', 'fanCount'
+            ];
             if (integerAffixes.includes(selected.type)) {
                 value = Math.round(value);
             }
@@ -597,7 +654,22 @@ const AFFIX_VISUAL_MAP = {
     beamCharges: { shape: 'charge', color: { r: 150, g: 100, b: 255 } },
     beamTickRate: { shape: 'pulse', color: { r: 255, g: 150, b: 200 } },
     beamDuration: { shape: 'extend', color: { r: 200, g: 100, b: 255 } },
-    beamPenetration: { shape: 'penetrate', color: { r: 100, g: 200, b: 255 } }
+    beamPenetration: { shape: 'penetrate', color: { r: 100, g: 200, b: 255 } },
+    
+    // Warrior affixes
+    whirlwindRadius: { shape: 'spiral', color: { r: 255, g: 150, b: 50 } },
+    thrustSpeed: { shape: 'arrow', color: { r: 255, g: 100, b: 50 } },
+    cleaveArea: { shape: 'arc', color: { r: 255, g: 80, b: 0 } },
+    
+    // Rogue affixes
+    cloneDuration: { shape: 'ghost', color: { r: 255, g: 50, b: 150 } },
+    dashCooldown: { shape: 'flash', color: { r: 255, g: 100, b: 200 } },
+    fanCount: { shape: 'fan', color: { r: 200, g: 0, b: 100 } },
+    
+    // Tank affixes
+    shieldWidth: { shape: 'wall', color: { r: 100, g: 150, b: 255 } },
+    shoutStun: { shape: 'ring', color: { r: 200, g: 50, b: 50 } },
+    hammerHeal: { shape: 'heart', color: { r: 50, g: 255, b: 100 } }
 };
 
 // Tier opacity settings

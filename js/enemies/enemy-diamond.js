@@ -718,10 +718,41 @@ class DiamondEnemy extends EnemyBase {
             };
 
             const enemyType = this.constructor.name;
-            const dropChance = dropChances[enemyType] || 0.040;
+            let baseDropChance = dropChances[enemyType] || 0.040;
+
+            // Apply scaling to prevent item overflow in later rooms
+            // 1. Room-based scaling: Reduce drop rate as room number increases
+            const roomNumber = (typeof Game !== 'undefined' && Game.roomNumber) ? Game.roomNumber : 1;
+            // Scale from 100% at room 1 to ~40% at room 50 (smooth curve)
+            const roomScale = Math.max(0.4, 1.0 - (roomNumber - 1) * 0.012); // ~1.2% reduction per room
+
+            // 2. Per-room item cap with diminishing returns
+            const itemsDropped = (typeof Game !== 'undefined' && Game.itemsDroppedThisRoom) ? Game.itemsDroppedThisRoom : 0;
+            // After 2 items, start reducing drop chance (diminishing returns)
+            // At 2 items: 100%, at 4 items: ~50%, at 6 items: ~25%, at 8+ items: ~10%
+            let itemCountScale = 1.0;
+            if (itemsDropped >= 2) {
+                const excessItems = itemsDropped - 1; // Items beyond the first
+                itemCountScale = Math.max(0.1, 1.0 / (1.0 + excessItems * 0.5)); // Diminishing returns
+            }
+
+            // 3. Enemy count-based scaling: Reduce drop rate when there are many enemies
+            let enemyCountScale = 1.0;
+            if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.enemies) {
+                const initialEnemyCount = currentRoom.enemies.length;
+                // If room has 30+ enemies, start scaling down (more enemies = lower per-enemy drop rate)
+                if (initialEnemyCount >= 30) {
+                    // Scale from 100% at 30 enemies to ~60% at 60 enemies
+                    const excessEnemies = initialEnemyCount - 30;
+                    enemyCountScale = Math.max(0.6, 1.0 - (excessEnemies / 30) * 0.4);
+                }
+            }
+
+            // Apply all scaling factors
+            const finalDropChance = baseDropChance * roomScale * itemCountScale * enemyCountScale;
 
             // Roll for item drop
-            if (Math.random() < dropChance) {
+            if (Math.random() < finalDropChance) {
                 const itemDef = getRandomItem();
 
                 // Check if in multiplayer - use pylons instead of ground items
@@ -733,7 +764,14 @@ class DiamondEnemy extends EnemyBase {
                     // Create item pylon (multiplayer)
                     if (typeof createItemPylon === 'function') {
                         createItemPylon(this.x, this.y, itemDef);
-                        console.log(`[Item Pylon] ${itemDef.name} (${itemDef.rarity}) from ${enemyType}`);
+                        
+                        // Increment item drop counter for this room
+                        if (typeof Game !== 'undefined') {
+                            if (!Game.itemsDroppedThisRoom) Game.itemsDroppedThisRoom = 0;
+                            Game.itemsDroppedThisRoom++;
+                        }
+                        
+                        console.log(`[Item Pylon] ${itemDef.name} (${itemDef.rarity}) from ${enemyType} (Room ${roomNumber}, Total: ${Game.itemsDroppedThisRoom || 0})`);
                     }
                 } else {
                     // Create ground item (single player)
@@ -752,7 +790,13 @@ class DiamondEnemy extends EnemyBase {
                     if (!Game.groundItems) Game.groundItems = [];
                     Game.groundItems.push(groundItem);
 
-                    console.log(`[Item Drop] ${itemDef.name} (${itemDef.rarity}) from ${enemyType}`);
+                    // Increment item drop counter for this room
+                    if (typeof Game !== 'undefined') {
+                        if (!Game.itemsDroppedThisRoom) Game.itemsDroppedThisRoom = 0;
+                        Game.itemsDroppedThisRoom++;
+                    }
+
+                    console.log(`[Item Drop] ${itemDef.name} (${itemDef.rarity}) from ${enemyType} (Room ${roomNumber}, Total: ${Game.itemsDroppedThisRoom || 0})`);
                 }
             }
         }

@@ -135,11 +135,12 @@ const DebugPanel = {
 
         // Keyboard shortcut (Ctrl+D)
         document.addEventListener('keydown', (e) => {
-            if (e.ctrlKey && e.key === 'd') {
+            if (e.ctrlKey && e.key === 'd' || e.ctrlKey && e.key === 'D') {
                 e.preventDefault();
+                e.stopPropagation();
                 this.toggle();
             }
-        });
+        }, { capture: true });
     },
 
     setupEventListeners() {

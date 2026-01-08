@@ -297,7 +297,7 @@ class Warrior extends PlayerBase {
                 }
 
                 const baseWhirlwindDamage = this.damage * WARRIOR_CONFIG.whirlwindDamage * this.whirlwindDamageMultiplier; // Apply class modifier
-                const whirlwindRadius = this.size + WARRIOR_CONFIG.whirlwindRadius;
+                const whirlwindRadius = (this.size + WARRIOR_CONFIG.whirlwindRadius) * (this.whirlwindRadiusMultiplier || 1.0);
 
                 Game.enemies.forEach(enemy => {
                     if (enemy.alive) {
@@ -553,7 +553,7 @@ class Warrior extends PlayerBase {
         }
 
         // Warrior: Sword swing with hitboxes spread out in a line
-        const hitboxRadius = WARRIOR_CONFIG.cleaveHitboxRadius * (this.aoeMultiplier || 1.0); // Apply AoE multiplier
+        const hitboxRadius = WARRIOR_CONFIG.cleaveHitboxRadius * (this.aoeMultiplier || 1.0) * (this.cleaveAreaMultiplier || 1.0); // Apply AoE multiplier
         const cleaveDamage = this.damage * WARRIOR_CONFIG.cleaveDamage;
 
         // Get gameplay position (authoritative position in multiplayer)
@@ -659,7 +659,7 @@ class Warrior extends PlayerBase {
             (this.thrustTargetY - this.thrustStartY) ** 2
         );
         const baseThrustDistance = WARRIOR_CONFIG.thrustDistance;
-        const scaledThrustDuration = WARRIOR_CONFIG.thrustDuration * (actualDistance / baseThrustDistance);
+        const scaledThrustDuration = (WARRIOR_CONFIG.thrustDuration / (this.thrustSpeedMultiplier || 1.0)) * (actualDistance / baseThrustDistance);
         this.thrustDuration = scaledThrustDuration;
 
         // Grant invincibility during thrust (scaled with distance)

@@ -1974,6 +1974,20 @@ class PlayerBase {
         this.beamTickRateMultiplier = 1.0;
         this.beamDurationMultiplier = 1.0;
         this.bonusBeamPenetration = 0;
+        
+        // Warrior affixes
+        this.whirlwindRadiusMultiplier = 1.0;
+        this.thrustSpeedMultiplier = 1.0;
+        this.cleaveAreaMultiplier = 1.0;
+        // Rogue affixes
+        this.cloneDurationMultiplier = 1.0;
+        this.dashCooldownMultiplier = 1.0;
+        this.fanCountBonus = 0;
+        // Tank affixes
+        this.shieldWidthMultiplier = 1.0;
+        this.shoutStunBonus = 0;
+        this.hammerHealBonus = 0;
+        
         this.damageMultiplier = 1.0;
         this.defenseMultiplier = 1.0;
         this.healthMultiplier = 1.0;
@@ -2358,6 +2372,40 @@ class PlayerBase {
                 break;
             case 'beamPenetration':
                 this.bonusBeamPenetration += Math.floor(affix.value);
+                break;
+            
+            // Warrior affixes
+            case 'whirlwindRadius':
+                this.whirlwindRadiusMultiplier += affix.value;
+                break;
+            case 'thrustSpeed':
+                this.thrustSpeedMultiplier += affix.value;
+                break;
+            case 'cleaveArea':
+                this.cleaveAreaMultiplier += affix.value;
+                break;
+                
+            // Rogue affixes
+            case 'cloneDuration':
+                this.cloneDurationMultiplier += affix.value;
+                break;
+            case 'dashCooldown':
+                // Reduction - subtract from multiplier (e.g., 0.2 = 20% faster = 0.8x cooldown)
+                this.dashCooldownMultiplier -= affix.value;
+                break;
+            case 'fanCount':
+                this.fanCountBonus += Math.floor(affix.value);
+                break;
+                
+            // Tank affixes
+            case 'shieldWidth':
+                this.shieldWidthMultiplier += affix.value;
+                break;
+            case 'shoutStun':
+                this.shoutStunBonus += affix.value;
+                break;
+            case 'hammerHeal':
+                this.hammerHealBonus += affix.value;
                 break;
         }
     }

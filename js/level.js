@@ -177,13 +177,14 @@ function generateRoom(roomNumber) {
         const gameMode = (typeof Game !== 'undefined' && Game.gameMode) ? Game.gameMode : 'cards';
 
         if (gameMode === 'gear') {
-            // Gear mode: bosses at room 10, then every 5 rooms (10, 15, 20, 25, 30, etc.)
-            if (roomNumber >= 10 && (roomNumber - 10) % 5 === 0) {
+            // Gear mode: bosses at room 10, then every 5 rooms until room 30
+            // After room 30, bosses spawn as elite enemies in normal rooms (not boss rooms)
+            if (roomNumber >= 10 && roomNumber <= 30 && (roomNumber - 10) % 5 === 0) {
                 roomType = 'boss';
             }
         } else {
-            // Card mode: Boss rooms per spec at rooms 12, 22, 32 - only if no modifier override
-            // (Modifier overrides already handled above, so this is default behavior only)
+            // Card mode: Boss rooms per spec at rooms 12, 22, 32 only
+            // After room 32, bosses spawn as elite enemies in normal rooms (not boss rooms)
             if (roomNumber === 12 || roomNumber === 22 || roomNumber === 32) {
                 roomType = 'boss';
             } else {
@@ -518,6 +519,121 @@ function generateRoom(roomNumber) {
         }
     }
 
+    // Boss elite enemy system after room 30
+    if (roomNumber > 30 && roomType === 'normal') {
+        let bossesToSpawn = 0;
+        
+        // Guaranteed boss spawns every 5 rooms after room 30 (35, 40, 45, 50, 55, etc.)
+        if (roomNumber > 30 && (roomNumber % 5 === 0)) {
+            // After room 50 (starting at room 55), guarantee 2 bosses; rooms 35-50 guarantee 1
+            const guaranteedCount = roomNumber > 50 ? 2 : 1;
+            bossesToSpawn = guaranteedCount;
+            console.log(`[Room ${roomNumber}] Guaranteed ${guaranteedCount} boss(es) as elite enemies`);
+        } else {
+            // For non-guaranteed rooms, apply random boss spawn chance
+            const roomsPast30 = roomNumber - 30;
+            const baseBossChance = 0.05; // 5% at room 30
+            const chancePerRoom = 0.005; // +0.5% per room
+            const randomBossChance = baseBossChance + (roomsPast30 * chancePerRoom);
+            
+            if (Math.random() < randomBossChance) {
+                bossesToSpawn = 1;
+                
+                // After room 50, chance for second random boss
+                if (roomNumber >= 50) {
+                    const roomsPast50 = roomNumber - 50;
+                    const baseDoubleChance = 0.10; // 10% at room 50
+                    const doubleChancePerRoom = 0.005; // +0.5% per room
+                    const doubleBossChance = baseDoubleChance + (roomsPast50 * doubleChancePerRoom);
+                    
+                    if (Math.random() < doubleBossChance) {
+                        bossesToSpawn = 2;
+                    }
+                }
+            }
+        }
+        
+        // Spawn bosses at random positions (avoiding player spawn area and other bosses)
+        const bossMargin = 200;
+        const minBossDistance = 400; // Minimum distance between bosses
+        const spawnedBossPositions = []; // Track boss positions to avoid overlap
+        
+        for (let i = 0; i < bossesToSpawn; i++) {
+            let bossX, bossY;
+            let attempts = 0;
+            let validPosition = false;
+            
+            while (!validPosition && attempts < 100) {
+                bossX = random(bossMargin, room.width - bossMargin);
+                bossY = random(bossMargin, room.height - bossMargin);
+                
+                // Check distance from spawn zone
+                const dx = bossX - spawnZoneX;
+                const dy = bossY - spawnZoneY;
+                const distFromSpawn = Math.sqrt(dx * dx + dy * dy);
+                
+                // Check distance from other already-spawned bosses
+                let farFromOtherBosses = true;
+                for (const pos of spawnedBossPositions) {
+                    const distDx = bossX - pos.x;
+                    const distDy = bossY - pos.y;
+                    const dist = Math.sqrt(distDx * distDx + distDy * distDy);
+                    if (dist < minBossDistance) {
+                        farFromOtherBosses = false;
+                        break;
+                    }
+                }
+                
+                // Ensure boss is far from spawn zone and other bosses
+                if (distFromSpawn >= spawnZoneRadius + 200 && farFromOtherBosses) {
+                    validPosition = true;
+                }
+                attempts++;
+            }
+            
+            if (validPosition) {
+                const boss = spawnBossAsElite(bossX, bossY, roomNumber);
+                if (boss) {
+                    // Store position to avoid overlap with future bosses
+                    spawnedBossPositions.push({ x: bossX, y: bossY });
+                    
+                    // Elite bosses should activate immediately since they don't use normal activation checks
+                    // Assign a target immediately so they start active
+                    const allPlayers = boss.getAllAlivePlayers();
+                    if (allPlayers.length > 0) {
+                        const alivePlayers = allPlayers.filter(p => p.player && p.player.alive !== false);
+                        if (alivePlayers.length > 0) {
+                            // Pick a random alive player as target for this boss
+                            const randomIndex = Math.floor(Math.random() * alivePlayers.length);
+                            boss.currentTarget = alivePlayers[randomIndex].id;
+                        }
+                    }
+                    
+                    // Set state to active
+                    boss.state = 'chase';
+                    boss.activated = true;
+                    
+                    // Give each boss a unique ID to prevent conflicts
+                    if (!boss.id) {
+                        boss.id = `boss_${roomNumber}_${i}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                    }
+                    
+                    // Mark that this boss is an elite enemy (not in a boss room)
+                    boss.isEliteEnemy = true;
+                    
+                    room.enemies.push(boss);
+                    console.log(`[Room ${roomNumber}] Spawned elite boss: ${boss.bossName || 'Unknown'} at (${bossX.toFixed(0)}, ${bossY.toFixed(0)}) - Total bosses: ${spawnedBossPositions.length}`);
+                }
+            } else {
+                console.warn(`[Room ${roomNumber}] Failed to find valid position for boss ${i + 1}/${bossesToSpawn} after ${attempts} attempts`);
+            }
+        }
+        
+        if (bossesToSpawn > 0) {
+            console.log(`[Room ${roomNumber}] Total elite bosses spawned: ${spawnedBossPositions.length}/${bossesToSpawn}`);
+        }
+    }
+
     return room;
 }
 
@@ -802,6 +918,47 @@ function getDoorPosition() {
     };
 }
 
+// Boss tracking system - track which bosses have been encountered
+// Initialize encounteredBosses in Game object if not already present
+if (typeof Game !== 'undefined' && !Game.encounteredBosses) {
+    Game.encounteredBosses = {};
+}
+
+// Get available boss types for random selection (excluding Fortress if already encountered)
+function getAvailableBossTypes(roomNumber) {
+    const availableBosses = [
+        { name: 'Swarm King', constructor: BossSwarmKing },
+        { name: 'Twin Prism', constructor: BossTwinPrism },
+        { name: 'Fractal Core', constructor: BossFractalCore },
+        { name: 'Vortex', constructor: BossVortex }
+    ];
+    
+    // Exclude Fortress if it has already been encountered
+    if (typeof Game !== 'undefined' && Game.encounteredBosses && Game.encounteredBosses['Fortress']) {
+        // Fortress already encountered, exclude it
+        return availableBosses;
+    }
+    
+    // Include Fortress if not yet encountered
+    return [
+        ...availableBosses,
+        { name: 'Fortress', constructor: BossFortress }
+    ];
+}
+
+// Select a random boss type from available bosses
+function selectRandomBossType(roomNumber) {
+    const availableBosses = getAvailableBossTypes(roomNumber);
+    
+    if (availableBosses.length === 0) {
+        console.warn('No available bosses - using Swarm King as fallback');
+        return { name: 'Swarm King', constructor: BossSwarmKing };
+    }
+    
+    const randomIndex = Math.floor(Math.random() * availableBosses.length);
+    return availableBosses[randomIndex];
+}
+
 // Generate boss based on room number
 function generateBoss(roomNumber) {
     // Boss spawns at center of room (use new room size)
@@ -823,6 +980,8 @@ function generateBoss(roomNumber) {
     // Determine which boss to spawn based on room number and game mode
     const gameMode = (typeof Game !== 'undefined' && Game.gameMode) ? Game.gameMode : 'cards';
 
+    // Note: Random boss selection for elite enemies is handled by spawnBossAsElite()
+    // This function still uses normal boss selection logic for boss rooms
     if (gameMode === 'gear') {
         // Gear mode: bosses at room 10, 15, 20, 25, 30, etc.
         // Cycle through bosses: Swarm King, Twin Prism, Fortress, Fractal Core, Vortex
@@ -867,6 +1026,23 @@ function generateBoss(roomNumber) {
         }
     }
 
+    // Track boss appearance (especially Fortress for exclusion)
+    if (boss && typeof Game !== 'undefined') {
+        if (!Game.encounteredBosses) {
+            Game.encounteredBosses = {};
+        }
+        const bossName = boss.bossName || 'Unknown';
+        if (!Game.encounteredBosses[bossName]) {
+            Game.encounteredBosses[bossName] = true;
+            console.log(`[Boss Tracking] First encounter with ${bossName}`);
+        }
+    }
+
+    // Skip intro animations for bosses after room 30
+    if (boss && roomNumber > 30) {
+        boss.introComplete = true;
+    }
+
     // Apply room scaling and multiplayer scaling to boss stats
     // Increased scaling to match faster progression
     if (boss) {
@@ -884,6 +1060,44 @@ function generateBoss(roomNumber) {
         }
     }
 
+    return boss;
+}
+
+// Spawn a boss as an elite enemy (no intro, random position, proper scaling)
+function spawnBossAsElite(x, y, roomNumber) {
+    // Get multiplayer scaling multipliers
+    const mpScaling = getMultiplayerScaling();
+    
+    // Select random boss type (excluding Fortress if already encountered)
+    const bossType = selectRandomBossType(roomNumber);
+    let boss = new bossType.constructor(x, y);
+    
+    // Track boss appearance (especially Fortress for exclusion)
+    if (typeof Game !== 'undefined') {
+        if (!Game.encounteredBosses) {
+            Game.encounteredBosses = {};
+        }
+        const bossName = boss.bossName || 'Unknown';
+        if (!Game.encounteredBosses[bossName]) {
+            Game.encounteredBosses[bossName] = true;
+            console.log(`[Boss Tracking] First encounter with ${bossName}`);
+        }
+    }
+    
+    // Skip intro animation - set introComplete immediately
+    boss.introComplete = true;
+    
+    // Apply room scaling and multiplayer scaling to boss stats
+    const roomIndex = Math.max(0, roomNumber - 1);
+    const bossHpScale = Math.pow(1 + BOSS_HP_GROWTH_PER_ROOM, roomIndex);
+    const bossDamageScale = Math.pow(1 + BOSS_DAMAGE_GROWTH_PER_ROOM, roomIndex);
+    const baseHP = boss.maxHp * bossHpScale;
+    boss.maxHp = Math.floor(baseHP * mpScaling.bossHP);
+    boss.hp = boss.maxHp;
+    boss.damage = boss.damage * bossDamageScale * mpScaling.bossDamage;
+    
+    // Don't play boss spawn sound for elite spawns (they're mixed with normal enemies)
+    
     return boss;
 }
 

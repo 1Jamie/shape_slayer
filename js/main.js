@@ -193,6 +193,7 @@ const Game = {
     bossesKilled: 0, // Track bosses killed
     roomNumber: 1,
     doorPulse: 0, // For door animation
+    itemsDroppedThisRoom: 0, // Track items dropped in current room for balancing
 
     // Per-player stats tracking (new system)
     playerStats: new Map(), // Map<playerId, PlayerStats>
@@ -2691,6 +2692,15 @@ const Game = {
             return;
         }
 
+        // Disable boss intros after room 30
+        const currentRoomNumber = this.roomNumber || (typeof currentRoom !== 'undefined' && currentRoom ? currentRoom.number : 0);
+        if (currentRoomNumber > 30) {
+            // Skip intro - immediately mark as complete
+            boss.introComplete = true;
+            console.log(`Boss intro skipped for ${boss.bossName} (room ${currentRoomNumber} > 30)`);
+            return;
+        }
+
         this.bossIntroActive = true;
         this.bossIntroData = {
             boss: boss,
@@ -3258,6 +3268,9 @@ const Game = {
         // Reset door waiting state
         this.playersOnDoor = [];
         this.totalAlivePlayers = 0;
+        
+        // Reset item drop counter for new room
+        this.itemsDroppedThisRoom = 0;
 
         // Phoenix down is now charge-based, no need to reset per room
         // Charges persist across rooms and are recharged by dealing damage
@@ -5506,6 +5519,7 @@ const Game = {
         this.enemiesKilled = 0;
         this.roomNumber = 1;
         this.doorPulse = 0;
+        this.itemsDroppedThisRoom = 0;
         this.startTime = Date.now();
         this.endTime = 0; // Reset end time
         this.deathScreenStartTime = 0; // Reset death screen timer
@@ -5604,11 +5618,27 @@ const Game = {
 
             // No longer pre-assign targets - proximity detection and damage-based aggro handle targeting
 
-            // Check if this is a boss room and start intro
+            // Check if this is a boss room and start intro (skip if room > 30)
             if (currentRoom.type === 'boss' && this.enemies.length > 0 && this.enemies[0].isBoss) {
                 const boss = this.enemies[0];
-                // Start boss intro
-                this.startBossIntro(boss);
+                const currentRoomNumber = this.roomNumber || (currentRoom ? currentRoom.number : 0);
+                if (currentRoomNumber <= 30) {
+                    // Start boss intro only for rooms 30 and below
+                    this.startBossIntro(boss);
+                } else {
+                    // Skip intro for rooms after 30
+                    boss.introComplete = true;
+                }
+            }
+            
+            // Also check for bosses in normal rooms after room 30 (elite enemies)
+            if (this.roomNumber > 30 && currentRoom.type === 'normal') {
+                // Ensure all bosses in normal rooms skip intro
+                for (let enemy of this.enemies) {
+                    if (enemy && enemy.isBoss && !enemy.introComplete) {
+                        enemy.introComplete = true;
+                    }
+                }
             }
         }
 
