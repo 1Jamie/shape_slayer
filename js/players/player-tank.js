@@ -432,7 +432,7 @@ class Tank extends PlayerBase {
                     if (distance < shoutRadius) {
                         // Apply stun
                         if (enemy.applyStun) {
-                            enemy.applyStun(TANK_CONFIG.shoutStunDuration);
+                            enemy.applyStun(TANK_CONFIG.shoutStunDuration + (this.shoutStunBonus || 0));
                         }
                         
                         // Apply slow (will activate after stun expires)
@@ -552,7 +552,7 @@ class Tank extends PlayerBase {
             if (typeof Game !== 'undefined' && Game.enemies) {
                 const shieldDistance = this.size + TANK_CONFIG.shieldDistance;
                 const shieldDepth = TANK_CONFIG.shieldDepth;
-                const shieldWidth = TANK_CONFIG.shieldWidth;
+                const shieldWidth = TANK_CONFIG.shieldWidth * (this.shieldWidthMultiplier || 1.0);
                 const shieldVisualStart = this.size + TANK_CONFIG.shieldDistance - (shieldDepth / 2);
                 
                 Game.enemies.forEach(enemy => {
@@ -725,7 +725,7 @@ class Tank extends PlayerBase {
     renderClassVisuals(ctx) {
         const shieldVisualStart = this.size + TANK_CONFIG.shieldDistance - (TANK_CONFIG.shieldDepth / 2);
         const shieldVisualDepth = TANK_CONFIG.shieldDepth;
-        const shieldVisualHalfWidth = TANK_CONFIG.shieldWidth / 2;
+        const shieldVisualHalfWidth = (TANK_CONFIG.shieldWidth * (this.shieldWidthMultiplier || 1.0)) / 2;
         
         // Draw hammer attack hitboxes with trail
         this.attackHitboxes.forEach(hitbox => {
@@ -794,14 +794,15 @@ class Tank extends PlayerBase {
             ctx.rotate(this.rotation);
             
             // Draw wide thin shield (thin in depth, wide laterally)
+            const effectiveShieldWidth = TANK_CONFIG.shieldWidth * (this.shieldWidthMultiplier || 1.0);
             ctx.fillStyle = 'rgba(150, 200, 255, 0.3)';
             ctx.beginPath();
-            ctx.rect(shieldVisualStart, -shieldVisualHalfWidth, shieldVisualDepth, TANK_CONFIG.shieldWidth);
+            ctx.rect(shieldVisualStart, -effectiveShieldWidth / 2, shieldVisualDepth, effectiveShieldWidth);
             ctx.fill();
             
             ctx.strokeStyle = 'rgba(150, 200, 255, 0.8)';
             ctx.lineWidth = 4;
-            ctx.strokeRect(shieldVisualStart, -shieldVisualHalfWidth, shieldVisualDepth, TANK_CONFIG.shieldWidth);
+            ctx.strokeRect(shieldVisualStart, -effectiveShieldWidth / 2, shieldVisualDepth, effectiveShieldWidth);
             
             ctx.restore();
         }

@@ -175,6 +175,11 @@ class Rogue extends PlayerBase {
         // Call parent (applies stat modifiers from cards)
         super.updateEffectiveStats();
         
+        // Apply dash cooldown multiplier from affixes
+        if (this.dashCooldownMultiplier && this.dashCooldownMultiplier !== 1.0) {
+            this.dodgeCooldownTime *= this.dashCooldownMultiplier;
+        }
+        
         // Apply ability mutator card effects
         if (typeof DeckState !== 'undefined' && typeof CardEffects !== 'undefined' && CardEffects.getAbilityModifiers) {
             const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
@@ -393,7 +398,7 @@ class Rogue extends PlayerBase {
         
         // Rogue: Fan of knives - throw multiple knives in a spread pattern
         const knifeDamage = this.damage * ROGUE_CONFIG.fanKnifeDamage;
-        const numKnives = ROGUE_CONFIG.fanKnifeCount + this.knifeCountBonus; // Apply class modifier
+        const numKnives = ROGUE_CONFIG.fanKnifeCount + this.knifeCountBonus + (this.fanCountBonus || 0); // Apply class modifier
         const spreadAngle = ROGUE_CONFIG.fanSpreadAngle;
         const knifeSpeed = ROGUE_CONFIG.fanKnifeSpeed;
         
@@ -504,7 +509,7 @@ class Rogue extends PlayerBase {
             distance = ROGUE_CONFIG.shadowCloneDistance,
             maxHealth = ROGUE_CONFIG.shadowCloneMaxHealth,
             health = null,
-            healthDecayRate = ROGUE_CONFIG.shadowCloneHealthDecay,
+            healthDecayRate = ROGUE_CONFIG.shadowCloneHealthDecay / (this.cloneDurationMultiplier || 1.0),
             x = null,
             y = null,
             rotation = this.rotation

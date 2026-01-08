@@ -521,7 +521,8 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                     
                     // Tank heal on hit (host/solo only)
                     if (!isClient && player.playerClass === 'pentagon') {
-                        const healPercent = typeof TANK_CONFIG !== 'undefined' ? TANK_CONFIG.hammerHealOnHit : 0.075;
+                        const baseHealPercent = typeof TANK_CONFIG !== 'undefined' ? TANK_CONFIG.hammerHealOnHit : 0.075;
+                        const healPercent = baseHealPercent + (player.hammerHealBonus || 0); // Apply affix bonus
                         const healAmount = damageDealt * healPercent;
                         player.hp = Math.min(player.hp + healAmount, player.maxHp);
                         

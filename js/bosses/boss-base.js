@@ -433,6 +433,8 @@ class BossBase extends EnemyBase {
         // Item drop system (bosses have high chance to drop items)
         if (typeof Game !== 'undefined' && typeof ITEM_DEFINITIONS !== 'undefined' && typeof getRandomItem === 'function') {
             // Bosses have 50% chance to drop an item (highest drop rate)
+            // Bosses are exempt from scaling since they're rare and should feel rewarding
+            const roomNumber = (typeof Game !== 'undefined' && Game.roomNumber) ? Game.roomNumber : 1;
             if (Math.random() < 0.50) {
                 const itemDef = getRandomItem();
 
@@ -445,7 +447,14 @@ class BossBase extends EnemyBase {
                     // Create item pylon (multiplayer)
                     if (typeof createItemPylon === 'function') {
                         createItemPylon(this.x, this.y, itemDef);
-                        console.log(`[Item Pylon] ${itemDef.name} (${itemDef.rarity}) from Boss`);
+                        
+                        // Increment item drop counter for this room
+                        if (typeof Game !== 'undefined') {
+                            if (!Game.itemsDroppedThisRoom) Game.itemsDroppedThisRoom = 0;
+                            Game.itemsDroppedThisRoom++;
+                        }
+                        
+                        console.log(`[Item Pylon] ${itemDef.name} (${itemDef.rarity}) from Boss (Room ${roomNumber}, Total: ${Game.itemsDroppedThisRoom || 0})`);
                     }
                 } else {
                     // Create ground item (single player)
@@ -464,7 +473,13 @@ class BossBase extends EnemyBase {
                     if (!Game.groundItems) Game.groundItems = [];
                     Game.groundItems.push(groundItem);
 
-                    console.log(`[Item Drop] ${itemDef.name} (${itemDef.rarity}) from Boss`);
+                    // Increment item drop counter for this room
+                    if (typeof Game !== 'undefined') {
+                        if (!Game.itemsDroppedThisRoom) Game.itemsDroppedThisRoom = 0;
+                        Game.itemsDroppedThisRoom++;
+                    }
+
+                    console.log(`[Item Drop] ${itemDef.name} (${itemDef.rarity}) from Boss (Room ${roomNumber}, Total: ${Game.itemsDroppedThisRoom || 0})`);
                 }
             }
         }
