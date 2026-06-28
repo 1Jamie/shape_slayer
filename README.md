@@ -164,7 +164,7 @@ SERVER_MODE=slave MASTER_SERVER_IP=10.0.0.100 WORKER_COUNT=4 npm start   # scale
 
 - Default WebSocket port: **4000**
 - Configure lobby size, interpolation, and reconnect behavior in `js/mp-config.js`
-- Sample production URL (`wss://shape-slayer.goodgirl.software`) ships ready to play if you don’t want to self-host
+- Sample production URL (`wss://shape-slayer.gpe.pet`) ships ready to play if you don’t want to self-host
 
 ## Credits & Community
 

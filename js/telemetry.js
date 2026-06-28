@@ -1,5 +1,5 @@
 (() => {
-    const METRICS_ENDPOINT = 'https://metrics.goodgirl.software/ingest';
+    const METRICS_ENDPOINT = 'https://metrics.gpe.pet/ingest';
 
     function generateRunId() {
         if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -539,11 +539,11 @@
                     }
                 });
             }
-            
+
             // Recalculate affix pool from final player summaries (includes all gear changes during run)
             const finalPlayerSummaries = Array.from(state.activeRun.playerSummaries.values());
             state.activeRun.affixPool = summarizeAffixPool(finalPlayerSummaries);
-            
+
             state.activeRun.metadata = mergedMetadata;
 
             this.recordRoomsCleared(roomsClearedByPlayer);

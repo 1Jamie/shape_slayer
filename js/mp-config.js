@@ -5,25 +5,25 @@ const MultiplayerConfig = {
     // CHANGE THIS to point to your multiplayer server
     // For local testing: 'ws://localhost:4000'
     // For production: 'wss://yourdomain.com' or 'ws://your-server-ip:4000'
-    SERVER_URL: 'wss://shape-slayer.goodgirl.software',
-    
+    SERVER_URL: 'wss://shape-slayer.gpe.pet',
+
     // Connection settings
     RECONNECT_ATTEMPTS: 3,
     RECONNECT_DELAY: 2000, // milliseconds
     HEARTBEAT_INTERVAL: 30000, // milliseconds (30 seconds)
-    
+
     // State synchronization settings
     STATE_UPDATE_RATE: 30, // Hz - host sends game state at this rate (30 = 30 updates per second)
-    
+
     // Sequence tracking and packet loss detection
     MAX_SEQUENCE_GAP: 3, // Maximum allowed sequence gap before requesting resync
     SEQUENCE_BUFFER_SIZE: 10, // Buffer size for out-of-order packet handling
     RESYNC_REQUEST_COOLDOWN: 1000, // Milliseconds between resync requests (prevent spam)
-    
+
     // Lobby settings
     MAX_PLAYERS: 4,
     CODE_LENGTH: 6,
-    
+
     // Interpolation settings
     INTERPOLATION_DELAY: 100, // milliseconds - buffer states before rendering
     MAX_INTERPOLATION_DELAY: 200, // milliseconds - max delay even with high latency
@@ -33,7 +33,7 @@ const MultiplayerConfig = {
     MIN_LERP_SPEED: 5, // minimum lerp speed
     MAX_LERP_SPEED: 20, // maximum lerp speed
     SNAP_DISTANCE: 100, // pixels - snap to target if further than this
-    
+
     // Advanced interpolation parameters for smoother movement
     EXTRAPOLATION_WEIGHT: 0.7, // Blend factor for extrapolation (0-1, higher = more prediction)
     SMOOTHING_FACTOR: 0.15, // Exponential smoothing factor (0-1, lower = smoother)

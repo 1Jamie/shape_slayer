@@ -655,6 +655,7 @@ class MultiplayerManager {
                 y: gear.y,
                 slot: gear.slot,
                 tier: gear.tier,
+                color: gear.color,            // Sync gear colors
                 stats: gear.stats,
                 affixes: gear.affixes || [],  // NEW: Affix system
                 classModifier: gear.classModifier || null, // NEW: Class modifiers
@@ -2337,6 +2338,11 @@ class MultiplayerManager {
         
         // Add the dropped gear to ground loot for all clients
         if (gear) {
+            // Prevent duplicate gear items from being added
+            if (groundLoot.some(g => g.id === gear.id)) {
+                console.log(`[Multiplayer] Ignored duplicate gear drop ${gear.id}`);
+                return;
+            }
             // Ensure gear has all required properties for rendering
             const fullGear = {
                 ...gear,
@@ -3421,7 +3427,7 @@ class MultiplayerManager {
                             legendaryEffect: lootData.legendaryEffect || null, // NEW: Legendary effects
                             name: lootData.name || '',                         // NEW: Gear names
                             size: 15,
-                            color: tierColors[lootData.tier] || '#999999',
+                            color: lootData.color || tierColors[lootData.tier] || '#999999',
                             pulse: 0
                         };
                         groundLoot.push(gear);

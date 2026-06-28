@@ -724,7 +724,7 @@ The multiplayer server supports three deployment modes for different scale requi
 - Player-to-lobby map cleaned up on disconnect
 
 #### Client Configuration (`js/mp-config.js`)
-- **Server URL:** Configurable (default: `wss://shape-slayer.goodgirl.software`)
+- **Server URL:** Configurable (default: `wss://shape-slayer.gpe.pet`)
 - **Connection Settings:** Reconnect attempts (3), delay (2s), heartbeat (30s)
 - **Lobby Settings:** Max players (4), code length (6)
 - **Interpolation Settings:** Delay, buffer size, lerp speeds, snap distance
