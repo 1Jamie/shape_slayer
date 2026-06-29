@@ -204,7 +204,7 @@ function renderLightningArcs(ctx) {
     const isArcVisible = (arc) => {
         if (!Game.camera || !Game.config) return true; // Render if no camera
 
-        const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
         const zoom = isMobile ? 1.0 : (Game.baseZoom || 1.1);
         const margin = 50; // Small margin for arcs
 
@@ -382,7 +382,7 @@ function renderParticles(ctx) {
     let viewX = 0, viewY = 0, viewW = 2400, viewH = 1350;
 
     if (Game.camera && Game.config) {
-        const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
         const zoom = isMobile ? (Game.mobileZoom || 1.0) : (Game.baseZoom || 1.1);
         const padding = 100; // Margin for particles
 
@@ -590,7 +590,7 @@ function drawBiomeGrid(ctx, roomNumber, isVignetteMask = false) {
 
     if (typeof Game !== 'undefined' && Game.camera && Game.config) {
         // Get camera position and zoom
-        const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
         zoom = isMobile ? (Game.mobileZoom || 1.0) : (Game.baseZoom || 1.1);
 
         // Calculate visible world area

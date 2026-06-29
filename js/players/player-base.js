@@ -1651,6 +1651,15 @@ class PlayerBase {
                         if (!Game.endTime) {
                             Game.endTime = Date.now();
                         }
+                        if (typeof Telemetry !== 'undefined') {
+                            Telemetry.recordEvent('allPlayersDead', {
+                                roomNumber: Game.roomNumber || 1,
+                                metadata: {
+                                    deadPlayers: Array.from(Game.deadPlayers || []),
+                                    playerCount: Game.playerStats ? Game.playerStats.size : null
+                                }
+                            });
+                        }
                     }
 
                     // If all players just died, send final stats to clients (host only)

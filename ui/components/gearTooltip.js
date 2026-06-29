@@ -130,13 +130,43 @@ const GearTooltipUI = {
         }
 
         html += `
-            <div style="margin-top: 5px; text-align: center; color: #ffff00; font-size: 12px;">
-                Press G to Equip
+            <div id="gear-tooltip-equip-prompt" style="margin-top: 5px; text-align: center; color: #ffff00; font-size: 12px;">
             </div>
         `;
 
         this.element.innerHTML = html;
         this.element.style.borderColor = tierColor;
+        this.renderEquipPrompt();
+    },
+
+    renderEquipPrompt() {
+        if (!this.element) return;
+        const prompt = this.element.querySelector('#gear-tooltip-equip-prompt');
+        if (!prompt) return;
+
+        prompt.innerHTML = '';
+
+        const isGamepad = typeof Input !== 'undefined' && Input.isGamepadMode && Input.isGamepadMode();
+        if (isGamepad && window.ControllerButtons && ControllerButtons.createButtonBadge) {
+            prompt.style.display = 'flex';
+            prompt.style.alignItems = 'center';
+            prompt.style.justifyContent = 'center';
+            prompt.style.gap = '6px';
+
+            prompt.appendChild(document.createTextNode('Press'));
+            prompt.appendChild(ControllerButtons.createButtonBadge('confirm'));
+            prompt.appendChild(document.createTextNode('to equip'));
+
+            if (ControllerButtons.refreshButtonBadges) {
+                ControllerButtons.refreshButtonBadges(prompt);
+            }
+            return;
+        }
+
+        prompt.style.display = 'block';
+        prompt.textContent = (typeof Input !== 'undefined' && Input.getInteractionPrompt)
+            ? Input.getInteractionPrompt('equip')
+            : 'Press G to Equip';
     },
 
     renderGearStats(gear, isEquipped = false) {

@@ -250,7 +250,7 @@ const SaveSystem = {
     setControlMode(mode) {
         const save = this.load();
         // Accept new values and migrate old ones
-        if (mode === 'auto' || mode === 'mobile' || mode === 'desktop') {
+        if (mode === 'auto' || mode === 'mobile' || mode === 'desktop' || mode === 'gamepad') {
             save.controlMode = mode;
             this.save(save);
             return true;

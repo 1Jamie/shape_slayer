@@ -352,7 +352,7 @@ const Game = {
                 void this.canvas.offsetWidth;
             }
             // Reinitialize touch controls with new canvas size after a brief delay
-            if (typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode()) {
+            if (typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode()) {
                 setTimeout(() => {
                     if (this.canvas && typeof Input !== 'undefined' && Input.initTouchControls) {
                         Input.initTouchControls(this.canvas);
@@ -376,7 +376,7 @@ const Game = {
         window.addEventListener('orientationchange', () => {
             setTimeout(() => {
                 this.setupResponsiveCanvas();
-                if (typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode()) {
+                if (typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode()) {
                     Input.initTouchControls(this.canvas);
                 }
             }, 100);
@@ -398,19 +398,10 @@ const Game = {
                 window.checkAchievementUnlocks();
             }
 
-            // Privacy modal disabled by dev - telemetry system is disabled
-            // const hasAcknowledgedPrivacy = SaveSystem.hasAcknowledgedPrivacy ? SaveSystem.hasAcknowledgedPrivacy() : true;
-            // if (!hasAcknowledgedPrivacy) {
-            //     this.openPrivacyModal('onboarding');
-            // } else {
-            //     // Check if launch modal should show (first time ever)
-            //     if (!SaveSystem.getHasSeenLaunchModal()) {
-            //         this.launchModalVisible = true;
-            //     }
-            // }
-
-            // Check if launch modal should show (first time ever)
-            if (!SaveSystem.getHasSeenLaunchModal()) {
+            const hasAcknowledgedPrivacy = SaveSystem.hasAcknowledgedPrivacy ? SaveSystem.hasAcknowledgedPrivacy() : true;
+            if (!hasAcknowledgedPrivacy) {
+                this.openPrivacyModal('onboarding');
+            } else if (!SaveSystem.getHasSeenLaunchModal()) {
                 this.launchModalVisible = true;
             }
 
@@ -627,8 +618,10 @@ const Game = {
         // Use actual available viewport - must account for browser chrome on mobile
         let availableWidth, availableHeight;
 
-        // Detect mobile device FIRST (before using it in viewport calculation)
-        const isMobileDevice = typeof Input !== 'undefined' && Input.isMobileDevice && Input.isMobileDevice();
+        // Detect the active UI layout FIRST (before using it in viewport calculation)
+        const isMobileDevice = typeof Input !== 'undefined' && Input.isMobileUiMode
+            ? Input.isMobileUiMode()
+            : (typeof Input !== 'undefined' && Input.isMobileDevice && Input.isMobileDevice());
         this.isMobileDevice = isMobileDevice;
 
         // Check if we're in fullscreen mode
@@ -745,7 +738,7 @@ const Game = {
         this.config.height = canvasHeight;
 
         // Initialize touch controls if in touch mode
-        if (typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode()) {
+        if (typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode()) {
             // Small delay to ensure canvas rect is updated
             setTimeout(() => {
                 if (Input.initTouchControls) {
@@ -863,7 +856,7 @@ const Game = {
                             console.log(`[FULLSCREEN] Canvas rect after resize: ${rect.width.toFixed(0)}x${rect.height.toFixed(0)} at (${rect.left.toFixed(0)}, ${rect.top.toFixed(0)})`);
                         }
 
-                        if (typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode()) {
+                        if (typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode()) {
                             // Clear all existing touch controls and active touches
                             if (Input.touchJoysticks) {
                                 // End all active joysticks first
@@ -1270,7 +1263,7 @@ const Game = {
         // Clamp camera to room boundaries (prevent showing outside room)
         // Account for zoom - with zoom, we see less world space, so bounds are tighter
         if (typeof currentRoom !== 'undefined' && currentRoom) {
-            const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+            const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
             const currentZoom = isMobile ? (this.mobileZoom || 1.0) : this.baseZoom;
 
             // Visible world space is smaller when zoomed
@@ -1316,7 +1309,7 @@ const Game = {
         this.nexusCamera.targetY = this.player.y;
 
         // Clamp to nexus boundaries (account for zoom)
-        const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
         const currentZoom = isMobile ? (this.mobileZoom || 1.0) : this.baseZoom;
 
         // Visible world space is smaller when zoomed
@@ -1364,15 +1357,13 @@ const Game = {
     },
 
     openPrivacyModal(context = 'onboarding') {
-        // Telemetry system disabled by dev - modal will not show
-        return;
-        // this.privacyModalContext = context;
-        // this.privacyModalVisible = true;
-        // this.privacyModalReturnToPause = context === 'pause';
-        // this.privacyModalPreviousShowPauseMenu = this.showPauseMenu;
-        // if (this.privacyModalReturnToPause && this.showPauseMenu) {
-        //     this.showPauseMenu = false;
-        // }
+        this.privacyModalContext = context;
+        this.privacyModalVisible = true;
+        this.privacyModalReturnToPause = context === 'pause';
+        this.privacyModalPreviousShowPauseMenu = this.showPauseMenu;
+        if (this.privacyModalReturnToPause && this.showPauseMenu) {
+            this.showPauseMenu = false;
+        }
     },
 
     closePrivacyModal() {
@@ -1444,6 +1435,24 @@ const Game = {
         }
 
         return participants;
+    },
+
+    getTelemetryEnemyComposition() {
+        const enemies = Array.isArray(this.enemies) ? this.enemies : [];
+        return enemies.reduce((counts, enemy) => {
+            const type = enemy?.bossName || enemy?.enemyType || enemy?.type || enemy?.constructor?.name || 'unknown';
+            counts[type] = (counts[type] || 0) + 1;
+            return counts;
+        }, {});
+    },
+
+    getTelemetryBossId(room = null) {
+        const sourceRoom = room || (typeof currentRoom !== 'undefined' ? currentRoom : null);
+        const enemies = sourceRoom && Array.isArray(sourceRoom.enemies) ? sourceRoom.enemies : this.enemies;
+        const boss = Array.isArray(enemies)
+            ? enemies.find(enemy => enemy && (enemy.bossName || enemy.isBoss || enemy.type === 'boss'))
+            : null;
+        return boss ? (boss.bossName || boss.id || boss.constructor?.name || 'boss') : null;
     },
 
     // Distribute XP to all alive players (host only in multiplayer, all in solo)
@@ -2272,6 +2281,15 @@ const Game = {
                 if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
                     this.sendFinalStats();
                 }
+                if (typeof Telemetry !== 'undefined') {
+                    Telemetry.recordEvent('allPlayersDead', {
+                        roomNumber: this.roomNumber || 1,
+                        metadata: {
+                            deadPlayers: Array.from(this.deadPlayers || []),
+                            playerCount: this.playerStats ? this.playerStats.size : null
+                        }
+                    });
+                }
 
                 if (typeof this.triggerGameOverMusic === 'function') {
                     this.triggerGameOverMusic();
@@ -2832,7 +2850,7 @@ const Game = {
         }
 
         // Handle loot cycling (desktop only)
-        if (typeof LootSelection !== 'undefined' && (!Input.isTouchMode || !Input.isTouchMode())) {
+        if (typeof LootSelection !== 'undefined' && (!Input.isMobileUiMode || !Input.isMobileUiMode())) {
             // Update nearby items
             LootSelection.updateNearbyItems(this.player);
 
@@ -2901,6 +2919,29 @@ const Game = {
         }
 
         const oldGear = this.player.equipGear(gear);
+        if (typeof Telemetry !== 'undefined') {
+            const playerId = this.getLocalPlayerId ? this.getLocalPlayerId() : (this.player && this.player.playerId) || 'local';
+            Telemetry.recordEvent('gearEquipped', {
+                roomNumber: this.roomNumber || 1,
+                playerId,
+                targetId: gear.id || null,
+                metadata: {
+                    gearId: gear.id || null,
+                    name: gear.name || null,
+                    slot: gear.slot || null,
+                    tier: gear.tier || null,
+                    type: gear.weaponType || gear.armorType || gear.accessoryType || null,
+                    affixes: Array.isArray(gear.affixes) ? gear.affixes.map(affix => ({
+                        id: affix.type || affix.id || 'unknown',
+                        value: affix.value !== undefined ? affix.value : null,
+                        tier: affix.tier || null
+                    })) : [],
+                    legendaryEffect: gear.legendaryEffect ? gear.legendaryEffect.type || gear.legendaryEffect.description || null : null,
+                    replacedGearId: oldGear ? oldGear.id || null : null,
+                    replacedTier: oldGear ? oldGear.tier || null : null
+                }
+            });
+        }
 
         // Drop old gear on the ground if it existed
         if (oldGear) {
@@ -3228,6 +3269,16 @@ const Game = {
 
         if (revived.size > 0) {
             this.allPlayersDead = false;
+            if (typeof Telemetry !== 'undefined') {
+                Telemetry.recordEvent('playersRevived', {
+                    roomNumber: this.roomNumber || 1,
+                    metadata: {
+                        reason,
+                        playerIds: Array.from(revived),
+                        respawnStrategy
+                    }
+                });
+            }
 
             if (this.playersOnDoor && this.playersOnDoor.length > 0) {
                 this.playersOnDoor = this.playersOnDoor.filter(id => !revived.has(id));
@@ -3411,6 +3462,32 @@ const Game = {
                 if (typeof Telemetry !== 'undefined') {
                     const participants = this.collectTelemetryParticipants(true);
                     Telemetry.recordRoomEnter(this.roomNumber, newRoom.type, participants);
+                    Telemetry.recordEvent('roomGenerated', {
+                        roomNumber: this.roomNumber,
+                        metadata: {
+                            roomType: newRoom.type,
+                            gameMode: this.gameMode || 'cards',
+                            enemyCount: Array.isArray(newRoom.enemies) ? newRoom.enemies.length : 0,
+                            enemyTypes: this.getTelemetryEnemyComposition(),
+                            multiplayerScaling: typeof getMultiplayerScaling === 'function' ? getMultiplayerScaling() : null
+                        }
+                    });
+                    const bossId = this.getTelemetryBossId(newRoom);
+                    if (bossId) {
+                        Telemetry.recordBossEncounter({
+                            bossId,
+                            roomNumber: this.roomNumber,
+                            phases: [],
+                            damageByPlayer: {},
+                            damageToPlayers: {},
+                            hitsTakenByPlayers: {}
+                        });
+                        Telemetry.recordEvent('bossEncounterStarted', {
+                            roomNumber: this.roomNumber,
+                            targetId: bossId,
+                            metadata: { bossId, roomType: newRoom.type }
+                        });
+                    }
                 }
 
                 // Multiplayer: Send room transition message and immediate state update
@@ -3574,7 +3651,7 @@ const Game = {
                 this.offscreenCtx.save();
 
                 // Detect if desktop (for zoom)
-                const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+                const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
                 const currentZoom = isMobile ? (this.mobileZoom || 1.0) : this.baseZoom;
 
                 // Camera transform
@@ -3693,7 +3770,7 @@ const Game = {
                 this.ctx.save();
 
                 // Detect if desktop (for zoom)
-                const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+                const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
                 const currentZoom = isMobile ? (this.mobileZoom || 1.0) : this.baseZoom;
 
                 // Camera transform
@@ -3809,7 +3886,7 @@ const Game = {
         // Helper to get screen coordinates
         const getScreenPos = (x, y) => {
             // Camera transform logic from renderGameWorld
-            const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+            const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
             const currentZoom = isMobile ? (this.mobileZoom || 1.0) : this.baseZoom;
             const centerX = logicalWidth / 2;
             const centerY = logicalHeight / 2;
@@ -3844,7 +3921,7 @@ const Game = {
         const isVisibleInVignette = (x, y, radius) => {
             // Check if light affects visible area
             // Account for light radius when culling
-            const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+            const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
             const zoom = isMobile ? (this.mobileZoom || 1.0) : (this.baseZoom || 1.1);
             const margin = radius; // Use light radius as margin
 
@@ -4079,7 +4156,7 @@ const Game = {
             logicalHeight / 2 + this.screenShakeOffset.y
         );
 
-        const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
         const currentZoom = isMobile ? (this.mobileZoom || 1.0) : this.baseZoom;
 
         vCtx.scale(currentZoom, currentZoom);
@@ -4895,9 +4972,8 @@ const Game = {
                 result,
                 metadata: {
                     reason: 'returnToNexus',
-                    lobbyCode: this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager
-                        ? multiplayerManager.lobbyCode || null
-                        : null
+                    gameMode: this.gameMode || 'cards',
+                    playerCount: participants.length
                 },
                 roomsClearedByPlayer,
                 finalPlayers: participants
@@ -5414,6 +5490,15 @@ const Game = {
             }
         }
 
+        // Reset tracking before the first room is generated and telemetry starts.
+        this.enemiesKilled = 0;
+        this.roomNumber = 1;
+        this.doorPulse = 0;
+        this.startTime = Date.now();
+
+        // Initialize per-player stats tracking
+        this.initializePlayerStats();
+
         // Initialize room system
         if (typeof initializeRoom !== 'undefined') {
             initializeRoom(1);
@@ -5440,24 +5525,41 @@ const Game = {
                 seed: (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.seed) ? currentRoom.seed : null,
                 players: runPlayers,
                 metadata: {
-                    lobbyCode: this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager
-                        ? multiplayerManager.lobbyCode || null
-                        : null
+                    gameMode: this.gameMode || 'cards',
+                    selectedClass: this.selectedClass || null,
+                    playerCount: runPlayers.length
                 }
             });
 
             const firstRoomType = (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type) ? currentRoom.type : 'normal';
             Telemetry.recordRoomEnter(this.roomNumber, firstRoomType, runPlayers);
+            Telemetry.recordEvent('roomGenerated', {
+                roomNumber: this.roomNumber,
+                metadata: {
+                    roomType: firstRoomType,
+                    gameMode: this.gameMode || 'cards',
+                    enemyCount: Array.isArray(this.enemies) ? this.enemies.length : 0,
+                    enemyTypes: this.getTelemetryEnemyComposition(),
+                    multiplayerScaling: typeof getMultiplayerScaling === 'function' ? getMultiplayerScaling() : null
+                }
+            });
+            const bossId = this.getTelemetryBossId();
+            if (bossId) {
+                Telemetry.recordBossEncounter({
+                    bossId,
+                    roomNumber: this.roomNumber,
+                    phases: [],
+                    damageByPlayer: {},
+                    damageToPlayers: {},
+                    hitsTakenByPlayers: {}
+                });
+                Telemetry.recordEvent('bossEncounterStarted', {
+                    roomNumber: this.roomNumber,
+                    targetId: bossId,
+                    metadata: { bossId, roomType: firstRoomType }
+                });
+            }
         }
-
-        // Reset tracking
-        this.enemiesKilled = 0;
-        this.roomNumber = 1;
-        this.doorPulse = 0;
-        this.startTime = Date.now();
-
-        // Initialize per-player stats tracking
-        this.initializePlayerStats();
 
         // Clear effects
         this.particles = [];
@@ -5581,14 +5683,40 @@ const Game = {
                 seed: (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.seed) ? currentRoom.seed : null,
                 players: runPlayers,
                 metadata: {
-                    lobbyCode: this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager
-                        ? multiplayerManager.lobbyCode || null
-                        : null
+                    gameMode: this.gameMode || 'cards',
+                    selectedClass: this.selectedClass || null,
+                    playerCount: runPlayers.length
                 }
             });
 
             const firstRoomType = (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type) ? currentRoom.type : 'normal';
             Telemetry.recordRoomEnter(this.roomNumber, firstRoomType, runPlayers);
+            Telemetry.recordEvent('roomGenerated', {
+                roomNumber: this.roomNumber,
+                metadata: {
+                    roomType: firstRoomType,
+                    gameMode: this.gameMode || 'cards',
+                    enemyCount: Array.isArray(this.enemies) ? this.enemies.length : 0,
+                    enemyTypes: this.getTelemetryEnemyComposition(),
+                    multiplayerScaling: typeof getMultiplayerScaling === 'function' ? getMultiplayerScaling() : null
+                }
+            });
+            const bossId = this.getTelemetryBossId();
+            if (bossId) {
+                Telemetry.recordBossEncounter({
+                    bossId,
+                    roomNumber: this.roomNumber,
+                    phases: [],
+                    damageByPlayer: {},
+                    damageToPlayers: {},
+                    hitsTakenByPlayers: {}
+                });
+                Telemetry.recordEvent('bossEncounterStarted', {
+                    roomNumber: this.roomNumber,
+                    targetId: bossId,
+                    metadata: { bossId, roomType: firstRoomType }
+                });
+            }
         }
 
         // Initialize camera position to follow player
@@ -6579,6 +6707,10 @@ const Game = {
         }
     }
 };
+
+if (typeof window !== 'undefined') {
+    window.Game = Game;
+}
 
 // Start the game when page loads
 window.addEventListener('load', () => {

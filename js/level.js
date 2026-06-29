@@ -724,6 +724,18 @@ function checkRoomCleared() {
         }
 
         if (typeof Telemetry !== 'undefined') {
+            Telemetry.recordEvent('roomClearedSummary', {
+                roomNumber: currentRoom.number,
+                metadata: {
+                    roomType: currentRoom.type,
+                    gameMode: typeof Game !== 'undefined' && Game.gameMode ? Game.gameMode : 'cards',
+                    enemiesKilled: typeof Game !== 'undefined' ? Game.enemiesKilled || 0 : 0,
+                    bossesKilled: typeof Game !== 'undefined' ? Game.bossesKilled || 0 : 0,
+                    itemsDroppedThisRoom: typeof Game !== 'undefined' ? Game.itemsDroppedThisRoom || 0 : 0,
+                    currencyEarned: typeof Game !== 'undefined' ? Game.currencyEarned || 0 : 0,
+                    shardsEarned: typeof Game !== 'undefined' ? Game.shardsEarned || 0 : 0
+                }
+            });
             const participants = typeof Game !== 'undefined' && Game && Game.collectTelemetryParticipants
                 ? Game.collectTelemetryParticipants(true)
                 : [];

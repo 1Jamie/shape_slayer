@@ -1,12 +1,42 @@
 (function () {
 	let shardEl, layer;
 
+	function applyLayout() {
+		if (!layer) return;
+
+		const inp = (typeof Input !== 'undefined' ? Input : (window.Input || null));
+		const isMobile = inp && inp.isMobileUiMode && inp.isMobileUiMode();
+		const container = document.getElementById('shard-display-container');
+		const shardLabel = document.getElementById('shard-display-label');
+		const divider = document.getElementById('shard-display-divider');
+		const creditLabel = document.getElementById('credit-display-label');
+		const creditEl = document.getElementById('credit-display-value');
+
+		layer.style.left = isMobile ? '10px' : '20px';
+		layer.style.top = isMobile ? '10px' : '20px';
+		layer.style.right = 'auto';
+		layer.style.transform = 'none';
+
+		if (container) {
+			container.style.gap = isMobile ? '8px' : '16px';
+			container.style.padding = isMobile ? '2px 6px' : '8px 16px';
+			container.style.border = isMobile ? '1.5px solid rgba(120, 160, 255, 0.5)' : '2px solid rgba(120, 160, 255, 0.5)';
+		}
+		if (shardLabel) shardLabel.style.fontSize = isMobile ? '10px' : '16px';
+		if (shardEl) shardEl.style.fontSize = isMobile ? '11px' : '18px';
+		if (divider) {
+			divider.style.fontSize = isMobile ? '10px' : '16px';
+			divider.style.margin = isMobile ? '0 2px' : '0 4px';
+		}
+		if (creditLabel) creditLabel.style.fontSize = isMobile ? '10px' : '16px';
+		if (creditEl) creditEl.style.fontSize = isMobile ? '11px' : '18px';
+	}
+
 	function create() {
 		if (layer) return; // Already created
 
 		const root = window.UIRoot && window.UIRoot.ensure ? window.UIRoot.ensure() : document.body;
 		if (!root) {
-			console.warn('[ShardDisplay] UIRoot not available, retrying...');
 			setTimeout(create, 100);
 			return;
 		}
@@ -23,7 +53,7 @@
 
 		// Mobile: center at top, desktop: top-left
 		const inp = (typeof Input !== 'undefined' ? Input : (window.Input || null));
-		const isMobile = inp && inp.isTouchMode && inp.isTouchMode();
+		const isMobile = inp && inp.isMobileUiMode && inp.isMobileUiMode();
 		if (isMobile) {
 			layer.style.left = '10px';
 			layer.style.top = '10px';
@@ -50,11 +80,12 @@
 
 		// Shard and credit display container
 		const container = document.createElement('div');
+		container.id = 'shard-display-container';
 		container.style.display = 'inline-flex';
 		container.style.alignItems = 'center';
 		// Mobile: smaller padding and font sizes
 		const inpInit = (typeof Input !== 'undefined' ? Input : (window.Input || null));
-		const isMobileInit = inpInit && inpInit.isTouchMode && inpInit.isTouchMode();
+		const isMobileInit = inpInit && inpInit.isMobileUiMode && inpInit.isMobileUiMode();
 		container.style.gap = isMobileInit ? '8px' : '16px'; // Smaller gap on mobile
 		container.style.padding = isMobileInit ? '2px 6px' : '8px 16px'; // Smaller padding on mobile
 		container.style.background = 'rgba(20, 20, 40, 0.85)';
@@ -73,6 +104,7 @@
 		shardSection.style.gap = '8px';
 
 		const shardLabel = document.createElement('span');
+		shardLabel.id = 'shard-display-label';
 		shardLabel.textContent = 'Shards:';
 		shardLabel.style.color = '#aaa';
 		shardLabel.style.fontSize = isMobileInit ? '10px' : '16px'; // Smaller on mobile
@@ -91,6 +123,7 @@
 
 		// Divider
 		const divider = document.createElement('span');
+		divider.id = 'shard-display-divider';
 		divider.textContent = '|';
 		divider.style.color = '#666';
 		divider.style.fontSize = isMobileInit ? '10px' : '16px'; // Smaller on mobile
@@ -103,6 +136,7 @@
 		creditSection.style.gap = '8px';
 
 		const creditLabel = document.createElement('span');
+		creditLabel.id = 'credit-display-label';
 		creditLabel.textContent = 'Credits:';
 		creditLabel.style.color = '#aaa';
 		creditLabel.style.fontSize = isMobileInit ? '10px' : '16px'; // Smaller on mobile
@@ -124,17 +158,11 @@
 		container.appendChild(creditSection);
 		layer.appendChild(container);
 		root.appendChild(layer);
+		applyLayout();
 
-		console.log('[ShardDisplay] Element created and appended to', root.id || 'body');
 	}
 
 	function tick() {
-		// Log first tick
-		if (!tick._firstTick) {
-			tick._firstTick = true;
-			console.log('[ShardDisplay] First tick called');
-		}
-
 		// If layer doesn't exist yet, try to create it
 		if (!layer) {
 			create();
@@ -143,6 +171,7 @@
 				return;
 			}
 		}
+		applyLayout();
 
 		// Always show the element if it exists and USE_DOM_UI is true
 		// We'll hide it later if Game exists and state doesn't match
@@ -166,20 +195,6 @@
 
 		// Show in NEXUS and PLAYING states
 		const shouldShow = Game.state === 'NEXUS' || Game.state === 'PLAYING';
-
-		// Debug: log once per second
-		if (!tick._lastLog || Date.now() - tick._lastLog > 1000) {
-			tick._lastLog = Date.now();
-			console.log('[ShardDisplay] Tick:', {
-				hasLayer: !!layer,
-				useDomUI: window.USE_DOM_UI,
-				hasGame: !!window.Game,
-				gameState: window.Game ? Game.state : 'N/A',
-				shouldShow: shouldShow,
-				display: layer ? layer.style.display : 'N/A',
-				computedDisplay: layer ? window.getComputedStyle(layer).display : 'N/A'
-			});
-		}
 
 		if (shouldShow && layer) {
 			// Force show the element - use inline-block to fit content
@@ -205,10 +220,8 @@
 	}
 
 	function init() {
-		console.log('[ShardDisplay] Initializing...');
 		create();
 		// Start tick loop
-		console.log('[ShardDisplay] Starting tick loop...');
 		tick();
 	}
 
@@ -228,5 +241,8 @@
 		// DOM already loaded, but wait for UIRoot
 		tryInit();
 	}
+
+	window.addEventListener('controlmodechange', applyLayout);
+	window.addEventListener('inputsourcechange', applyLayout);
 })();
 

@@ -269,6 +269,8 @@
 
 		// Show container
 		if (container) {
+			const isMobile = typeof window.Input !== 'undefined' && window.Input.isMobileUiMode && window.Input.isMobileUiMode();
+			container.style.bottom = isMobile ? '280px' : '180px';
 			container.style.display = 'block';
 		}
 
@@ -353,7 +355,7 @@
 		container.style.left = '20px';
 		// Position above local HUD
 		// Mobile: HUD is at bottom: 200px, so position teammate bars higher
-		const isMobileInit = typeof window.Input !== 'undefined' && window.Input.isTouchMode && window.Input.isTouchMode();
+		const isMobileInit = typeof window.Input !== 'undefined' && window.Input.isMobileUiMode && window.Input.isMobileUiMode();
 		container.style.bottom = isMobileInit ? '280px' : '180px'; // Above local HUD
 		container.style.pointerEvents = 'none';
 		container.style.userSelect = 'none';

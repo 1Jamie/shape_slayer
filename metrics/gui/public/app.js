@@ -185,7 +185,7 @@ function renderRoomStatsDetails(rooms) {
         .join('');
 }
 function updateSummaryCards(summary) {
-    const { totals, runResults, modeCounts, topAffixes, bossSummary } = summary;
+    const { totals, runResults, modeCounts, gameModeCounts, topAffixes, bossSummary, eventTypeSummary } = summary;
 
     document.querySelector('[data-summary="runs"]').textContent = formatNumber(totals.runs);
     document.querySelector('[data-summary="avg-duration"]').textContent = formatDuration(totals.averageDurationMs);
@@ -194,8 +194,10 @@ function updateSummaryCards(summary) {
 
     renderList('result-breakdown', runResults, item => `${item.result} — ${formatNumber(item.count)}`);
     renderList('mode-breakdown', modeCounts, item => `${item.mode} — ${formatNumber(item.count)}`);
+    renderList('game-mode-breakdown', gameModeCounts, item => `${item.game_mode} — ${formatNumber(item.count)}`);
     renderList('affix-breakdown', topAffixes, item => `${item.affix_id} — ${formatNumber(item.count)}`);
     renderList('boss-breakdown', bossSummary, item => `${item.boss_id}: ${formatDuration(item.avg_duration_ms || 0)} avg (${formatNumber(item.encounters)} encounters)`);
+    renderList('event-type-breakdown', eventTypeSummary, item => `${item.event_type} — ${formatNumber(item.count)}`);
 }
 
 function renderList(elementId, items, format) {
@@ -214,7 +216,7 @@ function renderRunsTable(runs) {
     const tbody = document.querySelector('#runs-table tbody');
 
     if (!runs.length) {
-        tbody.innerHTML = '<tr><td colspan="7" class="empty">No runs ingested yet.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="empty">No runs ingested yet.</td></tr>';
         return;
     }
 
@@ -226,6 +228,7 @@ function renderRunsTable(runs) {
                 <td>${formatTimestamp(run.started_at)}</td>
                 <td>${formatDuration(run.duration_ms)}</td>
                 <td>${run.mode}</td>
+                <td>${run.game_mode || 'unknown'}</td>
                 <td class="result-${run.result}">${run.result}</td>
                 <td>${formatNumber(Math.round(run.totalDamageDealt || 0))}</td>
                 <td>${formatNumber(Math.round(run.totalHitsTaken || 0))}</td>
@@ -265,6 +268,7 @@ function renderRunDetail(detail) {
             <td>${formatNumber(sumValues(room.damageDealtByPlayer))}</td>
             <td>${formatNumber(sumValues(room.damageTakenByPlayer))}</td>
             <td>${formatNumber(sumValues(room.hitsTakenByPlayer))}</td>
+            <td>${formatEventCounts(room.eventCounts)}</td>
         </tr>
     `).join('');
 
@@ -304,7 +308,7 @@ function renderRunDetail(detail) {
             </div>
             <div>
                 <span>Mode / Result</span>
-                <strong>${run.mode} • ${run.result}</strong>
+                <strong>${run.mode} / ${run.game_mode || 'unknown'} • ${run.result}</strong>
             </div>
             <div>
                 <span>Players</span>
@@ -351,10 +355,11 @@ function renderRunDetail(detail) {
                             <th>Damage Dealt</th>
                             <th>Damage Taken</th>
                             <th>Hits Taken</th>
+                            <th>Events</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${roomRows || '<tr><td colspan="6" class="empty">No rooms recorded.</td></tr>'}
+                        ${roomRows || '<tr><td colspan="7" class="empty">No rooms recorded.</td></tr>'}
                     </tbody>
                 </table>
             </div>
@@ -382,6 +387,14 @@ function renderRunDetail(detail) {
 function sumValues(obj) {
     if (!obj) return 0;
     return Object.values(obj).reduce((sum, value) => sum + Number(value || 0), 0);
+}
+
+function formatEventCounts(eventCounts) {
+    if (!eventCounts || Object.keys(eventCounts).length === 0) return '—';
+    return Object.entries(eventCounts)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([type, count]) => `${escapeHtml(type)}: ${formatNumber(count)}`)
+        .join('<br>');
 }
 
 function renderRoomDamageChart(detail) {
@@ -462,8 +475,10 @@ async function loadSummary() {
         console.error(error);
         renderList('result-breakdown', [], () => '');
         renderList('mode-breakdown', [], () => '');
+        renderList('game-mode-breakdown', [], () => '');
         renderList('affix-breakdown', [], () => '');
         renderList('boss-breakdown', [], () => '');
+        renderList('event-type-breakdown', [], () => '');
     }
 }
 

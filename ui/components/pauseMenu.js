@@ -1,5 +1,5 @@
 (function () {
-	let layer, modal, modalBody;
+	let layer, modal, modalBody, updateModeButtons;
 
 	function createMenu() {
 		const rootLayer = document.createElement('div');
@@ -31,7 +31,7 @@
 			{ text: 'Audio', action: () => { if (window.UIAudio) window.UIAudio.open(); } },
 			{ text: 'Fullscreen', action: () => Game && Game.toggleFullscreen && Game.toggleFullscreen() },
 			{ text: 'How to Play', action: () => { if (Game) { Game.launchModalVisible = true; } } },
-			{ text: 'Privacy', action: () => { if (Game && Game.openPrivacyModal) Game.openPrivacyModal('pause'); }, disabled: true, tooltip: 'currently disabled by dev, metrics server needs to be updated for new patch' },
+			{ text: 'Privacy', action: () => { if (Game && Game.openPrivacyModal) Game.openPrivacyModal('pause'); } },
 			{ text: 'Update Notes', action: () => { if (Game) { Game.updateModalVisible = true; } } }
 		];
 
@@ -40,9 +40,12 @@
 		list.style.gridTemplateColumns = '1fr';
 		list.style.gap = '10px';
 		list.style.position = 'relative'; // For scroll indicator positioning
+		list.style.flex = '1 1 auto';      // Allow list to fill remaining height
+		list.style.minHeight = '0';        // Allow list to shrink below content size
 		list.style.overflowY = 'auto';
-		list.style.maxHeight = '60vh';
-		list.style.paddingRight = '12px'; // Space for scroll indicator
+		// Keep enough inner space for controller focus outlines so they are not clipped by the scroll container.
+		list.style.padding = '4px 12px 4px 4px';
+		list.style.margin = '-4px 0 0 -4px';
 
 		// Hide default scrollbar (we're using custom indicator)
 		list.style.scrollbarWidth = 'none'; // Firefox
@@ -152,15 +155,110 @@
 		scrollThumb.style.boxShadow = '0 0 4px rgba(74, 144, 226, 0.5)';
 		scrollIndicator.appendChild(scrollThumb);
 
+		// Control Mode Selector row
+		const controlRow = document.createElement('div');
+		controlRow.className = 'control-mode-selector';
+		controlRow.style.display = 'flex';
+		controlRow.style.flexDirection = 'column';
+		controlRow.style.gap = '6px';
+		controlRow.style.padding = '4px 0 12px 0';
+		controlRow.style.borderBottom = '1px solid rgba(150, 150, 255, 0.2)';
+		controlRow.style.marginBottom = '12px';
+		controlRow.style.pointerEvents = 'auto';
+
+		const controlLabel = document.createElement('div');
+		controlLabel.textContent = 'Control Mode';
+		controlLabel.style.color = '#88ddff';
+		controlLabel.style.fontSize = '12px';
+		controlLabel.style.fontWeight = '700';
+		controlLabel.style.textTransform = 'uppercase';
+		controlLabel.style.letterSpacing = '1px';
+		controlRow.appendChild(controlLabel);
+
+		const controlBtnContainer = document.createElement('div');
+		controlBtnContainer.style.display = 'flex';
+		controlBtnContainer.style.gap = '8px';
+		controlRow.appendChild(controlBtnContainer);
+
+		const modes = [
+			{ id: 'auto', label: 'Auto' },
+			{ id: 'mobile', label: 'Mobile' },
+			{ id: 'desktop', label: 'Desktop' },
+			{ id: 'gamepad', label: '🎮 Pad' }
+		];
+
+		const modeButtons = {};
+
+		modes.forEach(m => {
+			const mBtn = document.createElement('button');
+			mBtn.className = 'btn';
+			mBtn.type = 'button';
+			mBtn.textContent = m.label;
+			mBtn.style.flex = '1';
+			mBtn.style.padding = '8px 12px';
+			mBtn.style.fontSize = '13px';
+			mBtn.style.transition = 'all 0.2s ease';
+
+			mBtn.addEventListener('click', (e) => {
+				e.preventDefault();
+				e.stopPropagation();
+
+				// Save control mode
+				if (typeof SaveSystem !== 'undefined') {
+					SaveSystem.setControlMode(m.id);
+				}
+				if (typeof Input !== 'undefined') {
+					if (Input.applyControlMode) {
+						Input.applyControlMode(m.id, window.Game && window.Game.canvas);
+					} else {
+						Input.controlMode = m.id;
+					}
+				}
+
+				// Update button styling
+				updateModeButtons();
+			});
+
+			controlBtnContainer.appendChild(mBtn);
+			modeButtons[m.id] = mBtn;
+		});
+
+		updateModeButtons = function() {
+			const currentMode = (typeof Input !== 'undefined' && Input.controlMode) ? Input.controlMode : 'auto';
+			modes.forEach(m => {
+				const btn = modeButtons[m.id];
+				if (btn) {
+					if (m.id === currentMode) {
+						btn.classList.add('btn--primary');
+						btn.style.borderColor = 'var(--ui-border)';
+						btn.style.background = 'rgba(100, 100, 255, 0.35)';
+						btn.style.boxShadow = '0 0 8px rgba(74, 144, 226, 0.4)';
+					} else {
+						btn.classList.remove('btn--primary');
+						btn.style.borderColor = 'rgba(150, 150, 255, 0.3)';
+						btn.style.background = 'transparent';
+						btn.style.boxShadow = 'none';
+					}
+				}
+			});
+		};
+
+		// Initial update
+		updateModeButtons();
+
 		// Append to body (modal body) not list, so it doesn't scroll with content
 		body.style.position = 'relative';
+		body.style.display = 'flex';
+		body.style.flexDirection = 'column';
+		body.style.minHeight = '0'; // Essential for flex child overflow shrinking
+		body.appendChild(controlRow);
 		body.appendChild(list);
 		body.appendChild(scrollIndicator); // Add after list
 
 		// Update scroll indicator position
 		function updateScrollIndicator() {
 			// Only show on mobile
-			const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+			const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
 
 			if (!isMobile) {
 				scrollIndicator.style.display = 'none';
@@ -180,6 +278,10 @@
 				}
 
 				scrollIndicator.style.display = 'block';
+
+				// Position track exactly matching the list's visible bounds
+				scrollIndicator.style.top = list.offsetTop + 'px';
+				scrollIndicator.style.height = clientHeight + 'px';
 
 				// Calculate thumb height and position
 				const scrollableHeight = scrollHeight - clientHeight;
@@ -224,6 +326,9 @@
 
 		// Update scroll indicator when menu becomes visible
 		if (isPauseVisible() && modalBody) {
+			if (typeof updateModeButtons === 'function') {
+				updateModeButtons();
+			}
 			// Find the list element and update its scroll indicator
 			const listElement = modalBody.querySelector('div[style*="grid"]');
 			if (listElement && listElement._updateScrollIndicator) {

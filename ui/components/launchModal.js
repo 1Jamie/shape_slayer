@@ -18,22 +18,8 @@
 		header.textContent = 'How to Play';
 
 		const body = document.createElement('div');
-		body.className = 'modal__body';
-		const ul = document.createElement('ul');
-		ul.style.paddingLeft = '18px';
-		const tips = [
-			'WASD to move (desktop) or left joystick (mobile).',
-			'Left click to attack (desktop) or right joystick (mobile).',
-			'Use abilities: Shift (dodge), Space (special), Right click (heavy).',
-			'Press Escape or Pause button to open the pause menu.',
-			'Press Tab to open the Character Sheet.'
-		];
-		for (const t of tips) {
-			const li = document.createElement('li');
-			li.textContent = t;
-			ul.appendChild(li);
-		}
-		body.appendChild(ul);
+		body.className = 'modal__body how-to-play';
+		body.appendChild(buildControlsGrid());
 
 		const footer = document.createElement('div');
 		footer.className = 'modal__footer';
@@ -64,6 +50,124 @@
 		root.appendChild(rootLayer);
 		layer = rootLayer;
 		modal = panel;
+	}
+
+	function buildControlsGrid() {
+		const wrap = document.createElement('div');
+		wrap.className = 'controls-guide';
+
+		wrap.appendChild(buildSection('Keyboard + Mouse', [
+			{ input: keys('W', 'A', 'S', 'D'), action: 'Move' },
+			{ input: mouse('Aim'), action: 'Aim at cursor' },
+			{ input: mouse('LMB'), action: 'Primary attack' },
+			{ input: mouse('RMB'), action: 'Heavy attack' },
+			{ input: keys('Space'), action: 'Special ability' },
+			{ input: keys('Shift'), action: 'Dodge' },
+			{ input: keys('G'), action: 'Interact / select' },
+			{ input: keys('M'), action: 'Apply room modifier' },
+			{ input: keys('Tab'), action: 'Character sheet' },
+			{ input: keys('Esc'), action: 'Pause / back' }
+		]));
+
+		wrap.appendChild(buildSection('Touch', [
+			{ input: touchBadge('Left Stick'), action: 'Move' },
+			{ input: touchBadge('Right Cluster'), action: 'Aim and abilities' },
+			{ input: touchBadge('Interact'), action: 'Pick up, select, open' },
+			{ input: touchBadge('Pause'), action: 'Open pause menu' },
+			{ input: touchBadge('Char'), action: 'Character sheet' }
+		]));
+
+		wrap.appendChild(buildSection('Controller', [
+			{ input: padText('Left Stick'), action: 'Move' },
+			{ input: padText('Right Stick'), action: 'Aim' },
+			{ input: padText('RT / R2'), action: 'Primary attack' },
+			{ input: padText('LT / L2'), action: 'Heavy attack' },
+			{ input: padText('LB / L1'), action: 'Special ability' },
+			{ input: padText('RB / R1'), action: 'Dodge' },
+			{ input: controllerButton('confirm'), action: 'Interact / confirm' },
+			{ input: controllerButton('modifier'), action: 'Room modifier' },
+			{ input: controllerButton('cancel'), action: 'Back / close menus' },
+			{ input: controllerButton('start'), action: 'Pause menu' },
+			{ input: controllerButton('select'), action: 'Character sheet' }
+		]));
+
+		const note = document.createElement('div');
+		note.className = 'controls-guide__note';
+		note.textContent = 'Controller prompts adapt to PlayStation, Xbox, Steam, Nintendo, or generic controllers when detected.';
+		wrap.appendChild(note);
+
+		return wrap;
+	}
+
+	function buildSection(title, rows) {
+		const section = document.createElement('section');
+		section.className = 'controls-guide__section';
+		const heading = document.createElement('h3');
+		heading.textContent = title;
+		section.appendChild(heading);
+
+		for (const row of rows) {
+			const item = document.createElement('div');
+			item.className = 'controls-guide__row';
+			const input = document.createElement('div');
+			input.className = 'controls-guide__input';
+			input.appendChild(row.input);
+			const action = document.createElement('div');
+			action.className = 'controls-guide__action';
+			action.textContent = row.action;
+			item.appendChild(input);
+			item.appendChild(action);
+			section.appendChild(item);
+		}
+
+		return section;
+	}
+
+	function keys(...labels) {
+		const wrap = document.createElement('span');
+		wrap.className = 'control-badge-row';
+		for (const label of labels) {
+			const key = document.createElement('span');
+			key.className = 'control-key-badge';
+			key.textContent = label;
+			wrap.appendChild(key);
+		}
+		return wrap;
+	}
+
+	function mouse(label) {
+		const badge = document.createElement('span');
+		badge.className = 'control-pill-badge';
+		badge.textContent = label;
+		return badge;
+	}
+
+	function touchBadge(label) {
+		const badge = document.createElement('span');
+		badge.className = 'control-pill-badge control-pill-badge--touch';
+		badge.textContent = label;
+		return badge;
+	}
+
+	function padText(label) {
+		const badge = document.createElement('span');
+		badge.className = 'control-pill-badge control-pill-badge--controller';
+		badge.textContent = label;
+		return badge;
+	}
+
+	function controllerButton(action) {
+		const wrap = document.createElement('span');
+		wrap.className = 'control-badge-row';
+		if (window.ControllerButtons && ControllerButtons.createButtonBadge) {
+			wrap.appendChild(ControllerButtons.createButtonBadge(action));
+		} else {
+			const fallback = document.createElement('span');
+			fallback.className = 'control-key-badge';
+			fallback.textContent = action;
+			wrap.appendChild(fallback);
+		}
+		return wrap;
 	}
 
 	function isVisible() {

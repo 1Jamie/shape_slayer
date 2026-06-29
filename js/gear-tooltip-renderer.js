@@ -267,14 +267,19 @@ function renderGearTooltips(ctx, player) {
     ctx.font = 'bold 16px Arial';
     ctx.fillText('→', tooltipX, tooltipY);
 
-    // Draw pickup prompt (only show in desktop mode)
-    if (typeof Input !== 'undefined' && (!Input.isTouchMode || !Input.isTouchMode())) {
+    // Draw pickup prompt when keyboard/mouse or gamepad world hints are active.
+    if (typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
         ctx.fillStyle = '#ffff00';
         ctx.font = 'bold 12px Arial';
         ctx.textAlign = 'center';
 
         let promptY = tooltipY + tooltipHeight / 2 - 8;
-        ctx.fillText('Press G to pickup', tooltipX, promptY);
+        if (Input.drawInteractionPrompt) {
+            Input.drawInteractionPrompt(ctx, 'pick up', tooltipX, promptY);
+        } else {
+            const prompt = Input.getInteractionPrompt ? Input.getInteractionPrompt('pick up') : 'Press G to pickup';
+            ctx.fillText(prompt, tooltipX, promptY);
+        }
 
         // Show cycling instructions if multiple items nearby
         if (nearbyCount > 1 && LootSelection.selectedIndex !== undefined) {

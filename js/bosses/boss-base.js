@@ -102,6 +102,21 @@ class BossBase extends EnemyBase {
             }
         }
         console.log(`${this.bossName} entering Phase ${newPhase}!`);
+        if (typeof Telemetry !== 'undefined') {
+            const roomNumber = (typeof Game !== 'undefined' && Game.roomNumber) ? Game.roomNumber : 1;
+            Telemetry.recordEvent('bossPhase', {
+                roomNumber,
+                targetId: this.bossName || this.constructor.name,
+                value: newPhase,
+                metadata: {
+                    bossId: this.bossName || this.constructor.name,
+                    oldPhase,
+                    newPhase,
+                    hp: this.hp,
+                    maxHp: this.maxHp
+                }
+            });
+        }
     }
     
     // Check if a weak point was hit
@@ -423,6 +438,19 @@ class BossBase extends EnemyBase {
             } else {
                 Game.bossesKilled = 1;
             }
+        }
+        if (!isClient && typeof Telemetry !== 'undefined') {
+            const bossId = this.bossName || this.constructor.name;
+            const roomNumber = (typeof Game !== 'undefined' && Game.roomNumber) ? Game.roomNumber : 1;
+            Telemetry.recordEvent('bossDefeated', {
+                roomNumber,
+                targetId: bossId,
+                metadata: {
+                    bossId,
+                    lastAttacker: this.lastAttacker || null
+                }
+            });
+            Telemetry.completeBossEncounter(bossId);
         }
         
         // Give XP to all alive players (multiplayer: host distributes; solo: local player)

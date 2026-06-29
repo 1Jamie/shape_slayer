@@ -182,7 +182,7 @@ function renderCharacterSheet(ctx, player) {
 	const canvas = ctx.canvas;
 	const screenWidth = canvas.width;
 	const screenHeight = canvas.height;
-	const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+	const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
 	const modalWidth = isMobile ? Math.min(screenWidth * 0.96, 640) : Math.min(screenWidth * 0.96, 1280);
 	const modalHeight = isMobile ? Math.min(screenHeight * 0.92, screenHeight - 40) : Math.min(screenHeight * 0.92, 820);
 	const modalX = (screenWidth - modalWidth) / 2;

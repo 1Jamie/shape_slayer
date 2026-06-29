@@ -12,6 +12,19 @@
 	// Track if this is the first room
 	window.isFirstRoom = true;
 
+	function summarizeDoorOption(option) {
+		if (!option) return null;
+		return {
+			packType: option.packType || null,
+			rewardType: option.rewardType || null,
+			preview: Array.isArray(option.preview) ? option.preview.slice(0, 5) : [],
+			cardId: option.payload && option.payload.card ? option.payload.card.id || null : null,
+			cardFamily: option.payload && option.payload.card ? option.payload.card.family || option.payload.card.name || null : null,
+			shards: option.payload && Number.isFinite(option.payload.shards) ? option.payload.shards : null,
+			canUpgrade: option.canUpgrade !== false
+		};
+	}
+
 	// Spawn reward when room is cleared
 	window.spawnRoomReward = function spawnRoomReward() {
 		const roomWidth = (currentRoom && currentRoom.width) ? currentRoom.width : 2400;
@@ -98,6 +111,16 @@
 			};
 			window.selectionDoors.push(pack);
 		});
+
+		if (typeof Telemetry !== 'undefined') {
+			Telemetry.recordEvent('doorOptionsShown', {
+				roomNumber: typeof Game !== 'undefined' && Game.roomNumber ? Game.roomNumber : 1,
+				metadata: {
+					options: options.map(summarizeDoorOption),
+					optionCount: options.length
+				}
+			});
+		}
 	};
 
 	// Spawn upgrade pickup on ground
@@ -223,6 +246,21 @@
 		// Store the selected reward for the NEXT room (will spawn when that room is cleared)
 		// This includes the modified option if a modifier was applied
 		window.selectedDoorReward = opt;
+
+		if (typeof Telemetry !== 'undefined') {
+			Telemetry.recordEvent('doorSelected', {
+				roomNumber: typeof Game !== 'undefined' && Game.roomNumber ? Game.roomNumber : 1,
+				metadata: {
+					option: summarizeDoorOption(opt),
+					originalOption: summarizeDoorOption(pack.option),
+					modifier: pack.selectedModifier ? {
+						id: pack.selectedModifier.id || null,
+						family: pack.selectedModifier.family || pack.selectedModifier.name || null,
+						quality: pack.selectedModifier._resolvedQuality || null
+					} : null
+				}
+			});
+		}
 
 		// Store pack type for next room generation
 		if (Game && pack.option && pack.option.packType) {
@@ -381,13 +419,12 @@
 
 					ctx.fillStyle = '#00ff00';
 					ctx.font = 'bold 12px Orbitron';
-					if (hasModifiers) {
-						if (typeof Input !== 'undefined' && !Input.isTouchMode()) {
-							ctx.fillText('Press G to Select or M for Modifier', pack.x, cardY - 25);
-						}
-					} else {
-						if (typeof Input !== 'undefined' && !Input.isTouchMode()) {
-							ctx.fillText('Press G to Select', pack.x, cardY - 25);
+					if (typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
+						if (Input.drawDoorPrompt) {
+							Input.drawDoorPrompt(ctx, hasModifiers, pack.x, cardY - 25);
+						} else {
+							const prompt = Input.getDoorPrompt ? Input.getDoorPrompt(hasModifiers) : (hasModifiers ? 'Press G to Select or M for Modifier' : 'Press G to Select');
+							ctx.fillText(prompt, pack.x, cardY - 25);
 						}
 					}
 
@@ -496,10 +533,15 @@
 			ctx.fillText('Upgrade', upgrade.x, upgrade.y - (upgrade.size + 16));
 
 			// Interaction hint
-			if (typeof Input !== 'undefined' && !Input.isTouchMode()) {
+			if (typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
 				ctx.fillStyle = '#00ff00';
 				ctx.font = 'bold 10px Orbitron';
-				ctx.fillText('Press G', upgrade.x, upgrade.y + (upgrade.size + 14));
+				if (Input.drawInteractionPrompt) {
+					Input.drawInteractionPrompt(ctx, 'select', upgrade.x, upgrade.y + (upgrade.size + 14));
+				} else {
+					const prompt = Input.getInteractionPrompt ? Input.getInteractionPrompt('select') : 'Press G';
+					ctx.fillText(prompt, upgrade.x, upgrade.y + (upgrade.size + 14));
+				}
 			}
 
 			ctx.restore();

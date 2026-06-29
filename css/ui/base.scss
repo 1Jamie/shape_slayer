@@ -124,6 +124,230 @@ body {
 	background: rgba(100, 100, 255, 0.2);
 }
 
+.controller-focused {
+	outline: 3px solid #ffea8a !important;
+	outline-offset: 3px !important;
+	box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.65), 0 0 18px rgba(255, 234, 138, 0.85) !important;
+}
+
+.modal__body.controller-focused,
+.nexus-scrollbar.controller-focused,
+[data-controller-scroll].controller-focused {
+	outline-offset: -4px !important;
+	box-shadow: inset 0 0 0 2px #ffea8a, inset 0 0 18px rgba(255, 234, 138, 0.35) !important;
+}
+
+.controller-button-badge {
+	--controller-button-color: #fff;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.45em;
+	height: 1.45em;
+	min-width: 1.45em;
+	border-radius: 50%;
+	background: linear-gradient(180deg, #050505 0%, #050505 58%, #2c2c2c 100%);
+	border: 1px solid rgba(255, 255, 255, 0.18);
+	color: var(--controller-button-color);
+	font-family: Arial, sans-serif;
+	font-weight: 800;
+	font-size: 0.9em;
+	line-height: 1;
+	vertical-align: -0.18em;
+	box-shadow: inset 0 -0.2em 0.4em rgba(255, 255, 255, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.65);
+}
+
+.controller-button-mark {
+	display: block;
+	position: relative;
+	width: 70%;
+	height: 70%;
+	color: var(--controller-button-color);
+}
+
+.controller-button-mark--cross::before,
+.controller-button-mark--cross::after {
+	content: '';
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	width: 85%;
+	height: 16%;
+	background: currentColor;
+	transform-origin: center;
+}
+
+.controller-button-mark--cross::before {
+	transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.controller-button-mark--cross::after {
+	transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.controller-button-mark--circle {
+	border: 0.18em solid currentColor;
+	border-radius: 50%;
+}
+
+.controller-button-mark--triangle::before {
+	content: '';
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	width: 72%;
+	height: 72%;
+	border-left: 0.18em solid currentColor;
+	border-top: 0.18em solid currentColor;
+	transform: translate(-50%, -42%) rotate(45deg);
+}
+
+.controller-button-mark--square {
+	border: 0.18em solid currentColor;
+}
+
+.launch-modal {
+	max-width: min(1180px, 96vw);
+}
+
+.controls-guide {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(220px, 1fr));
+	gap: 14px;
+}
+
+.controls-guide__section {
+	background: rgba(10, 12, 22, 0.62);
+	border: 1px solid rgba(120, 160, 255, 0.32);
+	border-radius: 8px;
+	padding: 12px;
+}
+
+.controls-guide__section h3 {
+	margin: 0 0 10px;
+	color: #88ddff;
+	font-size: 14px;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+
+.controls-guide__row {
+	display: grid;
+	grid-template-columns: minmax(92px, 0.78fr) 1fr;
+	gap: 10px;
+	align-items: center;
+	padding: 6px 0;
+	border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.controls-guide__row:first-of-type {
+	border-top: 0;
+}
+
+.controls-guide__input {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+}
+
+.controls-guide__action {
+	color: rgba(255, 255, 255, 0.88);
+	font-size: 12px;
+	line-height: 1.35;
+}
+
+.control-badge-row {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	flex-wrap: wrap;
+}
+
+.control-key-badge,
+.control-pill-badge {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border: 1px solid rgba(255, 255, 255, 0.24);
+	background: rgba(255, 255, 255, 0.08);
+	color: #fff;
+	border-radius: 5px;
+	padding: 3px 6px;
+	min-height: 24px;
+	font-size: 11px;
+	font-weight: 700;
+	line-height: 1;
+	white-space: nowrap;
+}
+
+.control-key-badge {
+	min-width: 25px;
+}
+
+.control-pill-badge--touch {
+	border-color: rgba(110, 210, 255, 0.45);
+	color: #b8f0ff;
+}
+
+.control-pill-badge--controller {
+	border-color: rgba(255, 234, 138, 0.45);
+	color: #ffea8a;
+}
+
+.controls-guide__note {
+	grid-column: 1 / -1;
+	color: rgba(255, 255, 255, 0.72);
+	font-size: 12px;
+	text-align: center;
+	padding: 4px 8px 0;
+}
+
+.controller-nav-hints {
+	display: none;
+	align-items: center;
+	justify-content: center;
+	flex-wrap: wrap;
+	gap: 10px;
+	padding: 8px 12px;
+	border-top: 1px solid rgba(150, 150, 255, 0.22);
+	background: rgba(5, 8, 18, 0.72);
+	color: rgba(255, 255, 255, 0.78);
+	font-size: 11px;
+	line-height: 1;
+}
+
+.controller-nav-active .controller-nav-hints {
+	display: flex;
+}
+
+.controller-nav-hint {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	white-space: nowrap;
+}
+
+.controller-nav-hints .control-pill-badge {
+	min-height: 20px;
+	padding: 3px 6px;
+	font-size: 10px;
+}
+
+.controller-nav-hints .controller-button-badge {
+	font-size: 0.82em;
+}
+
+@media (max-width: 900px) {
+	.controls-guide {
+		grid-template-columns: 1fr;
+	}
+
+	.controls-guide__row {
+		grid-template-columns: minmax(86px, 0.7fr) 1fr;
+	}
+}
+
 .sr-only {
 	position: absolute;
 	width: 1px;
@@ -287,6 +511,366 @@ body {
 	font-size: 12px;
 	display: flex;
 	justify-content: space-between;
+}
+
+/* Nexus Machine Scrollbar Styling */
+.nexus-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(74, 144, 226, 0.6) rgba(20, 20, 40, 0.3);
+}
+
+.nexus-scrollbar::-webkit-scrollbar {
+  width: 12px;
+}
+
+.nexus-scrollbar::-webkit-scrollbar-track {
+  background: rgba(20, 20, 40, 0.3);
+  border-radius: 6px;
+}
+
+.nexus-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(74, 144, 226, 0.6);
+  border-radius: 6px;
+  border: 2px solid rgba(20, 20, 40, 0.3);
+}
+
+.nexus-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(74, 144, 226, 0.8);
+}
+
+/* Reusable Mobile Scaling mixin */
+@mixin mobile-scaling {
+  /* Scale modals for mobile */
+  .modal {
+    max-width: min(90vw, 900px);
+    max-height: min(90vh, 800px);
+  }
+
+  /* Scale modal body padding and font sizes */
+  .modal__header {
+    padding: 12px 16px;
+    font-size: 0.9em;
+  }
+
+  .modal__body {
+    padding: 12px 16px;
+    font-size: 0.9em;
+  }
+
+  .modal__footer {
+    padding: 10px 12px;
+    gap: 6px;
+  }
+
+  /* Scale buttons */
+  .btn {
+    padding: 8px 12px;
+    font-size: 0.9em;
+    border-radius: 5px;
+  }
+
+  /* Scale character sheet */
+  .character-sheet {
+    max-width: 95vw;
+    max-height: 90vh;
+  }
+
+  .cs-grid {
+    gap: 12px;
+    padding: 4px;
+  }
+
+  .cs-panel {
+    padding: 8px;
+  }
+
+  /* Scale card grid */
+  .cs-cards {
+    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  }
+
+  .cs-card {
+    padding: 6px 8px 10px 8px;
+    min-height: 180px;
+  }
+
+  /* Scale chips and badges */
+  .cs-chips {
+    gap: 6px;
+  }
+
+  .cs-chip {
+    padding: 3px 6px;
+    font-size: 11px;
+  }
+
+  .cs-badge {
+    padding: 5px 6px;
+    font-size: 11px;
+  }
+
+  /* HUD mobile scaling and repositioning */
+  #dom-hud {
+    bottom: 200px !important;
+    /* Move above touch controls (controls are at ~16-18% from bottom) */
+    left: 10px !important;
+    right: 10px !important;
+    transform: scale(0.85) !important;
+    transform-origin: left bottom !important;
+  }
+
+  #dom-hud #dom-hp-bar,
+  #dom-hud #dom-shield-bar {
+    max-width: 320px !important;
+    height: 12px !important;
+  }
+
+  #dom-hud #dom-hp-bar-text,
+  #dom-hud #dom-shield-bar-text {
+    font-size: 9px !important;
+  }
+
+  #dom-hud #dom-xp-bar {
+    max-width: 320px !important;
+    height: 8px !important;
+    margin-top: 6px !important;
+  }
+
+  #dom-hud #dom-cooldowns-row {
+    gap: 10px !important;
+    margin-top: 6px !important;
+  }
+
+  #dom-hud #dom-cooldowns-row>div {
+    gap: 3px !important;
+  }
+
+  #dom-hud #dom-cooldowns-row>div>div:first-child {
+    width: 120px !important;
+    height: 12px !important;
+  }
+
+  #dom-hud #dom-cooldowns-row>div>div:last-child {
+    font-size: 10px !important;
+    margin-top: 1px !important;
+  }
+
+  #dom-hud .hud>div:first-child {
+    font-size: 11px !important;
+    margin-right: 4px !important;
+  }
+
+  /* Room info mobile scaling */
+  .room-info-panel {
+    top: 8px !important;
+    width: 180px !important;
+    min-height: 45px !important;
+    padding: 6px 10px !important;
+  }
+
+  .room-info-panel .room-info__number {
+    font-size: 24px !important;
+    margin-bottom: 2px !important;
+  }
+
+  .room-info-panel .room-info__enemies {
+    font-size: 12px !important;
+    min-height: 18px !important;
+  }
+
+  .room-info-panel .room-info__status {
+    font-size: 14px !important;
+    top: calc(100% + 6px) !important;
+  }
+
+  /* Room/Level banner mobile scaling */
+  .ui-layer[style*="top: 12px"] {
+    top: 8px !important;
+    padding: 0 12px !important;
+  }
+
+  .ui-layer[style*="top: 12px"]>div {
+    font-size: 14px !important;
+  }
+
+  /* Teammate health bars mobile positioning */
+  #dom-teammate-health {
+    bottom: 280px !important;
+    /* Above HUD (which is at 200px) */
+    left: 10px !important;
+    transform: scale(0.85) !important;
+    transform-origin: left bottom !important;
+  }
+
+  /* Pause menu mobile styling */
+  .pause-menu {
+    max-width: 95vw !important;
+    max-height: 90vh !important;
+    width: 500px !important;
+  }
+
+  .pause-menu .modal__header {
+    padding: 12px 16px !important;
+    font-size: 16px !important;
+  }
+
+  .pause-menu .modal__body {
+    padding: 16px !important;
+    padding-right: 12px !important;
+    overflow: hidden !important;
+  }
+
+  /* Always show scrollbar on webkit browsers (Chrome, Safari, Edge) */
+  .pause-menu .modal__body::-webkit-scrollbar {
+    -webkit-appearance: none;
+    width: 10px;
+  }
+
+  .pause-menu .modal__body::-webkit-scrollbar-track {
+    background: rgba(20, 20, 40, 0.4);
+    border-radius: 5px;
+    -webkit-box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.3);
+  }
+
+  .pause-menu .modal__body::-webkit-scrollbar-thumb {
+    background: rgba(74, 144, 226, 0.8);
+    border-radius: 5px;
+    border: 2px solid rgba(20, 20, 40, 0.4);
+    -webkit-box-shadow: 0 0 6px rgba(74, 144, 226, 0.5);
+  }
+
+  .pause-menu .modal__body::-webkit-scrollbar-thumb:hover {
+    background: rgba(74, 144, 226, 1);
+  }
+
+  /* Force scrollbar to always be visible (prevent auto-hide) */
+  .pause-menu .modal__body::-webkit-scrollbar-thumb:vertical {
+    min-height: 30px;
+  }
+
+  .pause-menu .modal__body>div {
+    gap: 12px !important;
+  }
+
+  .pause-menu .btn {
+    padding: 12px 16px !important;
+    font-size: 15px !important;
+    min-height: 48px !important;
+  }
+
+  .pause-menu .modal__footer {
+    padding: 12px 16px !important;
+  }
+
+  /* Ensure pause menu appears above HUD */
+  .ui-layer--modal {
+    z-index: 10000 !important;
+  }
+
+  /* Character sheet mobile scaling */
+  .character-sheet {
+    max-width: 98vw !important;
+    max-height: 96vh !important;
+    transform: scale(0.85);
+    transform-origin: center center;
+  }
+
+  .character-sheet .modal__header {
+    padding: 8px 12px !important;
+    font-size: 14px !important;
+  }
+
+  .character-sheet .modal__body {
+    padding: 8px 10px !important;
+    font-size: 11px !important;
+    max-height: 70vh !important;
+    overflow: hidden !important;
+  }
+
+  .character-sheet .modal__footer {
+    padding: 6px 10px !important;
+  }
+
+  .character-sheet .cs-grid {
+    grid-template-columns: 1fr 1.5fr 1fr !important;
+    gap: 8px !important;
+    padding: 3px !important;
+  }
+
+  .character-sheet .cs-panel {
+    padding: 5px !important;
+    font-size: 10px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
+
+  /* Custom scrollbar for mobile panels */
+  .character-sheet .cs-panel::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .character-sheet .cs-panel::-webkit-scrollbar-track {
+    background: rgba(20, 20, 40, 0.3);
+    border-radius: 3px;
+  }
+
+  .character-sheet .cs-panel::-webkit-scrollbar-thumb {
+    background: rgba(74, 144, 226, 0.6);
+    border-radius: 3px;
+  }
+
+  .character-sheet .cs-panel::-webkit-scrollbar-thumb:hover {
+    background: rgba(74, 144, 226, 0.8);
+  }
+
+  .character-sheet .cs-title {
+    font-size: 12px !important;
+    margin-bottom: 4px !important;
+  }
+
+  .character-sheet .cs-subtitle {
+    font-size: 11px !important;
+    margin: 2px 0 4px !important;
+  }
+
+  .character-sheet .cs-cards {
+    gap: 8px !important;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)) !important;
+  }
+
+  .character-sheet .cs-card {
+    padding: 5px 6px !important;
+    min-height: 150px !important;
+    font-size: 10px !important;
+  }
+
+  .character-sheet .cs-card__name {
+    font-size: 10px !important;
+  }
+
+  .character-sheet .cs-card__tag {
+    font-size: 9px !important;
+  }
+
+  .character-sheet .cs-card__desc {
+    font-size: 9px !important;
+  }
+
+  /* Ensure character sheet button stays on top when sheet is open */
+  .charsheet-button {
+    z-index: 10001 !important;
+  }
+}
+
+/* Compile the mobile mixin under the mobile media query */
+@media (max-width: 1024px), (max-height: 600px) {
+  @include mobile-scaling;
+}
+
+/* Compile the mobile mixin under the touch-mode class override */
+.touch-mode {
+  @include mobile-scaling;
 }
 
 

@@ -1,5 +1,15 @@
 (() => {
-    const METRICS_ENDPOINT = 'https://metrics.gpe.pet/ingest';
+    const DEFAULT_METRICS_ENDPOINT = 'https://metrics.gpe.pet/ingest';
+
+    function getMetricsEndpoint() {
+        if (typeof window !== 'undefined' && typeof window.METRICS_ENDPOINT === 'string' && window.METRICS_ENDPOINT.trim()) {
+            return window.METRICS_ENDPOINT.trim();
+        }
+        if (typeof Game !== 'undefined' && typeof Game.telemetryEndpoint === 'string' && Game.telemetryEndpoint.trim()) {
+            return Game.telemetryEndpoint.trim();
+        }
+        return DEFAULT_METRICS_ENDPOINT;
+    }
 
     function generateRunId() {
         if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -220,6 +230,28 @@
         };
     }
 
+    function collectInputContext() {
+        if (typeof Input !== 'undefined' && Input.getInputContext) {
+            return Input.getInputContext();
+        }
+        if (typeof window === 'undefined') {
+            return {};
+        }
+        return {
+            controlMode: typeof Input !== 'undefined' ? Input.controlMode : 'unknown',
+            activeInputSource: typeof Input !== 'undefined' ? Input._activeInputSource : 'unknown',
+            mobileUi: typeof Input !== 'undefined' && Input.isMobileUiMode ? Input.isMobileUiMode() : false,
+            gamepad: typeof Input !== 'undefined' && Input.isGamepadMode ? Input.isGamepadMode() : false,
+            gamepadFamily: typeof Input !== 'undefined' ? Input._gamepadFamily : 'generic',
+            viewport: {
+                width: window.innerWidth || null,
+                height: window.innerHeight || null,
+                dpr: window.devicePixelRatio || 1,
+                orientation: window.innerWidth > window.innerHeight ? 'landscape' : 'portrait'
+            }
+        };
+    }
+
     function summarizeAffixPool(players) {
         const unique = new Map();
         players.forEach(player => {
@@ -323,6 +355,7 @@
             const startedAt = nowIso();
             const {
                 mode = (typeof Game !== 'undefined' && Game.multiplayerEnabled ? 'multiplayer' : 'singleplayer'),
+                gameMode = (typeof Game !== 'undefined' && Game.gameMode ? Game.gameMode : 'cards'),
                 hostPlayerId = (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local'),
                 difficulty = 'default',
                 seed = null,
@@ -337,6 +370,7 @@
                 runId,
                 gameVersion: (typeof Game !== 'undefined' && Game.VERSION) ? Game.VERSION : 'unknown',
                 mode,
+                gameMode,
                 hostPlayerId,
                 startedAt,
                 endedAt: null,
@@ -344,7 +378,10 @@
                 result: 'unknown',
                 seed,
                 difficulty,
-                metadata,
+                metadata: {
+                    ...metadata,
+                    input: collectInputContext()
+                },
                 affixPool,
                 rooms: new Map(),
                 playerSummaries: new Map(playerSummaries.map(summary => [summary.playerId, summary])),
@@ -427,6 +464,37 @@
             if (playerSummary) {
                 playerSummary.totalDamageDealt += safeAmount;
             }
+        },
+
+        recordEvent(type, {
+            roomNumber = null,
+            playerId = null,
+            targetId = null,
+            targetType = null,
+            value = null,
+            metadata = {}
+        } = {}) {
+            if (!state.activeRun || !this.shouldCapture() || !type) return;
+
+            const resolvedRoomNumber = roomNumber ||
+                (state.currentRoom && state.currentRoom.roomNumber) ||
+                (typeof Game !== 'undefined' && Game.roomNumber) ||
+                1;
+            const roomEntry = ensureRoom(resolvedRoomNumber);
+            if (!roomEntry) return;
+            const safeMetadata = metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata : {};
+
+            roomEntry.events.push({
+                timestamp: nowIso(),
+                type,
+                playerId,
+                targetId,
+                value: isFiniteNumber(value) ? value : null,
+                metadata: {
+                    ...safeMetadata,
+                    ...(targetType ? { targetType } : {})
+                }
+            });
         },
 
         recordPlayerHit({ playerId, amount, roomNumber, sourceId = null, sourceType = null }) {
@@ -578,6 +646,7 @@
                     runId: state.activeRun.runId,
                     gameVersion: state.activeRun.gameVersion,
                     mode: state.activeRun.mode,
+                    gameMode: state.activeRun.gameMode,
                     hostPlayerId: state.activeRun.hostPlayerId,
                     startedAt: state.activeRun.startedAt,
                     endedAt: state.activeRun.endedAt,
@@ -599,7 +668,7 @@
 
         async submit(payload) {
             try {
-                await fetch(METRICS_ENDPOINT, {
+                await fetch(getMetricsEndpoint(), {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'

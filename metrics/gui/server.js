@@ -7,7 +7,9 @@ const morgan = require('morgan');
 const Database = require('better-sqlite3');
 
 const PORT = process.env.METRICS_GUI_PORT ? Number(process.env.METRICS_GUI_PORT) : 5000;
-const DB_PATH = path.join(__dirname, '..', 'server', 'data', 'metrics.sqlite');
+const DB_PATH = process.env.METRICS_DB_PATH
+    ? path.resolve(process.env.METRICS_DB_PATH)
+    : path.join(__dirname, '..', 'server', 'data', 'metrics.sqlite');
 
 let db;
 try {
@@ -46,6 +48,7 @@ const selectRunsStmt = db
         SELECT run_id,
                game_version,
                mode,
+               game_mode,
                host_player_id,
                started_at,
                ended_at,
@@ -162,6 +165,24 @@ const selectModeCountsStmt = db
     `)
     : null;
 
+const selectGameModeCountsStmt = db
+    ? db.prepare(`
+        SELECT COALESCE(game_mode, 'unknown') AS game_mode, COUNT(*) as count
+        FROM runs
+        GROUP BY COALESCE(game_mode, 'unknown')
+    `)
+    : null;
+
+const selectEventTypeSummaryStmt = db
+    ? db.prepare(`
+        SELECT event_type, COUNT(*) as count
+        FROM room_events
+        GROUP BY event_type
+        ORDER BY count DESC
+        LIMIT 20
+    `)
+    : null;
+
 const selectTopAffixesStmt = db
     ? db.prepare(`
         SELECT affix_id, COUNT(*) as count
@@ -254,12 +275,9 @@ const selectBossSummaryStmt = db
         hitsTakenByPlayer: room.hits_taken_by_player ? JSON.parse(room.hits_taken_by_player) : {},
         playerStatsStart: room.player_stats_start ? JSON.parse(room.player_stats_start) : [],
         playerStatsEnd: room.player_stats_end ? JSON.parse(room.player_stats_end) : [],
-        eventCounts: ['damage', 'hitTaken', 'affixTriggered', 'bossPhase'].reduce((acc, type) => {
-            const key = `${room.room_id}:${type}`;
-            const value = eventMap[key];
-            if (value !== undefined) {
-                acc[type] = value;
-            }
+        eventCounts: roomEvents.reduce((acc, event) => {
+            if (event.room_id !== room.room_id) return acc;
+            acc[event.event_type] = event.count;
             return acc;
         }, {})
     }));
@@ -300,8 +318,10 @@ app.get('/api/summary', (req, res) => {
     const damageRows = selectDamageAggregationStmt.all();
     const runResults = selectRunResultsStmt.all();
     const modeCounts = selectModeCountsStmt.all();
+    const gameModeCounts = selectGameModeCountsStmt.all();
     const topAffixes = selectTopAffixesStmt.all();
     const bossSummary = selectBossSummaryStmt.all();
+    const eventTypeSummary = selectEventTypeSummaryStmt.all();
 
     const totalRuns = damageRows.length;
     const totalDamage = damageRows.reduce((sum, row) => sum + (row.total_damage_dealt || 0), 0);
@@ -322,8 +342,10 @@ app.get('/api/summary', (req, res) => {
         },
         runResults,
         modeCounts,
+        gameModeCounts,
         topAffixes,
-        bossSummary
+        bossSummary,
+        eventTypeSummary
     });
     });
 

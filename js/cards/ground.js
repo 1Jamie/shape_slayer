@@ -295,11 +295,17 @@ window.renderGroundCards = function renderGroundCards(ctx) {
 			const d2 = dx * dx + dy * dy;
 			const pickR = 100;
 			if (d2 <= pickR * pickR) {
-				const hint = (typeof Input !== 'undefined' && !Input.isTouchMode()) ? 'Press G to pick up' : 'Tap Interact to pick up';
 				ctx.font = 'bold 12px Orbitron';
-				ctx.strokeText(hint, it.x, it.y + it.size + 18);
 				ctx.fillStyle = '#ffdd55';
-				ctx.fillText(hint, it.x, it.y + it.size + 18);
+				if (typeof Input !== 'undefined' && Input.drawInteractionPrompt) {
+					Input.drawInteractionPrompt(ctx, 'pick up', it.x, it.y + it.size + 18);
+				} else {
+					const hint = typeof Input !== 'undefined' && Input.getInteractionPrompt
+						? Input.getInteractionPrompt('pick up')
+						: 'Press G to pick up';
+					ctx.strokeText(hint, it.x, it.y + it.size + 18);
+					ctx.fillText(hint, it.x, it.y + it.size + 18);
+				}
 			}
 		}
 		ctx.restore();

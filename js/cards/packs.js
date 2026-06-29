@@ -772,6 +772,21 @@ window.CardPacks.revalidateDoorOptions = function revalidateDoorOptions() {
 window.CardPacks.applyDoorOption = function applyDoorOption(option) {
 	if (!option) return false;
 
+	if (typeof Telemetry !== 'undefined') {
+		Telemetry.recordEvent('doorRewardApplied', {
+			roomNumber: typeof Game !== 'undefined' && Game.roomNumber ? Game.roomNumber : 1,
+			metadata: {
+				packType: option.packType || null,
+				rewardType: option.rewardType || null,
+				cardId: option.payload && option.payload.card ? option.payload.card.id || null : null,
+				cardFamily: option.payload && option.payload.card ? option.payload.card.family || option.payload.card.name || null : null,
+				shards: option.payload && Number.isFinite(option.payload.shards) ? option.payload.shards : null,
+				upgrade: !!(option.payload && option.payload.upgrade),
+				utility: option.payload && option.payload.utility ? option.payload.utility : null
+			}
+		});
+	}
+
 	// Handle utility rewards (Rest, Purification, Bonus Slot)
 	if (option.rewardType === 'Utility' && option.payload && option.payload.utility) {
 		console.log('[DEBUG applyDoorOption] Handling Utility reward');
@@ -860,6 +875,7 @@ window.CardPacks.applyDoorOption = function applyDoorOption(option) {
 
 		// Consume selected modifier and consolidate into Game.nextRoomModifiers
 		if (typeof Game !== 'undefined' && Game.selectedRoomModifier) {
+			const telemetryModifier = Game.selectedRoomModifier;
 			// Compute and store next-room bonuses/effects from the selected room modifier
 			const modBonuses = getModifierBonuses(Game.selectedRoomModifier) || {};
 			// Persist pack-related bonuses for next room's rewards
@@ -919,6 +935,18 @@ window.CardPacks.applyDoorOption = function applyDoorOption(option) {
 				xpBoost,
 				roomTypeOverride
 			};
+			if (typeof Telemetry !== 'undefined') {
+				Telemetry.recordEvent('roomModifierApplied', {
+					roomNumber: typeof Game !== 'undefined' && Game.roomNumber ? Game.roomNumber : 1,
+					metadata: {
+						id: telemetryModifier.id || null,
+						family: telemetryModifier.family || telemetryModifier.name || null,
+						quality: qBand,
+						modifiers: Game.nextRoomModifiers,
+						packBonus: Game.nextRoomPackBonus || null
+					}
+				});
+			}
 
 			// If room type override is set, use it instead of pack type
 			if (roomTypeOverride && typeof Game !== 'undefined') {

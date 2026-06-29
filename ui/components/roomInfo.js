@@ -173,7 +173,7 @@
 		}
 		
 		// Mobile scaling and repositioning
-		const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+		const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
 		if (isMobile) {
 			panel.style.top = '8px';
 			panel.style.width = '180px';

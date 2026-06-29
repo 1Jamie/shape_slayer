@@ -2470,6 +2470,21 @@ class MultiplayerManager {
         if (success) {
             // Mark player as having interacted
             pylon.interactedPlayers.push(playerId);
+            if (typeof Telemetry !== 'undefined') {
+                Telemetry.recordEvent('itemPylonInteracted', {
+                    roomNumber: typeof Game !== 'undefined' && Game.roomNumber ? Game.roomNumber : 1,
+                    playerId,
+                    targetId: pylonId,
+                    metadata: {
+                        pylonId,
+                        pylonRarity,
+                        itemId: randomItemId,
+                        itemName: randomItemDef.name || null,
+                        itemRarity: randomItemDef.rarity || null,
+                        interactedCount: pylon.interactedPlayers.length
+                    }
+                });
+            }
             
             // If this is the local player, show pickup message and play sound
             if (playerId === this.playerId) {

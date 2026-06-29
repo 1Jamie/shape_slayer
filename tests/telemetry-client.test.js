@@ -11,6 +11,8 @@ function loadTelemetry() {
     global.Game = {
         VERSION: '1.2.3',
         multiplayerEnabled: false,
+        gameMode: 'gear',
+        telemetryOptIn: true,
         getLocalPlayerId: () => 'local',
         roomNumber: 1,
         isHost: () => true
@@ -65,11 +67,18 @@ test('Telemetry serializes run metrics', () => {
 
     Telemetry.startRun({
         mode: 'singleplayer',
+        gameMode: 'gear',
         hostPlayerId: 'local',
         players
     });
 
     Telemetry.recordRoomEnter(1, 'combat', players);
+    Telemetry.recordEvent('gearEquipped', {
+        roomNumber: 1,
+        playerId: 'local',
+        targetId: 'sword-01',
+        metadata: { tier: 'blue', slot: 'weapon' }
+    });
     Telemetry.recordDamage({
         playerId: 'local',
         amount: 250,
@@ -93,6 +102,7 @@ test('Telemetry serializes run metrics', () => {
     assert.ok(payload, 'payload generated');
     assert.ok(payload.run, 'run present');
     assert.strictEqual(payload.run.mode, 'singleplayer');
+    assert.strictEqual(payload.run.gameMode, 'gear');
     assert.strictEqual(payload.run.players.length, 1);
 
     const player = payload.run.players[0];
@@ -105,6 +115,7 @@ test('Telemetry serializes run metrics', () => {
     assert.strictEqual(room.damageTakenByPlayer.local, 42);
     assert.ok(Array.isArray(room.playerStatsStart), 'playerStatsStart present');
     assert.ok(Array.isArray(room.playerStatsEnd), 'playerStatsEnd present');
+    assert.ok(room.events.some(event => event.type === 'gearEquipped'), 'generic event captured');
     assert.strictEqual(room.playerStatsStart[0].stats.damage, playerState.damage);
     assert.strictEqual(room.playerStatsStart[0].gear.weapon.tier, 'blue');
 
@@ -115,5 +126,18 @@ test('Telemetry serializes run metrics', () => {
     assert.strictEqual(submits.length, 1);
     assert.strictEqual(submits[0].run.result, 'success');
     assert.ok(submits[0].run.metadata.finalPlayerStats, 'final player stats captured');
+});
+
+test('Telemetry does not capture without opt-in', () => {
+    const Telemetry = loadTelemetry();
+    Game.telemetryOptIn = false;
+
+    Telemetry.startRun({
+        mode: 'singleplayer',
+        hostPlayerId: 'local',
+        players: []
+    });
+
+    assert.strictEqual(Telemetry.serialize(), null);
 });
 

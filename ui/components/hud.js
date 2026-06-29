@@ -14,7 +14,7 @@
 		// Mobile: completely different layout - top-left for health/XP
 		// Desktop: bottom-left as before
 		const inp = (typeof Input !== 'undefined' ? Input : (window.Input || null));
-		const isMobile = inp && inp.isTouchMode && inp.isTouchMode();
+		const isMobile = inp && inp.isMobileUiMode && inp.isMobileUiMode();
 		if (isMobile) {
 			container.style.left = '10px';
 			container.style.right = 'auto';
@@ -61,7 +61,7 @@
 		// Mobile: scale down shield bar and adjust width
 		// Mobile: scale down shield bar and adjust width
 		const inpInit = (typeof Input !== 'undefined' ? Input : (window.Input || null));
-		const isMobileInit = inpInit && inpInit.isTouchMode && inpInit.isTouchMode();
+		const isMobileInit = inpInit && inpInit.isMobileUiMode && inpInit.isMobileUiMode();
 		if (isMobileInit) {
 			shieldBar.style.maxWidth = '200px'; // Compact for top-left
 			shieldBar.style.width = '200px'; // Force width
@@ -128,6 +128,7 @@
 
 		// XP bar
 		const xpBar = document.createElement('div');
+		xpBar.id = 'dom-xp-bar';
 		xpBar.style.height = '10px';
 		xpBar.style.background = 'rgba(255,255,255,0.08)';
 		xpBar.style.border = '1px solid rgba(150,150,255,0.3)';
@@ -207,18 +208,9 @@
 
 		container.appendChild(hpBar);
 		container.appendChild(xpBar);
-
-		// Desktop: cooldowns in main container, mobile: separate fixed position
-		if (!isMobileInit) {
-			container.appendChild(cdContainer);
-		}
+		container.appendChild(cdContainer);
 
 		root.appendChild(container);
-
-		// Mobile: append cooldowns container separately
-		if (isMobileInit) {
-			// root.appendChild(cdContainer); // Don't append cooldowns on mobile
-		}
 	}
 
 	function updateHUD() {
@@ -235,7 +227,7 @@
 
 		// Apply mobile layout dynamically (runs every frame to handle state changes)
 		const inp = (typeof Input !== 'undefined' ? Input : (window.Input || null));
-		const isMobile = inp && inp.isTouchMode && inp.isTouchMode();
+		const isMobile = inp && inp.isMobileUiMode && inp.isMobileUiMode();
 
 		if (isMobile) {
 			// Mobile: top-left layout - move higher up
@@ -279,12 +271,14 @@
 			if (cdContainer) {
 				cdContainer.style.position = 'static';
 				cdContainer.style.display = 'flex';
+				cdContainer.style.visibility = 'visible';
 				cdContainer.style.flexDirection = 'row';
 				cdContainer.style.alignItems = 'flex-end';
 				cdContainer.style.gap = '10px';
 
 				if (cdWrap) {
 					cdWrap.style.display = 'flex';
+					cdWrap.style.visibility = 'visible';
 					cdWrap.style.flexDirection = 'row';
 					cdWrap.style.gap = '16px';
 					cdWrap.style.marginTop = '10px';
@@ -325,6 +319,7 @@
 			const shieldBar = document.getElementById('dom-shield-bar');
 			if (shieldBar) {
 				shieldBar.style.maxWidth = '420px';
+				shieldBar.style.width = '';
 				shieldBar.style.height = '12px';
 				shieldBar.style.marginBottom = '4px';
 			}
@@ -333,6 +328,7 @@
 			const hpBar = document.getElementById('dom-hp-bar');
 			if (hpBar) {
 				hpBar.style.maxWidth = '420px';
+				hpBar.style.width = '';
 				hpBar.style.height = '14px';
 			}
 
@@ -340,6 +336,7 @@
 			const xpBar = document.getElementById('dom-xp-bar');
 			if (xpBar) {
 				xpBar.style.maxWidth = '420px';
+				xpBar.style.width = '';
 				xpBar.style.height = '10px';
 				xpBar.style.marginTop = '8px';
 			}
@@ -412,6 +409,7 @@
 			return; // Skip all cooldown rendering on mobile
 		} else {
 			cdWrap.style.display = 'flex';
+			cdWrap.style.visibility = 'visible';
 			cdWrap.style.flexDirection = 'row';
 			cdWrap.style.alignItems = 'flex-end';
 			cdWrap.style.gap = '16px';
@@ -622,7 +620,7 @@
 						const col = document.createElement('div');
 						// Mobile: vertical stack alignment, desktop: center
 						const inpCol = (typeof Input !== 'undefined' ? Input : (window.Input || null));
-						const isMobileCol = inpCol && inpCol.isTouchMode && inpCol.isTouchMode();
+						const isMobileCol = inpCol && inpCol.isMobileUiMode && inpCol.isMobileUiMode();
 						col.style.display = 'flex';
 						col.style.flexDirection = 'column';
 						col.style.alignItems = isMobileCol ? 'flex-end' : 'center';
@@ -630,7 +628,7 @@
 						const bar = document.createElement('div');
 						// Mobile: scale down cooldown bars for vertical stack
 						const inpBar = (typeof Input !== 'undefined' ? Input : (window.Input || null));
-						const isMobileBar = inpBar && inpBar.isTouchMode && inpBar.isTouchMode();
+						const isMobileBar = inpBar && inpBar.isMobileUiMode && inpBar.isMobileUiMode();
 						bar.style.width = isMobileBar ? '100px' : '160px';
 						bar.style.height = isMobileBar ? '10px' : '14px';
 						bar.style.background = 'rgba(255,255,255,0.08)';
@@ -677,7 +675,7 @@
 						lab.style.fontWeight = '700';
 						// Mobile: scale down cooldown labels
 						const inpLabel = (typeof Input !== 'undefined' ? Input : (window.Input || null));
-						const isMobileLabel = inpLabel && inpLabel.isTouchMode && inpLabel.isTouchMode();
+						const isMobileLabel = inpLabel && inpLabel.isMobileUiMode && inpLabel.isMobileUiMode();
 						lab.style.fontSize = isMobileLabel ? '9px' : '12px';
 						lab.style.marginTop = isMobileLabel ? '1px' : '2px';
 						// Mobile: align text right for vertical stack

@@ -63,7 +63,22 @@ const Input = {
     touchButtons: {}, // Map of button name -> TouchButton
 
     // Control mode
-    controlMode: 'auto', // 'auto', 'mobile', 'desktop'
+    controlMode: 'auto', // 'auto', 'mobile', 'desktop', 'gamepad'
+
+    // Gamepad state
+    _gamepadIndex: null,          // which slot is the active controller
+    _gamepadActive: false,        // true once a controller is the active gameplay input
+    _gamepadDeadzone: 0.12,       // radial deadzone (0-1)
+    _gamepadStartPrev: false,     // tracks previous Start button state for edge detection
+    _gamepadSelectPrev: false,    // tracks Select/Back button state
+    _gamepadCanvas: null,         // canvas used to initialize hidden gamepad controls
+    _gamepadFamily: 'generic',    // playstation, xbox, nintendo, steam, generic
+    _activeInputSource: 'default', // 'default', 'keyboardMouse', 'touch', 'gamepad'
+    _lastGamepadInputAt: 0,
+    _lastNonGamepadInputAt: 0,
+    _inputSourceSwitchDelayMs: 250,
+    _hadOnScreenTouchControls: false,
+    _touchControlsHiddenForGamepad: false,
 
     // Last aim angle (for maintaining direction when joystick is released on mobile)
     lastAimAngle: 0,
@@ -103,7 +118,6 @@ const Input = {
     },
 
     // Device detection - check user agent for mobile/tablet
-    // DISABLED: Always return false to force desktop mode
     isMobileDevice() {
         // Primary detection: User Agent patterns
         const ua = navigator.userAgent || '';
@@ -112,7 +126,7 @@ const Input = {
         // Android mobile (must have "Mobile" in UA to exclude desktop Android)
         const isAndroidMobile = /Android.*Mobile/i.test(ua);
 
-        // iOS mobile devices (iPhone, iPod - exclude iPad if treating as tablet)
+        // iOS mobile devices (iPhone, iPod)
         const isIOSMobile = /iPhone|iPod/i.test(ua);
 
         // Platform check as secondary validation
@@ -122,37 +136,432 @@ const Input = {
         const isMobileBrowser = /Mobile|Android|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
 
         // Combine checks: must match user agent pattern AND platform (or mobile browser indicator)
-        const isMobile = (isAndroidMobile || isIOSMobile || (isMobileBrowser && isMobilePlatform));
+        let isMobile = (isAndroidMobile || isIOSMobile || (isMobileBrowser && isMobilePlatform));
 
-        return isMobile;
+        // iPad / Tablet / Touch Screen detection:
+        // iPads requesting desktop sites will report as Macintosh but have touch capabilities
+        const isIPadOS = /Macintosh/i.test(ua) && navigator.maxTouchPoints > 0;
+        const isTablet = /iPad|PlayBook|Silk/i.test(ua) || isIPadOS;
+
+        // Touch support detection (as a generic fallback for non-desktop platforms)
+        const hasTouchSupport = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
+        return isMobile || isTablet || (hasTouchSupport && !/Windows|Macintosh|Linux/i.test(platform));
     },
 
-    // Check if touch mode is active
+    // Check if a gamepad is the active input device
+    isGamepadMode() {
+        return this._gamepadActive;
+    },
+
+    // Check whether UI/layout should use mobile presentation.
+    isMobileUiMode() {
+        if (this.controlMode === 'mobile' || this.controlMode === 'touch') return true;
+        if (this.controlMode === 'desktop') return false;
+        return this.isMobileDevice();
+    },
+
+    _syncUiModeClass() {
+        document.body.classList.toggle('touch-mode', this.isMobileUiMode());
+    },
+
+    shouldShowWorldInteractionHints() {
+        return this.isGamepadMode() || !this.isMobileUiMode();
+    },
+
+    shouldShowMobileControllerCooldowns() {
+        return this.isGamepadMode() && this._touchControlsHiddenForGamepad;
+    },
+
+    getActiveInputSource() {
+        return this._activeInputSource;
+    },
+
+    getInputContext() {
+        const viewport = typeof window !== 'undefined'
+            ? {
+                width: window.innerWidth || null,
+                height: window.innerHeight || null,
+                dpr: window.devicePixelRatio || 1,
+                orientation: window.innerWidth > window.innerHeight ? 'landscape' : 'portrait'
+            }
+            : {};
+        return {
+            controlMode: this.controlMode,
+            activeInputSource: this._activeInputSource,
+            mobileUi: this.isMobileUiMode(),
+            gamepad: this.isGamepadMode(),
+            gamepadFamily: this._gamepadFamily,
+            fullscreen: !!(typeof document !== 'undefined' && (document.fullscreenElement || document.webkitFullscreenElement ||
+                document.mozFullScreenElement || document.msFullscreenElement)),
+            mobileZoom: typeof Game !== 'undefined' && Game.mobileZoom ? Game.mobileZoom : 1,
+            viewport
+        };
+    },
+
+    _recordInputEvent(type, metadata = {}) {
+        if (typeof Telemetry === 'undefined' || !Telemetry || !Telemetry.recordEvent) return;
+        Telemetry.recordEvent(type, {
+            roomNumber: typeof Game !== 'undefined' ? Game.roomNumber : null,
+            playerId: typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null,
+            metadata: {
+                ...this.getInputContext(),
+                ...metadata
+            }
+        });
+    },
+
+    _detectGamepadFamily(gamepad) {
+        const id = (gamepad && gamepad.id ? gamepad.id : '').toLowerCase();
+        if (/dualsense|dualshock|playstation|sony|wireless controller|ps[345]/i.test(id)) return 'playstation';
+        if (/nintendo|switch|joy-?con|pro controller|wii/i.test(id)) return 'nintendo';
+        if (/steam|valve/i.test(id)) return 'steam';
+        if (/xbox|xinput|microsoft|360|series|one controller/i.test(id)) return 'xbox';
+        return 'generic';
+    },
+
+    _getGamepadButtonStyle(button) {
+        const styles = {
+            playstation: {
+                interact: { mark: 'cross', color: '#6d96d8', text: 'Cross' },
+                modifier: { mark: 'triangle', color: '#7ee083', text: 'Triangle' }
+            },
+            xbox: {
+                interact: { mark: 'text', label: 'A', color: '#6fcf5f', text: 'A' },
+                modifier: { mark: 'text', label: 'Y', color: '#f2d35b', text: 'Y' }
+            },
+            steam: {
+                interact: { mark: 'text', label: 'A', color: '#6fcf5f', text: 'A' },
+                modifier: { mark: 'text', label: 'Y', color: '#f2d35b', text: 'Y' }
+            },
+            nintendo: {
+                // Standard Gamepad API index 0 is the bottom face button (B on Nintendo),
+                // and index 3 is the top face button (X on Nintendo).
+                interact: { mark: 'text', label: 'B', color: '#f06b6b', text: 'B' },
+                modifier: { mark: 'text', label: 'X', color: '#6d96d8', text: 'X' }
+            },
+            generic: {
+                interact: { mark: 'text', label: 'A', color: '#ffffff', text: 'A' },
+                modifier: { mark: 'text', label: 'Y', color: '#ffffff', text: 'Y' }
+            }
+        };
+
+        const familyStyles = styles[this._gamepadFamily] || styles.generic;
+        return familyStyles[button] || styles.generic[button] || { mark: 'text', label: '?', color: '#ffffff', text: '?' };
+    },
+
+    getInputHint(action) {
+        const desktopHints = {
+            interact: 'G',
+            modifier: 'M'
+        };
+
+        if (this.isGamepadMode()) {
+            return this._getGamepadButtonStyle(action).text;
+        }
+
+        return desktopHints[action] || '';
+    },
+
+    getInteractionPrompt(actionText = 'interact') {
+        if (this.isGamepadMode()) {
+            return `Press ${this.getInputHint('interact')} to ${actionText}`;
+        }
+        if (this.isMobileUiMode()) {
+            return `Tap Interact to ${actionText}`;
+        }
+        return `Press ${this.getInputHint('interact')} to ${actionText}`;
+    },
+
+    getDoorPrompt(hasModifiers = false) {
+        const selectHint = this.getInputHint('interact');
+        const modifierHint = this.getInputHint('modifier');
+
+        if (this.isGamepadMode()) {
+            return hasModifiers
+                ? `Press ${selectHint} to Select or ${modifierHint} for Modifier`
+                : `Press ${selectHint} to Select`;
+        }
+
+        if (this.isMobileUiMode()) {
+            return hasModifiers ? 'Tap Interact to Select' : 'Tap Interact to Select';
+        }
+
+        return hasModifiers
+            ? `Press ${selectHint} to Select or ${modifierHint} for Modifier`
+            : `Press ${selectHint} to Select`;
+    },
+
+    drawControllerButtonHint(ctx, button, x, y, size = 18) {
+        const radius = size / 2;
+        const buttonStyle = this._getGamepadButtonStyle(button);
+        const markColor = buttonStyle.color || '#ffffff';
+
+        ctx.save();
+        ctx.translate(x, y);
+
+        const gradient = ctx.createLinearGradient(0, -radius, 0, radius);
+        gradient.addColorStop(0, '#050505');
+        gradient.addColorStop(0.58, '#050505');
+        gradient.addColorStop(1, '#2c2c2c');
+
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        ctx.strokeStyle = markColor;
+        ctx.fillStyle = markColor;
+        ctx.lineCap = 'square';
+        ctx.lineJoin = 'miter';
+
+        if (buttonStyle.mark === 'triangle') {
+            const top = -radius * 0.42;
+            const bottom = radius * 0.38;
+            const halfWidth = radius * 0.46;
+            ctx.lineWidth = Math.max(2, size * 0.13);
+            ctx.beginPath();
+            ctx.moveTo(0, top);
+            ctx.lineTo(halfWidth, bottom);
+            ctx.lineTo(-halfWidth, bottom);
+            ctx.closePath();
+            ctx.stroke();
+        } else if (buttonStyle.mark === 'cross') {
+            const arm = radius * 0.48;
+            ctx.lineWidth = Math.max(3, size * 0.16);
+            ctx.beginPath();
+            ctx.moveTo(-arm, -arm);
+            ctx.lineTo(arm, arm);
+            ctx.moveTo(arm, -arm);
+            ctx.lineTo(-arm, arm);
+            ctx.stroke();
+        } else {
+            ctx.font = `bold ${Math.floor(size * 0.72)}px Arial, sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(buttonStyle.label || '?', 0, 1);
+        }
+
+        ctx.restore();
+    },
+
+    drawInteractionPrompt(ctx, actionText, x, y) {
+        if (!this.isGamepadMode()) {
+            ctx.fillText(this.getInteractionPrompt(actionText), x, y);
+            return;
+        }
+
+        this._drawGamepadPrompt(ctx, [
+            { type: 'text', text: 'Press ' },
+            { type: 'button', button: 'interact' },
+            { type: 'text', text: ` to ${actionText}` }
+        ], x, y);
+    },
+
+    drawDoorPrompt(ctx, hasModifiers, x, y) {
+        if (!this.isGamepadMode()) {
+            ctx.fillText(this.getDoorPrompt(hasModifiers), x, y);
+            return;
+        }
+
+        const parts = [
+            { type: 'text', text: 'Press ' },
+            { type: 'button', button: 'interact' },
+            { type: 'text', text: ' to Select' }
+        ];
+
+        if (hasModifiers) {
+            parts.push(
+                { type: 'text', text: ' or ' },
+                { type: 'button', button: 'modifier' },
+                { type: 'text', text: ' for Modifier' }
+            );
+        }
+
+        this._drawGamepadPrompt(ctx, parts, x, y);
+    },
+
+    _drawGamepadPrompt(ctx, parts, x, y) {
+        const originalAlign = ctx.textAlign;
+        const buttonSize = 18;
+        const gap = 3;
+        let totalWidth = 0;
+
+        for (const part of parts) {
+            if (part.type === 'button') {
+                totalWidth += buttonSize + gap * 2;
+            } else {
+                totalWidth += ctx.measureText(part.text).width;
+            }
+        }
+
+        let cursorX = x;
+        if (originalAlign === 'center') {
+            cursorX -= totalWidth / 2;
+        } else if (originalAlign === 'right' || originalAlign === 'end') {
+            cursorX -= totalWidth;
+        }
+
+        ctx.save();
+        ctx.textAlign = 'left';
+        for (const part of parts) {
+            if (part.type === 'button') {
+                cursorX += gap;
+                this.drawControllerButtonHint(ctx, part.button, cursorX + buttonSize / 2, y - buttonSize * 0.35, buttonSize);
+                cursorX += buttonSize + gap;
+            } else {
+                ctx.fillText(part.text, cursorX, y);
+                cursorX += ctx.measureText(part.text).width;
+            }
+        }
+        ctx.restore();
+    },
+
+    _clearTouchControls() {
+        this.touchActive = false;
+        this.activeTouches = {};
+        this.touchJoysticks = {};
+        this.touchButtons = {};
+    },
+
+    _applyControlSurface(canvas = this._gamepadCanvas) {
+        const hadOnScreenTouchControls = this._hadOnScreenTouchControls;
+        const wantsMobileSurface = this.isMobileUiMode() || this.controlMode === 'mobile' || this.controlMode === 'touch';
+        this._clearTouchControls();
+        this._hadOnScreenTouchControls = false;
+
+        if (this.isGamepadMode()) {
+            this._touchControlsHiddenForGamepad = hadOnScreenTouchControls || wantsMobileSurface;
+            if (canvas) {
+                this._initGamepadControls(canvas);
+            }
+            return;
+        }
+
+        this._touchControlsHiddenForGamepad = false;
+        if (this.isMobileUiMode()) {
+            if (canvas) {
+                this.initTouchControls(canvas);
+            }
+        }
+    },
+
+    _now() {
+        return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    },
+
+    _emitInputSourceChange() {
+        if (typeof window === 'undefined') return;
+        const detail = {
+            source: this._activeInputSource,
+            gamepad: this.isGamepadMode(),
+            family: this._gamepadFamily
+        };
+        window.dispatchEvent(new CustomEvent('inputsourcechange', {
+            detail
+        }));
+        this._recordInputEvent('inputSourceChange', detail);
+    },
+
+    _activateGamepadInput(canvas = this._gamepadCanvas) {
+        const now = this._now();
+        this._lastGamepadInputAt = now;
+
+        if (this._gamepadActive) {
+            if (this._activeInputSource !== 'gamepad') {
+                this._activeInputSource = 'gamepad';
+                this._emitInputSourceChange();
+            }
+            return true;
+        }
+        if (now - this._lastNonGamepadInputAt < this._inputSourceSwitchDelayMs) return false;
+
+        this._gamepadActive = true;
+        this._activeInputSource = 'gamepad';
+        this._applyControlSurface(canvas);
+        this._emitInputSourceChange();
+        return true;
+    },
+
+    _activateNonGamepadInput(source, canvas = this._gamepadCanvas) {
+        const now = this._now();
+        this._lastNonGamepadInputAt = now;
+
+        if (!this._gamepadActive) {
+            if (this._activeInputSource !== source) {
+                this._activeInputSource = source;
+                this._emitInputSourceChange();
+            }
+            return true;
+        }
+
+        if (now - this._lastGamepadInputAt < this._inputSourceSwitchDelayMs) return false;
+
+        this._gamepadActive = false;
+        this._gamepadStartPrev = false;
+        this._gamepadSelectPrev = false;
+        this._activeInputSource = source;
+        this._applyControlSurface(canvas);
+        this._emitInputSourceChange();
+        return true;
+    },
+
+    applyControlMode(mode = this.controlMode, canvas = this._gamepadCanvas) {
+        this.controlMode = mode;
+        this._gamepadActive = mode === 'gamepad';
+        this._activeInputSource = this._gamepadActive ? 'gamepad' : 'default';
+        this._syncUiModeClass();
+
+        const game = (typeof Game !== 'undefined') ? Game : window.Game;
+        if (game && game.canvas && game.setupResponsiveCanvas) {
+            game.setupResponsiveCanvas();
+        }
+        this._applyControlSurface((game && game.canvas) ? game.canvas : canvas);
+
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('controlmodechange', {
+                detail: {
+                    mode: this.controlMode,
+                    mobileUi: this.isMobileUiMode(),
+                    gamepad: this.isGamepadMode(),
+                    family: this._gamepadFamily
+                }
+            }));
+        }
+        this._recordInputEvent('controlModeChange', {
+            mode: this.controlMode,
+            gamepad: this.isGamepadMode(),
+            family: this._gamepadFamily
+        });
+    },
+
+    // Check if touch mode is active (also true for gamepad, which reuses the touch input path)
     isTouchMode() {
-        // Check if we're on a mobile device
-        if (this.isMobileDevice()) {
+        if (this.isGamepadMode()) return true;
+        if (this.controlMode === 'mobile' || this.controlMode === 'touch') {
             return true;
         }
-
-        // Check control mode setting (if user manually enabled touch controls)
-        if (this.controlMode === 'touch') {
-            return true;
+        if (this.controlMode === 'desktop') {
+            return false;
         }
-
-        // Auto mode: only enable if mobile device
-        if (this.controlMode === 'auto') {
-            return this.isMobileDevice();
-        }
-
-        return false;
+        // Auto mode: default to mobile device detection
+        return this.isMobileDevice();
     },
 
     // Initialize input handlers
     init(canvas) {
+        this._gamepadCanvas = canvas;
+
         // Load control mode setting
         if (typeof SaveSystem !== 'undefined') {
             this.controlMode = SaveSystem.getControlMode() || 'auto';
         }
+
+        this.applyControlMode(this.controlMode, canvas);
 
         // Keyboard events
         document.addEventListener('keydown', (e) => {
@@ -163,6 +572,7 @@ const Input = {
                 return; // Don't process game shortcuts when typing
             }
 
+            this._activateNonGamepadInput('keyboardMouse', canvas);
             this.keys[e.key.toLowerCase()] = true;
 
             // Prevent default Tab behavior (focus shifting) when used for character sheet
@@ -265,6 +675,7 @@ const Input = {
                 e.stopPropagation();
                 return;
             }
+            this._activateNonGamepadInput('keyboardMouse', canvas);
             if (e.button === 0) this.mouseLeft = true;
             if (e.button === 2) this.mouseRight = true;
         });
@@ -320,10 +731,243 @@ const Input = {
         // if (this.isTouchMode()) {
         //     this.initTouchControls(canvas);
         // }
+
+        // ---- Gamepad API ----
+        window.addEventListener('gamepadconnected', (e) => {
+            console.log(`[INPUT] Gamepad connected: "${e.gamepad.id}" (index ${e.gamepad.index})`);
+            this._activateGamepad(e.gamepad, canvas);
+        });
+
+        window.addEventListener('gamepaddisconnected', (e) => {
+            console.log(`[INPUT] Gamepad disconnected: "${e.gamepad.id}" (index ${e.gamepad.index})`);
+            if (e.gamepad.index === this._gamepadIndex) {
+                this._gamepadIndex = null;
+                this._gamepadActive = false;
+                this._gamepadStartPrev = false;
+                this._gamepadSelectPrev = false;
+                this._gamepadFamily = 'generic';
+                this._activeInputSource = 'default';
+                this._syncUiModeClass();
+                this._applyControlSurface(canvas);
+            }
+        });
+
+        // Some browsers expose pads that were already connected before our listener was registered.
+        this._scanConnectedGamepads(canvas);
     },
+
+    _hasGamepadInput(gamepad) {
+        if (!gamepad || !gamepad.connected) return false;
+
+        const axisMoved = Array.from(gamepad.axes || []).some(axis => Math.abs(axis) > this._gamepadDeadzone);
+        const buttonPressed = Array.from(gamepad.buttons || []).some(button => {
+            return button && (button.pressed || button.value > 0.15);
+        });
+
+        return axisMoved || buttonPressed;
+    },
+
+    _activateGamepad(gamepad, canvas = this._gamepadCanvas, activateInput = false) {
+        if (!gamepad || !gamepad.connected) return false;
+        if (this._gamepadIndex !== null && this._gamepadIndex !== gamepad.index) return false;
+
+        this._gamepadIndex = gamepad.index;
+        this._gamepadFamily = this._detectGamepadFamily(gamepad);
+        if (activateInput || this.controlMode === 'gamepad') {
+            return this._activateGamepadInput(canvas);
+        }
+        return true;
+    },
+
+    _scanConnectedGamepads(canvas = this._gamepadCanvas, options = {}) {
+        if (!navigator.getGamepads) return false;
+
+        const requireInput = options.requireInput === true;
+        const activateInput = options.activateInput === true;
+        const gamepads = navigator.getGamepads();
+        for (const gamepad of gamepads) {
+            if (requireInput && !this._hasGamepadInput(gamepad)) continue;
+
+            if (this._activateGamepad(gamepad, canvas, activateInput || requireInput)) {
+                console.log(`[INPUT] Gamepad detected: "${gamepad.id}" (index ${gamepad.index})`);
+                return true;
+            }
+        }
+        return false;
+    },
+
+    // Create minimal stub joystick/button objects for gamepad use when touch was never initialized
+    _initGamepadControls(canvas) {
+        // If touch controls are already set up (mobile user with controller), nothing to do
+        if (this.touchJoysticks.movement && this.touchJoysticks.basicAttack) return;
+
+        // Create VirtualJoystick instances at off-screen positions (they won't render)
+        const cx = -9999, cy = -9999;
+        this.touchJoysticks.movement     = new VirtualJoystick(cx, cy, 60, 14);
+        this.touchJoysticks.basicAttack  = new VirtualJoystick(cx, cy, 55, 14);
+        this.touchJoysticks.heavyAttack  = new VirtualJoystick(cx, cy, 38, 14);
+        this.touchJoysticks.specialAbility = new VirtualJoystick(cx, cy, 38, 14);
+        this.touchJoysticks.dodge        = new VirtualJoystick(cx, cy, 38, 14);
+
+        this.touchButtons.heavyAttack    = new TouchButton(-9999, -9999, 48, 44, 'Heavy');
+        this.touchButtons.specialAbility = new TouchButton(-9999, -9999, 48, 44, 'Spcl');
+        this.touchButtons.dodge          = new TouchButton(-9999, -9999, 48, 44, 'Dodge');
+    },
+
+    // Poll the Gamepad API and write its state into the existing touch joystick/button objects.
+    // Must be called BEFORE the per-frame button.update() reset inside Input.update().
+    _updateGamepad() {
+        if (this._gamepadIndex === null && !this._scanConnectedGamepads()) return;
+
+        const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+        const gp = gamepads[this._gamepadIndex];
+        if (!gp || !gp.connected) {
+            this._gamepadIndex = null;
+            this._gamepadActive = false;
+            this._gamepadFamily = 'generic';
+            this._activeInputSource = 'default';
+            this._applyControlSurface();
+            this._scanConnectedGamepads();
+            return;
+        }
+
+        if (this._hasGamepadInput(gp) && !this._activateGamepadInput()) return;
+
+        const dz = this._gamepadDeadzone;
+
+        // Radial deadzone helper — returns { x, y, mag } all in 0-1 range
+        const applyDeadzone = (rawX, rawY) => {
+            const mag = Math.sqrt(rawX * rawX + rawY * rawY);
+            if (mag < dz) return { x: 0, y: 0, mag: 0 };
+            const scaled = (mag - dz) / (1 - dz); // remap so dz→0 becomes 0 and 1 stays 1
+            return { x: (rawX / mag) * scaled, y: (rawY / mag) * scaled, mag: scaled };
+        };
+
+        // Helper to push analog stick values into a VirtualJoystick
+        const syncJoystick = (joystick, stick, threshold = 0.05) => {
+            if (!joystick) return;
+            joystick.active    = stick.mag > threshold;
+            joystick.magnitude = stick.mag;
+            if (stick.mag > threshold) {
+                joystick.angle = Math.atan2(stick.y, stick.x);
+            }
+            // Keep currentX/currentY in sync so rendering (if any) looks right
+            joystick.currentX = joystick.centerX + Math.cos(joystick.angle) * joystick.magnitude * joystick.radius;
+            joystick.currentY = joystick.centerY + Math.sin(joystick.angle) * joystick.magnitude * joystick.radius;
+        };
+
+        const syncAbilityJoystick = (joystick, stick, isDown, threshold = 0.05) => {
+            if (!joystick) return;
+            joystick.active = isDown && stick.mag > threshold;
+            joystick.magnitude = isDown ? stick.mag : 0;
+            if (stick.mag > threshold) {
+                joystick.angle = Math.atan2(stick.y, stick.x);
+            }
+            joystick.currentX = joystick.centerX + Math.cos(joystick.angle) * joystick.magnitude * joystick.radius;
+            joystick.currentY = joystick.centerY + Math.sin(joystick.angle) * joystick.magnitude * joystick.radius;
+        };
+
+        // Helper to push a boolean into a TouchButton, computing justPressed/justReleased
+        const syncButton = (button, isDown) => {
+            if (!button) return;
+            const was = button.pressed;
+            button.pressed      = isDown;
+            button.justPressed  = isDown && !was;
+            button.justReleased = !isDown && was;
+            button.active       = isDown;
+        };
+
+        // ---- Left stick → movement ----
+        const leftStick = applyDeadzone(gp.axes[0] || 0, gp.axes[1] || 0);
+        // D-pad also drives movement as digital override
+        const dpadUp    = gp.buttons[12]?.pressed || false;
+        const dpadDown  = gp.buttons[13]?.pressed || false;
+        const dpadLeft  = gp.buttons[14]?.pressed || false;
+        const dpadRight = gp.buttons[15]?.pressed || false;
+        if (dpadUp || dpadDown || dpadLeft || dpadRight) {
+            let dx = 0, dy = 0;
+            if (dpadUp)    dy -= 1;
+            if (dpadDown)  dy += 1;
+            if (dpadLeft)  dx -= 1;
+            if (dpadRight) dx += 1;
+            const len = Math.sqrt(dx * dx + dy * dy);
+            syncJoystick(this.touchJoysticks.movement, { x: dx / len, y: dy / len, mag: 1 });
+        } else {
+            syncJoystick(this.touchJoysticks.movement, leftStick);
+        }
+
+        // ---- Right stick -> aim, RT/R2 -> primary attack ----
+        const rightStick = applyDeadzone(gp.axes[2] || 0, gp.axes[3] || 0);
+        const primaryDown = (gp.buttons[7]?.value ?? 0) > 0.15;
+        if (this.touchJoysticks.basicAttack) {
+            const j = this.touchJoysticks.basicAttack;
+            j.active = primaryDown;
+            if (rightStick.mag > 0.05) {
+                j.magnitude = rightStick.mag;
+                j.angle     = Math.atan2(rightStick.y, rightStick.x);
+            } else if (primaryDown) {
+                j.magnitude = 1; // Fire forward at last known angle
+            } else {
+                // Keep the last aim angle available without firing.
+                j.magnitude = rightStick.mag;
+            }
+            j.currentX = j.centerX + Math.cos(j.angle) * j.magnitude * j.radius;
+            j.currentY = j.centerY + Math.sin(j.angle) * j.magnitude * j.radius;
+        }
+
+        // ---- Shoulders/triggers -> combat abilities ----
+        // Heavy attack: LT / L2 (button 6)
+        const heavyDown = (gp.buttons[6]?.value ?? 0) > 0.15;
+        syncButton(this.touchButtons.heavyAttack, heavyDown);
+        // Attack direction should prefer the right stick; movement is only a fallback while the ability is held.
+        syncAbilityJoystick(this.touchJoysticks.heavyAttack, rightStick.mag > 0.05 ? rightStick : leftStick, heavyDown);
+
+        // Special ability: LB / L1 (button 4)
+        const specialDown = gp.buttons[4]?.pressed || false;
+        syncButton(this.touchButtons.specialAbility, specialDown);
+        syncAbilityJoystick(this.touchJoysticks.specialAbility, rightStick.mag > 0.05 ? rightStick : leftStick, specialDown);
+
+        // Dodge: RB / R1 (button 5)
+        const dodgeDown = gp.buttons[5]?.pressed || false;
+        syncButton(this.touchButtons.dodge, dodgeDown);
+        syncAbilityJoystick(this.touchJoysticks.dodge, leftStick, dodgeDown);
+
+        if (!(window.ControllerNav && window.ControllerNav.handlesSystemButtons)) {
+            // ---- Start (button 9) → toggle pause ----
+            const startNow = gp.buttons[9]?.pressed || false;
+            if (startNow && !this._gamepadStartPrev) {
+                if (typeof Game !== 'undefined' && Game.togglePause) {
+                    Game.togglePause();
+                }
+            }
+            this._gamepadStartPrev = startNow;
+
+            // ---- Select (button 8) → character sheet ----
+            const selectNow = gp.buttons[8]?.pressed || false;
+            if (selectNow && !this._gamepadSelectPrev) {
+                // Simulate pressing Tab to open/close character sheet
+                this.keys['tab'] = true;
+            } else if (!selectNow && this._gamepadSelectPrev) {
+                this.keys['tab'] = false;
+            }
+            this._gamepadSelectPrev = selectNow;
+        }
+
+        // ---- Cross / X (button 0) -> interact (G key) ----
+        const interactNow = gp.buttons[0]?.pressed || false;
+        this.keys['g'] = interactNow;
+
+        // ---- Triangle / Y (button 3) -> room modifier (M key) ----
+        const modifierNow = gp.buttons[3]?.pressed || false;
+        this.keys['m'] = modifierNow;
+    },
+
 
     // Initialize touch control UI elements
     initTouchControls(canvas) {
+        this._hadOnScreenTouchControls = true;
+        this._touchControlsHiddenForGamepad = false;
+
         // Use logical dimensions if available (Game.config), otherwise fallback to canvas dimensions
         // This handles supersampling where canvas.width is 2x logical width
         const width = (typeof Game !== 'undefined' && Game.config) ? Game.config.width : canvas.width;
@@ -347,17 +991,17 @@ const Input = {
 
         // Scale control sizes based on screen width (but clamp to reasonable range)
         const widthScale = Math.max(0.7, Math.min(1.3, width / 1280));
-        const baseMovementRadius = 75;
-        const baseAttackRadius = 70;
-        const baseButtonSize = 58;
+        const baseMovementRadius = 60;
+        const baseAttackRadius = 55;
+        const baseButtonSize = 54;
 
         const movementRadius = Math.floor(baseMovementRadius * widthScale);
         const basicAttackRadius = Math.floor(baseAttackRadius * widthScale);
         const buttonSize = Math.floor(baseButtonSize * widthScale);
-        const buttonHeight = Math.floor(52 * widthScale);
+        const buttonHeight = buttonSize;
 
         // Check if mobile
-        const isMobile = this.isTouchMode();
+        const isMobile = this.isMobileUiMode();
         
         // Note: Controls are rendered in screen space (canvas coordinates), not world space
         // Zoom affects world view, not screen space, so controls don't need zoom adjustment
@@ -369,7 +1013,7 @@ const Input = {
 
         // Radial button layout around the central joystick
         // Create a cohesive cluster with proper spacing (increased spacing to prevent accidental hits)
-        const radialRadius = basicAttackRadius + Math.floor(75 * widthScale); // Distance from center (scaled)
+        const radialRadius = basicAttackRadius + Math.floor(58 * widthScale); // Distance from center (scaled)
 
         // Ensure all buttons/joysticks stay on screen (account for radial radius + button size)
         // Calculate AFTER radialRadius is defined
@@ -379,7 +1023,7 @@ const Input = {
         // On mobile, position controls lower for better thumb reach
         // Use a smaller fixed offset from bottom - prioritize percentage over safe margin
         // This ensures controls are positioned lower on the screen
-        const mobileBottomOffset = Math.max(height * 0.23, 120); // At least 15% from bottom, minimum 95px
+        const mobileBottomOffset = Math.max(height * 0.20, 100); // At least 20% from bottom, minimum 100px
         const rightY = isMobile
             ? height - mobileBottomOffset // Mobile: fixed offset from bottom
             : height - Math.max(140, height * 0.18); // Desktop: ~18% from bottom
@@ -426,7 +1070,7 @@ const Input = {
 
         // Heavy attack joystick (for warrior class - directional charge attack)
         // Centered on button position - REDUCED SIZE for mobile
-        const abilityJoystickRadius = Math.floor(38 * widthScale); // Smaller than before (was 48)
+        const abilityJoystickRadius = Math.floor(buttonSize * 0.52);
         this.touchJoysticks.heavyAttack = new VirtualJoystick(
             heavyX,
             heavyY,
@@ -482,6 +1126,7 @@ const Input = {
     // Handle touch start
     handleTouchStart(e, canvas) {
         if (!this.isTouchMode()) return;
+        if (this.isGamepadMode() && !this._activateNonGamepadInput('touch', canvas)) return;
 
         // Check if event was already handled by UI (pause button, interaction button, etc.)
         // UI handlers will call stopPropagation if they handle the touch
@@ -631,7 +1276,7 @@ const Input = {
 
                     // Check if touch is within restricted joystick area (just radius, not 2x)
                     // This prevents overlap with radial buttons that are at radius + 75px
-                    const restrictedHitRadius = joystick.radius; // 70px - well clear of buttons at 145px
+                    const restrictedHitRadius = joystick.radius * 1.2;
 
                     if (distance <= restrictedHitRadius) {
                         // Additional safety check: make sure we're not near any button area
@@ -650,7 +1295,7 @@ const Input = {
                                 const buttonDy = y - buttonCenterY;
                                 const buttonDistance = Math.sqrt(buttonDx * buttonDx + buttonDy * buttonDy);
                                 // If within button size + padding, consider it too close
-                                if (buttonDistance < Math.max(button.width, button.height) / 2 + 15) {
+                                if (buttonDistance < Math.max(button.width, button.height) / 2 + 10) {
                                     tooCloseToButton = true;
                                     break;
                                 }
@@ -658,7 +1303,7 @@ const Input = {
                         }
 
                         // Use restricted hit area when buttons are nearby
-                        if (!tooCloseToButton && joystick.startTouch(touchId, x, y, true)) {
+                        if (!tooCloseToButton && joystick.startTouch(touchId, x, y, restrictedHitRadius)) {
                             if (typeof Game !== 'undefined' && Game.fullscreenEnabled) {
                                 console.log(`  -> Matched basicAttack joystick!`);
                             }
@@ -681,10 +1326,19 @@ const Input = {
                     const dy = y - joystick.centerY;
                     const distance = Math.sqrt(dx * dx + dy * dy);
                     // Use restricted radius for fallback too
-                    if (distance <= joystick.radius && joystick.startTouch(touchId, x, y, true)) {
+                    const fallbackHitRadius = joystick.radius * 1.15;
+                    if (distance <= fallbackHitRadius && joystick.startTouch(touchId, x, y, fallbackHitRadius)) {
                         return;
                     }
                 }
+            }
+
+            if (!isLeftSide) {
+                this._recordInputEvent('mobileTouchMiss', {
+                    side: 'right',
+                    x: Math.round(x),
+                    y: Math.round(y)
+                });
             }
         });
     },
@@ -966,19 +1620,35 @@ const Input = {
 
     // Update touch controls (call each frame)
     update(deltaTime) {
+        if (this._gamepadIndex === null || !this.isGamepadMode()) {
+            this._scanConnectedGamepads(this._gamepadCanvas, {
+                requireInput: true,
+                activateInput: true
+            });
+        }
+
         if (!this.isTouchMode()) return;
 
-        // Update joysticks
-        for (const joystick of Object.values(this.touchJoysticks)) {
-            if (joystick) {
-                joystick.update(deltaTime);
+        // Poll gamepad state FIRST so player code sees current values,
+        // and BEFORE button.update() clears justPressed/justReleased
+        if (this.isGamepadMode()) {
+            this._updateGamepad();
+        }
+
+        // Update joystick snap-back animations (skip for gamepad — we set values directly)
+        if (!this.isGamepadMode()) {
+            for (const joystick of Object.values(this.touchJoysticks)) {
+                if (joystick) {
+                    joystick.update(deltaTime);
+                }
             }
         }
 
-        // Update buttons
+        // Reset justPressed/justReleased flags (button state itself is preserved)
         for (const button of Object.values(this.touchButtons)) {
-            if (button) {
-                button.update();
+            if (button && !this.isGamepadMode()) {
+                // Touch buttons manage their own lifecycle via touch events
+                button.update(deltaTime);
             }
         }
     },
@@ -1032,8 +1702,9 @@ const Input = {
 
             // Otherwise check basic attack joystick
             if (this.touchJoysticks.basicAttack) {
-                if (this.touchJoysticks.basicAttack.active) {
-                    // Joystick is active: use current angle and store it
+                if (this.touchJoysticks.basicAttack.active ||
+                    (this.isGamepadMode() && this.touchJoysticks.basicAttack.getMagnitude() > 0.1)) {
+                    // Gamepad can aim with the right stick without firing primary.
                     const angle = this.touchJoysticks.basicAttack.getAngle();
                     this.lastAimAngle = angle;
                     return angle;
@@ -1185,32 +1856,109 @@ const Input = {
         return this.keys[key.toLowerCase()] || false;
     },
 
+    _getNumber(obj, keys, fallback = 0) {
+        if (!obj) return fallback;
+        for (const key of keys) {
+            const value = obj[key];
+            if (typeof value === 'number' && Number.isFinite(value)) return value;
+        }
+        return fallback;
+    },
+
+    _getChargeSnapshot(cooldowns, maxCharges, maxCooldown) {
+        const chargeCount = Math.max(1, Math.floor(maxCharges || 1));
+        const values = Array.isArray(cooldowns) ? cooldowns.slice(0, chargeCount) : [];
+        while (values.length < chargeCount) values.push(0);
+        const normalized = values.map(value => Math.max(0, Number.isFinite(value) ? value : 0));
+        const readyCharges = normalized.filter(value => value <= 0).length;
+        const nextCooldown = normalized.reduce((max, value) => Math.max(max, value), 0);
+        return {
+            charges: readyCharges,
+            maxCharges: chargeCount,
+            chargeCooldowns: normalized,
+            cooldown: nextCooldown,
+            maxCooldown
+        };
+    },
+
+    getMobileCooldownSnapshot(player = (typeof Game !== 'undefined' ? Game.player : null)) {
+        const attackMax = Math.max(0.0001, this._getNumber(player, ['attackCooldownTime'], 0.3));
+        const attackCooldown = Math.max(0, this._getNumber(player, ['attackCooldown'], 0));
+
+        const heavyMax = Math.max(0.0001, this._getNumber(player, ['heavyAttackCooldownTime', 'heavyCooldownTime'], 1.5));
+        let heavy = {
+            cooldown: Math.max(0, this._getNumber(player, ['heavyAttackCooldown', 'heavyCooldown', 'heavyRemaining'], 0)),
+            maxCooldown: heavyMax,
+            charges: null,
+            maxCharges: null,
+            chargeCooldowns: null
+        };
+        if (player && player.playerClass === 'hexagon') {
+            const maxBeamCharges = Math.max(1, this._getNumber(player, ['maxBeamCharges', 'beamCharges'], 2));
+            const beamSnapshot = this._getChargeSnapshot(player.beamChargeCooldowns || player.heavyChargeCooldowns, maxBeamCharges, heavyMax);
+            heavy = {
+                cooldown: beamSnapshot.cooldown,
+                maxCooldown: beamSnapshot.maxCooldown,
+                charges: beamSnapshot.charges,
+                maxCharges: beamSnapshot.maxCharges,
+                chargeCooldowns: beamSnapshot.chargeCooldowns
+            };
+        }
+
+        const specialMax = Math.max(0.0001, this._getNumber(player, ['specialCooldownTime', 'specialTime'], 1));
+        const special = {
+            cooldown: Math.max(0, this._getNumber(player, ['specialCooldown', 'specialRemaining'], 0)),
+            maxCooldown: specialMax,
+            charges: null,
+            maxCharges: null,
+            chargeCooldowns: null
+        };
+
+        const dodgeMax = Math.max(0.0001, this._getNumber(player, ['dodgeCooldownTime', 'dashCooldownTime', 'dodgeMaxCooldown'], 1));
+        const maxDodgeCharges = Math.max(1, this._getNumber(player, ['maxDodgeCharges', 'maxDashCharges'], 1));
+        const dodgeSnapshot = this._getChargeSnapshot(player && (player.dodgeChargeCooldowns || player.dashChargeCooldowns), maxDodgeCharges, dodgeMax);
+        const dodge = {
+            cooldown: maxDodgeCharges > 1 ? dodgeSnapshot.cooldown : Math.max(0, this._getNumber(player, ['dodgeCooldown', 'dashCooldown', 'dodgeRemaining', 'dashRemaining'], dodgeSnapshot.cooldown)),
+            maxCooldown: dodgeSnapshot.maxCooldown,
+            charges: maxDodgeCharges > 1 ? dodgeSnapshot.charges : (dodgeSnapshot.cooldown <= 0 ? 1 : 0),
+            maxCharges: dodgeSnapshot.maxCharges,
+            chargeCooldowns: dodgeSnapshot.chargeCooldowns
+        };
+
+        return {
+            attack: { cooldown: attackCooldown, maxCooldown: attackMax },
+            heavy,
+            special,
+            dodge
+        };
+    },
+
     // Render touch controls
     render(ctx) {
-        if (!this.isTouchMode()) return;
-
-        // Helper to safely get numeric values
-        const getVal = (obj, keys, fallback = 0) => {
-            if (!obj) return fallback;
-            for (const k of keys) {
-                const v = obj[k];
-                if (typeof v === 'number' && !Number.isNaN(v)) return v;
-            }
-            return fallback;
-        };
+        if (!this.isMobileUiMode()) return;
+        // Gamepad uses the touch code path internally but has no on-screen controls to draw
+        if (this.isGamepadMode()) return;
 
         // Get player for cooldown data
         const player = (typeof Game !== 'undefined') ? Game.player : null;
         const playerClass = player ? (player.playerClass || 'square') : 'square';
+        const cooldowns = this.getMobileCooldownSnapshot(player);
 
         // --- BACKGROUNDS ---
 
         // LEFT SIDE: Movement joystick background
         if (this.touchJoysticks && this.touchJoysticks.movement) {
             const movement = this.touchJoysticks.movement;
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+            const bgGradL = ctx.createRadialGradient(
+                movement.centerX, movement.centerY, 0,
+                movement.centerX, movement.centerY, movement.radius + 28
+            );
+            bgGradL.addColorStop(0,   'rgba(4, 6, 18, 0.42)');
+            bgGradL.addColorStop(0.7, 'rgba(4, 6, 18, 0.25)');
+            bgGradL.addColorStop(1,   'rgba(4, 6, 18, 0)');
+            ctx.fillStyle = bgGradL;
             ctx.beginPath();
-            ctx.arc(movement.centerX, movement.centerY, movement.radius + 20, 0, Math.PI * 2);
+            ctx.arc(movement.centerX, movement.centerY, movement.radius + 28, 0, Math.PI * 2);
             ctx.fill();
         }
 
@@ -1220,8 +1968,8 @@ const Input = {
             const centerX = basicAttack.centerX;
             const centerY = basicAttack.centerY;
 
-            // Calculate cluster bounds
-            let maxDistance = basicAttack.radius + 20;
+            // Measure actual reach of the cluster (buttons + joystick)
+            let maxDistance = basicAttack.radius + 24;
             if (this.touchButtons) {
                 for (const button of Object.values(this.touchButtons)) {
                     if (button) {
@@ -1235,19 +1983,15 @@ const Input = {
                 }
             }
 
-            // Draw unified cluster background
-            const backgroundRadius = maxDistance / 3;
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+            // Soft vignette behind the whole cluster (no hard edge)
+            const bgGrad = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, maxDistance + 12);
+            bgGrad.addColorStop(0,   'rgba(4, 6, 18, 0.42)');
+            bgGrad.addColorStop(0.7, 'rgba(4, 6, 18, 0.25)');
+            bgGrad.addColorStop(1,   'rgba(4, 6, 18, 0)');
+            ctx.fillStyle = bgGrad;
             ctx.beginPath();
-            ctx.arc(centerX, centerY, backgroundRadius, 0, Math.PI * 2);
+            ctx.arc(centerX, centerY, maxDistance + 12, 0, Math.PI * 2);
             ctx.fill();
-
-            // Outer glow ring
-            ctx.strokeStyle = 'rgba(150, 150, 200, 0.2)';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(centerX, centerY, backgroundRadius, 0, Math.PI * 2);
-            ctx.stroke();
         }
 
         // --- JOYSTICKS ---
@@ -1263,40 +2007,37 @@ const Input = {
                 if (playerClass !== 'triangle') continue; // Only Rogue uses dodge joystick
             }
 
-            joystick.render(ctx);
-
-            // Radial cooldowns for joysticks (e.g. Rogue Dodge)
-            if (key === 'dodge' && playerClass === 'triangle' && player && player.dodgeChargeCooldowns) {
-                const radius = joystick.radius + 8;
-                const charges = player.dodgeChargeCooldowns.length;
-                const anglePerCharge = (Math.PI * 2) / charges;
-
-                for (let i = 0; i < charges; i++) {
-                    const cooldown = player.dodgeChargeCooldowns[i];
-                    const maxCooldown = Math.max(0.0001, getVal(player, ['dodgeCooldownTime', 'dashCooldownTime'], 1));
-                    const clampedCooldown = Math.min(Math.max(cooldown, 0), maxCooldown);
-                    const startAngle = -Math.PI / 2 + (anglePerCharge * i);
-
-                    // Draw cooldown arc
-                    if (cooldown > 0) {
-                        const progress = Math.max(0, Math.min(1, 1 - (clampedCooldown / maxCooldown)));
-                        const currentAngle = startAngle + (anglePerCharge * progress);
-
-                        ctx.lineWidth = 4;
-                        ctx.strokeStyle = '#ff4444'; // Charging
-                        ctx.beginPath();
-                        ctx.arc(joystick.centerX, joystick.centerY, radius, startAngle, currentAngle);
-                        ctx.stroke();
-                    } else {
-                        // Ready
-                        ctx.lineWidth = 4;
-                        ctx.strokeStyle = '#44ff44';
-                        ctx.beginPath();
-                        ctx.arc(joystick.centerX, joystick.centerY, radius, startAngle, startAngle + anglePerCharge - 0.1);
-                        ctx.stroke();
-                    }
+            const renderOptions = { playerClass };
+            if (key === 'basicAttack') {
+                renderOptions.activationRadius = joystick.radius * 1.2;
+                renderOptions.label = 'ATK';
+                renderOptions.cooldown = cooldowns.attack.cooldown;
+                renderOptions.maxCooldown = cooldowns.attack.maxCooldown;
+                renderOptions.primary = true;
+            } else if (key === 'movement') {
+                renderOptions.fadeWhenIdle = true;
+            } else if (key === 'heavyAttack') {
+                renderOptions.label = '';
+                if (playerClass === 'hexagon') {
+                    renderOptions.directional = true;
+                    renderOptions.hideText = true;
                 }
+            } else if (key === 'specialAbility') {
+                renderOptions.label = '';
+                if (playerClass === 'pentagon' || playerClass === 'hexagon') {
+                    renderOptions.directional = true;
+                    renderOptions.hideText = true;
+                }
+            } else if (key === 'dodge') {
+                renderOptions.label = '';
+                renderOptions.directional = true;
+                renderOptions.hideText = true;
+                renderOptions.cooldown = cooldowns.dodge.cooldown;
+                renderOptions.maxCooldown = cooldowns.dodge.maxCooldown;
+                renderOptions.charges = cooldowns.dodge.charges;
             }
+
+            joystick.render(ctx, renderOptions);
         }
 
         // --- BUTTONS ---
@@ -1310,79 +2051,26 @@ const Input = {
             // Class-specific visibility
             if (key === 'dodge' && playerClass === 'triangle') continue; // Rogue uses joystick
 
-            let cooldown = 0;
-            let maxCooldown = 0;
-            let charges = null;
+            let snapshot = { cooldown: 0, maxCooldown: 0, charges: null };
+            if (key === 'heavyAttack') snapshot = cooldowns.heavy;
+            if (key === 'specialAbility') snapshot = cooldowns.special;
+            if (key === 'dodge') snapshot = cooldowns.dodge;
 
-            if (player) {
-                if (key === 'heavyAttack') {
-                    // Check for Hexagon (Beam) which has charges
-                    if (player.playerClass === 'hexagon') {
-                        const maxCharges = Math.max(1, getVal(player, ['maxBeamCharges'], 2));
-                        const chargeCooldowns = player.beamChargeCooldowns || player.heavyChargeCooldowns;
-                        maxCooldown = Math.max(0.0001, getVal(player, ['heavyAttackCooldownTime', 'heavyCooldownTime'], 1.5));
+            const isDirectionalButton =
+                (key === 'specialAbility' && (playerClass === 'pentagon' || playerClass === 'hexagon')) ||
+                (key === 'heavyAttack' && (playerClass === 'square' || playerClass === 'hexagon'));
 
-                        // Calculate available charges
-                        let availableCharges = maxCharges;
-                        if (Array.isArray(chargeCooldowns)) {
-                            for (let i = 0; i < maxCharges; i++) {
-                                if ((chargeCooldowns[i] || 0) > 0) {
-                                    availableCharges--;
-                                }
-                            }
-                        }
-                        charges = availableCharges;
-
-                        // For cooldown visualization, show the cooldown of the *next* charge to recover
-                        if (availableCharges < maxCharges && Array.isArray(chargeCooldowns)) {
-                            let maxRem = 0;
-                            for (let i = 0; i < maxCharges; i++) {
-                                maxRem = Math.max(maxRem, chargeCooldowns[i] || 0);
-                            }
-                            cooldown = maxRem;
-                        }
-                    } else {
-                        // Standard heavy attack
-                        cooldown = getVal(player, ['heavyAttackCooldown', 'heavyCooldown', 'heavyRemaining'], 0);
-                        maxCooldown = Math.max(0.0001, getVal(player, ['heavyAttackCooldownTime', 'heavyCooldownTime'], 1.5));
-                    }
-                } else if (key === 'specialAbility') {
-                    cooldown = getVal(player, ['specialCooldown', 'specialRemaining'], 0);
-                    maxCooldown = Math.max(0.0001, getVal(player, ['specialCooldownTime', 'specialTime'], 1));
-                } else if (key === 'dodge') {
-                    const maxCharges = Math.max(1, getVal(player, ['maxDodgeCharges', 'maxDashCharges'], 1));
-                    const chargeCooldowns = player.dodgeChargeCooldowns || player.dashChargeCooldowns;
-                    maxCooldown = Math.max(0.0001, getVal(player, ['dodgeCooldownTime', 'dashCooldownTime', 'dodgeMaxCooldown'], 1));
-
-                    if (maxCharges > 1) {
-                        // Calculate available charges
-                        let availableCharges = maxCharges;
-                        if (Array.isArray(chargeCooldowns)) {
-                            for (let i = 0; i < maxCharges; i++) {
-                                if ((chargeCooldowns[i] || 0) > 0) {
-                                    availableCharges--;
-                                }
-                            }
-                        }
-                        charges = availableCharges;
-
-                        // For visualization, show cooldown if not at full charges
-                        if (availableCharges < maxCharges && Array.isArray(chargeCooldowns)) {
-                            let maxRem = 0;
-                            for (let i = 0; i < maxCharges; i++) {
-                                maxRem = Math.max(maxRem, chargeCooldowns[i] || 0);
-                            }
-                            cooldown = maxRem;
-                        }
-                    } else {
-                        cooldown = getVal(player, ['dodgeCooldown', 'dashCooldown', 'dodgeRemaining', 'dashRemaining'], 0);
-                    }
-                }
-            }
-
-            button.render(ctx, cooldown, maxCooldown, charges);
+            button.render(ctx, snapshot.cooldown, snapshot.maxCooldown, snapshot.charges, {
+                playerClass,
+                armed: button.pressed,
+                directional: isDirectionalButton
+            });
         }
     }
 };
+
+if (typeof window !== 'undefined') {
+    window.Input = Input;
+}
 
 

@@ -60,6 +60,20 @@ function checkItemPickup(player) {
             const success = player.itemManager.addItem(item.itemId);
 
             if (success) {
+                if (typeof Telemetry !== 'undefined') {
+                    Telemetry.recordEvent('itemPickedUp', {
+                        roomNumber: typeof Game !== 'undefined' && Game.roomNumber ? Game.roomNumber : 1,
+                        playerId: player.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local'),
+                        targetId: item.itemId,
+                        metadata: {
+                            itemId: item.itemId,
+                            itemName: item.definition ? item.definition.name : null,
+                            rarity: item.definition ? item.definition.rarity : null,
+                            source: 'ground'
+                        }
+                    });
+                }
+
                 // Remove from ground
                 Game.groundItems.splice(i, 1);
 

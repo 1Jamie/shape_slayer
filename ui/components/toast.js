@@ -31,7 +31,7 @@
 		if (!container) return;
 
 		const roomInfoHeight = getRoomInfoPanelHeight();
-		const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+		const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
 		
 		if (roomInfoHeight > 0) {
 			// Room info panel is visible - position toasts below it

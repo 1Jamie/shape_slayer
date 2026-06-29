@@ -14,7 +14,7 @@
 		layer.style.left = '0';
 		layer.style.right = '0';
 		// Mobile: adjust positioning
-		const isMobileInit = typeof window.Input !== 'undefined' && window.Input.isTouchMode && window.Input.isTouchMode();
+		const isMobileInit = typeof window.Input !== 'undefined' && window.Input.isMobileUiMode && window.Input.isMobileUiMode();
 		layer.style.top = isMobileInit ? '8px' : '12px';
 		layer.style.display = 'flex';
 		layer.style.justifyContent = 'space-between';
@@ -43,7 +43,12 @@
 		if (!window.Game) {
 			layer.style.display = 'none';
 		} else {
+			const isMobile = typeof window.Input !== 'undefined' && window.Input.isMobileUiMode && window.Input.isMobileUiMode();
 			layer.style.display = 'flex';
+			layer.style.top = isMobile ? '8px' : '12px';
+			layer.style.padding = isMobile ? '0 12px' : '0 20px';
+			roomEl.style.fontSize = isMobile ? '14px' : '16px';
+			levelEl.style.fontSize = isMobile ? '14px' : '16px';
 			const room = Game.roomNumber || 1;
 			roomEl.textContent = `Room ${room}`;
 			const player = Game.player;

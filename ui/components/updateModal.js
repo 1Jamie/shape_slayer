@@ -19,7 +19,7 @@
 
 		const body = document.createElement('div');
 		body.className = 'modal__body nexus-scrollbar';
-		body.style.maxHeight = '60vh';
+		body.style.maxHeight = 'calc(90vh - 130px)';
 		body.style.overflow = 'auto';
 
 		const footer = document.createElement('div');

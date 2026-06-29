@@ -16,7 +16,8 @@ All telemetry is structured JSON and validated before ingestion.
 | --- | --- | --- | --- |
 | `runId` | `string` | yes | UUID v4 generated at run start. |
 | `gameVersion` | `string` | yes | Client build identifier. |
-| `mode` | `string` | yes | `"singleplayer"` or `"multiplayer"`. |
+| `mode` | `string` | yes | Network mode: `"singleplayer"` or `"multiplayer"`. |
+| `gameMode` | `string` | yes | Gameplay mode: `"cards"` or `"gear"`. Multiplayer runs currently report `"gear"`. |
 | `hostPlayerId` | `string` | yes | Player ID responsible for reporting (self in singleplayer). |
 | `startedAt` | `string (ISO-8601)` | yes | Run start timestamp (UTC). |
 | `endedAt` | `string (ISO-8601)` | yes | Run end timestamp (UTC). |
@@ -28,7 +29,7 @@ All telemetry is structured JSON and validated before ingestion.
 | `affixPool` | `AffixSummary[]` | yes | Affixes active during the run. |
 | `rooms` | `Room[]` | yes | Chronological list of rooms traversed. |
 | `bossEncounters` | `BossEncounter[]` | yes | Boss fights that occurred during the run. |
-| `metadata` | `Record<string, string>` | no | Arbitrary string metadata (e.g., experiment flags). |
+| `metadata` | `Record<string, unknown>` | no | Arbitrary structured metadata (e.g., experiment flags, input context). |
 
 #### `PlayerSummary`
 
@@ -102,7 +103,7 @@ All telemetry is structured JSON and validated before ingestion.
 | Field | Type | Description |
 | --- | --- | --- |
 | `timestamp` | `string (ISO-8601)` | Event time relative to room entry. |
-| `type` | `string` | `"hit"`, `"damage"`, `"affixTriggered"`, `"abilityCast"`, `"bossPhase"` etc. |
+| `type` | `string` | `"damage"`, `"hitTaken"`, `"roomGenerated"`, `"roomClearedSummary"`, `"doorOptionsShown"`, `"doorSelected"`, `"doorRewardApplied"`, `"roomModifierApplied"`, `"gearEquipped"`, `"itemPickedUp"`, `"itemPylonCreated"`, `"itemPylonInteracted"`, `"bossEncounterStarted"`, `"bossPhase"`, `"bossDefeated"`, `"playersRevived"`, `"allPlayersDead"` etc. |
 | `playerId` | `string` | Player involved (if applicable). |
 | `targetId` | `string` | Enemy/boss identifier, if relevant. |
 | `value` | `number` | Numeric magnitude (damage, healing, stacks). |
@@ -120,6 +121,22 @@ All telemetry is structured JSON and validated before ingestion.
     }
   }
   ```
+
+- Decision and reward events are intentionally low-volume and stored in `room_events` with structured metadata. Examples:
+  - `doorOptionsShown`: options offered after a card-mode room clear.
+  - `doorSelected`: selected pack/reward and optional room modifier.
+  - `doorRewardApplied`: card, shard, upgrade, or utility reward actually granted.
+  - `gearEquipped`: picked-up gear, affixes, legendary effect, and replaced gear.
+  - `itemPylonInteracted`: multiplayer pylon grant resolved by the host.
+  - `roomGenerated` / `roomClearedSummary`: room type, enemy composition, scaling, and reward counters.
+
+- Mobile/controller input events are low-volume validation events:
+  - `controlModeChange`: selected control mode, active source, mobile UI state, gamepad state/family, viewport, orientation, fullscreen, and mobile zoom.
+  - `inputSourceChange`: active input source transitions such as touch to gamepad or gamepad to touch.
+  - `mobileTouchMiss`: sampled right-side touch starts that did not activate a touch control.
+  - `mobileInteractionPerformed`: mobile interaction button activation with interaction type and target name.
+  - `mobileInteractionBlocked`: disabled mobile interaction attempts and the disabled reason.
+  - `mobileInteractionMiss`: mobile interaction button touch with no current interaction target.
 
 ### Boss Encounters (`BossEncounter`)
 
@@ -146,6 +163,7 @@ All telemetry is structured JSON and validated before ingestion.
 
 - Only the host collects and submits telemetry; non-host clients noop after run.
 - Client events include `sourcePlayerId` to disambiguate in co-op play.
+- Lobby codes and network metadata are not included in telemetry payloads.
 - Host aggregates per-player metrics before submission.
 
 ### Submission Contract

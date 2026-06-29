@@ -23,8 +23,7 @@ async function startHttpServer(app) {
     });
 }
 
-test.describe('metrics ingestion API', { concurrency: false }, suite => {
-    suite.beforeEach(async () => {
+test.beforeEach(async () => {
         tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'metrics-test-'));
         process.env.METRICS_DB_PATH = path.join(tmpDir, 'metrics.sqlite');
         db = freshRequire('../db');
@@ -34,9 +33,9 @@ test.describe('metrics ingestion API', { concurrency: false }, suite => {
         server = await startHttpServer(app);
         const address = server.address();
         baseUrl = `http://127.0.0.1:${address.port}`;
-    });
+});
 
-    suite.afterEach(async () => {
+test.afterEach(async () => {
         if (server) {
             await new Promise(resolve => server.close(resolve));
         }
@@ -50,9 +49,9 @@ test.describe('metrics ingestion API', { concurrency: false }, suite => {
         tmpDir = null;
         server = null;
         db = null;
-    });
+});
 
-    suite.test('rejects invalid payloads', async () => {
+test('rejects invalid payloads', async () => {
         const res = await fetch(`${baseUrl}/ingest`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -62,15 +61,16 @@ test.describe('metrics ingestion API', { concurrency: false }, suite => {
         assert.strictEqual(res.status, 400);
         const body = await res.json();
         assert.strictEqual(body.error, 'Invalid telemetry payload');
-    });
+});
 
-    suite.test('ingests run telemetry and is idempotent', async () => {
+test('ingests run telemetry and is idempotent', async () => {
         const now = new Date().toISOString();
         const payload = {
             run: {
                 runId: 'test-run-1',
                 gameVersion: '1.0.0',
                 mode: 'singleplayer',
+                gameMode: 'cards',
                 hostPlayerId: 'local',
                 startedAt: now,
                 endedAt: now,
@@ -155,6 +155,14 @@ test.describe('metrics ingestion API', { concurrency: false }, suite => {
                                 targetId: 'enemy-1',
                                 value: 320,
                                 metadata: {}
+                            },
+                            {
+                                timestamp: now,
+                                type: 'doorSelected',
+                                playerId: 'local',
+                                targetId: null,
+                                value: null,
+                                metadata: { packType: 'Elite', rewardType: 'Card' }
                             }
                         ]
                     }
@@ -176,6 +184,7 @@ test.describe('metrics ingestion API', { concurrency: false }, suite => {
         const runRow = db.prepare('SELECT * FROM runs WHERE run_id = ?').get('test-run-1');
         assert.ok(runRow, 'run stored');
         assert.strictEqual(runRow.mode, 'singleplayer');
+        assert.strictEqual(runRow.game_mode, 'cards');
 
         const playerCount = db.prepare('SELECT COUNT(*) AS count FROM run_players WHERE run_id = ?').get('test-run-1');
         assert.strictEqual(playerCount.count, 1);
@@ -191,6 +200,9 @@ test.describe('metrics ingestion API', { concurrency: false }, suite => {
         assert.strictEqual(statsStart[0].stats.damage, 40);
         assert.strictEqual(statsEnd[0].stats.moveSpeed, 305);
 
+        const eventCount = db.prepare('SELECT COUNT(*) AS count FROM room_events WHERE run_id = ? AND event_type = ?').get('test-run-1', 'doorSelected');
+        assert.strictEqual(eventCount.count, 1);
+
         const second = await fetch(`${baseUrl}/ingest`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -200,6 +212,5 @@ test.describe('metrics ingestion API', { concurrency: false }, suite => {
 
         const runCount = db.prepare('SELECT COUNT(*) AS count FROM runs WHERE run_id = ?').get('test-run-1');
         assert.strictEqual(runCount.count, 1, 'idempotent insert');
-    });
 });
 

@@ -168,6 +168,18 @@ function createItemPylon(x, y, itemDef = null) {
     };
 
     Game.itemPylons.push(pylon);
+    if (typeof Telemetry !== 'undefined') {
+        Telemetry.recordEvent('itemPylonCreated', {
+            roomNumber: typeof Game !== 'undefined' && Game.roomNumber ? Game.roomNumber : 1,
+            targetId: pylon.id,
+            metadata: {
+                pylonId: pylon.id,
+                rarity: pylonRarity,
+                sourceItemId: itemDef ? itemDef.id || null : null,
+                sourceItemName: itemDef ? itemDef.name || null : null
+            }
+        });
+    }
     console.log(`[Item Pylon] Created ${pylonRarity} rarity pylon at (${x.toFixed(1)}, ${y.toFixed(1)}) - each player will get a random ${pylonRarity} item`);
 
     return pylon;
@@ -314,12 +326,17 @@ function renderItemPylons(ctx) {
 
                         if (!hasInteracted) {
                             // Show interaction prompt
-                            if (typeof Input !== 'undefined' && !Input.isTouchMode()) {
+                            if (typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
                                 ctx.fillStyle = '#ffff00';
                                 ctx.globalAlpha = alpha;
                                 ctx.font = 'bold 12px Orbitron';
                                 ctx.textAlign = 'center';
-                                ctx.fillText('Press G to interact', pylon.x, pylon.y + radius + 20);
+                                if (Input.drawInteractionPrompt) {
+                                    Input.drawInteractionPrompt(ctx, 'interact', pylon.x, pylon.y + radius + 20);
+                                } else {
+                                    const prompt = Input.getInteractionPrompt ? Input.getInteractionPrompt('interact') : 'Press G to interact';
+                                    ctx.fillText(prompt, pylon.x, pylon.y + radius + 20);
+                                }
                             }
                         } else {
                             // Show "Already claimed" message
@@ -409,8 +426,13 @@ function renderItemPylons(ctx) {
                         ctx.globalAlpha = alpha;
                         ctx.font = 'bold 12px Orbitron';
                         ctx.textAlign = 'center';
-                        if (typeof Input !== 'undefined' && !Input.isTouchMode()) {
-                            ctx.fillText('Press G to interact', pylon.x, pylon.y + radius + 20);
+                        if (typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
+                            if (Input.drawInteractionPrompt) {
+                                Input.drawInteractionPrompt(ctx, 'interact', pylon.x, pylon.y + radius + 20);
+                            } else {
+                                const prompt = Input.getInteractionPrompt ? Input.getInteractionPrompt('interact') : 'Press G to interact';
+                                ctx.fillText(prompt, pylon.x, pylon.y + radius + 20);
+                            }
                         }
                         ctx.restore();
                     } else {

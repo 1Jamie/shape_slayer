@@ -19,6 +19,28 @@ function formatDegrees(radians) {
     return `${Math.round((radians * 180) / Math.PI)}°`;
 }
 
+// Helper: wrap text to fit within maxWidth, returning an array of line strings
+// ctx must already have the desired font set before calling this
+function wrapTextLines(ctx, text, maxWidth) {
+    if (!text) return [];
+    // Try single line first
+    if (ctx.measureText(text).width <= maxWidth) return [text];
+    const words = text.split(' ');
+    const lines = [];
+    let current = '';
+    for (const word of words) {
+        const test = current ? `${current} ${word}` : word;
+        if (ctx.measureText(test).width <= maxWidth) {
+            current = test;
+        } else {
+            if (current) lines.push(current);
+            current = word;
+        }
+    }
+    if (current) lines.push(current);
+    return lines;
+}
+
 // Fill a template string with values from an object
 // Supports format modifiers: {key}, {key|percent}, {key|mult}, {key|degrees}
 function fillTemplate(template, values) {
@@ -704,145 +726,135 @@ function renderClassStationTooltip(ctx, player, station) {
         const classDesc = getClassDescription(station.key);
         if (!classDesc) return;
 
-        // Calculate tooltip dimensions based on content
-        const padding = 12;
-        const topPadding = 18; // Extra padding at top to avoid cramped text
-        const titleHeight = 26; // Increased for larger bold font
-        const playstyleHeight = 20; // Increased for larger bold font
-        const abilityHeight = 18; // Increased for larger bold font
-        const abilityCount = 5; // Now includes baseStats line
-        const spacing = 5; // Slightly more spacing
-
-        const tooltipHeight = titleHeight + playstyleHeight + (abilityHeight * abilityCount) + (spacing * (abilityCount - 1)) + topPadding + padding;
-        const tooltipWidth = 450; // Wider to fit ability descriptions with Orbitron font
-
         // Check if mobile/touch mode
-        const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
 
-        // Calculate initial position (above station)
-        let tooltipX = station.x;
-        // For mobile, position higher and further to the right to avoid joystick
-        if (isMobile) {
-            tooltipX = station.x + 180; // Shift further right to avoid left-side joystick
-            tooltipY = station.y - 60 - 120; // Position even higher on mobile
-        } else {
-            tooltipY = station.y - 60 - 20; // Above station (60 is station height, 20 is gap)
+        // ---- Layout constants ----
+        const padding = 14;
+        const labelIndent = 80; // x offset for description text after label
+        const tooltipWidth = isMobile ? 340 : 420;
+        const descMaxWidth = tooltipWidth - padding - labelIndent - padding; // available width for descriptions
+        const titleFont  = 'bold 16px Orbitron';
+        const bodyFont   = 'bold 12px Orbitron';
+        const labelFont  = 'bold 12px Orbitron';
+        const lineH = 16;   // px per text line
+        const secGap = 6;   // gap between sections
+
+        // Pre-measure wrapped lines for each ability description
+        ctx.font = bodyFont;
+        const entries = [
+            { label: 'Basic:',   text: classDesc.basic,    labelColor: '#ffffff', descColor: '#aaaaaa' },
+            { label: 'Heavy:',   text: classDesc.heavy,    labelColor: '#ffffff', descColor: '#aaaaaa' },
+            { label: 'Special:', text: classDesc.special,  labelColor: '#ffffff', descColor: '#aaaaaa' },
+            { label: 'Passive:', text: classDesc.passive,  labelColor: '#ffffff', descColor: '#aaaaaa' },
+        ];
+        if (classDesc.baseStats) {
+            entries.push({ label: 'Bonus:', text: classDesc.baseStats, labelColor: '#ffdd88', descColor: '#ffaa55' });
+        }
+        for (const e of entries) {
+            e.lines = wrapTextLines(ctx, e.text, descMaxWidth);
         }
 
-        // Check bounds and adjust positioning
+        // Also wrap playstyle
+        ctx.font = titleFont;
+        const playstyleLines = wrapTextLines(ctx, classDesc.playstyle, tooltipWidth - padding * 2);
+
+        // Compute total tooltip height dynamically
+        let contentH = 0;
+        contentH += lineH + secGap;                           // title
+        contentH += playstyleLines.length * lineH + secGap;   // playstyle
+        for (const e of entries) {
+            contentH += Math.max(1, e.lines.length) * lineH + secGap;
+        }
+        const tooltipHeight = contentH + padding * 2;
+
+        // ---- Position tooltip ----
+        let tooltipX = station.x;
+        let tooltipY;
+        if (isMobile) {
+            tooltipX = station.x + 160;
+            tooltipY = station.y - 60 - 100;
+        } else {
+            tooltipY = station.y - 60 - 20;
+        }
+
+        // Clamp to canvas bounds
         const minX = tooltipWidth / 2 + padding;
         const maxX = nexusRoom.width - tooltipWidth / 2 - padding;
         const minY = tooltipHeight / 2 + padding;
-        // For mobile, reserve space at bottom for joystick (avoid bottom 200px)
-        const maxY = isMobile ? nexusRoom.height - tooltipHeight / 2 - 200 - padding : nexusRoom.height - tooltipHeight / 2 - padding;
+        const maxY = isMobile
+            ? nexusRoom.height - tooltipHeight / 2 - 180 - padding
+            : nexusRoom.height - tooltipHeight / 2 - padding;
 
-        // Adjust horizontal position to stay within bounds
-        if (tooltipX < minX) {
-            tooltipX = minX;
-        } else if (tooltipX > maxX) {
-            tooltipX = maxX;
-        }
+        if (tooltipX < minX) tooltipX = minX;
+        else if (tooltipX > maxX) tooltipX = maxX;
 
-        // Adjust vertical position - if tooltip would overflow top, position below station (but not on mobile)
-        const stationBottom = station.y + 30; // Station is 60 tall, center at station.y
+        const stationBottom = station.y + 30;
         if (tooltipY - tooltipHeight / 2 < minY) {
             if (!isMobile) {
-                // Position below station instead (desktop only)
                 tooltipY = stationBottom + 20 + tooltipHeight / 2;
-                // Make sure it doesn't overflow bottom either
-                if (tooltipY + tooltipHeight / 2 > maxY) {
-                    tooltipY = maxY;
-                }
+                if (tooltipY + tooltipHeight / 2 > maxY) tooltipY = maxY;
             } else {
-                // On mobile, just clamp to minimum Y
                 tooltipY = minY + tooltipHeight / 2;
             }
         } else if (tooltipY + tooltipHeight / 2 > maxY) {
-            // Tooltip would overflow bottom, position it higher
             tooltipY = maxY;
         }
 
-        // Round coordinates to avoid sub-pixel rendering artifacts
-        const tooltipXRounded = Math.round(tooltipX - tooltipWidth / 2);
-        const tooltipYRounded = Math.round(tooltipY - tooltipHeight / 2);
-
-        // Draw tooltip background
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-        ctx.fillRect(tooltipXRounded, tooltipYRounded, tooltipWidth, tooltipHeight);
-
-        // Draw border
+        // ---- Draw background & border ----
+        const bx = Math.round(tooltipX - tooltipWidth / 2);
+        const by = Math.round(tooltipY - tooltipHeight / 2);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+        ctx.fillRect(bx, by, tooltipWidth, tooltipHeight);
         ctx.strokeStyle = station.color;
         ctx.lineWidth = 2;
-        ctx.strokeRect(tooltipXRounded, tooltipYRounded, tooltipWidth, tooltipHeight);
+        ctx.strokeRect(bx, by, tooltipWidth, tooltipHeight);
 
-        // Draw text
-        let currentY = tooltipY - tooltipHeight / 2 + topPadding;
+        // ---- Draw text ----
+        let cy = by + padding;
+        const lx = bx + padding; // left x for labels
+        const dx = lx + labelIndent; // left x for descriptions
 
-        // Class name (bold, larger)
+        // Title
         ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 20px Orbitron';
+        ctx.font = titleFont;
         ctx.textAlign = 'center';
-        ctx.fillText(classDesc.name, tooltipX, currentY);
-        currentY += titleHeight;
+        ctx.textBaseline = 'top';
+        ctx.fillText(classDesc.name, tooltipX, cy);
+        cy += lineH + secGap;
 
-        // Playstyle/description
-        ctx.font = 'bold 15px Orbitron';
+        // Playstyle
         ctx.fillStyle = '#cccccc';
-        ctx.fillText(classDesc.playstyle, tooltipX, currentY);
-        currentY += playstyleHeight + spacing;
-
-        // Abilities
-        ctx.font = 'bold 13px Orbitron';
-        ctx.textAlign = 'left';
-
-        // Basic attack
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 14px Orbitron';
-        ctx.fillText('Basic:', tooltipX - tooltipWidth / 2 + padding, currentY);
-        ctx.fillStyle = '#aaaaaa';
-        ctx.font = 'bold 14px Orbitron';
-        ctx.fillText(classDesc.basic, tooltipX - tooltipWidth / 2 + padding + 60, currentY);
-        currentY += abilityHeight + spacing;
-
-        // Heavy attack
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 14px Orbitron';
-        ctx.fillText('Heavy:', tooltipX - tooltipWidth / 2 + padding, currentY);
-        ctx.fillStyle = '#aaaaaa';
-        ctx.font = 'bold 14px Orbitron';
-        ctx.fillText(classDesc.heavy, tooltipX - tooltipWidth / 2 + padding + 60, currentY);
-        currentY += abilityHeight + spacing;
-
-        // Special ability
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 14px Orbitron';
-        ctx.fillText('Special:', tooltipX - tooltipWidth / 2 + padding, currentY);
-        ctx.fillStyle = '#aaaaaa';
-        ctx.font = 'bold 14px Orbitron';
-        ctx.fillText(classDesc.special, tooltipX - tooltipWidth / 2 + padding + 60, currentY);
-        currentY += abilityHeight + spacing;
-
-        // Passive
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 14px Orbitron';
-        ctx.fillText('Passive:', tooltipX - tooltipWidth / 2 + padding, currentY);
-        ctx.fillStyle = '#aaaaaa';
-        ctx.font = 'bold 14px Orbitron';
-        ctx.fillText(classDesc.passive, tooltipX - tooltipWidth / 2 + padding + 60, currentY);
-        currentY += abilityHeight + spacing;
-
-        // Base stats (NEW)
-        if (classDesc.baseStats) {
-            ctx.fillStyle = '#ffdd88';
-            ctx.font = 'bold 14px Orbitron';
-            ctx.fillText('Bonus:', tooltipX - tooltipWidth / 2 + padding, currentY);
-            ctx.fillStyle = '#ffaa55';
-            ctx.font = 'bold 14px Orbitron';
-            ctx.fillText(classDesc.baseStats, tooltipX - tooltipWidth / 2 + padding + 60, currentY);
+        ctx.font = bodyFont;
+        ctx.textAlign = 'center';
+        for (const line of playstyleLines) {
+            ctx.fillText(line, tooltipX, cy);
+            cy += lineH;
         }
+        cy += secGap;
+
+        // Ability rows
+        ctx.textAlign = 'left';
+        for (const e of entries) {
+            // Label (always one line)
+            ctx.fillStyle = e.labelColor;
+            ctx.font = labelFont;
+            ctx.fillText(e.label, lx, cy);
+
+            // Description (may wrap)
+            ctx.fillStyle = e.descColor;
+            ctx.font = bodyFont;
+            const descLines = e.lines && e.lines.length > 0 ? e.lines : [''];
+            for (let i = 0; i < descLines.length; i++) {
+                ctx.fillText(descLines[i], dx, cy + i * lineH);
+            }
+            cy += descLines.length * lineH + secGap;
+        }
+
+        // Reset textBaseline back to default
+        ctx.textBaseline = 'alphabetic';
     }
 }
-
 // Render simplified remote player visuals in the Nexus using interpolation-friendly data
 function renderNexusRemotePlayer(ctx, options) {
     if (!ctx || !options) return;
@@ -1016,7 +1028,7 @@ function renderNexus(ctx) {
     ctx.save();
     if (typeof Game !== 'undefined' && Game.nexusCamera) {
         // Detect if desktop (for zoom)
-        const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
         const currentZoom = isMobile ? (Game.mobileZoom || 1.0) : (Game.baseZoom || 1.1); // Desktop: 1.1x zoom, Mobile: zoom out for 21:9
 
         const centerX = canvasWidth / 2;
@@ -1067,6 +1079,8 @@ function renderNexus(ctx) {
 
     // Render class stations
     classStations.forEach(station => {
+        const classStationWidth = 138; // 15% wider than the original 120px box
+        const classStationHeight = 60;
         const isSelected = Game.selectedClass === station.key;
         const dx = station.x - (Game.player ? Game.player.x : 0);
         const dy = station.y - (Game.player ? Game.player.y : 0);
@@ -1074,23 +1088,25 @@ function renderNexus(ctx) {
         const isNear = distance < 50;
 
         // Draw station background (round coordinates to avoid sub-pixel rendering artifacts)
-        const classStationX = Math.round(station.x - 60);
+        const classStationX = Math.round(station.x - classStationWidth / 2);
         const classStationY = Math.round(station.y - 30);
         ctx.fillStyle = isSelected ? 'rgba(255, 255, 0, 0.2)' : 'rgba(255, 255, 255, 0.05)';
         if (isNear) {
             ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
         }
-        ctx.fillRect(classStationX, classStationY, 120, 60);
+        ctx.fillRect(classStationX, classStationY, classStationWidth, classStationHeight);
 
         // Draw border
         ctx.strokeStyle = isSelected ? '#ffff00' : station.color;
         ctx.lineWidth = isSelected ? 3 : 2;
-        ctx.strokeRect(classStationX, classStationY, 120, 60);
+        ctx.strokeRect(classStationX, classStationY, classStationWidth, classStationHeight);
 
         // Draw class shape
+        const classIconX = classStationX + 24;
+        const classLabelX = classStationX + 58;
         ctx.fillStyle = station.color;
         ctx.save();
-        ctx.translate(station.x - 30, station.y);
+        ctx.translate(classIconX, station.y);
 
         if (station.key === 'square') {
             ctx.fillRect(-15, -15, 30, 30);
@@ -1131,14 +1147,14 @@ function renderNexus(ctx) {
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 14px Orbitron';
         ctx.textAlign = 'left';
-        ctx.fillText(station.name, station.x + 10, station.y + 5);
+        ctx.fillText(station.name, classLabelX, station.y + 5);
 
         // Draw interaction prompt (only show in desktop mode, moved down to avoid overlap)
-        if (isNear && typeof Input !== 'undefined' && (!Input.isTouchMode || !Input.isTouchMode())) {
+        if (isNear && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
             ctx.fillStyle = '#ffff00';
             ctx.font = 'bold 12px Orbitron';
             ctx.textAlign = 'center';
-            ctx.fillText('Press G to select', station.x, station.y + 45);
+            Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'select', station.x, station.y + 45) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('select') : 'Press G to select', station.x, station.y + 45);
         }
     });
 
@@ -1160,7 +1176,7 @@ function renderNexus(ctx) {
     ctx.fillStyle = '#9c27b0';
     ctx.font = 'bold 24px Orbitron';
     ctx.textAlign = 'center';
-    ctx.fillText(roomModifierStation.icon, roomModifierStation.x, roomModifierStation.y - 5);
+    ctx.fillText(roomModifierStation.icon, roomModifierStation.x, roomModifierStation.y - 10);
 
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 12px Orbitron';
@@ -1169,17 +1185,17 @@ function renderNexus(ctx) {
     const modText = roomModifierStation.name;
     const words = modText.split(' ');
     if (words.length > 1) {
-        ctx.fillText(words[0], roomModifierStation.x, roomModifierStation.y + 15);
-        ctx.fillText(words[1], roomModifierStation.x, roomModifierStation.y + 28);
+        ctx.fillText(words[0], roomModifierStation.x, roomModifierStation.y + 11);
+        ctx.fillText(words[1], roomModifierStation.x, roomModifierStation.y + 23);
     } else {
-        ctx.fillText(modText, roomModifierStation.x, roomModifierStation.y + 15);
+        ctx.fillText(modText, roomModifierStation.x, roomModifierStation.y + 11);
     }
 
-    if (modIsNear && typeof Input !== 'undefined' && (!Input.isTouchMode || !Input.isTouchMode())) {
+    if (modIsNear && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
         ctx.fillStyle = '#ffff00';
         ctx.font = '12px Orbitron';
         ctx.textAlign = 'center';
-        ctx.fillText('Press G to select', roomModifierStation.x, roomModifierStation.y + 45);
+        Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'select', roomModifierStation.x, roomModifierStation.y + 45) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('select') : 'Press G to select', roomModifierStation.x, roomModifierStation.y + 45);
     }
 
     // Render deck builder station
@@ -1200,24 +1216,24 @@ function renderNexus(ctx) {
     ctx.fillStyle = '#4a90e2';
     ctx.font = 'bold 24px Orbitron';
     ctx.textAlign = 'center';
-    ctx.fillText(deckBuilderStation.icon, deckBuilderStation.x, deckBuilderStation.y - 5);
+    ctx.fillText(deckBuilderStation.icon, deckBuilderStation.x, deckBuilderStation.y - 10);
 
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 12px Orbitron';
     ctx.textAlign = 'center';
     const deckWords = deckBuilderStation.name.split(' ');
     if (deckWords.length > 1) {
-        ctx.fillText(deckWords[0], deckBuilderStation.x, deckBuilderStation.y + 15);
-        ctx.fillText(deckWords[1], deckBuilderStation.x, deckBuilderStation.y + 28);
+        ctx.fillText(deckWords[0], deckBuilderStation.x, deckBuilderStation.y + 11);
+        ctx.fillText(deckWords[1], deckBuilderStation.x, deckBuilderStation.y + 23);
     } else {
-        ctx.fillText(deckBuilderStation.name, deckBuilderStation.x, deckBuilderStation.y + 15);
+        ctx.fillText(deckBuilderStation.name, deckBuilderStation.x, deckBuilderStation.y + 11);
     }
 
-    if (deckIsNear && typeof Input !== 'undefined' && (!Input.isTouchMode || !Input.isTouchMode())) {
+    if (deckIsNear && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
         ctx.fillStyle = '#ffff00';
         ctx.font = '12px Orbitron';
         ctx.textAlign = 'center';
-        ctx.fillText('Press G to select', deckBuilderStation.x, deckBuilderStation.y + 45);
+        Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'select', deckBuilderStation.x, deckBuilderStation.y + 45) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('select') : 'Press G to select', deckBuilderStation.x, deckBuilderStation.y + 45);
     }
 
     // Render deck upgrades station
@@ -1238,24 +1254,24 @@ function renderNexus(ctx) {
     ctx.fillStyle = '#00ff00';
     ctx.font = 'bold 24px Orbitron';
     ctx.textAlign = 'center';
-    ctx.fillText(deckUpgradeStation.icon, deckUpgradeStation.x, deckUpgradeStation.y - 5);
+    ctx.fillText(deckUpgradeStation.icon, deckUpgradeStation.x, deckUpgradeStation.y - 10);
 
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 12px Orbitron';
     ctx.textAlign = 'center';
     const upgradeWords = deckUpgradeStation.name.split(' ');
     if (upgradeWords.length > 1) {
-        ctx.fillText(upgradeWords[0], deckUpgradeStation.x, deckUpgradeStation.y + 15);
-        ctx.fillText(upgradeWords[1], deckUpgradeStation.x, deckUpgradeStation.y + 28);
+        ctx.fillText(upgradeWords[0], deckUpgradeStation.x, deckUpgradeStation.y + 11);
+        ctx.fillText(upgradeWords[1], deckUpgradeStation.x, deckUpgradeStation.y + 23);
     } else {
-        ctx.fillText(deckUpgradeStation.name, deckUpgradeStation.x, deckUpgradeStation.y + 15);
+        ctx.fillText(deckUpgradeStation.name, deckUpgradeStation.x, deckUpgradeStation.y + 11);
     }
 
-    if (upgradeIsNear && typeof Input !== 'undefined' && (!Input.isTouchMode || !Input.isTouchMode())) {
+    if (upgradeIsNear && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
         ctx.fillStyle = '#ffff00';
         ctx.font = '12px Orbitron';
         ctx.textAlign = 'center';
-        ctx.fillText('Press G to select', deckUpgradeStation.x, deckUpgradeStation.y + 45);
+        Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'select', deckUpgradeStation.x, deckUpgradeStation.y + 45) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('select') : 'Press G to select', deckUpgradeStation.x, deckUpgradeStation.y + 45);
     }
 
     // Render mastery station
@@ -1276,18 +1292,18 @@ function renderNexus(ctx) {
     ctx.fillStyle = '#ffd700';
     ctx.font = 'bold 24px Orbitron';
     ctx.textAlign = 'center';
-    ctx.fillText(masteryStation.icon, masteryStation.x, masteryStation.y - 5);
+    ctx.fillText(masteryStation.icon, masteryStation.x, masteryStation.y - 10);
 
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 12px Orbitron';
     ctx.textAlign = 'center';
-    ctx.fillText(masteryStation.name, masteryStation.x, masteryStation.y + 15);
+    ctx.fillText(masteryStation.name, masteryStation.x, masteryStation.y + 12);
 
-    if (masteryIsNear && typeof Input !== 'undefined' && (!Input.isTouchMode || !Input.isTouchMode())) {
+    if (masteryIsNear && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
         ctx.fillStyle = '#ffff00';
         ctx.font = '12px Orbitron';
         ctx.textAlign = 'center';
-        ctx.fillText('Press G to select', masteryStation.x, masteryStation.y + 45);
+        Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'select', masteryStation.x, masteryStation.y + 45) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('select') : 'Press G to select', masteryStation.x, masteryStation.y + 45);
     }
 
     // Render index machine
@@ -1325,11 +1341,11 @@ function renderNexus(ctx) {
     ctx.textAlign = 'center';
     ctx.fillText('Index', nexusRoom.indexMachinePos.x, nexusRoom.indexMachinePos.y + 15);
 
-    if (indexIsNear && typeof Input !== 'undefined' && (!Input.isTouchMode || !Input.isTouchMode())) {
+    if (indexIsNear && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
         ctx.fillStyle = '#ffff00';
         ctx.font = '12px Orbitron';
         ctx.textAlign = 'center';
-        ctx.fillText('Press G to open', nexusRoom.indexMachinePos.x, nexusRoom.indexMachinePos.y + 45);
+        Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'open', nexusRoom.indexMachinePos.x, nexusRoom.indexMachinePos.y + 45) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('open') : 'Press G to open', nexusRoom.indexMachinePos.x, nexusRoom.indexMachinePos.y + 45);
     }
 
     // Render upgrade stations
@@ -1375,10 +1391,10 @@ function renderNexus(ctx) {
             ctx.fillText(`Cost: ${cost}`, station.x, station.y + 30);
 
             // Draw interaction prompt (only show in desktop mode, moved down to avoid overlap)
-            if (isNear && typeof Input !== 'undefined' && (!Input.isTouchMode || !Input.isTouchMode())) {
+            if (isNear && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
                 ctx.fillStyle = '#ffff00';
                 ctx.font = 'bold 12px Orbitron';
-                ctx.fillText('Press G to upgrade', station.x, station.y + 55);
+                Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'upgrade', station.x, station.y + 55) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('upgrade') : 'Press G to upgrade', station.x, station.y + 55);
             }
         });
     }
@@ -1435,7 +1451,7 @@ function renderNexus(ctx) {
     ctx.fillText(nexusRoom.portalMode === 'cards' ? 'CARD' : 'GEAR', nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y + 15);
 
     // Switcher interaction prompt
-    if (isNearSwitcher && typeof Input !== 'undefined' && (!Input.isTouchMode || !Input.isTouchMode())) {
+    if (isNearSwitcher && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
         if (isDisabled) {
             // Show disabled message in multiplayer
             ctx.fillStyle = '#ff6666';
@@ -1447,7 +1463,7 @@ function renderNexus(ctx) {
             ctx.fillStyle = '#ffff00';
             ctx.font = 'bold 12px Orbitron';
             ctx.textAlign = 'center';
-            ctx.fillText('Press G to switch mode', nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y + 60);
+            Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'switch mode', nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y + 60) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('switch mode') : 'Press G to switch mode', nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y + 60);
         }
     }
 
@@ -1504,7 +1520,7 @@ function renderNexus(ctx) {
     ctx.fillText(nexusRoom.portalMode === 'cards' ? 'CARD MODE' : 'GEAR MODE', nexusRoom.portalPos.x, nexusRoom.portalPos.y - 80);
 
     // Portal interaction prompt (only show in desktop mode)
-    if (isNearPortal && typeof Input !== 'undefined' && (!Input.isTouchMode || !Input.isTouchMode())) {
+    if (isNearPortal && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
         const inLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
 
         if (portalActive) {
@@ -1517,7 +1533,7 @@ function renderNexus(ctx) {
                 ctx.fillStyle = '#ffff00';
                 ctx.font = 'bold 14px Orbitron';
                 ctx.textAlign = 'center';
-                ctx.fillText('Press G to enter portal', nexusRoom.portalPos.x, nexusRoom.portalPos.y + 70);
+                Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'enter portal', nexusRoom.portalPos.x, nexusRoom.portalPos.y + 70) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('enter portal') : 'Press G to enter portal', nexusRoom.portalPos.x, nexusRoom.portalPos.y + 70);
             }
         } else {
             ctx.fillStyle = '#ff6666';

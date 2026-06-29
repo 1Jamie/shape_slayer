@@ -112,7 +112,7 @@ function renderDamageNumbers(ctx) {
 // Helper function to draw a small shape indicator
 function drawPlayerShapeIndicator(ctx, x, y, shape, color, size = 12) {
     // Scale down on mobile for better space usage
-    const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+    const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
     const mobileScale = isMobile ? 0.75 : 1.0;
 
     const barX = 30;
@@ -338,7 +338,7 @@ function renderOtherPlayersHealthBars(ctx) {
     if (!localPlayerId) return;
 
     // Scale down on mobile for better space usage
-    const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+    const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
     const mobileScale = isMobile ? 0.75 : 1.0;
 
     // Position below local health bar (local bar is at y=30, height=36, so start at y=80)
@@ -570,7 +570,10 @@ function formatTime(seconds) {
         ctx.fillText('Press R to Restart', centerX, centerY + 200 * scale);
         ctx.fillStyle = '#00ffff';
         ctx.font = `bold ${Math.floor(20 * scale)}px Orbitron`;
-        ctx.fillText('Press M or Click to Continue to Nexus', centerX, centerY + 240 * scale);
+        const continueHint = typeof Input !== 'undefined' && Input.getInputHint
+            ? `Press ${Input.getInputHint('modifier')} or Click to Continue to Nexus`
+            : 'Press M or Click to Continue to Nexus';
+        ctx.fillText(continueHint, centerX, centerY + 240 * scale);
     }
 }
 
@@ -784,7 +787,10 @@ function renderCollectiveDeathScreen(ctx, player) {
         ctx.fillStyle = '#00ff00';
         ctx.font = `bold ${Math.floor(24 * scale)}px Orbitron`;
         ctx.textAlign = 'center';
-        ctx.fillText('Press M to Return to Nexus', centerX, centerY + 200 * scale);
+        const returnHint = typeof Input !== 'undefined' && Input.getInputHint
+            ? `Press ${Input.getInputHint('modifier')} to Return to Nexus`
+            : 'Press M to Return to Nexus';
+        ctx.fillText(returnHint, centerX, centerY + 200 * scale);
     } else {
         ctx.fillStyle = '#ffaa00';
         ctx.font = `bold ${Math.floor(20 * scale)}px Orbitron`;
@@ -857,7 +863,7 @@ function handleCharacterSheetScroll(x, y, deltaY) {
 // Expose worldToScreen globally for DOM components
 window.worldToScreen = function worldToScreen(worldX, worldY) {
     // Get current zoom level
-    const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+    const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
     const zoom = isMobile ? (typeof Game !== 'undefined' && Game.mobileZoom ? Game.mobileZoom : 1.0) : (typeof Game !== 'undefined' && Game.baseZoom ? Game.baseZoom : 1.1);
 
     if (typeof Game !== 'undefined' && Game.camera && Game.state === 'PLAYING') {
@@ -1029,7 +1035,7 @@ function renderEnemyDirectionArrows(ctx, player) {
     const camera = Game.camera;
     if (!camera) return;
 
-    const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+    const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
     const zoom = isMobile ? 1.0 : (Game.baseZoom || 1.1);
     const canvasWidth = Game.config.width;
     const canvasHeight = Game.config.height;
@@ -1100,7 +1106,7 @@ function renderDoorDirectionArrow(ctx, player) {
     const camera = Game.camera;
     if (!camera || !Game.config) return;
 
-    const isMobile = typeof Input !== 'undefined' && Input.isTouchMode && Input.isTouchMode();
+    const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
     const zoom = isMobile ? 1.0 : (Game.baseZoom || 1.1);
     const canvasWidth = Game.config.width;
     const canvasHeight = Game.config.height;
@@ -1382,6 +1388,75 @@ class InteractionButton {
 let interactionButton = null;
 let currentInteraction = null;
 
+function getInteractionTargetName(interaction) {
+    if (!interaction) return '';
+    const data = interaction.data || interaction.pylon || interaction;
+    if (interaction.type === 'doorpack' && data) {
+        return data.packName || data.name || data.type || '';
+    }
+    if (interaction.type === 'gear' && data) {
+        return data.name || data.displayName || `${data.tier || ''} ${data.slot || 'Gear'}`.trim();
+    }
+    if (interaction.type === 'card' && data) {
+        return data.name || data.cardName || data.title || 'Card';
+    }
+    if (interaction.type === 'upgrade' && data) {
+        const option = data.option || data;
+        return option.name || option.title || option.statType || 'Upgrade';
+    }
+    if (interaction.type === 'itemPylon' && data) return data.name || 'Item Pylon';
+    return '';
+}
+
+function getInteractionLabel(interaction) {
+    if (!interaction) return '';
+    if (interaction.type === 'doorpack') return 'Select Pack';
+    if (interaction.type === 'gear') return 'Pickup Gear';
+    if (interaction.type === 'card') return 'Pickup Card';
+    if (interaction.type === 'class') return 'Select Class';
+    if (interaction.type === 'upgrade') {
+        return interaction.data && interaction.data.option ? 'Pickup Upgrade' : 'Purchase Upgrade';
+    }
+    if (interaction.type === 'portal') return 'Enter Portal';
+    if (interaction.type === 'itemPylon') return 'Interact with Item Pylon';
+    if (interaction.type === 'modeSwitcher') {
+        const inMultiplayerLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+        return inMultiplayerLobby ? 'Cannot swap modes in multiplayer' : 'Switch Mode';
+    }
+    if (interaction.type === 'roomModifier') return 'Open Room Modifiers';
+    if (interaction.type === 'deckBuilder') return 'Open Deck Builder';
+    if (interaction.type === 'deckUpgrade') return 'Open Deck Upgrades';
+    if (interaction.type === 'mastery') return 'Open Mastery';
+    if (interaction.type === 'indexMachine') return 'Open Index';
+    return 'Interact';
+}
+
+function getInteractionDisabledReason(interaction) {
+    if (!interaction) return '';
+    if (interaction.type === 'modeSwitcher') {
+        const inMultiplayerLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+        if (inMultiplayerLobby) return 'Cannot swap modes in multiplayer';
+    }
+    return '';
+}
+
+function recordMobileInteractionEvent(type, interaction, metadata = {}) {
+    if (typeof Telemetry === 'undefined' || !Telemetry || !Telemetry.recordEvent) return;
+    Telemetry.recordEvent(type, {
+        roomNumber: typeof Game !== 'undefined' ? Game.roomNumber : null,
+        playerId: typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null,
+        targetType: interaction && interaction.type ? interaction.type : null,
+        metadata: {
+            interactionType: interaction && interaction.type ? interaction.type : null,
+            targetName: getInteractionTargetName(interaction),
+            inputSource: typeof Input !== 'undefined' ? Input._activeInputSource : null,
+            gamepad: typeof Input !== 'undefined' && Input.isGamepadMode ? Input.isGamepadMode() : false,
+            mobileUi: typeof Input !== 'undefined' && Input.isMobileUiMode ? Input.isMobileUiMode() : false,
+            ...metadata
+        }
+    });
+}
+
 // Helper function to check door interaction
 function checkDoorPackInteraction() {
     if (typeof checkDoorInteraction === 'function' && Game.player) {
@@ -1438,7 +1513,7 @@ function checkGearInteraction() {
 
 // Update interaction state
 function updateInteractionState() {
-    if (!Input || !Input.isTouchMode || !Input.isTouchMode()) {
+    if (!Input || !Input.isMobileUiMode || !Input.isMobileUiMode() || (Input.isGamepadMode && Input.isGamepadMode())) {
         currentInteraction = null;
         return;
     }
@@ -1478,9 +1553,26 @@ function updateInteractionState() {
     }
 }
 
+function getMobileInteractionState() {
+    updateInteractionState();
+    if (!currentInteraction) return null;
+    const disabledReason = getInteractionDisabledReason(currentInteraction);
+    return {
+        type: currentInteraction.type,
+        label: getInteractionLabel(currentInteraction),
+        targetName: getInteractionTargetName(currentInteraction),
+        disabledReason,
+        disabled: !!disabledReason,
+        raw: currentInteraction,
+        perform() {
+            return performCurrentInteraction();
+        }
+    };
+}
+
 // Render interaction button
 function renderInteractionButton(ctx) {
-    if (!Input || !Input.isTouchMode || !Input.isTouchMode()) {
+    if (!Input || !Input.isMobileUiMode || !Input.isMobileUiMode()) {
         return;
     }
 
@@ -1491,46 +1583,7 @@ function renderInteractionButton(ctx) {
         return;
     }
 
-    // Determine button label
-    let label = 'Interact';
-    if (currentInteraction.type === 'doorpack') {
-        label = 'Select Pack';
-    } else if (currentInteraction.type === 'gear') {
-        label = 'Pickup Gear';
-    } else if (currentInteraction.type === 'card') {
-        label = 'Pickup Card';
-    } else if (currentInteraction.type === 'class') {
-        label = 'Select Class';
-    } else if (currentInteraction.type === 'upgrade') {
-        // Check if it's a ground pickup or shop purchase
-        if (currentInteraction.data && currentInteraction.data.option) {
-            label = 'Pickup Upgrade';
-        } else {
-            label = 'Purchase Upgrade';
-        }
-    } else if (currentInteraction.type === 'portal') {
-        label = 'Enter Portal';
-    } else if (currentInteraction.type === 'itemPylon') {
-        label = 'Interact with Item Pylon';
-    } else if (currentInteraction.type === 'modeSwitcher') {
-        // Check if in multiplayer lobby
-        const inMultiplayerLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
-        if (inMultiplayerLobby) {
-            label = 'Cannot swap modes in multiplayer';
-        } else {
-            label = 'Switch Mode';
-        }
-    } else if (currentInteraction.type === 'roomModifier') {
-        label = 'Open Room Modifiers';
-    } else if (currentInteraction.type === 'deckBuilder') {
-        label = 'Open Deck Builder';
-    } else if (currentInteraction.type === 'deckUpgrade') {
-        label = 'Open Deck Upgrades';
-    } else if (currentInteraction.type === 'mastery') {
-        label = 'Open Mastery';
-    } else if (currentInteraction.type === 'indexMachine') {
-        label = 'Open Index';
-    }
+    const label = getInteractionLabel(currentInteraction);
 
     // Position button (center-bottom, low on screen but above touch controls)
     const canvasWidth = Game ? Game.config.width : 1280;
@@ -1542,7 +1595,7 @@ function renderInteractionButton(ctx) {
     // Touch controls are now at ~23% from bottom on mobile, so position button accordingly
     // On mobile, position button above controls with some spacing
     // Calculate based on control position: controls are at ~23% from bottom, button should be ~28-30% from bottom
-    const isMobile = Input && Input.isTouchMode && Input.isTouchMode();
+    const isMobile = Input && Input.isMobileUiMode && Input.isMobileUiMode();
     // Use percentage-based positioning to match control positioning
     const mobileBottomOffset = Math.max(canvasHeight * 0.28, 140); // ~28% from bottom, minimum 140px
     const buttonY = isMobile ? canvasHeight - mobileBottomOffset : canvasHeight - 150;
@@ -1565,19 +1618,17 @@ function renderInteractionButton(ctx) {
     interactionButton.update();
 }
 
-// Handle interaction button click
-function handleInteractionButtonClick(x, y) {
-    if (!interactionButton || !currentInteraction) {
+function performCurrentInteraction() {
+    if (!currentInteraction) return false;
+    const disabledReason = getInteractionDisabledReason(currentInteraction);
+    if (disabledReason) {
+        recordMobileInteractionEvent('mobileInteractionBlocked', currentInteraction, { disabledReason });
         return false;
     }
 
-    if (interactionButton.contains(x, y)) {
-        interactionButton.justPressed = true;
+    recordMobileInteractionEvent('mobileInteractionPerformed', currentInteraction);
 
-        // Trigger the interaction directly
-
-        // Trigger the interaction directly
-        if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'doorpack') {
+    if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'doorpack') {
             // Select door pack (moves to next room)
             if (typeof selectDoor === 'function' && currentInteraction.data) {
                 selectDoor(currentInteraction.data);
@@ -1680,17 +1731,34 @@ function handleInteractionButtonClick(x, y) {
                     }, 10);
                 }
             }
-        }
+    }
 
-        return true;
+    return true;
+}
+
+// Handle interaction button click
+function handleInteractionButtonClick(x, y) {
+    if (!interactionButton || !currentInteraction) {
+        recordMobileInteractionEvent('mobileInteractionMiss', null, { reason: 'noCurrentInteraction' });
+        return false;
+    }
+
+    if (interactionButton.contains(x, y)) {
+        interactionButton.justPressed = true;
+        return performCurrentInteraction();
     }
 
     return false;
 }
 
+if (typeof window !== 'undefined') {
+    window.getMobileInteractionState = getMobileInteractionState;
+    window.performMobileInteraction = performCurrentInteraction;
+}
+
 // Render mobile loot selection UI (when multiple items nearby)
 function renderMobileLootSelection(ctx) {
-    if (!Input || !Input.isTouchMode || !Input.isTouchMode()) {
+    if (!Input || !Input.isMobileUiMode || !Input.isMobileUiMode()) {
         return;
     }
 
@@ -1771,7 +1839,7 @@ function renderMobileLootSelection(ctx) {
 
 // Handle mobile loot selection button clicks
 function handleMobileLootSelectionClick(x, y) {
-    if (!Input || !Input.isTouchMode || !Input.isTouchMode()) {
+    if (!Input || !Input.isMobileUiMode || !Input.isMobileUiMode()) {
         return false;
     }
 
