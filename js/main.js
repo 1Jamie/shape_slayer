@@ -1713,6 +1713,62 @@ const Game = {
         return boss ? (boss.bossName || boss.id || boss.constructor?.name || 'boss') : null;
     },
 
+    getTelemetryRoomContext(room = null) {
+        const sourceRoom = room || (typeof currentRoom !== 'undefined' ? currentRoom : null);
+        const gameMode = this.gameMode || 'cards';
+        const playerCount = typeof getPlayerCount === 'function'
+            ? getPlayerCount()
+            : (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.players
+                ? multiplayerManager.players.length
+                : 1);
+
+        return {
+            biomeId: sourceRoom && sourceRoom.biomeId ? sourceRoom.biomeId : null,
+            layoutHash: sourceRoom && sourceRoom.layoutHash ? sourceRoom.layoutHash : null,
+            archetype: sourceRoom && sourceRoom.archetype ? sourceRoom.archetype : null,
+            entranceVariant: sourceRoom && sourceRoom.entranceVariant ? sourceRoom.entranceVariant : null,
+            roomType: sourceRoom && sourceRoom.type ? sourceRoom.type : 'normal',
+            gameMode,
+            difficulty: this.difficulty || 'normal',
+            playerCount,
+            enemyCount: sourceRoom && Array.isArray(sourceRoom.enemies)
+                ? sourceRoom.enemies.length
+                : (Array.isArray(this.enemies) ? this.enemies.length : 0),
+            enemyTypes: this.getTelemetryEnemyComposition(),
+            multiplayerScaling: typeof getMultiplayerScaling === 'function'
+                ? getMultiplayerScaling({ gameMode, playerCount })
+                : null
+        };
+    },
+
+    finalizeTelemetryRun({ result, reason, roomsClearedByPlayer = null } = {}) {
+        if (typeof Telemetry === 'undefined') {
+            return;
+        }
+
+        const participants = this.collectTelemetryParticipants(true);
+        const clearedByPlayer = roomsClearedByPlayer || {};
+        if (!roomsClearedByPlayer && this.playerStats && this.playerStats.size > 0) {
+            this.playerStats.forEach((stats, playerId) => {
+                clearedByPlayer[playerId] = typeof stats.roomsCleared === 'number'
+                    ? stats.roomsCleared
+                    : Math.max(0, this.roomNumber - 1);
+            });
+        }
+
+        Telemetry.completeRun({
+            result,
+            metadata: {
+                reason,
+                gameMode: this.gameMode || 'cards',
+                playerCount: participants.length,
+                difficulty: this.difficulty || 'normal'
+            },
+            roomsClearedByPlayer: clearedByPlayer,
+            finalPlayers: participants
+        });
+    },
+
     // Distribute XP to all alive players (host only in multiplayer, all in solo)
     distributeXPToAllPlayers(xpAmount) {
         // Only run on host in multiplayer, or in solo mode
@@ -3239,27 +3295,13 @@ const Game = {
         }
 
         const oldGear = this.player.equipGear(gear);
-        if (typeof Telemetry !== 'undefined') {
+        if (typeof Telemetry !== 'undefined' && Telemetry.recordGearEquipped) {
             const playerId = this.getLocalPlayerId ? this.getLocalPlayerId() : (this.player && this.player.playerId) || 'local';
-            Telemetry.recordEvent('gearEquipped', {
-                roomNumber: this.roomNumber || 1,
+            Telemetry.recordGearEquipped({
                 playerId,
-                targetId: gear.id || null,
-                metadata: {
-                    gearId: gear.id || null,
-                    name: gear.name || null,
-                    slot: gear.slot || null,
-                    tier: gear.tier || null,
-                    type: gear.weaponType || gear.armorType || gear.accessoryType || null,
-                    affixes: Array.isArray(gear.affixes) ? gear.affixes.map(affix => ({
-                        id: affix.type || affix.id || 'unknown',
-                        value: affix.value !== undefined ? affix.value : null,
-                        tier: affix.tier || null
-                    })) : [],
-                    legendaryEffect: gear.legendaryEffect ? gear.legendaryEffect.type || gear.legendaryEffect.description || null : null,
-                    replacedGearId: oldGear ? oldGear.id || null : null,
-                    replacedTier: oldGear ? oldGear.tier || null : null
-                }
+                gear,
+                oldGear,
+                roomNumber: this.roomNumber || 1
             });
         }
 
@@ -3962,16 +4004,11 @@ const Game = {
 
                 if (typeof Telemetry !== 'undefined') {
                     const participants = this.collectTelemetryParticipants(true);
-                    Telemetry.recordRoomEnter(this.roomNumber, newRoom.type, participants);
+                    const roomContext = this.getTelemetryRoomContext(newRoom);
+                    Telemetry.recordRoomEnter(this.roomNumber, newRoom.type, participants, roomContext);
                     Telemetry.recordEvent('roomGenerated', {
                         roomNumber: this.roomNumber,
-                        metadata: {
-                            roomType: newRoom.type,
-                            gameMode: this.gameMode || 'cards',
-                            enemyCount: Array.isArray(newRoom.enemies) ? newRoom.enemies.length : 0,
-                            enemyTypes: this.getTelemetryEnemyComposition(),
-                            multiplayerScaling: typeof getMultiplayerScaling === 'function' ? getMultiplayerScaling() : null
-                        }
+                        metadata: roomContext
                     });
                     const bossId = this.getTelemetryBossId(newRoom);
                     if (bossId) {
@@ -5595,7 +5632,6 @@ const Game = {
         }
 
         if (typeof Telemetry !== 'undefined') {
-            const participants = this.collectTelemetryParticipants(true);
             let result = 'abandoned';
             if (this.allPlayersDead || (this.player && this.player.dead)) {
                 result = 'failure';
@@ -5603,24 +5639,9 @@ const Game = {
                 result = 'success';
             }
 
-            const roomsClearedByPlayer = {};
-            if (this.playerStats && this.playerStats.size > 0) {
-                this.playerStats.forEach((stats, playerId) => {
-                    roomsClearedByPlayer[playerId] = typeof stats.roomsCleared === 'number'
-                        ? stats.roomsCleared
-                        : Math.max(0, this.roomNumber - 1);
-                });
-            }
-
-            Telemetry.completeRun({
+            this.finalizeTelemetryRun({
                 result,
-                metadata: {
-                    reason: 'returnToNexus',
-                    gameMode: this.gameMode || 'cards',
-                    playerCount: participants.length
-                },
-                roomsClearedByPlayer,
-                finalPlayers: participants
+                reason: 'returnToNexus'
             });
 
             // Update lifetime stats from run
@@ -6178,28 +6199,25 @@ const Game = {
 
             Telemetry.startRun({
                 mode: this.multiplayerEnabled ? 'multiplayer' : 'singleplayer',
+                gameMode: this.gameMode || 'cards',
                 hostPlayerId: localPlayerId,
-                difficulty: this.difficulty || 'default',
+                difficulty: this.difficulty || 'normal',
                 seed: (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.seed) ? currentRoom.seed : null,
                 players: runPlayers,
                 metadata: {
                     gameMode: this.gameMode || 'cards',
                     selectedClass: this.selectedClass || null,
-                    playerCount: runPlayers.length
+                    playerCount: runPlayers.length,
+                    difficulty: this.difficulty || 'normal'
                 }
             });
 
             const firstRoomType = (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type) ? currentRoom.type : 'normal';
-            Telemetry.recordRoomEnter(this.roomNumber, firstRoomType, runPlayers);
+            const firstRoomContext = this.getTelemetryRoomContext();
+            Telemetry.recordRoomEnter(this.roomNumber, firstRoomType, runPlayers, firstRoomContext);
             Telemetry.recordEvent('roomGenerated', {
                 roomNumber: this.roomNumber,
-                metadata: {
-                    roomType: firstRoomType,
-                    gameMode: this.gameMode || 'cards',
-                    enemyCount: Array.isArray(this.enemies) ? this.enemies.length : 0,
-                    enemyTypes: this.getTelemetryEnemyComposition(),
-                    multiplayerScaling: typeof getMultiplayerScaling === 'function' ? getMultiplayerScaling() : null
-                }
+                metadata: firstRoomContext
             });
             const bossId = this.getTelemetryBossId();
             if (bossId) {
@@ -6268,6 +6286,13 @@ const Game = {
 
     // Restart game
     restart() {
+        if (typeof Telemetry !== 'undefined') {
+            this.finalizeTelemetryRun({
+                result: 'abandoned',
+                reason: 'restart'
+            });
+        }
+
         this.gameOverMusicPlaying = false;
         if (typeof audioMenuVisible !== 'undefined') {
             audioMenuVisible = false;
@@ -6347,28 +6372,25 @@ const Game = {
 
             Telemetry.startRun({
                 mode: this.multiplayerEnabled ? 'multiplayer' : 'singleplayer',
+                gameMode: this.gameMode || 'cards',
                 hostPlayerId: localPlayerId,
-                difficulty: this.difficulty || 'default',
+                difficulty: this.difficulty || 'normal',
                 seed: (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.seed) ? currentRoom.seed : null,
                 players: runPlayers,
                 metadata: {
                     gameMode: this.gameMode || 'cards',
                     selectedClass: this.selectedClass || null,
-                    playerCount: runPlayers.length
+                    playerCount: runPlayers.length,
+                    difficulty: this.difficulty || 'normal'
                 }
             });
 
             const firstRoomType = (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type) ? currentRoom.type : 'normal';
-            Telemetry.recordRoomEnter(this.roomNumber, firstRoomType, runPlayers);
+            const firstRoomContext = this.getTelemetryRoomContext();
+            Telemetry.recordRoomEnter(this.roomNumber, firstRoomType, runPlayers, firstRoomContext);
             Telemetry.recordEvent('roomGenerated', {
                 roomNumber: this.roomNumber,
-                metadata: {
-                    roomType: firstRoomType,
-                    gameMode: this.gameMode || 'cards',
-                    enemyCount: Array.isArray(this.enemies) ? this.enemies.length : 0,
-                    enemyTypes: this.getTelemetryEnemyComposition(),
-                    multiplayerScaling: typeof getMultiplayerScaling === 'function' ? getMultiplayerScaling() : null
-                }
+                metadata: firstRoomContext
             });
             const bossId = this.getTelemetryBossId();
             if (bossId) {

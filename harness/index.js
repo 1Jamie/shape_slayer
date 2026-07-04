@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
@@ -73,10 +73,30 @@ let shuttingDown = false;
 
 for (const key of selectedServices) {
   const service = SERVICES[key];
+  ensureServiceDependencies(service.cwd);
   launchService(key, service);
 }
 
 setupSignalHandlers();
+
+function ensureServiceDependencies(cwd) {
+  const nodeModulesPath = path.join(cwd, 'node_modules');
+  if (fs.existsSync(nodeModulesPath)) {
+    return;
+  }
+
+  console.log(`[Harness] Installing dependencies in ${cwd}...`);
+  const result = spawnSync(npmCommand, ['install'], {
+    cwd,
+    stdio: 'inherit',
+    shell: process.platform === 'win32'
+  });
+
+  if (result.status !== 0) {
+    console.error(`[Harness] npm install failed in ${cwd} (exit ${result.status})`);
+    process.exit(result.status || 1);
+  }
+}
 
 function launchService(key, service) {
   const timestamp = new Date().toISOString();

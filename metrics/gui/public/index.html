@@ -68,6 +68,22 @@
                 <h2>Recent Runs</h2>
                 <div class="controls">
                     <label>
+                        Game mode
+                        <select id="filter-game-mode">
+                            <option value="">All</option>
+                            <option value="gear">gear</option>
+                            <option value="cards">cards</option>
+                        </select>
+                    </label>
+                    <label>
+                        Network
+                        <select id="filter-mode">
+                            <option value="">All</option>
+                            <option value="singleplayer">singleplayer</option>
+                            <option value="multiplayer">multiplayer</option>
+                        </select>
+                    </label>
+                    <label>
                         Show
                         <select id="runs-limit">
                             <option value="25">25</option>
@@ -87,6 +103,7 @@
                             <th>Duration</th>
                             <th>Mode</th>
                             <th>Game</th>
+                            <th>Players</th>
                             <th>Result</th>
                             <th>Total Damage</th>
                             <th>Total Hits</th>
@@ -94,7 +111,7 @@
                     </thead>
                     <tbody>
                         <tr>
-                            <td colspan="8" class="empty">Loading…</td>
+                            <td colspan="9" class="empty">Loading…</td>
                         </tr>
                     </tbody>
                 </table>

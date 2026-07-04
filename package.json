@@ -12,7 +12,10 @@
     "balance:full-run": "node tests/full-run-balance-sim.js",
     "test:combat-scaling": "node --test tests/combat-scaling.test.js",
     "test:device-detection": "node --test tests/device-detection.test.js",
-    "test:input-focus": "node --test tests/input-focus.test.js"
+    "test:input-focus": "node --test tests/input-focus.test.js",
+    "metrics:install": "npm install --prefix metrics/server && npm install --prefix metrics/gui",
+    "metrics:start": "node harness/index.js --only=metrics,gui",
+    "metrics:test": "npm test --prefix metrics/server && node --test tests/telemetry-client.test.js"
   },
   "keywords": [
     "game",

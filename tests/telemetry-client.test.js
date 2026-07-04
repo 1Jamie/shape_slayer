@@ -73,11 +73,11 @@ test('Telemetry serializes run metrics', () => {
     });
 
     Telemetry.recordRoomEnter(1, 'combat', players);
-    Telemetry.recordEvent('gearEquipped', {
+    Telemetry.recordGearEquipped({
         roomNumber: 1,
         playerId: 'local',
-        targetId: 'sword-01',
-        metadata: { tier: 'blue', slot: 'weapon' }
+        gear: playerState.weapon,
+        oldGear: null
     });
     Telemetry.recordDamage({
         playerId: 'local',
@@ -118,6 +118,8 @@ test('Telemetry serializes run metrics', () => {
     assert.ok(room.events.some(event => event.type === 'gearEquipped'), 'generic event captured');
     assert.strictEqual(room.playerStatsStart[0].stats.damage, playerState.damage);
     assert.strictEqual(room.playerStatsStart[0].gear.weapon.tier, 'blue');
+    assert.ok(Array.isArray(room.playerStatsStart[0].items), 'item snapshot present');
+    assert.strictEqual(payload.run.playerCount, 1);
 
     const submits = [];
     Telemetry.submit = payloadArg => submits.push(payloadArg);

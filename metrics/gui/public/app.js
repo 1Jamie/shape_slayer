@@ -1,6 +1,10 @@
 const state = {
     runs: [],
     selectedRunId: null,
+    filters: {
+        gameMode: '',
+        mode: ''
+    },
     charts: {
         roomDamage: null
     }
@@ -16,6 +20,30 @@ const COLORS = [
     '#14b8a6',
     '#f43f5e'
 ];
+
+function buildFilterQuery() {
+    const params = new URLSearchParams();
+    if (state.filters.gameMode) {
+        params.set('game_mode', state.filters.gameMode);
+    }
+    if (state.filters.mode) {
+        params.set('mode', state.filters.mode);
+    }
+    const query = params.toString();
+    return query ? `?${query}` : '';
+}
+
+function buildRunsQuery(limit) {
+    const params = new URLSearchParams();
+    params.set('limit', String(limit));
+    if (state.filters.gameMode) {
+        params.set('game_mode', state.filters.gameMode);
+    }
+    if (state.filters.mode) {
+        params.set('mode', state.filters.mode);
+    }
+    return `?${params.toString()}`;
+}
 
 function formatNumber(value) {
     if (value === null || value === undefined) return '0';
@@ -216,7 +244,7 @@ function renderRunsTable(runs) {
     const tbody = document.querySelector('#runs-table tbody');
 
     if (!runs.length) {
-        tbody.innerHTML = '<tr><td colspan="8" class="empty">No runs ingested yet.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="empty">No runs ingested yet.</td></tr>';
         return;
     }
 
@@ -229,6 +257,7 @@ function renderRunsTable(runs) {
                 <td>${formatDuration(run.duration_ms)}</td>
                 <td>${run.mode}</td>
                 <td>${run.game_mode || 'unknown'}</td>
+                <td>${run.player_count || run.playerCount || 1}</td>
                 <td class="result-${run.result}">${run.result}</td>
                 <td>${formatNumber(Math.round(run.totalDamageDealt || 0))}</td>
                 <td>${formatNumber(Math.round(run.totalHitsTaken || 0))}</td>
@@ -264,6 +293,8 @@ function renderRunDetail(detail) {
         <tr>
             <td>${room.roomNumber}</td>
             <td>${room.type || '-'}</td>
+            <td>${room.biomeId || '-'}</td>
+            <td>${room.archetype || '-'}</td>
             <td>${formatDuration(room.durationMs || 0)}</td>
             <td>${formatNumber(sumValues(room.damageDealtByPlayer))}</td>
             <td>${formatNumber(sumValues(room.damageTakenByPlayer))}</td>
@@ -351,6 +382,8 @@ function renderRunDetail(detail) {
                         <tr>
                             <th>#</th>
                             <th>Type</th>
+                            <th>Biome</th>
+                            <th>Archetype</th>
                             <th>Duration</th>
                             <th>Damage Dealt</th>
                             <th>Damage Taken</th>
@@ -359,7 +392,7 @@ function renderRunDetail(detail) {
                         </tr>
                     </thead>
                     <tbody>
-                        ${roomRows || '<tr><td colspan="7" class="empty">No rooms recorded.</td></tr>'}
+                        ${roomRows || '<tr><td colspan="9" class="empty">No rooms recorded.</td></tr>'}
                     </tbody>
                 </table>
             </div>
@@ -469,7 +502,7 @@ function renderRoomDamageChart(detail) {
 
 async function loadSummary() {
     try {
-        const data = await fetchJson('/api/summary');
+        const data = await fetchJson(`/api/summary${buildFilterQuery()}`);
         updateSummaryCards(data);
     } catch (error) {
         console.error(error);
@@ -484,7 +517,7 @@ async function loadSummary() {
 
 async function loadRuns(limit = 50) {
     try {
-        const data = await fetchJson(`/api/runs?limit=${encodeURIComponent(limit)}`);
+        const data = await fetchJson(`/api/runs${buildRunsQuery(limit)}`);
         renderRunsTable(data.runs || []);
     } catch (error) {
         console.error(error);
@@ -517,6 +550,19 @@ function attachEventListeners() {
         const limit = Number(event.target.value) || 50;
         await loadRuns(limit);
     });
+
+    const gameModeFilter = document.getElementById('filter-game-mode');
+    const modeFilter = document.getElementById('filter-mode');
+    const applyFilters = async () => {
+        state.filters.gameMode = gameModeFilter ? gameModeFilter.value : '';
+        state.filters.mode = modeFilter ? modeFilter.value : '';
+        await Promise.all([
+            loadSummary(),
+            loadRuns(Number(limitSelect.value) || 50)
+        ]);
+    };
+    if (gameModeFilter) gameModeFilter.addEventListener('change', applyFilters);
+    if (modeFilter) modeFilter.addEventListener('change', applyFilters);
 
     const runsTable = document.getElementById('runs-table');
     runsTable.addEventListener('click', event => {

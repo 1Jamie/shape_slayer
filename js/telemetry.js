@@ -11,6 +11,16 @@
         return DEFAULT_METRICS_ENDPOINT;
     }
 
+    function getIngestAuthToken() {
+        if (typeof window !== 'undefined' && typeof window.METRICS_INGEST_TOKEN === 'string' && window.METRICS_INGEST_TOKEN.trim()) {
+            return window.METRICS_INGEST_TOKEN.trim();
+        }
+        if (typeof Game !== 'undefined' && typeof Game.metricsIngestToken === 'string' && Game.metricsIngestToken.trim()) {
+            return Game.metricsIngestToken.trim();
+        }
+        return null;
+    }
+
     function generateRunId() {
         if (typeof crypto !== 'undefined' && crypto.randomUUID) {
             return crypto.randomUUID();
@@ -56,6 +66,18 @@
 
     function isFiniteNumber(value) {
         return typeof value === 'number' && Number.isFinite(value);
+    }
+
+    function captureItemSnapshot(player) {
+        if (!player || !player.itemManager || !player.itemManager.items) {
+            return [];
+        }
+
+        return Object.entries(player.itemManager.items).map(([itemId, item]) => ({
+            id: itemId,
+            stacks: item && typeof item.stacks === 'number' ? item.stacks : 0,
+            rarity: item && item.definition ? item.definition.rarity || null : null
+        }));
     }
 
     function captureGearPiece(gear) {
@@ -134,7 +156,8 @@
                 class: player ? (player.playerClass || player.class || 'unknown') : 'unknown',
                 level: isFiniteNumber(player && player.level) ? player.level : null,
                 stats: {},
-                gear: captureGearSnapshot(player)
+                gear: captureGearSnapshot(player),
+                items: captureItemSnapshot(player)
             };
 
             if (player) {
@@ -292,6 +315,8 @@
                 roomId: `room-${roomNumber}`,
                 roomNumber,
                 type: 'normal',
+                biomeId: null,
+                archetype: null,
                 enteredAt: nowIso(),
                 clearedAt: null,
                 durationMs: 0,
@@ -371,6 +396,7 @@
                 gameVersion: (typeof Game !== 'undefined' && Game.VERSION) ? Game.VERSION : 'unknown',
                 mode,
                 gameMode,
+                playerCount: players.length || (metadata.playerCount || 1),
                 hostPlayerId,
                 startedAt,
                 endedAt: null,
@@ -391,11 +417,15 @@
             state.currentRoom = null;
         },
 
-        recordRoomEnter(roomNumber, roomType = 'normal', participants = []) {
+        recordRoomEnter(roomNumber, roomType = 'normal', participants = [], roomContext = {}) {
             if (!state.activeRun || !this.shouldCapture()) return;
             const roomEntry = ensureRoom(roomNumber);
             if (!roomEntry) return;
             roomEntry.type = roomType || roomEntry.type;
+            if (roomContext && typeof roomContext === 'object') {
+                if (roomContext.biomeId) roomEntry.biomeId = roomContext.biomeId;
+                if (roomContext.archetype) roomEntry.archetype = roomContext.archetype;
+            }
             const timestamp = nowIso();
             roomEntry.enteredAt = timestamp;
             const snapshots = capturePlayerSnapshots(participants);
@@ -542,6 +572,36 @@
             });
         },
 
+        recordGearEquipped({ playerId, gear, oldGear = null, roomNumber = null } = {}) {
+            if (!state.activeRun || !this.shouldCapture() || !gear) return;
+
+            this.recordEvent('gearEquipped', {
+                roomNumber: roomNumber ||
+                    (state.currentRoom && state.currentRoom.roomNumber) ||
+                    (typeof Game !== 'undefined' && Game.roomNumber) ||
+                    1,
+                playerId,
+                targetId: gear.id || null,
+                metadata: {
+                    gearId: gear.id || null,
+                    name: gear.name || null,
+                    slot: gear.slot || null,
+                    tier: gear.tier || null,
+                    type: gear.weaponType || gear.armorType || gear.accessoryType || null,
+                    affixes: Array.isArray(gear.affixes) ? gear.affixes.map(affix => ({
+                        id: affix.type || affix.id || 'unknown',
+                        value: affix.value !== undefined ? affix.value : null,
+                        tier: affix.tier || null
+                    })) : [],
+                    legendaryEffect: gear.legendaryEffect
+                        ? gear.legendaryEffect.type || gear.legendaryEffect.description || null
+                        : null,
+                    replacedGearId: oldGear ? oldGear.id || null : null,
+                    replacedTier: oldGear ? oldGear.tier || null : null
+                }
+            });
+        },
+
         recordBossEncounter(event) {
             if (!state.activeRun || !this.shouldCapture()) return;
             state.activeRun.bossEncounters.push({
@@ -587,6 +647,7 @@
             };
             if (finalSnapshots.length) {
                 mergedMetadata.finalPlayerStats = finalSnapshots;
+                state.activeRun.playerCount = finalSnapshots.length;
                 finalSnapshots.forEach(snapshot => {
                     const summary = state.activeRun.playerSummaries.get(snapshot.playerId);
                     if (summary) {
@@ -612,6 +673,10 @@
             const finalPlayerSummaries = Array.from(state.activeRun.playerSummaries.values());
             state.activeRun.affixPool = summarizeAffixPool(finalPlayerSummaries);
 
+            if (typeof RunProfiler !== 'undefined' && RunProfiler.isActive && RunProfiler.isActive()) {
+                mergedMetadata.performance = RunProfiler.buildReport();
+            }
+
             state.activeRun.metadata = mergedMetadata;
 
             this.recordRoomsCleared(roomsClearedByPlayer);
@@ -636,7 +701,22 @@
                         Date.now() - new Date(room.enteredAt).getTime()
                     );
                 }
-                return room;
+                return {
+                    roomId: room.roomId,
+                    roomNumber: room.roomNumber,
+                    type: room.type,
+                    biomeId: room.biomeId || null,
+                    archetype: room.archetype || null,
+                    enteredAt: room.enteredAt,
+                    clearedAt: room.clearedAt,
+                    durationMs: room.durationMs,
+                    damageDealtByPlayer: room.damageDealtByPlayer,
+                    damageTakenByPlayer: room.damageTakenByPlayer,
+                    hitsTakenByPlayer: room.hitsTakenByPlayer,
+                    playerStatsStart: room.playerStatsStart,
+                    playerStatsEnd: room.playerStatsEnd,
+                    events: room.events
+                };
             });
 
             const players = Array.from(state.activeRun.playerSummaries.values());
@@ -647,6 +727,7 @@
                     gameVersion: state.activeRun.gameVersion,
                     mode: state.activeRun.mode,
                     gameMode: state.activeRun.gameMode,
+                    playerCount: state.activeRun.playerCount,
                     hostPlayerId: state.activeRun.hostPlayerId,
                     startedAt: state.activeRun.startedAt,
                     endedAt: state.activeRun.endedAt,
@@ -662,15 +743,22 @@
                 },
                 submittedAt: nowIso(),
                 clientVersion: state.activeRun.gameVersion,
-                authToken: null
+                authToken: getIngestAuthToken()
             };
         },
 
         async submit(payload) {
             const body = JSON.stringify(payload);
             const endpoint = getMetricsEndpoint();
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+            const token = getIngestAuthToken();
+            if (token) {
+                headers['x-metrics-token'] = token;
+            }
 
-            if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+            if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function' && !token) {
                 try {
                     const blob = new Blob([body], { type: 'application/json' });
                     if (navigator.sendBeacon(endpoint, blob)) {
@@ -684,9 +772,7 @@
             try {
                 await fetch(endpoint, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers,
                     body,
                     keepalive: true
                 });
@@ -698,8 +784,27 @@
         reset() {
             state.activeRun = null;
             state.currentRoom = null;
+        },
+
+        abandonActiveRun(reason = 'unload') {
+            if (!state.activeRun || !this.shouldCapture()) {
+                return;
+            }
+            this.completeRun({
+                result: 'abandoned',
+                metadata: { reason },
+                finalPlayers: []
+            });
         }
     };
+
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+        window.addEventListener('pagehide', () => {
+            if (state.activeRun) {
+                Telemetry.abandonActiveRun('pagehide');
+            }
+        });
+    }
 
     // Expose globally
     window.Telemetry = Telemetry;

@@ -69,9 +69,10 @@ test('ingests run telemetry and is idempotent', async () => {
             run: {
                 runId: 'test-run-1',
                 gameVersion: '1.0.0',
-                mode: 'singleplayer',
-                gameMode: 'cards',
-                hostPlayerId: 'local',
+                mode: 'multiplayer',
+                gameMode: 'gear',
+                playerCount: 2,
+                hostPlayerId: 'host',
                 startedAt: now,
                 endedAt: now,
                 durationMs: 12345,
@@ -115,6 +116,8 @@ test('ingests run telemetry and is idempotent', async () => {
                         roomId: 'room-1',
                         roomNumber: 1,
                         type: 'combat',
+                        biomeId: 'swarm',
+                        archetype: 'road',
                         enteredAt: now,
                         clearedAt: now,
                         durationMs: 60000,
@@ -183,8 +186,9 @@ test('ingests run telemetry and is idempotent', async () => {
 
         const runRow = db.prepare('SELECT * FROM runs WHERE run_id = ?').get('test-run-1');
         assert.ok(runRow, 'run stored');
-        assert.strictEqual(runRow.mode, 'singleplayer');
-        assert.strictEqual(runRow.game_mode, 'cards');
+        assert.strictEqual(runRow.mode, 'multiplayer');
+        assert.strictEqual(runRow.game_mode, 'gear');
+        assert.strictEqual(runRow.player_count, 2);
 
         const playerCount = db.prepare('SELECT COUNT(*) AS count FROM run_players WHERE run_id = ?').get('test-run-1');
         assert.strictEqual(playerCount.count, 1);
@@ -194,7 +198,9 @@ test('ingests run telemetry and is idempotent', async () => {
         const parsedGear = JSON.parse(gearRow.gear);
         assert.strictEqual(parsedGear.weapon.name, 'Test Sword');
 
-        const roomRow = db.prepare('SELECT player_stats_start, player_stats_end FROM rooms WHERE run_id = ?').get('test-run-1');
+        const roomRow = db.prepare('SELECT player_stats_start, player_stats_end, biome_id, archetype FROM rooms WHERE run_id = ?').get('test-run-1');
+        assert.strictEqual(roomRow.biome_id, 'swarm');
+        assert.strictEqual(roomRow.archetype, 'road');
         const statsStart = JSON.parse(roomRow.player_stats_start);
         const statsEnd = JSON.parse(roomRow.player_stats_end);
         assert.strictEqual(statsStart[0].stats.damage, 40);

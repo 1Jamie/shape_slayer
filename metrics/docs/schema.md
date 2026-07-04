@@ -18,6 +18,7 @@ All telemetry is structured JSON and validated before ingestion.
 | `gameVersion` | `string` | yes | Client build identifier. |
 | `mode` | `string` | yes | Network mode: `"singleplayer"` or `"multiplayer"`. |
 | `gameMode` | `string` | yes | Gameplay mode: `"cards"` or `"gear"`. Multiplayer runs currently report `"gear"`. |
+| `playerCount` | `number` | no | Party size at run start/end. |
 | `hostPlayerId` | `string` | yes | Player ID responsible for reporting (self in singleplayer). |
 | `startedAt` | `string (ISO-8601)` | yes | Run start timestamp (UTC). |
 | `endedAt` | `string (ISO-8601)` | yes | Run end timestamp (UTC). |
@@ -60,6 +61,8 @@ All telemetry is structured JSON and validated before ingestion.
 | --- | --- | --- | --- |
 | `roomId` | `string` | yes | Unique identifier within the run (e.g., `"room-3"`). |
 | `type` | `string` | yes | `"combat"`, `"shop"`, `"event"`, etc. |
+| `biomeId` | `string` | no | Biome identifier (`swarm`, `prism`, etc.). |
+| `archetype` | `string` | no | Room layout archetype (`road`, `arena`, etc.). |
 | `enteredAt` | `string (ISO-8601)` | yes | Entry timestamp. |
 | `clearedAt` | `string (ISO-8601)` | yes | Clearance timestamp. |
 | `durationMs` | `number` | yes | Time spent in the room. |
@@ -79,6 +82,7 @@ All telemetry is structured JSON and validated before ingestion.
 | `level` | `number` | Player level. |
 | `stats` | `Record<string, number>` | Core combat stats (damage, defense, moveSpeed, critChance, critDamage, attackSpeed, hp, maxHp, etc.). |
 | `gear` | `GearSnapshot` | Equipped gear overview. |
+| `items` | `ItemSnapshot[]` | Gear-mode item stacks at capture time. |
 
 #### `GearSnapshot`
 

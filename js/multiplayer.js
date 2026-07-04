@@ -2361,6 +2361,15 @@ class MultiplayerManager {
                 if (remotePlayer && remotePlayer.equipGear) {
                     const oldGear = remotePlayer.equipGear(gear);
                     console.log(`[Host] Equipped ${gear.tier} ${gear.slot} on remote player ${playerId}`);
+
+                    if (typeof Telemetry !== 'undefined' && Telemetry.recordGearEquipped) {
+                        Telemetry.recordGearEquipped({
+                            playerId,
+                            gear,
+                            oldGear,
+                            roomNumber: Game.roomNumber || 1
+                        });
+                    }
                     
                     if (oldGear) {
                         this.spawnDroppedGear(oldGear, remotePlayer, playerId);

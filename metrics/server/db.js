@@ -13,6 +13,11 @@ if (!fs.existsSync(DB_DIR)) {
 
 const db = new Database(DB_FILE);
 
+function isDuplicateColumnError(error) {
+    const message = error && error.message ? error.message : '';
+    return message.includes('duplicate column name');
+}
+
 function runMigrations() {
     db.exec('PRAGMA journal_mode = WAL;');
     db.exec('PRAGMA foreign_keys = ON;');
@@ -47,11 +52,27 @@ function runMigrations() {
         const filePath = path.join(MIGRATIONS_DIR, file);
         const sql = fs.readFileSync(filePath, 'utf-8');
         if (!sql.trim()) {
+            insertMigration.run(file);
+            console.log(`[metrics-db] Skipped empty migration ${file}`);
             return;
         }
 
+        const statements = sql
+            .split(';')
+            .map(statement => statement.trim())
+            .filter(Boolean);
+
         const transaction = db.transaction(() => {
-            db.exec(sql);
+            statements.forEach(statement => {
+                try {
+                    db.exec(`${statement};`);
+                } catch (error) {
+                    if (!isDuplicateColumnError(error)) {
+                        throw error;
+                    }
+                    console.log(`[metrics-db] Migration ${file} skipped existing column (${error.message})`);
+                }
+            });
             insertMigration.run(file);
         });
 
@@ -63,4 +84,3 @@ function runMigrations() {
 runMigrations();
 
 module.exports = db;
-
