@@ -2,8 +2,8 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { resolveUrlPathWithinRoot } = require('./lib/path-security');
 
-// Get local network IP address
 function getLocalIP() {
     const interfaces = os.networkInterfaces();
     for (const name of Object.keys(interfaces)) {
@@ -23,7 +23,6 @@ const ROOT_DIR = path.resolve(__dirname);
 const ALLOWED_ROOT_FILES = new Set(['index.html', 'privacy.html', 'manifest.json']);
 const ALLOWED_DIRECTORIES = new Set(['css', 'js', 'ui', 'audio']);
 
-// MIME types
 const mimeTypes = {
     '.html': 'text/html',
     '.css': 'text/css',
@@ -41,34 +40,11 @@ const mimeTypes = {
 };
 
 function resolveGameFilePath(urlPath) {
-    const pathname = new URL(urlPath, 'http://localhost').pathname;
-    if (pathname.includes('\0')) {
-        return null;
-    }
-
-    const relativePath = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
-    if (!relativePath) {
-        return null;
-    }
-
-    const segments = relativePath.split('/');
-    if (segments.some((segment) => !segment || segment === '..' || segment.startsWith('.'))) {
-        return null;
-    }
-
-    const [rootSegment] = segments;
-    const isAllowed = ALLOWED_ROOT_FILES.has(relativePath)
-        || ALLOWED_DIRECTORIES.has(rootSegment);
-    if (!isAllowed) {
-        return null;
-    }
-
-    const resolvedPath = path.resolve(ROOT_DIR, relativePath);
-    if (resolvedPath !== ROOT_DIR && !resolvedPath.startsWith(ROOT_DIR + path.sep)) {
-        return null;
-    }
-
-    return resolvedPath;
+    return resolveUrlPathWithinRoot(ROOT_DIR, urlPath, {
+        defaultFile: 'index.html',
+        allowedRootFiles: ALLOWED_ROOT_FILES,
+        allowedTopLevelDirectories: ALLOWED_DIRECTORIES
+    });
 }
 
 const server = http.createServer((req, res) => {

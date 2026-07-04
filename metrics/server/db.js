@@ -1,11 +1,23 @@
 const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
+const { resolveSafeAbsolutePath, resolvePathWithinRoot } = require('../../lib/path-security');
 
-const CUSTOM_DB_PATH = process.env.METRICS_DB_PATH ? path.resolve(process.env.METRICS_DB_PATH) : null;
-const DB_FILE = CUSTOM_DB_PATH || path.join(__dirname, 'data', 'metrics.sqlite');
-const DB_DIR = path.dirname(DB_FILE);
+const METRICS_DATA_ROOT = path.resolve(__dirname, 'data');
+const CUSTOM_DB_PATH = process.env.METRICS_DB_PATH || null;
+const DEFAULT_DB_FILE = path.join(METRICS_DATA_ROOT, 'metrics.sqlite');
 const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
+const MIGRATION_FILE_PATTERN = /^[0-9]{3}_[a-z0-9_-]+\.sql$/i;
+
+let DB_FILE;
+try {
+    DB_FILE = resolveSafeAbsolutePath(CUSTOM_DB_PATH, DEFAULT_DB_FILE);
+} catch (error) {
+    console.error('[metrics-db] Invalid METRICS_DB_PATH:', error.message);
+    process.exit(1);
+}
+
+const DB_DIR = path.dirname(DB_FILE);
 
 if (!fs.existsSync(DB_DIR)) {
     fs.mkdirSync(DB_DIR, { recursive: true });
@@ -16,6 +28,19 @@ const db = new Database(DB_FILE);
 function isDuplicateColumnError(error) {
     const message = error && error.message ? error.message : '';
     return message.includes('duplicate column name');
+}
+
+function resolveMigrationPath(fileName) {
+    if (!MIGRATION_FILE_PATTERN.test(fileName)) {
+        throw new Error(`Invalid migration filename: ${fileName}`);
+    }
+
+    const filePath = resolvePathWithinRoot(MIGRATIONS_DIR, fileName);
+    if (!filePath) {
+        throw new Error(`Migration path escaped migrations directory: ${fileName}`);
+    }
+
+    return filePath;
 }
 
 function runMigrations() {
@@ -49,7 +74,7 @@ function runMigrations() {
             return;
         }
 
-        const filePath = path.join(MIGRATIONS_DIR, file);
+        const filePath = resolveMigrationPath(file);
         const sql = fs.readFileSync(filePath, 'utf-8');
         if (!sql.trim()) {
             insertMigration.run(file);

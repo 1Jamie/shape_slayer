@@ -5,6 +5,7 @@ const express = require('express');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const Ajv = require('ajv');
+const { rejectTraversalRequests } = require('../../lib/path-security');
 
 const db = require('./db');
 
@@ -328,6 +329,7 @@ function buildApp() {
     const app = express();
 
     app.use(helmet());
+    app.use(rejectTraversalRequests);
     app.use(express.json({ limit: '2mb' }));
     app.use(morgan('combined'));
     app.use((req, res, next) => {

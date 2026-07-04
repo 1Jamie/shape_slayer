@@ -15,7 +15,8 @@
     "test:input-focus": "node --test tests/input-focus.test.js",
     "metrics:install": "npm install --prefix metrics/server && npm install --prefix metrics/gui",
     "metrics:start": "node harness/index.js --only=metrics,gui",
-    "metrics:test": "npm test --prefix metrics/server && node --test tests/telemetry-client.test.js"
+    "test:path-security": "node --test tests/path-security.test.js",
+    "metrics:test": "npm test --prefix metrics/server && node --test tests/telemetry-client.test.js tests/path-security.test.js"
   },
   "keywords": [
     "game",

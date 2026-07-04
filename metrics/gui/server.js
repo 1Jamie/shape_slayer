@@ -5,11 +5,26 @@ const helmet = require('helmet');
 const compression = require('compression');
 const morgan = require('morgan');
 const Database = require('better-sqlite3');
+const {
+    rejectTraversalRequests,
+    resolveSafeAbsolutePath,
+    resolvePathWithinRoot,
+    isSafeIdentifier
+} = require('../../lib/path-security');
 
 const PORT = process.env.METRICS_GUI_PORT ? Number(process.env.METRICS_GUI_PORT) : 5000;
-const DB_PATH = process.env.METRICS_DB_PATH
-    ? path.resolve(process.env.METRICS_DB_PATH)
-    : path.join(__dirname, '..', 'server', 'data', 'metrics.sqlite');
+const PUBLIC_DIR = path.join(__dirname, 'public');
+const DEFAULT_DB_PATH = path.join(__dirname, '..', 'server', 'data', 'metrics.sqlite');
+
+let DB_PATH;
+try {
+    DB_PATH = resolveSafeAbsolutePath(process.env.METRICS_DB_PATH || null, DEFAULT_DB_PATH);
+} catch (error) {
+    console.error('[metrics-gui] Invalid METRICS_DB_PATH:', error.message);
+    process.exit(1);
+}
+
+const SPA_INDEX_PATH = resolvePathWithinRoot(PUBLIC_DIR, 'index.html');
 
 let db;
 try {
@@ -79,9 +94,12 @@ function buildApp() {
     }));
     app.use(compression());
     app.use(morgan('combined'));
+    app.use(rejectTraversalRequests);
 
-    app.use(express.static(path.join(__dirname, 'public'), {
-        extensions: ['html']
+    app.use(express.static(PUBLIC_DIR, {
+        dotfiles: 'deny',
+        index: false,
+        fallthrough: true
     }));
 
     app.get('/api/runs', (req, res) => {
@@ -138,6 +156,10 @@ function buildApp() {
 
     app.get('/api/runs/:runId', (req, res) => {
         if (!ensureDb(req, res)) return;
+
+        if (!isSafeIdentifier(req.params.runId)) {
+            return res.status(400).json({ error: 'Invalid run id' });
+        }
 
         const selectRunStmt = db.prepare('SELECT * FROM runs WHERE run_id = ?');
         const selectRunPlayersStmt = db.prepare(`
@@ -388,7 +410,15 @@ function buildApp() {
     });
 
     app.get('*', (req, res) => {
-        res.sendFile(path.join(__dirname, 'public', 'index.html'));
+        if ((req.path || '').startsWith('/api/')) {
+            return res.status(404).json({ error: 'Not found' });
+        }
+
+        if (!SPA_INDEX_PATH) {
+            return res.status(403).end('Forbidden');
+        }
+
+        return res.sendFile(SPA_INDEX_PATH);
     });
 
     return app;
