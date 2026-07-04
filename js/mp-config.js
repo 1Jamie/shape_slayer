@@ -1,6 +1,24 @@
 // Multiplayer server configuration
 // This file is always loaded (small footprint) so the multiplayer module can access it
 
+const DEFAULT_PRODUCTION_MP_SERVER = 'wss://shape-slayer.gpe.pet';
+
+// Hostnames where the game and MP server share the same origin (Caddy reverse-proxies WS).
+const SAME_ORIGIN_MP_HOSTS = new Set([
+    'shape-slayer.gpe.pet',
+    'www.shape-slayer.gpe.pet'
+]);
+
+function hostUsesSameOriginMultiplayer(hostname) {
+    if (!hostname) {
+        return false;
+    }
+    if (SAME_ORIGIN_MP_HOSTS.has(hostname)) {
+        return true;
+    }
+    return hostname.endsWith('.gpe.pet') && !hostname.startsWith('metrics.');
+}
+
 function resolveMultiplayerServerUrl() {
     if (typeof window !== 'undefined') {
         if (typeof window.MULTIPLAYER_SERVER_URL === 'string' && window.MULTIPLAYER_SERVER_URL.trim()) {
@@ -12,12 +30,12 @@ function resolveMultiplayerServerUrl() {
             return 'ws://localhost:4000';
         }
 
-        if (window.location.protocol === 'https:') {
+        if (window.location.protocol === 'https:' && hostUsesSameOriginMultiplayer(host)) {
             return `wss://${host}`;
         }
     }
 
-    return 'wss://shape-slayer.gpe.pet';
+    return DEFAULT_PRODUCTION_MP_SERVER;
 }
 
 const MultiplayerConfig = {
@@ -57,3 +75,8 @@ const MultiplayerConfig = {
     MAX_EXTRAPOLATION_DISTANCE: 50, // Max pixels to extrapolate from last known position
     POSITION_HISTORY_SIZE: 3 // Number of recent positions to track for velocity calculation
 };
+
+if (typeof window !== 'undefined') {
+    window.MultiplayerConfig = MultiplayerConfig;
+    console.log(`[Multiplayer] Server URL: ${MultiplayerConfig.SERVER_URL}`);
+}

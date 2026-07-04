@@ -69,7 +69,9 @@ class MultiplayerManager {
             }
             
             this.connecting = true;
-            
+
+            console.log(`[Multiplayer] Connecting to ${MultiplayerConfig.SERVER_URL}`);
+
             try {
                 this.ws = new WebSocket(MultiplayerConfig.SERVER_URL);
                 
