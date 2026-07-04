@@ -114,7 +114,7 @@
 			if (player.critChance && player.critChance > 0) bonuses.push(`${(player.critChance * 100).toFixed(0)}% Base Crit Chance`);
 			if (player.defense && player.defense > 0) bonuses.push(`${(player.defense * 100).toFixed(0)}% Base Defense`);
 			if (player.maxDodgeCharges > 1) bonuses.push(`${player.maxDodgeCharges} Dodge Charges`);
-			baseStatsText = bonuses.join(', ') || '—';
+			baseStatsText = bonuses.join(', ') || '-';
 		}
 		bonusesText.textContent = baseStatsText;
 		left.appendChild(bonusesText);
@@ -816,7 +816,7 @@
 			if ((p.maxDodgeCharges || 0) > 1) out.push('Double Dash');
 			return out.join(', ');
 		}
-		bonusLine.textContent = describeBonuses(player) || '—';
+		bonusLine.textContent = describeBonuses(player) || '-';
 		const cardsGrid = document.createElement('div');
 		cardsGrid.className = 'cs-cards';
 		cardsGrid.style.pointerEvents = 'auto'; // Ensure grid can receive pointer events
@@ -1166,7 +1166,7 @@
 		document.addEventListener('keydown', (e) => {
 			// Don't intercept keys if user is typing in an input field
 			const target = e.target;
-			if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+			if (typeof isFormFieldTarget === 'function' && isFormFieldTarget(target)) {
 				return;
 			}
 
@@ -1196,7 +1196,7 @@
 		window.addEventListener('keydown', (e) => {
 			// Don't intercept keys if user is typing in an input field
 			const target = e.target;
-			if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+			if (typeof isFormFieldTarget === 'function' && isFormFieldTarget(target)) {
 				return;
 			}
 

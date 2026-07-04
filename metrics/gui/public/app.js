@@ -35,9 +35,9 @@ function formatDuration(ms) {
 }
 
 function formatTimestamp(iso) {
-    if (!iso) return '—';
+    if (!iso) return '-';
     const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) return '—';
+    if (Number.isNaN(date.getTime())) return '-';
     return date.toLocaleString();
 }
 
@@ -61,7 +61,7 @@ function escapeHtml(value) {
 
 function formatStatValue(value, { percentage = false } = {}) {
     if (!Number.isFinite(value)) {
-        return '—';
+        return '-';
     }
     if (percentage) {
         return `${(value * 100).toFixed(1)}%`;
@@ -104,7 +104,7 @@ function formatGearPieces(gear) {
 
 function formatGear(gear) {
     const pieces = formatGearPieces(gear);
-    return pieces.length ? pieces.join('<br>') : '—';
+    return pieces.length ? pieces.join('<br>') : '-';
 }
 
 function renderSnapshotTable(snapshots) {
@@ -118,7 +118,7 @@ function renderSnapshotTable(snapshots) {
         return `
             <tr>
                 <td>${escapeHtml(snapshot.playerId || 'unknown')}</td>
-                <td>${snapshot.level ?? '—'}</td>
+                <td>${snapshot.level ?? '-'}</td>
                 <td>${formatStatValue(stats.damage)}</td>
                 <td>${formatStatValue(stats.defense, { percentage: true })}</td>
                 <td>${formatStatValue(stats.moveSpeed)}</td>
@@ -192,12 +192,12 @@ function updateSummaryCards(summary) {
     document.querySelector('[data-summary="avg-damage"]').textContent = formatNumber(Math.round(totals.averageDamagePerRun));
     document.querySelector('[data-summary="avg-hits"]').textContent = formatNumber(Math.round(totals.averageHitsPerRun));
 
-    renderList('result-breakdown', runResults, item => `${item.result} — ${formatNumber(item.count)}`);
-    renderList('mode-breakdown', modeCounts, item => `${item.mode} — ${formatNumber(item.count)}`);
-    renderList('game-mode-breakdown', gameModeCounts, item => `${item.game_mode} — ${formatNumber(item.count)}`);
-    renderList('affix-breakdown', topAffixes, item => `${item.affix_id} — ${formatNumber(item.count)}`);
+    renderList('result-breakdown', runResults, item => `${item.result} - ${formatNumber(item.count)}`);
+    renderList('mode-breakdown', modeCounts, item => `${item.mode} - ${formatNumber(item.count)}`);
+    renderList('game-mode-breakdown', gameModeCounts, item => `${item.game_mode} - ${formatNumber(item.count)}`);
+    renderList('affix-breakdown', topAffixes, item => `${item.affix_id} - ${formatNumber(item.count)}`);
     renderList('boss-breakdown', bossSummary, item => `${item.boss_id}: ${formatDuration(item.avg_duration_ms || 0)} avg (${formatNumber(item.encounters)} encounters)`);
-    renderList('event-type-breakdown', eventTypeSummary, item => `${item.event_type} — ${formatNumber(item.count)}`);
+    renderList('event-type-breakdown', eventTypeSummary, item => `${item.event_type} - ${formatNumber(item.count)}`);
 }
 
 function renderList(elementId, items, format) {
@@ -250,7 +250,7 @@ function renderRunDetail(detail) {
     const playerRows = players.map(player => `
         <tr>
             <td>${escapeHtml(player.playerId)}</td>
-            <td>${escapeHtml(player.class || '—')}</td>
+            <td>${escapeHtml(player.class || '-')}</td>
             <td class="gear-cell">${formatGear(player.gear)}</td>
             <td>${formatNumber(Math.round(player.totalDamageDealt || 0))}</td>
             <td>${formatNumber(Math.round(player.totalDamageTaken || 0))}</td>
@@ -263,7 +263,7 @@ function renderRunDetail(detail) {
     const roomRows = rooms.map(room => `
         <tr>
             <td>${room.roomNumber}</td>
-            <td>${room.type || '—'}</td>
+            <td>${room.type || '-'}</td>
             <td>${formatDuration(room.durationMs || 0)}</td>
             <td>${formatNumber(sumValues(room.damageDealtByPlayer))}</td>
             <td>${formatNumber(sumValues(room.damageTakenByPlayer))}</td>
@@ -279,7 +279,7 @@ function renderRunDetail(detail) {
     const bossItems = bossEncounters.length
         ? bossEncounters.map(encounter => `
             <li>
-                <strong>${encounter.bossId}</strong> —
+                <strong>${encounter.bossId}</strong> -
                 ${formatDuration(encounter.durationMs || 0)} |
                 Damage dealt: ${formatNumber(sumValues(encounter.damageByPlayer))}
             </li>
@@ -390,7 +390,7 @@ function sumValues(obj) {
 }
 
 function formatEventCounts(eventCounts) {
-    if (!eventCounts || Object.keys(eventCounts).length === 0) return '—';
+    if (!eventCounts || Object.keys(eventCounts).length === 0) return '-';
     return Object.entries(eventCounts)
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([type, count]) => `${escapeHtml(type)}: ${formatNumber(count)}`)

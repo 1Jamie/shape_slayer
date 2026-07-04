@@ -61,6 +61,25 @@ class BossSwarmKing extends BossBase {
         this.clientSpin = null;
         this.defaultSpinSpeed = Math.PI * 2;
 
+        this.pheromoneTrails = [];
+        this.pheromoneSequenceId = 0;
+        this.pheromoneCooldown = 2.0;
+        this.nestPulseMarkers = [];
+        this.resinPuddles = [];
+        this.swarmBeat = 'command';
+        this.attackFired = false;
+        this.swarmVolleySequence = 0;
+        this.phase3BurstSequence = 0;
+        this.phase3WebAnchors = [];
+        this.phase3WebIndex = 0;
+        this.phase3DashStart = null;
+        this.phase3DashPath = [];
+        this.phase3DashFinalTarget = null;
+        this.phase3DashElapsed = 0;
+        this.phase3DashStuckTimer = 0;
+        this.phase3DashLastPosition = null;
+        this.activePhase3WebTrail = null;
+
         // Phase 3 Rework: Frantic Barrage & Exhausted
         this.phase3State = 'franticBarrage'; // 'franticBarrage', 'exhausted'
         this.dashCount = 0;
@@ -152,6 +171,13 @@ class BossSwarmKing extends BossBase {
             this.summonGlobalCooldown -= deltaTime;
             if (this.summonGlobalCooldown < 0) this.summonGlobalCooldown = 0;
         }
+        if (this.pheromoneCooldown > 0) {
+            this.pheromoneCooldown = Math.max(0, this.pheromoneCooldown - deltaTime);
+        }
+
+        this.updatePheromoneTrails(deltaTime);
+        this.updatePheromoneMinions(deltaTime);
+        this.damagePlayersAlongPheromoneTrails(deltaTime);
 
         // Update rotation
         this.rotationAngle += this.rotationSpeed * deltaTime;
@@ -177,172 +203,111 @@ class BossSwarmKing extends BossBase {
     }
 
     updatePhase1(deltaTime, player) {
-        const distance = Math.sqrt((player.x - this.x) ** 2 + (player.y - this.y) ** 2);
-
-        // State machine
-        if (this.state === 'chase') {
-            // Chase player
-            const dx = player.x - this.x;
-            const dy = player.y - this.y;
-            if (distance > 0) {
-                this.x += (dx / distance) * this.moveSpeed * deltaTime * 0.5;
-                this.y += (dy / distance) * this.moveSpeed * deltaTime * 0.5;
-            }
-
-            // Decide next attack
-            if (this.barrageCooldown <= 0 && distance > 150) {
-                this.state = 'barrage';
-                this.stateTimer = 0;
-            } else if (this.lungeCooldown <= 0 && distance < 200) {
-                this.state = 'lunge';
-                this.stateTimer = 0;
-            } else if (this.slamCooldown <= 0 && distance < 100) {
-                this.state = 'slam';
-                this.stateTimer = 0;
-            } else if (this.spawnCooldown <= 0 && this.summonGlobalCooldown <= 0 && this.minions.length < this.getPhaseMinionCap()) {
-                this.spawnMinions();
-                this.spawnCooldown = 8.0;
-            }
-        } else if (this.state === 'barrage') {
-            // Spike barrage attack
-            if (this.stateTimer < 0.5) {
-                // Windup: rotate slowly
-                this.rotationSpeed = Math.PI * 0.5;
-            } else if (this.stateTimer < 1.0) {
-                // Fire projectiles
-                if (this.stateTimer < 0.6) {
-                    this.spikeBarrage();
-                }
-                this.rotationSpeed = Math.PI * 2;
-            } else {
-                // End attack
-                this.state = 'chase';
-                this.rotationSpeed = 0;
-                this.barrageCooldown = 4.0;
-            }
-        } else if (this.state === 'lunge') {
-            // Chase lunge - Reworked for better range
-            if (this.stateTimer < 0.4) {
-                // Windup: Face player, maybe back up slightly?
-                // Just rotate for now
-                const targetAngle = Math.atan2(player.y - this.y, player.x - this.x);
-                this.rotationSpeed = 0;
-                this.rotationAngle = this.rotateTowards(this.rotationAngle, targetAngle, Math.PI * 4 * deltaTime);
-
-                // Telegraph
-                if (this.stateTimer === 0) {
-                    this.beginTelegraph('charge', { duration: 0.4, color: '#ff8800' });
-                }
-            } else if (this.stateTimer < 1.5) { // Increased duration (was 1.2)
-                // Lunge forward
-                const dx = player.x - this.x;
-                const dy = player.y - this.y;
-                // Move in direction of rotation (or just towards player for easier tracking)
-                // Let's track player loosely
-                if (distance > 0) {
-                    this.x += (dx / distance) * this.moveSpeed * deltaTime * 3.0; // Reduced speed (was 4.0)
-                    this.y += (dy / distance) * this.moveSpeed * deltaTime * 3.0;
-                }
-            } else {
-                // End
-                this.state = 'chase';
-                this.lungeCooldown = 5.0;
-            }
-        } else if (this.state === 'slam') {
-            // Spike slam
-            if (this.stateTimer < 0.5) {
-                // Windup: extend spikes
-                this.spikeExtension = Math.min(1.0, this.stateTimer * 2);
-            } else if (this.stateTimer < 0.6) {
-                // Slam: create shockwave
-                if (this.stateTimer < 0.51) {
-                    this.spikeSlam();
-                }
-                this.spikeExtension = 1.0;
-            } else {
-                // End
-                this.spikeExtension = 0;
-                this.state = 'chase';
-                this.slamCooldown = 6.0;
-            }
-        }
+        this.updateSwarmRhythm(deltaTime, player, false);
     }
 
     updatePhase2(deltaTime, player) {
-        // Faster versions of Phase 1, plus new attacks
-        const distance = Math.sqrt((player.x - this.x) ** 2 + (player.y - this.y) ** 2);
+        this.phase2VolleyCooldown = Math.max(0, this.phase2VolleyCooldown - deltaTime);
+        this.updateSwarmRhythm(deltaTime, player, true);
+    }
+
+    updateSwarmRhythm(deltaTime, player, phaseTwo = false) {
         const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
-        this.phase2VolleyCooldown -= deltaTime;
-        if (this.phase2VolleyCooldown < 0) this.phase2VolleyCooldown = 0;
+        const distance = Math.hypot(player.x - this.x, player.y - this.y);
 
         if (this.state === 'chase') {
-            const dx = player.x - this.x;
-            const dy = player.y - this.y;
-            if (distance > 0) {
-                this.x += (dx / distance) * this.moveSpeed * deltaTime * 0.6;
-                this.y += (dy / distance) * this.moveSpeed * deltaTime * 0.6;
-            }
+            this.swarmBeat = 'command';
+            this.state = 'command';
+            this.stateTimer = 0;
+            this.attackFired = false;
+        }
 
-            if (this.barrageCooldown <= 0 && this.phase2VolleyCooldown <= 0 && distance > 160) {
-                this.state = 'barrage';
-                this.stateTimer = 0;
-                this.phase2VolleyCooldown = 4.5;
-            } else if (this.slamCooldown <= 0 && distance < 120) {
-                this.state = 'spinning'; // Spinning spike wheel
-                this.stateTimer = 0;
-            } else if (this.spawnCooldown <= 0 && this.summonGlobalCooldown <= 0 && this.minions.length < this.getPhaseMinionCap()) {
-                this.spawnMinions();
-                this.spawnCooldown = 6.5;
+        if (this.state === 'command') {
+            this.rotationSpeed = Math.PI * 0.35;
+            this.spikeExtension = 0.15 + Math.sin(this.stateTimer * 10) * 0.08;
+            const commandPrep = phaseTwo ? 0.45 : 0.65;
+            const commandDuration = phaseTwo ? 1.55 : 1.85;
+            if (!this.attackFired && this.stateTimer >= commandPrep && !isClient) {
+                this.startPheromoneCircuit(player);
+                if (phaseTwo) {
+                    this.spikeBarrage();
+                }
+                this.attackFired = true;
             }
-        } else if (this.state === 'barrage') {
-            if (this.stateTimer < 0.3) {
-                this.rotationSpeed = Math.PI;
-            } else if (this.stateTimer < 1.5) {
-                if (this.stateTimer < 0.35 && this.multiBarrageWaves === 0) {
-                    // Start multi-barrage
-                    this.multiBarrageWaves = 1; // 1 more wave after first
-                    this.multiBarrageTimer = 0.35;
-                    this.multiBarrage();
+            if (this.stateTimer >= commandDuration) {
+                this.state = phaseTwo ? 'spinning' : 'lunge';
+                this.swarmBeat = 'pressure';
+                this.stateTimer = 0;
+                this.attackFired = false;
+                if (!phaseTwo) {
+                    this.beginTelegraph('charge', { duration: 0.35, color: '#ff8800' });
                 }
-                // Update multi-barrage waves
-                if (this.multiBarrageTimer > 0) {
-                    this.multiBarrageTimer -= deltaTime;
-                    if (this.multiBarrageTimer <= 0 && this.multiBarrageWaves > 0) {
-                        this.multiBarrage();
-                        this.multiBarrageWaves--;
-                        this.multiBarrageTimer = 0.35;
-                    }
-                }
-                this.rotationSpeed = Math.PI * 3;
-            } else {
-                this.state = 'chase';
+            }
+            return;
+        }
+
+        if (this.state === 'lunge') {
+            if (this.stateTimer < 0.35) {
+                const targetAngle = Math.atan2(player.y - this.y, player.x - this.x);
                 this.rotationSpeed = 0;
-                this.barrageCooldown = 3.5;
-                this.phase2VolleyCooldown = Math.max(this.phase2VolleyCooldown, 3.5);
+                this.rotationAngle = this.rotateTowards(this.rotationAngle, targetAngle, Math.PI * 5 * deltaTime);
+                this.spikeExtension = -0.15;
+            } else if (this.stateTimer < 1.3) {
+                this.spikeExtension = 0.55;
+                this.moveTowardPoint(player.x, player.y, 3.15, deltaTime, 0.22);
+            } else {
+                this.state = 'slam';
+                this.swarmBeat = 'punish';
+                this.stateTimer = 0;
+                this.attackFired = false;
             }
-        } else if (this.state === 'spinning') {
-            if (this.stateTimer < 2.0) {
-                // Rapid rotation with contact damage
-                this.rotationSpeed = Math.PI * 6;
-                this.spikeExtension = 0.7;
+            return;
+        }
 
-                // Chase player while spinning (Phase 2 tweak)
-                const dx = player.x - this.x;
-                const dy = player.y - this.y;
-                if (distance > 0) {
-                    this.x += (dx / distance) * this.moveSpeed * deltaTime * 1.5;
-                    this.y += (dy / distance) * this.moveSpeed * deltaTime * 1.5;
-                }
-
-                // Check contact damage with player
-                if (!isClient && distance < this.size + player.size) {
-                    player.takeDamage(this.damage * 0.5); // Half damage per frame during spin
+        if (this.state === 'spinning') {
+            if (this.stateTimer < 0.4) {
+                this.rotationSpeed = Math.PI * 0.6;
+                this.spikeExtension = -0.5;
+            } else if (this.stateTimer < 1.85) {
+                this.rotationSpeed = Math.PI * 6.5;
+                this.spikeExtension = 0.75;
+                this.moveTowardPoint(player.x, player.y, 1.55, deltaTime, 0.28);
+                if (!isClient && distance < this.size + player.size && typeof player.takeDamage === 'function') {
+                    player.takeDamage(this.damage * 0.38);
                 }
             } else {
-                this.state = 'chase';
+                this.state = 'slam';
+                this.swarmBeat = 'punish';
+                this.stateTimer = 0;
+                this.attackFired = false;
                 this.rotationSpeed = 0;
+            }
+            return;
+        }
+
+        if (this.state === 'slam') {
+            if (this.stateTimer < 0.55) {
+                this.rotationSpeed = Math.PI * 0.4;
+                this.spikeExtension = Math.min(1.0, this.stateTimer * 2.2);
+            } else if (this.stateTimer < 0.72) {
+                this.spikeExtension = 1.0;
+                if (!this.attackFired && !isClient) {
+                    this.spikeSlam();
+                    this.attackFired = true;
+                }
+            } else if (this.stateTimer < 1.35) {
+                this.rotationSpeed = Math.PI * 0.25;
+                this.spikeExtension = 0.1;
+            } else {
                 this.spikeExtension = 0;
-                this.slamCooldown = 4.0;
+                this.rotationSpeed = 0;
+                this.state = 'command';
+                this.swarmBeat = 'command';
+                this.stateTimer = 0;
+                this.attackFired = false;
+                this.spawnCooldown = phaseTwo ? 4.5 : 5.2;
+                this.barrageCooldown = phaseTwo ? 3.2 : 3.8;
+                this.slamCooldown = phaseTwo ? 4.2 : 5.0;
             }
         }
     }
@@ -437,19 +402,38 @@ class BossSwarmKing extends BossBase {
             if (this.isDashing) {
                 // Move towards dash target
                 if (this.dashTarget) {
+                    this.phase3DashElapsed += deltaTime;
                     const dx = this.dashTarget.x - this.x;
                     const dy = this.dashTarget.y - this.y;
                     const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (this.phase3DashLastPosition) {
+                        const moved = Math.hypot(this.x - this.phase3DashLastPosition.x, this.y - this.phase3DashLastPosition.y);
+                        this.phase3DashStuckTimer = moved < 1 ? this.phase3DashStuckTimer + deltaTime : 0;
+                    }
+                    this.phase3DashLastPosition = { x: this.x, y: this.y };
 
-                    if (dist < 10 || dist > 2000) { // Arrived or glitch
+                    if (dist < 10 || dist > 2000 || this.phase3DashElapsed > 2.2 || this.phase3DashStuckTimer > 0.35) { // Arrived or failed safely
                         this.x = this.dashTarget.x;
                         this.y = this.dashTarget.y;
+                        this.finishPhase3WebTrail({ x: this.x, y: this.y });
+                        this.phase3DashStart = null;
+                        this.phase3DashElapsed = 0;
+                        this.phase3DashStuckTimer = 0;
+                        this.phase3DashLastPosition = null;
+
+                        if (Array.isArray(this.phase3DashPath) && this.phase3DashPath.length > 0) {
+                            this.phase3DashStart = { x: this.x, y: this.y };
+                            this.beginPhase3WebTrail(this.phase3DashStart);
+                            this.dashTarget = this.phase3DashPath.shift();
+                            return;
+                        }
+
                         this.isDashing = false;
                         this.dashTarget = null;
 
                         // Fire barrage on arrival
                         if (!isClient) {
-                            this.spikeBarrage();
+                            this.phase3HornetCrossfire(player);
                             // Screen shake on impact
                             if (typeof Game !== 'undefined') {
                                 Game.triggerScreenShake(5, 0.2, 'boss');
@@ -458,12 +442,15 @@ class BossSwarmKing extends BossBase {
 
                         this.dashCount++;
                         if (this.dashCount >= this.maxDashes) {
+                            if (!this.finalExplosionTriggered && !isClient) {
+                                this.explosiveFinale();
+                                this.finalExplosionTriggered = true;
+                            }
                             this.phase3State = 'exhausted';
                             this.exhaustedTimer = 0;
                             this.dashCount = 0;
                         }
                     } else {
-                        // Move
                         const moveDist = this.dashSpeed * deltaTime;
                         if (moveDist >= dist) {
                             this.x = this.dashTarget.x;
@@ -472,6 +459,7 @@ class BossSwarmKing extends BossBase {
                             this.x += (dx / dist) * moveDist;
                             this.y += (dy / dist) * moveDist;
                         }
+                        this.updatePhase3WebTrail({ x: this.x, y: this.y });
                     }
                 } else {
                     this.isDashing = false;
@@ -479,33 +467,23 @@ class BossSwarmKing extends BossBase {
             } else {
                 // Not dashing, prepare next dash
                 if (!this.activeTelegraph && !isClient) {
-                    // Pick random point in room (safe bounds approx 200-1800?)
-                    // Assuming room is roughly 2000x2000, keep somewhat central or near player
-                    // Let's pick a point relative to player but clamped to room bounds
-                    // Since we don't have room bounds easily, let's just pick a point 300-600px away from current pos
-                    // but try to stay within reasonable world bounds if possible. 
-                    // Better: Pick a point near the player to be aggressive.
-
-                    const angle = Math.random() * Math.PI * 2;
-                    const dist = 300 + Math.random() * 300;
-                    let tx = player.x + Math.cos(angle) * 100; // Aim near player
-                    let ty = player.y + Math.sin(angle) * 100;
-
-                    // Simple bounds check (assuming standard room)
-                    // If we don't have room bounds, just clamp to some reasonable area or rely on wall collision later?
-                    // BossBase usually has keepInBounds. Let's trust keepInBounds to fix us if we go too far,
-                    // but try to pick a valid point.
-                    // Let's just aim for a point around the player.
-
-                    this.dashTarget = { x: tx, y: ty };
+                    this.preparePhase3NestDash(player);
+                    this.nestPulseMarkers.push({
+                        x: this.phase3DashFinalTarget ? this.phase3DashFinalTarget.x : this.dashTarget.x,
+                        y: this.phase3DashFinalTarget ? this.phase3DashFinalTarget.y : this.dashTarget.y,
+                        elapsed: 0,
+                        duration: 0.55,
+                        warning: true
+                    });
 
                     // Start telegraph
                     this.beginTelegraph('dash', {
-                        duration: 0.4, // Short warning
+                        duration: 0.55,
                         intensity: 1.0,
                         color: '#ff0000',
                         onEnd: (t, owner, cancelled) => {
                             if (!cancelled) {
+                                owner.beginPhase3WebTrail({ x: owner.x, y: owner.y });
                                 owner.isDashing = true;
                             }
                         }
@@ -515,7 +493,7 @@ class BossSwarmKing extends BossBase {
         } else if (this.phase3State === 'exhausted') {
             // Stop moving and rotating
             this.rotationSpeed = Math.PI * 0.5; // Slow rotation
-            this.spikeExtension = 0;
+            this.spikeExtension = -0.45;
 
             // Apply vulnerability
             if (!this.vulnerable) {
@@ -533,17 +511,158 @@ class BossSwarmKing extends BossBase {
             }
         }
 
-        // Still spawn minions in phase 3? Maybe reduce frequency or stop during exhausted?
-        // Let's keep it but only during barrage
-        if (this.phase3State === 'franticBarrage' && !this.isDashing &&
-            this.spawnCooldown <= 0 && this.summonGlobalCooldown <= 0 &&
-            this.minions.length < this.getPhaseMinionCap()) {
-            this.spawnMinions();
-            this.spawnCooldown = 5.0;
-        }
-
         // Keep in bounds
         this.keepInBounds();
+    }
+
+    selectPhase3NestDashTarget(player) {
+        const anchors = this.getWalkableArenaAnchors('swarmNest', this.getPhase3DashClearanceRadius(), player || { x: this.x, y: this.y });
+        if (anchors && anchors.length >= 2) {
+            if (!Array.isArray(this.phase3WebAnchors) || this.phase3WebAnchors.length < 2) {
+                this.phase3WebAnchors = anchors
+                    .slice()
+                    .sort((a, b) => Math.atan2(a.y - this.y, a.x - this.x) - Math.atan2(b.y - this.y, b.x - this.x));
+            }
+            const target = this.selectAggressiveSwarmNest(this.phase3WebAnchors, player);
+            this.phase3WebIndex++;
+            return {
+                x: target.walkableX !== undefined ? target.walkableX : target.x,
+                y: target.walkableY !== undefined ? target.walkableY : target.y
+            };
+        }
+        const fallbackAngle = Math.random() * Math.PI * 2;
+        const fallbackDistance = 260;
+        return this.findSafeBossPosition(
+            this.x + Math.cos(fallbackAngle) * fallbackDistance,
+            this.y + Math.sin(fallbackAngle) * fallbackDistance
+        );
+    }
+
+    selectAggressiveSwarmNest(anchors, player) {
+        const targetPlayer = player || { x: this.x, y: this.y, vx: 0, vy: 0 };
+        const predicted = {
+            x: targetPlayer.x + (Number.isFinite(targetPlayer.vx) ? targetPlayer.vx * 0.28 : 0),
+            y: targetPlayer.y + (Number.isFinite(targetPlayer.vy) ? targetPlayer.vy * 0.28 : 0)
+        };
+        const bossToPlayerX = predicted.x - this.x;
+        const bossToPlayerY = predicted.y - this.y;
+        const bossToPlayerDist = Math.max(1, Math.hypot(bossToPlayerX, bossToPlayerY));
+        const playerDirX = bossToPlayerX / bossToPlayerDist;
+        const playerDirY = bossToPlayerY / bossToPlayerDist;
+        const recentOffset = this.phase3WebIndex % Math.max(1, anchors.length);
+
+        const scored = anchors
+            .map((anchor, index) => {
+                const x = anchor.walkableX !== undefined ? anchor.walkableX : anchor.x;
+                const y = anchor.walkableY !== undefined ? anchor.walkableY : anchor.y;
+                const distFromBoss = Math.hypot(x - this.x, y - this.y);
+                if (distFromBoss < this.size * 1.4) {
+                    return null;
+                }
+                const linePressure = this.distanceToSegment(predicted.x, predicted.y, this.x, this.y, x, y);
+                const targetToPlayer = Math.hypot(x - predicted.x, y - predicted.y);
+                const projection = (x - this.x) * playerDirX + (y - this.y) * playerDirY;
+                const crossingPenalty = projection < bossToPlayerDist * 0.65
+                    ? (bossToPlayerDist * 0.65 - projection) * 0.9
+                    : Math.abs(projection - (bossToPlayerDist + 120)) * 0.18;
+                const repeatBias = index === recentOffset ? -45 : 0;
+                const score = linePressure * 2.4 + targetToPlayer * 0.22 + crossingPenalty + repeatBias;
+                return { anchor, score };
+            })
+            .filter(Boolean)
+            .sort((a, b) => a.score - b.score);
+
+        return scored.length ? scored[0].anchor : anchors[this.phase3WebIndex % anchors.length];
+    }
+
+    preparePhase3NestDash(player) {
+        const start = { x: this.x, y: this.y };
+        const finalTarget = this.selectPhase3NestDashTarget(player);
+        const route = this.buildCollisionAwarePheromoneRoute([start, finalTarget], this.getPhase3DashClearanceRadius())
+            .map(point => ({ x: point.x, y: point.y }));
+        const path = route.length >= 2 ? route.slice(1) : [finalTarget];
+        this.phase3DashStart = start;
+        this.phase3DashFinalTarget = finalTarget;
+        this.dashTarget = path.shift() || finalTarget;
+        this.phase3DashPath = path;
+        this.phase3DashElapsed = 0;
+        this.phase3DashStuckTimer = 0;
+        this.phase3DashLastPosition = null;
+    }
+
+    getPhase3DashClearanceRadius() {
+        return Math.max(42, this.size * 0.85);
+    }
+
+    beginPhase3WebTrail(start) {
+        if (!start) return;
+        const trail = {
+            id: `swarmWeb-${this.pheromoneSequenceId++}`,
+            points: [
+                { x: start.x, y: start.y },
+                { x: start.x, y: start.y }
+            ],
+            elapsed: 0,
+            windupDuration: 0,
+            buildDelay: 0,
+            segmentRevealInterval: 0,
+            activeDuration: 6.75,
+            fadeDuration: 1.5,
+            duration: 8.25,
+            alpha: 1,
+            webTrail: true,
+            liveTrail: true,
+            visualWidth: 42,
+            lane: this.dashCount
+        };
+        this.pheromoneTrails.push(trail);
+        while (this.pheromoneTrails.length > 8) {
+            const removed = this.pheromoneTrails.shift();
+            if (removed === this.activePhase3WebTrail) {
+                this.activePhase3WebTrail = null;
+            }
+        }
+        this.activePhase3WebTrail = trail;
+        this.nestPulseMarkers.push({
+            x: start.x,
+            y: start.y,
+            elapsed: 0,
+            duration: 0.9
+        });
+    }
+
+    updatePhase3WebTrail(pos) {
+        const trail = this.activePhase3WebTrail;
+        if (!trail || !pos || !Array.isArray(trail.points) || trail.points.length < 2) return;
+        trail.points[1].x = pos.x;
+        trail.points[1].y = pos.y;
+    }
+
+    finishPhase3WebTrail(end) {
+        const trail = this.activePhase3WebTrail;
+        if (!trail) return;
+        if (end && Array.isArray(trail.points) && trail.points.length >= 2) {
+            trail.points[1].x = end.x;
+            trail.points[1].y = end.y;
+        }
+        trail.liveTrail = false;
+        this.activePhase3WebTrail = null;
+        if (end) {
+            this.nestPulseMarkers.push({
+                x: end.x,
+                y: end.y,
+                elapsed: 0,
+                duration: 0.9
+            });
+            if (typeof createParticleBurst !== 'undefined') {
+                createParticleBurst(end.x, end.y, '#b7ff39', 12);
+            }
+        }
+    }
+
+    paintPhase3WebTrail(start, end) {
+        this.beginPhase3WebTrail(start);
+        this.finishPhase3WebTrail(end);
     }
 
     startPhase3BeamWarmup(player) {
@@ -618,18 +737,73 @@ class BossSwarmKing extends BossBase {
         if (typeof Game === 'undefined') return;
 
         const projectileSpeed = 214;
+        const volleySeed = this.swarmVolleySequence++;
+        const phaseOffset = (this.phase - 1) * 0.11 + (volleySeed % 3) * 0.07;
         for (let i = 0; i < 8; i++) {
-            const angle = this.rotationAngle + (Math.PI * 2 / 8) * i;
+            const organicWave = Math.sin(volleySeed * 0.9 + i * 1.7) * 0.12;
+            const angle = this.rotationAngle + phaseOffset + (Math.PI * 2 / 8) * i + organicWave;
+            const speed = projectileSpeed * (0.94 + (i % 3) * 0.04);
             Game.projectiles.push({
                 x: this.x,
                 y: this.y,
-                vx: Math.cos(angle) * projectileSpeed,
-                vy: Math.sin(angle) * projectileSpeed,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
                 damage: this.damage * 0.8,
-                size: 8,
+                size: 7 + (i % 3),
                 lifetime: 5.0, // Increased from 3.0 to cover room
-                elapsed: 0
+                elapsed: 0,
+                color: i % 2 === 0 ? '#ffb000' : '#d9ff55',
+                trailLength: 4
             });
+        }
+    }
+
+    phase3HornetCrossfire(player) {
+        if (typeof Game === 'undefined') return;
+        const target = player || { x: this.x + 1, y: this.y };
+        const baseAngle = Math.atan2(target.y - this.y, target.x - this.x);
+        const sequence = this.phase3BurstSequence++;
+        const ringCount = 10;
+        const ringOffset = (sequence % 2) * (Math.PI / ringCount);
+        for (let i = 0; i < ringCount; i++) {
+            const angle = ringOffset + (Math.PI * 2 / ringCount) * i + Math.sin(i * 1.4 + sequence) * 0.05;
+            const speed = 210 + (i % 2) * 28;
+            Game.projectiles.push({
+                x: this.x,
+                y: this.y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                damage: this.damage * 0.72,
+                size: 7,
+                lifetime: 3.2,
+                elapsed: 0,
+                color: '#d9ff55',
+                trailLength: 4
+            });
+        }
+
+        const sideAngles = [-0.38, 0.38];
+        sideAngles.forEach((offset, sideIndex) => {
+            for (let i = 0; i < 4; i++) {
+                const angle = baseAngle + offset + (i - 1.5) * 0.075;
+                const speed = 285 + i * 18 + sideIndex * 14;
+                Game.projectiles.push({
+                    x: this.x + Math.cos(angle) * 28,
+                    y: this.y + Math.sin(angle) * 28,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    damage: this.damage * 0.82,
+                    size: 8,
+                    lifetime: 2.8,
+                    elapsed: 0,
+                    color: sideIndex === 0 ? '#ffb000' : '#f1ff6b',
+                    trailLength: 5
+                });
+            }
+        });
+
+        if (typeof createParticleBurst !== 'undefined') {
+            createParticleBurst(this.x, this.y, '#d9ff55', 14);
         }
     }
 
@@ -658,27 +832,475 @@ class BossSwarmKing extends BossBase {
         }
     }
 
+    updatePheromoneTrails(deltaTime) {
+        this.pheromoneTrails.forEach(trail => {
+            trail.elapsed += deltaTime;
+            const activeEnd = (trail.windupDuration || 0) + (trail.activeDuration || 0);
+            trail.alpha = Math.max(0, 1 - Math.max(0, trail.elapsed - activeEnd) / Math.max(0.1, trail.fadeDuration));
+        });
+        this.pheromoneTrails = this.pheromoneTrails.filter(trail => trail.elapsed < trail.duration);
+        this.nestPulseMarkers.forEach(marker => {
+            marker.elapsed += deltaTime;
+        });
+        this.nestPulseMarkers = this.nestPulseMarkers.filter(marker => marker.elapsed < (marker.duration || 1) + (marker.delay || 0));
+    }
+
+    startPheromoneCircuit(player) {
+        const anchors = this.getWalkableArenaAnchors('swarmNest', 22, player || { x: this.x, y: this.y });
+        if (!anchors || anchors.length < 2) {
+            this.spawnMinions();
+            return;
+        }
+
+        const phaseConfig = this.getPheromonePhaseConfig();
+        const maxTrails = Math.max(phaseConfig.trailCount, this.phase >= 3 ? 3 : 2);
+
+        const routes = [];
+        for (let lane = 0; lane < phaseConfig.trailCount; lane++) {
+            const route = this.buildCollisionAwarePheromoneRoute(this.selectPheromoneRoute(anchors, player, lane));
+            if (route && route.length >= 2) {
+                routes.push(route);
+            }
+        }
+        if (routes.length === 0) {
+            this.spawnMinions();
+            return;
+        }
+
+        while (this.pheromoneTrails.length > Math.max(0, maxTrails - routes.length)) {
+            this.pheromoneTrails.shift();
+        }
+
+        const availableSlots = Math.max(0, Math.min(this.maxMinions || 8, this.getPhaseMinionCap()) - this.minions.length);
+        const runnerBudget = Math.min(availableSlots, phaseConfig.runnerBudget);
+        routes.forEach((route, lane) => {
+            const trail = {
+                id: `swarmTrail-${this.pheromoneSequenceId++}`,
+                points: route.map(point => ({
+                    x: point.walkableX !== undefined ? point.walkableX : point.x,
+                    y: point.walkableY !== undefined ? point.walkableY : point.y
+                })),
+                elapsed: 0,
+                windupDuration: phaseConfig.windupDuration + lane * 0.08,
+                buildDelay: phaseConfig.buildDelay + lane * 0.08,
+                segmentRevealInterval: phaseConfig.segmentRevealInterval,
+                activeDuration: phaseConfig.activeDuration,
+                fadeDuration: 1.1,
+                duration: phaseConfig.windupDuration + lane * 0.08 + phaseConfig.activeDuration + 1.1,
+                alpha: 1,
+                runnerSpeed: phaseConfig.runnerSpeed + lane * 18,
+                visualWidth: phaseConfig.visualWidth,
+                lane,
+                routeComplete: false
+            };
+            this.pheromoneTrails.push(trail);
+            this.nestPulseMarkers.push(...trail.points.map((point, pointIndex) => ({
+                x: point.x,
+                y: point.y,
+                elapsed: 0,
+                duration: 1.0,
+                delay: trail.buildDelay + trail.segmentRevealInterval * Math.max(0, pointIndex - 1)
+            })));
+            if (typeof createParticleBurst !== 'undefined') {
+                createParticleBurst(trail.points[0].x, trail.points[0].y, '#b7ff39', lane === 0 ? 8 : 5);
+            }
+            const remainingBudget = Math.max(0, runnerBudget - (this.minions.length - (Math.min(this.maxMinions || 8, this.getPhaseMinionCap()) - availableSlots)));
+            const remainingLanes = Math.max(1, routes.length - lane);
+            const laneRunners = Math.max(1, Math.ceil(remainingBudget / remainingLanes));
+            this.spawnMinions({
+                trail,
+                forcePheromoneSpawn: true,
+                suppressSummonCooldown: true,
+                maxTrailRunners: laneRunners
+            });
+        });
+        if (typeof Game !== 'undefined') {
+            Game.triggerScreenShake(3 + Math.min(2, routes.length - 1), 0.18, 'boss');
+        }
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.sounds.swarmPheromoneWindup) {
+            AudioManager.sounds.swarmPheromoneWindup();
+        }
+        this.summonGlobalCooldown = this.getSummonGlobalCooldown();
+        this.pheromoneCooldown = phaseConfig.cooldown;
+    }
+
+    selectPheromoneRoute(anchors, player, laneIndex = 0) {
+        const anchorX = anchor => anchor.walkableX !== undefined ? anchor.walkableX : anchor.x;
+        const anchorY = anchor => anchor.walkableY !== undefined ? anchor.walkableY : anchor.y;
+        const target = player || { x: this.x, y: this.y, vx: 0, vy: 0 };
+        const sortedByPlayer = anchors.slice().sort((a, b) => {
+            const ad = Math.hypot(anchorX(a) - target.x, anchorY(a) - target.y);
+            const bd = Math.hypot(anchorX(b) - target.x, anchorY(b) - target.y);
+            return ad - bd;
+        });
+        const entryPool = sortedByPlayer.slice(0, Math.min(3, sortedByPlayer.length));
+        const entry = entryPool[(Math.floor(Math.random() * entryPool.length) + laneIndex) % entryPool.length];
+        const exitPool = sortedByPlayer
+            .filter(anchor => anchor !== entry)
+            .sort((a, b) => Math.hypot(anchorX(b) - anchorX(entry), anchorY(b) - anchorY(entry)) - Math.hypot(anchorX(a) - anchorX(entry), anchorY(a) - anchorY(entry)))
+            .slice(0, Math.min(3, Math.max(1, sortedByPlayer.length - 1)));
+        const exit = exitPool[(Math.floor(Math.random() * exitPool.length) + laneIndex) % exitPool.length] || sortedByPlayer.find(anchor => anchor !== entry);
+        if (!entry || !exit) return sortedByPlayer.slice(0, 2);
+
+        const pressurePoints = this.buildPheromonePressurePoints(entry, exit, target, laneIndex);
+        const sceneryBridge = anchors
+            .filter(anchor => anchor !== entry && anchor !== exit)
+            .sort((a, b) => {
+                const ax = anchorX(a);
+                const ay = anchorY(a);
+                const bx = anchorX(b);
+                const by = anchorY(b);
+                const aToPlayer = Math.hypot(ax - target.x, ay - target.y);
+                const bToPlayer = Math.hypot(bx - target.x, by - target.y);
+                const aToLine = this.distanceToSegment(ax, ay, anchorX(entry), anchorY(entry), anchorX(exit), anchorY(exit));
+                const bToLine = this.distanceToSegment(bx, by, anchorX(entry), anchorY(entry), anchorX(exit), anchorY(exit));
+                return (aToPlayer + aToLine * 0.45) - (bToPlayer + bToLine * 0.45);
+            })[0];
+
+        const route = [entry, pressurePoints[0]];
+        if (this.phase >= 2 && sceneryBridge) route.push(sceneryBridge);
+        if (this.phase >= 3 && pressurePoints[1]) route.push(pressurePoints[1]);
+        route.push(exit);
+        return this.dedupePheromoneRoute(route);
+    }
+
+    getPheromonePhaseConfig() {
+        if (this.phase >= 3) {
+            return { windupDuration: 1.15, buildDelay: 0.32, segmentRevealInterval: 0.14, activeDuration: 4.45, runnerSpeed: 410, cooldown: 4.0, trailCount: 3, runnerBudget: 7, visualWidth: 34 };
+        }
+        if (this.phase >= 2) {
+            return { windupDuration: 1.25, buildDelay: 0.38, segmentRevealInterval: 0.16, activeDuration: 3.8, runnerSpeed: 335, cooldown: 5.2, trailCount: 2, runnerBudget: 4, visualWidth: 30 };
+        }
+        return { windupDuration: 1.45, buildDelay: 0.48, segmentRevealInterval: 0.2, activeDuration: 3.35, runnerSpeed: 285, cooldown: 6.4, trailCount: 1, runnerBudget: 2, visualWidth: 24 };
+    }
+
+    buildPheromonePressurePoints(entry, exit, player, laneIndex = 0) {
+        const getX = point => point.walkableX !== undefined ? point.walkableX : point.x;
+        const getY = point => point.walkableY !== undefined ? point.walkableY : point.y;
+        const entryX = getX(entry);
+        const entryY = getY(entry);
+        const exitX = getX(exit);
+        const exitY = getY(exit);
+        const playerVx = Number.isFinite(player.vx) ? player.vx : 0;
+        const playerVy = Number.isFinite(player.vy) ? player.vy : 0;
+        const predictedX = player.x + playerVx * 0.35;
+        const predictedY = player.y + playerVy * 0.35;
+        const approachAngle = Math.atan2(player.y - entryY, player.x - entryX);
+        const side = (this.pheromoneSequenceId + laneIndex) % 2 === 0 ? 1 : -1;
+        const sideOffset = (55 + Math.random() * 65) * side;
+        const forwardOffset = 35 + Math.random() * 45;
+        const first = this.resolvePheromonePoint(
+            predictedX + Math.cos(approachAngle) * forwardOffset + Math.cos(approachAngle + Math.PI / 2) * sideOffset,
+            predictedY + Math.sin(approachAngle) * forwardOffset + Math.sin(approachAngle + Math.PI / 2) * sideOffset,
+            player
+        );
+        const exitAngle = Math.atan2(exitY - player.y, exitX - player.x);
+        const second = this.resolvePheromonePoint(
+            player.x + Math.cos(exitAngle) * (120 + Math.random() * 80) - Math.cos(exitAngle + Math.PI / 2) * sideOffset * 0.65,
+            player.y + Math.sin(exitAngle) * (120 + Math.random() * 80) - Math.sin(exitAngle + Math.PI / 2) * sideOffset * 0.65,
+            player
+        );
+        return [first, second].filter(Boolean);
+    }
+
+    resolvePheromonePoint(x, y, preferredFrom) {
+        const context = this.getCurrentBossLayout();
+        const width = context && context.layout && context.layout.width ? context.layout.width : 2400;
+        const height = context && context.layout && context.layout.height ? context.layout.height : 1350;
+        const margin = Math.max(32, this.size * 0.35);
+        const anchor = {
+            x: Math.max(margin, Math.min(width - margin, x)),
+            y: Math.max(margin, Math.min(height - margin, y)),
+            radius: 24,
+            motif: 'swarmPressure'
+        };
+        return this.resolveAnchorToWalkable(anchor, 22, preferredFrom || { x: this.x, y: this.y });
+    }
+
+    dedupePheromoneRoute(route) {
+        const cleaned = [];
+        route.filter(Boolean).forEach(point => {
+            const x = point.walkableX !== undefined ? point.walkableX : point.x;
+            const y = point.walkableY !== undefined ? point.walkableY : point.y;
+            const previous = cleaned[cleaned.length - 1];
+            const px = previous && (previous.walkableX !== undefined ? previous.walkableX : previous.x);
+            const py = previous && (previous.walkableY !== undefined ? previous.walkableY : previous.y);
+            if (!previous || Math.hypot(x - px, y - py) > 70) {
+                cleaned.push(point);
+            }
+        });
+        return cleaned.length >= 2 ? cleaned : route.filter(Boolean).slice(0, 2);
+    }
+
+    buildCollisionAwarePheromoneRoute(route, radius = 20) {
+        if (!Array.isArray(route) || route.length < 2) return route;
+        const context = this.getCurrentBossLayout();
+        const layout = context && context.layout ? context.layout : null;
+        if (!layout || typeof RoomLayoutGenerator === 'undefined') {
+            return this.dedupePheromoneRoute(route);
+        }
+        const getPoint = point => ({
+            x: point.walkableX !== undefined ? point.walkableX : point.x,
+            y: point.walkableY !== undefined ? point.walkableY : point.y
+        });
+        const resolved = [getPoint(route[0])];
+        for (let i = 0; i < route.length - 1; i++) {
+            const from = getPoint(route[i]);
+            const to = getPoint(route[i + 1]);
+            if (this.isPheromoneSegmentClear(from, to, radius)) {
+                resolved.push(to);
+                continue;
+            }
+            const path = RoomLayoutGenerator.findPath(layout, from, to, radius, {
+                maxVisited: 900,
+                maxPathLength: 48
+            });
+            if (path && path.length >= 2) {
+                path.slice(1).forEach(point => resolved.push({ x: point.x, y: point.y }));
+            } else {
+                const fallback = this.resolvePheromonePoint(to.x, to.y, from);
+                resolved.push({
+                    x: fallback.walkableX !== undefined ? fallback.walkableX : fallback.x,
+                    y: fallback.walkableY !== undefined ? fallback.walkableY : fallback.y
+                });
+            }
+        }
+        return this.dedupePheromoneRoute(resolved);
+    }
+
+    isPheromoneSegmentClear(from, to, radius = 20) {
+        const context = this.getCurrentBossLayout();
+        const layout = context && context.layout ? context.layout : null;
+        if (!layout || typeof RoomLayoutGenerator === 'undefined') return true;
+        if (typeof RoomLayoutGenerator.isProjectilePathClear === 'function') {
+            return RoomLayoutGenerator.isProjectilePathClear(layout, from, to, radius);
+        }
+        const dx = to.x - from.x;
+        const dy = to.y - from.y;
+        const steps = Math.max(2, Math.ceil(Math.hypot(dx, dy) / 36));
+        for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
+            if (!RoomLayoutGenerator.isPointWalkable(layout, from.x + dx * t, from.y + dy * t, radius)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    distanceToSegment(px, py, ax, ay, bx, by) {
+        const dx = bx - ax;
+        const dy = by - ay;
+        const lengthSq = dx * dx + dy * dy;
+        if (lengthSq <= 0) return Math.hypot(px - ax, py - ay);
+        const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lengthSq));
+        return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
+    }
+
+    updatePheromoneMinions(deltaTime) {
+        this.minions.forEach(minion => {
+            const runner = minion && minion.pheromoneRunner;
+            if (!runner || !runner.trail || !Array.isArray(runner.trail.points)) return;
+            if (runner.exiting) {
+                this.updatePheromoneExit(minion, runner, deltaTime);
+                return;
+            }
+            if ((runner.trail.elapsed || 0) < (runner.trail.windupDuration || 0)) {
+                if (runner.startPoint) {
+                    minion.pheromoneControlled = true;
+                    minion.ignoreSceneryCollision = true;
+                    minion.x = runner.startPoint.x;
+                    minion.y = runner.startPoint.y;
+                    minion.vx = 0;
+                    minion.vy = 0;
+                }
+                return;
+            }
+            const activeEnd = (runner.trail.windupDuration || 0) + (runner.trail.activeDuration || 0);
+            if (!minion.alive || runner.routeComplete || runner.trail.elapsed >= activeEnd) {
+                this.startPheromoneExit(minion, runner);
+                return;
+            }
+            const points = runner.trail.points;
+            const target = points[Math.min(runner.segmentIndex + 1, points.length - 1)];
+            if (!target) {
+                this.startPheromoneExit(minion, runner);
+                return;
+            }
+            const dx = target.x - minion.x;
+            const dy = target.y - minion.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist < 12) {
+                if (runner.segmentIndex >= points.length - 2) {
+                    runner.routeComplete = true;
+                    this.startPheromoneExit(minion, runner);
+                } else {
+                    runner.segmentIndex++;
+                }
+                return;
+            }
+            const speed = runner.speed || runner.trail.runnerSpeed || 300;
+            const step = Math.min(dist, speed * deltaTime);
+            minion.pheromoneControlled = true;
+            minion.ignoreSceneryCollision = true;
+            minion.rotation = Math.atan2(dy, dx);
+            minion.movementHeading = minion.rotation;
+            minion.x += (dx / dist) * step;
+            minion.y += (dy / dist) * step;
+            minion.vx = (dx / dist) * speed;
+            minion.vy = (dy / dist) * speed;
+        });
+    }
+
+    startPheromoneExit(minion, runner) {
+        if (!minion || !runner) return;
+        if (!minion.alive) {
+            this.finishPheromoneRelease(minion);
+            return;
+        }
+        const exitPath = this.getPheromoneExitPath(minion, runner);
+        if (exitPath.length > 0) {
+            runner.exiting = true;
+            runner.exitPoints = exitPath;
+            runner.exitIndex = 0;
+            minion.pheromoneControlled = true;
+            minion.ignoreSceneryCollision = true;
+            return;
+        }
+        this.finishPheromoneRelease(minion);
+    }
+
+    getPheromoneExitPath(minion, runner) {
+        const context = this.getCurrentBossLayout();
+        const layout = context && context.layout ? context.layout : null;
+        const radius = Math.max(10, minion.size || 14);
+        if (!layout || typeof RoomLayoutGenerator === 'undefined') return [];
+        const current = { x: minion.x, y: minion.y };
+        if (RoomLayoutGenerator.isPointWalkable(layout, current.x, current.y, radius)) return [];
+        const exitAnchor = this.resolveAnchorToWalkable({
+            x: current.x,
+            y: current.y,
+            radius,
+            motif: 'swarmExit'
+        }, radius, runner.startPoint || { x: this.x, y: this.y });
+        const exit = {
+            x: exitAnchor.walkableX !== undefined ? exitAnchor.walkableX : exitAnchor.x,
+            y: exitAnchor.walkableY !== undefined ? exitAnchor.walkableY : exitAnchor.y
+        };
+        const path = RoomLayoutGenerator.findPath(layout, current, exit, radius, {
+            maxVisited: 420,
+            maxPathLength: 18
+        });
+        return path && path.length > 0
+            ? path.map(point => ({ x: point.x, y: point.y }))
+            : [exit];
+    }
+
+    updatePheromoneExit(minion, runner, deltaTime) {
+        const points = runner.exitPoints || [];
+        const target = points[runner.exitIndex || 0];
+        if (!target) {
+            this.finishPheromoneRelease(minion);
+            return;
+        }
+        const dx = target.x - minion.x;
+        const dy = target.y - minion.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < 10) {
+            runner.exitIndex = (runner.exitIndex || 0) + 1;
+            if (runner.exitIndex >= points.length) {
+                this.finishPheromoneRelease(minion);
+            }
+            return;
+        }
+        const speed = Math.max(120, (runner.speed || runner.trail.runnerSpeed || 300) * 0.75);
+        const step = Math.min(dist, speed * deltaTime);
+        minion.pheromoneControlled = true;
+        minion.ignoreSceneryCollision = true;
+        minion.rotation = Math.atan2(dy, dx);
+        minion.movementHeading = minion.rotation;
+        minion.x += (dx / dist) * step;
+        minion.y += (dy / dist) * step;
+        minion.vx = (dx / dist) * speed;
+        minion.vy = (dy / dist) * speed;
+    }
+
+    finishPheromoneRelease(minion) {
+        if (!minion) return;
+        minion.pheromoneControlled = false;
+        minion.ignoreSceneryCollision = false;
+        minion.pheromoneRunner = null;
+        minion.vx = 0;
+        minion.vy = 0;
+        if (typeof minion.keepInBounds === 'function') {
+            minion.keepInBounds();
+        }
+    }
+
+    damagePlayersAlongPheromoneTrails(deltaTime) {
+        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+        if (isClient || !this.pheromoneTrails.length) return;
+        const targets = [];
+        if (typeof this.getAllAlivePlayers === 'function') {
+            this.getAllAlivePlayers().forEach(entry => {
+                if (entry && entry.player) targets.push(entry.player);
+            });
+        } else if (typeof Game !== 'undefined' && Game.player) {
+            targets.push(Game.player);
+        }
+        if (!targets.length) return;
+        const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        this.pheromoneTrails.forEach(trail => {
+            if (!trail || !Array.isArray(trail.points) || trail.points.length < 2) return;
+            if ((trail.elapsed || 0) < (trail.windupDuration || 0)) return;
+            if ((trail.elapsed || 0) >= (trail.windupDuration || 0) + (trail.activeDuration || 0)) return;
+            const width = trail.webTrail ? 28 : 22;
+            targets.forEach(target => {
+                if (!target || target.alive === false || target.dead) return;
+                if (target.lastSwarmTrailHitAt && now - target.lastSwarmTrailHitAt < 420) return;
+                for (let i = 0; i < trail.points.length - 1; i++) {
+                    const a = trail.points[i];
+                    const b = trail.points[i + 1];
+                    const dist = this.distanceToSegment(target.x, target.y, a.x, a.y, b.x, b.y);
+                    if (dist <= width + (target.size || 18)) {
+                        if (typeof target.takeDamage === 'function') {
+                            target.takeDamage(this.damage * (trail.webTrail ? 0.35 : 0.22));
+                        }
+                        target.lastSwarmTrailHitAt = now;
+                        break;
+                    }
+                }
+            });
+        });
+    }
+
     // Spawn orbiting minions
-    spawnMinions() {
+    spawnMinions(options = {}) {
         if (typeof Game === 'undefined' || typeof currentRoom === 'undefined') return;
 
         const maxTotal = this.maxMinions || 8;
         const phaseCap = Math.min(maxTotal, this.getPhaseMinionCap());
         const availableSlots = Math.max(0, phaseCap - this.minions.length);
-        if (availableSlots <= 0 || this.summonGlobalCooldown > 0) return;
+        const forcedPheromoneSpawn = !!(options.trail && options.forcePheromoneSpawn);
+        if (availableSlots <= 0 || (!forcedPheromoneSpawn && this.summonGlobalCooldown > 0)) return;
 
         const desiredCount = this.phase === 1 ? 2 + Math.floor(Math.random() * 2) :
             this.phase === 2 ? 3 + Math.floor(Math.random() * 2) :
                 5 + Math.floor(Math.random() * 2);
 
-        const spawnCount = Math.min(availableSlots, 3, desiredCount);
+        const trailLimit = options.trail
+            ? (options.maxTrailRunners || (this.phase >= 3 ? 5 : this.phase >= 2 ? 4 : 3))
+            : 3;
+        const spawnCount = Math.min(availableSlots, trailLimit, desiredCount);
         if (spawnCount <= 0) return;
 
         for (let i = 0; i < spawnCount; i++) {
+            const routePoint = options.trail && options.trail.points && options.trail.points.length
+                ? options.trail.points[i % options.trail.points.length]
+                : null;
             const angle = (Math.PI * 2 / spawnCount) * i;
             const distance = 150 + Math.random() * 50;
-            const minionX = this.x + Math.cos(angle) * distance;
-            const minionY = this.y + Math.sin(angle) * distance;
+            const minionX = routePoint ? routePoint.x : this.x + Math.cos(angle) * distance;
+            const minionY = routePoint ? routePoint.y : this.y + Math.sin(angle) * distance;
 
             // Pass parent's currentTarget to minion constructor for aggro inheritance
             const minion = new Enemy(minionX, minionY, this.currentTarget);
@@ -693,6 +1315,18 @@ class BossSwarmKing extends BossBase {
                 minion.xpValue = Math.floor(minion.xpValue * 0.3);
             }
             minion.lootChance = 0.0;
+            if (options.trail) {
+                minion.pheromoneRunner = {
+                    trail: options.trail,
+                    segmentIndex: i % Math.max(1, options.trail.points.length - 1),
+                    startPoint: { x: minionX, y: minionY },
+                    speed: options.trail.runnerSpeed || (minion.moveSpeed || 120) * 2.5,
+                    routeComplete: false
+                };
+                minion.pheromoneControlled = true;
+                minion.ignoreSceneryCollision = true;
+                minion.activated = true;
+            }
 
             if (currentRoom) {
                 currentRoom.enemies.push(minion);
@@ -703,16 +1337,68 @@ class BossSwarmKing extends BossBase {
             this.minions.push(minion);
         }
 
-        this.summonGlobalCooldown = this.getSummonGlobalCooldown();
+        if (!options.suppressSummonCooldown) {
+            this.summonGlobalCooldown = this.getSummonGlobalCooldown();
+        }
     }
 
     // Spike slam creating shockwave
     spikeSlam() {
-        this.createShockwave(this.x, this.y, 150, 0.5, this.damage * 1.5);
+        this.createShockwave(this.x, this.y, 145, 0.42, this.damage * 0.9);
+        this.createResinPuddle(this.x, this.y, 130, 3.4);
+        const anchors = this.getBossArenaAnchors('swarmNest');
+        anchors
+            .slice()
+            .sort((a, b) => Math.hypot(a.x - this.x, a.y - this.y) - Math.hypot(b.x - this.x, b.y - this.y))
+            .slice(0, this.phase >= 2 ? 2 : 1)
+            .forEach(anchor => this.createResinPuddle(anchor.x, anchor.y, 72, 2.5));
 
         // Screen shake
         if (typeof Game !== 'undefined') {
             Game.triggerScreenShake(6, 0.3, 'boss');
+        }
+    }
+
+    createResinPuddle(x, y, radius, duration) {
+        const puddle = {
+            type: 'swarmResin',
+            x,
+            y,
+            radius,
+            maxRadius: radius,
+            lifetime: duration,
+            elapsed: 0,
+            expired: false,
+            damage: this.damage * 0.08,
+            lastDamageTime: 0,
+            update(deltaTime) {
+                this.elapsed += deltaTime;
+                if (this.elapsed >= this.lifetime) this.expired = true;
+            },
+            applyDamage(player) {
+                if (!player || player.alive === false || player.dead) return false;
+                const size = player.size || 18;
+                const dx = player.x - this.x;
+                const dy = player.y - this.y;
+                const dist = Math.hypot(dx, dy);
+                if (dist > this.radius + size) return false;
+                if (Number.isFinite(player.vx)) player.vx *= 0.42;
+                if (Number.isFinite(player.vy)) player.vy *= 0.42;
+                if (dist > 1) {
+                    const drag = Math.min(1.8, (this.radius - Math.min(this.radius, dist)) / Math.max(1, this.radius) * 2.2);
+                    player.x -= (dx / dist) * drag;
+                    player.y -= (dy / dist) * drag;
+                }
+                if (this.elapsed - this.lastDamageTime >= 0.65 && typeof player.takeDamage === 'function') {
+                    player.takeDamage(this.damage);
+                    this.lastDamageTime = this.elapsed;
+                }
+                return true;
+            }
+        };
+        this.addEnvironmentalHazard(puddle);
+        if (typeof createParticleBurst !== 'undefined') {
+            createParticleBurst(x, y, '#ffb000', 16);
         }
     }
 
@@ -752,6 +1438,11 @@ class BossSwarmKing extends BossBase {
         // Reset state on phase transition
         this.state = 'chase';
         this.stateTimer = 0;
+        this.swarmBeat = 'command';
+        this.attackFired = false;
+        if (this.activeTelegraph && typeof this.cancelTelegraph === 'function') {
+            this.cancelTelegraph();
+        }
         this.rotationSpeed = 0;
         this.spikeExtension = 0;
         this.activeBeamHazard = null;
@@ -768,11 +1459,134 @@ class BossSwarmKing extends BossBase {
             this.phase3State = 'franticBarrage';
             this.dashCount = 0;
             this.exhaustedTimer = 0;
+            this.phase3WebAnchors = [];
+            this.phase3WebIndex = 0;
+            this.phase3DashStart = null;
+            this.phase3DashPath = [];
+            this.phase3DashFinalTarget = null;
+            this.activePhase3WebTrail = null;
         }
+        this.nestPulseMarkers.push(...this.getBossArenaAnchors('swarmNest').slice(0, 8).map(anchor => ({
+            x: anchor.x,
+            y: anchor.y,
+            elapsed: 0,
+            duration: 1.4
+        })));
+    }
+
+    renderResinPuddles(ctx) {
+        const puddles = this.environmentalHazards.filter(hazard => hazard && hazard.type === 'swarmResin' && !hazard.expired);
+        if (!puddles.length) return;
+        ctx.save();
+        puddles.forEach(puddle => {
+            const progress = Math.min(1, (puddle.elapsed || 0) / Math.max(0.01, puddle.lifetime || 1));
+            const pulse = 0.5 + Math.sin((puddle.elapsed || 0) * 9) * 0.5;
+            const alpha = Math.max(0, 1 - progress) * (0.34 + pulse * 0.14);
+            if (alpha < 0.05) return;
+            const radius = (puddle.radius || 80) * (0.82 + Math.min(1, progress * 4) * 0.18);
+            const gradient = ctx.createRadialGradient(puddle.x, puddle.y, radius * 0.12, puddle.x, puddle.y, radius);
+            gradient.addColorStop(0, `rgba(255, 237, 98, ${alpha * 0.95})`);
+            gradient.addColorStop(0.55, `rgba(255, 162, 0, ${alpha * 0.82})`);
+            gradient.addColorStop(1, 'rgba(255, 106, 0, 0)');
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(puddle.x, puddle.y, radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = alpha * 0.7;
+            ctx.strokeStyle = '#fff36b';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(puddle.x, puddle.y, radius * (0.72 + pulse * 0.08), 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+        });
+        ctx.restore();
+    }
+
+    renderPheromoneTrails(ctx) {
+        if (!this.pheromoneTrails.length && !this.nestPulseMarkers.length) return;
+        ctx.save();
+        this.pheromoneTrails.forEach(trail => {
+            if (!trail.points || trail.points.length < 2) return;
+            const pulse = 0.5 + Math.sin((trail.elapsed || 0) * 10) * 0.5;
+            const windup = trail.elapsed < (trail.windupDuration || 0);
+            const visiblePoints = this.getVisiblePheromonePoints(trail);
+            if (visiblePoints.length < 2) return;
+            const windupProgress = Math.min(1, trail.elapsed / Math.max(0.01, trail.windupDuration || 0.65));
+            const visualWidth = trail.visualWidth || (trail.webTrail ? 42 : 30);
+            ctx.globalAlpha = Math.max(0, trail.alpha || 0) * (windup ? 0.2 + windupProgress * 0.26 : 0.45 + pulse * 0.18);
+            ctx.strokeStyle = windup ? '#eaff7a' : (trail.webTrail ? '#ffef6b' : '#b7ff39');
+            ctx.lineWidth = windup ? Math.max(14, visualWidth * 0.58) + windupProgress * Math.max(6, visualWidth * 0.35) : (trail.webTrail ? 42 : visualWidth);
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            ctx.moveTo(visiblePoints[0].x, visiblePoints[0].y);
+            for (let i = 1; i < visiblePoints.length; i++) {
+                ctx.lineTo(visiblePoints[i].x, visiblePoints[i].y);
+            }
+            ctx.stroke();
+            ctx.globalAlpha = Math.max(0, trail.alpha || 0) * 0.9;
+            ctx.strokeStyle = windup ? '#ffffff' : (trail.webTrail ? '#ffffff' : '#f1ff6b');
+            ctx.lineWidth = windup ? 4 : (trail.webTrail ? 10 : Math.max(5, visualWidth * 0.24));
+            ctx.stroke();
+            if (windup) {
+                const head = visiblePoints[visiblePoints.length - 1];
+                const headPulse = 0.75 + pulse * 0.25;
+                ctx.globalAlpha = Math.max(0, trail.alpha || 0) * (0.55 + windupProgress * 0.3);
+                ctx.fillStyle = trail.webTrail ? '#fff36b' : '#eaff7a';
+                ctx.beginPath();
+                ctx.arc(head.x, head.y, Math.max(7, visualWidth * 0.22) * headPulse, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = Math.max(0, trail.alpha || 0) * 0.28;
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(head.x, head.y, Math.max(14, visualWidth * 0.44) * headPulse, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        });
+        this.nestPulseMarkers.forEach(marker => {
+            const progress = ((marker.elapsed || 0) - (marker.delay || 0)) / Math.max(0.01, marker.duration);
+            if (progress < 0) return;
+            const radius = marker.warning ? 44 + progress * 34 : 34 + progress * 54;
+            ctx.globalAlpha = Math.max(0, 1 - progress) * (marker.warning ? 0.82 : 0.65);
+            ctx.strokeStyle = marker.warning ? '#ff6b00' : '#d9ff55';
+            ctx.lineWidth = marker.warning ? 5 : 4;
+            ctx.beginPath();
+            ctx.arc(marker.x, marker.y, radius, 0, Math.PI * 2);
+            ctx.stroke();
+        });
+        ctx.restore();
+    }
+
+    getVisiblePheromonePoints(trail) {
+        if (!trail || !Array.isArray(trail.points) || trail.points.length < 2) return [];
+        if (trail.liveTrail || trail.webTrail) return trail.points;
+        const windup = (trail.elapsed || 0) < (trail.windupDuration || 0);
+        if (!windup) return trail.points;
+        const buildDelay = trail.buildDelay || 0;
+        const buildElapsed = (trail.elapsed || 0) - buildDelay;
+        if (buildElapsed <= 0) return [];
+        const interval = Math.max(0.05, trail.segmentRevealInterval || 0.16);
+        const segmentCount = trail.points.length - 1;
+        const drawProgress = Math.min(segmentCount, buildElapsed / interval);
+        const completedSegments = Math.min(segmentCount - 1, Math.floor(drawProgress));
+        const segmentProgress = Math.min(1, Math.max(0, drawProgress - completedSegments));
+        const visiblePoints = trail.points.slice(0, completedSegments + 1);
+        const from = trail.points[completedSegments];
+        const to = trail.points[completedSegments + 1];
+        visiblePoints.push({
+            x: from.x + (to.x - from.x) * segmentProgress,
+            y: from.y + (to.y - from.y) * segmentProgress
+        });
+        return visiblePoints;
     }
 
     render(ctx) {
         if (!this.alive) return;
+
+        this.renderResinPuddles(ctx);
+        this.renderPheromoneTrails(ctx);
 
         ctx.save();
         ctx.translate(this.x, this.y);
@@ -783,7 +1597,12 @@ class BossSwarmKing extends BossBase {
         ctx.rotate(renderAngle);
 
         // Draw star with inward-bending spikes
-        ctx.fillStyle = this.color;
+        const exhaustedPulse = this.phase3State === 'exhausted'
+            ? (0.5 + Math.sin(this.exhaustedTimer * Math.PI * 7) * 0.5)
+            : 0;
+        ctx.fillStyle = exhaustedPulse > 0
+            ? `rgb(255, ${Math.floor(210 + exhaustedPulse * 45)}, ${Math.floor(60 + exhaustedPulse * 120)})`
+            : this.color;
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 3;
 
@@ -813,6 +1632,21 @@ class BossSwarmKing extends BossBase {
         ctx.fill();
         ctx.stroke();
 
+        if (this.phase3State === 'exhausted') {
+            ctx.save();
+            ctx.globalAlpha = 0.35 + exhaustedPulse * 0.45;
+            ctx.strokeStyle = '#fff36b';
+            ctx.lineWidth = 4;
+            for (let i = 0; i < this.spikeCount; i++) {
+                const angle = (Math.PI * 2 / this.spikeCount) * i;
+                ctx.beginPath();
+                ctx.moveTo(Math.cos(angle) * visualSize * 0.38, Math.sin(angle) * visualSize * 0.38);
+                ctx.lineTo(Math.cos(angle + 0.08) * visualSize * 0.96, Math.sin(angle + 0.08) * visualSize * 0.96);
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
+
         ctx.restore();
 
 
@@ -841,8 +1675,9 @@ class BossSwarmKing extends BossBase {
         // Render Dash Telegraph
         if (this.activeTelegraph && this.activeTelegraph.type === 'dash' && this.dashTarget) {
             const progress = this.activeTelegraph.progress;
-            const dx = this.dashTarget.x - this.x;
-            const dy = this.dashTarget.y - this.y;
+            const telegraphTarget = this.phase3DashFinalTarget || this.dashTarget;
+            const dx = telegraphTarget.x - this.x;
+            const dy = telegraphTarget.y - this.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
             const angle = Math.atan2(dy, dx);
 
@@ -875,7 +1710,7 @@ class BossSwarmKing extends BossBase {
         // Render Exhausted State
         if (this.phase3State === 'exhausted') {
             // Pulse effect
-            const pulse = (Math.sin(Date.now() / 200) + 1) / 2; // 0 to 1
+            const pulse = (Math.sin(this.exhaustedTimer * Math.PI * 5) + 1) / 2;
             ctx.save();
             ctx.translate(this.x, this.y);
             ctx.beginPath();
@@ -887,6 +1722,19 @@ class BossSwarmKing extends BossBase {
             // "STUNNED" text or icon?
             // Just the pulse and maybe darker color for body
             ctx.restore();
+        }
+        if (this.phase3State === 'exhausted') {
+            this.getBossArenaAnchors('swarmNest').slice(0, 10).forEach((anchor, index) => {
+                const pulse = (Math.sin(this.exhaustedTimer * Math.PI * 4 + index) + 1) / 2;
+                ctx.save();
+                ctx.globalAlpha = 0.18 + pulse * 0.18;
+                ctx.strokeStyle = '#fff36b';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(anchor.x, anchor.y, 28 + pulse * 16, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+            });
         }
 
         // Render weak points
@@ -909,11 +1757,45 @@ class BossSwarmKing extends BossBase {
             rotationAngle: this.rotationAngle,
             rotationSpeed: this.rotationSpeed,
             spikeExtension: this.spikeExtension,
+            state: this.state,
+            stateTimer: this.stateTimer,
+            swarmBeat: this.swarmBeat,
+            attackFired: this.attackFired,
+            swarmVolleySequence: this.swarmVolleySequence,
+            phase3BurstSequence: this.phase3BurstSequence,
+            phase3State: this.phase3State,
+            dashCount: this.dashCount,
+            dashTarget: this.dashTarget,
+            exhaustedTimer: this.exhaustedTimer,
+            phase3WebIndex: this.phase3WebIndex,
+            phase3DashStart: this.phase3DashStart,
+            phase3DashPath: this.phase3DashPath,
+            phase3DashFinalTarget: this.phase3DashFinalTarget,
             beamStateTimer: this.beamStateTimer,
             pendingBeamAngle: this.pendingBeamAngle,
             beamTelegraphAngle: this.beamTelegraphAngle,
             phase3BeamCooldown: this.phase3BeamCooldown,
-            phase2VolleyCooldown: this.phase2VolleyCooldown
+            phase2VolleyCooldown: this.phase2VolleyCooldown,
+            pheromoneTrails: this.pheromoneTrails.map(trail => ({
+                id: trail.id,
+                points: trail.points,
+                elapsed: trail.elapsed,
+                windupDuration: trail.windupDuration,
+                buildDelay: trail.buildDelay,
+                segmentRevealInterval: trail.segmentRevealInterval,
+                activeDuration: trail.activeDuration,
+                fadeDuration: trail.fadeDuration,
+                duration: trail.duration,
+                alpha: trail.alpha,
+                runnerSpeed: trail.runnerSpeed,
+                visualWidth: trail.visualWidth,
+                lane: trail.lane || 0,
+                webTrail: !!trail.webTrail,
+                liveTrail: !!trail.liveTrail,
+                routeComplete: !!trail.routeComplete
+            })),
+            activePhase3WebTrailId: this.activePhase3WebTrail ? this.activePhase3WebTrail.id : null,
+            nestPulseMarkers: this.nestPulseMarkers
         };
     }
 
@@ -932,11 +1814,60 @@ class BossSwarmKing extends BossBase {
         }
         if (state.rotationSpeed !== undefined) this.rotationSpeed = state.rotationSpeed;
         if (state.spikeExtension !== undefined) this.spikeExtension = state.spikeExtension;
+        if (state.state !== undefined) this.state = state.state;
+        if (state.stateTimer !== undefined) this.stateTimer = state.stateTimer;
+        if (state.swarmBeat !== undefined) this.swarmBeat = state.swarmBeat;
+        if (state.attackFired !== undefined) this.attackFired = state.attackFired;
+        if (state.swarmVolleySequence !== undefined) this.swarmVolleySequence = state.swarmVolleySequence;
+        if (state.phase3BurstSequence !== undefined) this.phase3BurstSequence = state.phase3BurstSequence;
+        if (state.phase3State !== undefined) this.phase3State = state.phase3State;
+        if (state.dashCount !== undefined) this.dashCount = state.dashCount;
+        if (state.dashTarget !== undefined) this.dashTarget = state.dashTarget;
+        if (state.exhaustedTimer !== undefined) this.exhaustedTimer = state.exhaustedTimer;
+        if (state.phase3WebIndex !== undefined) this.phase3WebIndex = state.phase3WebIndex;
+        if (state.phase3DashStart !== undefined) this.phase3DashStart = state.phase3DashStart;
+        if (Array.isArray(state.phase3DashPath)) this.phase3DashPath = state.phase3DashPath.map(point => ({ x: point.x, y: point.y }));
+        if (state.phase3DashFinalTarget !== undefined) this.phase3DashFinalTarget = state.phase3DashFinalTarget;
         if (state.beamStateTimer !== undefined) this.beamStateTimer = state.beamStateTimer;
         if (state.pendingBeamAngle !== undefined) this.pendingBeamAngle = state.pendingBeamAngle;
         if (state.beamTelegraphAngle !== undefined) this.beamTelegraphAngle = state.beamTelegraphAngle;
         if (state.phase3BeamCooldown !== undefined) this.phase3BeamCooldown = state.phase3BeamCooldown;
         if (state.phase2VolleyCooldown !== undefined) this.phase2VolleyCooldown = state.phase2VolleyCooldown;
+        if (Array.isArray(state.pheromoneTrails)) {
+            this.pheromoneTrails = state.pheromoneTrails.map(trail => ({
+                id: trail.id,
+                points: Array.isArray(trail.points) ? trail.points.map(point => ({ x: point.x, y: point.y })) : [],
+                elapsed: trail.elapsed || 0,
+                windupDuration: trail.windupDuration !== undefined ? trail.windupDuration : 0.65,
+                buildDelay: trail.buildDelay !== undefined ? trail.buildDelay : 0,
+                segmentRevealInterval: trail.segmentRevealInterval !== undefined ? trail.segmentRevealInterval : 0.16,
+                activeDuration: trail.activeDuration || 4,
+                fadeDuration: trail.fadeDuration || 1,
+                duration: trail.duration || 5,
+                alpha: trail.alpha !== undefined ? trail.alpha : 1,
+                runnerSpeed: trail.runnerSpeed || this.getPheromonePhaseConfig().runnerSpeed,
+                visualWidth: trail.visualWidth || this.getPheromonePhaseConfig().visualWidth,
+                lane: trail.lane || 0,
+                webTrail: !!trail.webTrail,
+                liveTrail: !!trail.liveTrail,
+                routeComplete: !!trail.routeComplete
+            }));
+        }
+        if (state.activePhase3WebTrailId) {
+            this.activePhase3WebTrail = this.pheromoneTrails.find(trail => trail.id === state.activePhase3WebTrailId) || null;
+        } else {
+            this.activePhase3WebTrail = null;
+        }
+        if (Array.isArray(state.nestPulseMarkers)) {
+            this.nestPulseMarkers = state.nestPulseMarkers.map(marker => ({
+                x: marker.x,
+                y: marker.y,
+                elapsed: marker.elapsed || 0,
+                duration: marker.duration || 1,
+                delay: marker.delay || 0,
+                warning: !!marker.warning
+            }));
+        }
 
         if (isClient) {
             const desiredSpin = this.shouldClientSpin(this.phase, this.state);

@@ -633,7 +633,10 @@
 						});
 						kickBtn.addEventListener('click', async (e) => {
 							e.stopPropagation();
-							if (confirm(`Kick Player ${playerNumber}?`)) {
+							const confirmed = typeof window.showConfirm === 'function'
+								? await window.showConfirm(`Kick Player ${playerNumber}?`)
+								: confirm(`Kick Player ${playerNumber}?`);
+							if (confirmed) {
 								// Send kick message to server
 								if (mgr && mgr.send) {
 									mgr.send({

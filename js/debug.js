@@ -6,6 +6,9 @@ const DebugFlags = {
     DAMAGE_NUMBERS: false, // Verbose damage number sync logging (host, server, client, rendering)
     INVINCIBILITY: false, // Player takes no damage
     USE_CACHING: true, // Enable/disable rendering caches
+    ADAPTIVE_RENDER_QUALITY: true, // Reduce optional render resolution/frequency under sustained pressure
+    RENDER_TIMING: false, // Track ground loot / player gear / remote player render sub-timings
+    ROOM_LAYOUT: false, // Draw generated room collision grid, spawn, and exit zones
 
     // Toggle a debug flag from console: DebugFlags.DAMAGE_NUMBERS = true
     enable(flagName) {
@@ -33,7 +36,10 @@ const DebugPanel = {
 
     // Frame time tracking
     frameTimes: [],
+    cpuTimes: [],
+    phaseSamples: {},
     lastFrameTime: 0,
+    lastMetricsDomUpdate: 0,
 
     // Initialize debug panel
     init() {
@@ -44,7 +50,13 @@ const DebugPanel = {
             position: fixed;
             top: 20px;
             right: 20px;
-            width: 250px;
+            width: 280px;
+            max-height: calc(100vh - 40px);
+            max-height: calc(100dvh - 40px);
+            overflow-x: hidden;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            -webkit-overflow-scrolling: touch;
             background: rgba(20, 20, 30, 0.95);
             border: 2px solid #00ff00;
             border-radius: 8px;
@@ -55,11 +67,12 @@ const DebugPanel = {
             z-index: 10000;
             display: none;
             box-shadow: 0 4px 12px rgba(0, 255, 0, 0.3);
+            box-sizing: border-box;
         `;
 
         // Panel content
         this.panelElement.innerHTML = `
-            <div style="margin-bottom: 10px; font-weight: bold; font-size: 16px; text-align: center; border-bottom: 1px solid #00ff00; padding-bottom: 8px;">
+            <div style="position: sticky; top: -15px; z-index: 2; margin: -15px -15px 10px -15px; padding: 15px 15px 8px 15px; background: rgba(20, 20, 30, 0.98); border-bottom: 1px solid #00ff00; font-weight: bold; font-size: 16px; text-align: center;">
                 DEBUG PANEL
             </div>
             <div style="margin-bottom: 15px;">
@@ -81,10 +94,17 @@ const DebugPanel = {
             </div>
             <div style="margin-bottom: 15px; padding-top: 10px; border-top: 1px solid #00ff00;">
                 <div style="margin-bottom: 8px; font-weight: bold;">Performance</div>
-                <label style="display: flex; align-items: center; cursor: pointer; user-select: none; margin-bottom: 8px;">
+                <label style="display: flex; align-items: center; cursor: pointer; user-select: none; margin-bottom: 6px;">
                     <input type="checkbox" id="debugUseCaching" style="margin-right: 8px; cursor: pointer;">
                     <span style="color: #00ffff;">Use Caching</span>
                 </label>
+                <label style="display: flex; align-items: center; cursor: pointer; user-select: none; margin-bottom: 8px;">
+                    <input type="checkbox" id="debugRenderTiming" style="margin-right: 8px; cursor: pointer;">
+                    <span style="color: #00ffff;">Metrics When Hidden</span>
+                </label>
+                <div style="font-size: 12px; color: #88ff88; margin-top: 5px;">
+                    <div>FPS: <span id="debugFps" style="color: #fff;">-</span> &nbsp;|&nbsp; Quality: <span id="debugQualityTier" style="color: #fff;">-</span></div>
+                </div>
                 <div style="font-size: 12px; color: #88ff88; margin-top: 5px;">
                     <div>Frame Time (Avg):</div>
                     <div style="display: flex; justify-content: space-between; margin-top: 2px;">
@@ -105,6 +125,57 @@ const DebugPanel = {
                         <span>10s: <span id="debugCpu10s" style="color: #fff;">-</span>ms</span>
                     </div>
                 </div>
+                <div style="font-size: 12px; color: #88ff88; margin-top: 5px; border-top: 1px dashed #00ff00; padding-top: 5px;">
+                    <div>Frame Breakdown (1s avg):</div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; margin-top: 2px;">
+                        <span>Upd: <span id="debugPhaseUpdate" style="color: #fff;">-</span></span>
+                        <span>Rnd: <span id="debugPhaseRender" style="color: #fff;">-</span></span>
+                        <span>Static: <span id="debugPhaseStatic" style="color: #fff;">-</span></span>
+                        <span>World: <span id="debugPhaseWorld" style="color: #fff;">-</span></span>
+                        <span>Glow: <span id="debugPhaseWorldGlow" style="color: #fff;">-</span></span>
+                        <span>Bodies: <span id="debugPhaseWorldBodies" style="color: #fff;">-</span></span>
+                        <span>Vig: <span id="debugPhaseVignette" style="color: #fff;">-</span></span>
+                        <span>Post: <span id="debugPhasePostFx" style="color: #fff;">-</span></span>
+                        <span>UI: <span id="debugPhaseUi" style="color: #fff;">-</span></span>
+                        <span>Other: <span id="debugPhaseOther" style="color: #fff;">-</span></span>
+                        <span>Catch: <span id="debugCatchupUpdates" style="color: #fff;">-</span></span>
+                        <span>Drop: <span id="debugAccumulatorDrop" style="color: #fff;">-</span></span>
+                    </div>
+                </div>
+                <div id="debugRenderTimingSection" style="font-size: 12px; color: #88ff88; margin-top: 5px; border-top: 1px dashed #00ff00; padding-top: 5px;">
+                    <div>Render Sub-Timings (1s avg):</div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; margin-top: 2px;">
+                        <span>Loot: <span id="debugRenderGroundLoot" style="color: #fff;">-</span></span>
+                        <span>Rings: <span id="debugRenderGearRings" style="color: #fff;">-</span></span>
+                        <span>Remote: <span id="debugRenderRemote" style="color: #fff;">-</span></span>
+                        <span>W Glow: <span id="debugRenderWorldGlow" style="color: #fff;">-</span></span>
+                        <span>W Body: <span id="debugRenderWorldBodies" style="color: #fff;">-</span></span>
+                    </div>
+                </div>
+                <div style="font-size: 12px; color: #88ff88; margin-top: 5px; border-top: 1px dashed #00ff00; padding-top: 5px;">
+                    <div>Budget (2s avg): <span id="debugBudgetFrame" style="color: #fff;">-</span> / <span id="debugBudgetRender" style="color: #fff;">-</span>ms</div>
+                </div>
+                <div style="font-size: 12px; color: #88ff88; margin-top: 5px; border-top: 1px dashed #00ff00; padding-top: 5px;">
+                    <div>Scene (visible / total):</div>
+                    <div id="debugSceneCounts" style="font-size: 11px; color: #ccc; line-height: 1.4; margin-top: 2px;">-</div>
+                </div>
+                <div style="font-size: 12px; color: #88ff88; margin-top: 8px; border-top: 1px dashed #00ff00; padding-top: 5px;">
+                    <div style="margin-bottom: 6px; font-weight: bold; color: #ffcc66;">Run Profile</div>
+                    <label style="display: flex; align-items: center; cursor: pointer; user-select: none; margin-bottom: 6px;">
+                        <input type="checkbox" id="debugProfileAutoStart" style="margin-right: 8px; cursor: pointer;">
+                        <span style="color: #ffcc66;">Auto-start on run</span>
+                    </label>
+                    <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px;">
+                        <button id="debugProfileStartBtn" style="flex: 1; min-width: 70px; padding: 5px; background: #1a1a2e; border: 1px solid #ffcc66; color: #ffcc66; cursor: pointer; border-radius: 4px;">Start</button>
+                        <button id="debugProfileStopBtn" style="flex: 1; min-width: 70px; padding: 5px; background: #1a1a2e; border: 1px solid #ff8888; color: #ff8888; cursor: pointer; border-radius: 4px;">Stop</button>
+                        <button id="debugProfileExportBtn" style="flex: 1; min-width: 70px; padding: 5px; background: #1a1a2e; border: 1px solid #88ff88; color: #88ff88; cursor: pointer; border-radius: 4px;">Export</button>
+                    </div>
+                    <div id="debugProfileStatus" style="font-size: 11px; color: #ccc; line-height: 1.35; white-space: pre-wrap;">Inactive</div>
+                </div>
+            </div>
+            <div style="margin-bottom: 15px; padding-top: 10px; border-top: 1px solid #00ff00;">
+                <div style="margin-bottom: 8px; font-weight: bold;">Combat Scaling</div>
+                <div id="debugScalingFactors" style="font-size: 11px; color: #88ff88; line-height: 1.4;">-</div>
             </div>
             <div style="margin-bottom: 15px; padding-top: 10px; border-top: 1px solid #00ff00;">
                 <div style="margin-bottom: 8px; font-weight: bold;">Cheats</div>
@@ -129,6 +200,14 @@ const DebugPanel = {
         `;
 
         document.body.appendChild(this.panelElement);
+
+        this.panelElement.addEventListener('wheel', (e) => {
+            e.stopPropagation();
+        }, { passive: true });
+
+        this.panelElement.addEventListener('touchmove', (e) => {
+            e.stopPropagation();
+        }, { passive: true });
 
         // Wire up buttons
         this.setupEventListeners();
@@ -202,6 +281,92 @@ const DebugPanel = {
                 console.log(`[Debug] Caching: ${DebugFlags.USE_CACHING ? 'ENABLED' : 'DISABLED'}`);
             });
         }
+
+        const renderTimingCheckbox = this.panelElement.querySelector('#debugRenderTiming');
+        if (renderTimingCheckbox) {
+            renderTimingCheckbox.checked = DebugFlags.RENDER_TIMING;
+            renderTimingCheckbox.addEventListener('change', (e) => {
+                DebugFlags.RENDER_TIMING = e.target.checked;
+                console.log(`[Debug] Metrics when hidden: ${DebugFlags.RENDER_TIMING ? 'ENABLED' : 'DISABLED'}`);
+            });
+        }
+
+        const profileAutoStart = this.panelElement.querySelector('#debugProfileAutoStart');
+        const profileStartBtn = this.panelElement.querySelector('#debugProfileStartBtn');
+        const profileStopBtn = this.panelElement.querySelector('#debugProfileStopBtn');
+        const profileExportBtn = this.panelElement.querySelector('#debugProfileExportBtn');
+        if (profileAutoStart && typeof RunProfiler !== 'undefined') {
+            profileAutoStart.checked = !!RunProfiler.autoStartOnRun;
+            profileAutoStart.addEventListener('change', (e) => {
+                RunProfiler.autoStartOnRun = e.target.checked;
+                this.updateProfileStatusUI();
+            });
+        }
+        if (profileStartBtn && typeof RunProfiler !== 'undefined') {
+            profileStartBtn.addEventListener('click', () => {
+                if (RunProfiler.isActive()) {
+                    console.log('[RunProfiler] Already recording');
+                    return;
+                }
+                RunProfiler.start(this.buildProfilerMeta());
+                DebugFlags.RENDER_TIMING = true;
+                const renderTimingEl = this.panelElement.querySelector('#debugRenderTiming');
+                if (renderTimingEl) renderTimingEl.checked = true;
+                if (typeof Game !== 'undefined' && Game.state === 'PLAYING' && typeof currentRoom !== 'undefined' && currentRoom) {
+                    RunProfiler.markRoomEnter(
+                        Game.roomNumber || currentRoom.number || 1,
+                        currentRoom.type || 'normal',
+                        currentRoom.biomeId || null
+                    );
+                }
+                this.updateProfileStatusUI();
+            });
+        }
+        if (profileStopBtn && typeof RunProfiler !== 'undefined') {
+            profileStopBtn.addEventListener('click', () => {
+                if (!RunProfiler.isActive()) {
+                    return;
+                }
+                RunProfiler.stop();
+                this.updateProfileStatusUI();
+                console.log(RunProfiler.getSummaryText());
+            });
+        }
+        if (profileExportBtn && typeof RunProfiler !== 'undefined') {
+            profileExportBtn.addEventListener('click', () => {
+                RunProfiler.exportJson();
+            });
+        }
+    },
+
+    buildProfilerMeta() {
+        if (typeof Game === 'undefined' || !Game) {
+            return {};
+        }
+        return {
+            gameMode: Game.gameMode || null,
+            selectedClass: Game.selectedClass || null,
+            multiplayer: !!Game.multiplayerEnabled,
+            roomNumber: Game.roomNumber || 1
+        };
+    },
+
+    updateProfileStatusUI() {
+        const statusEl = this.panelElement && this.panelElement.querySelector('#debugProfileStatus');
+        if (!statusEl || typeof RunProfiler === 'undefined') {
+            return;
+        }
+        if (!RunProfiler.isActive()) {
+            const sampleCount = RunProfiler.global ? RunProfiler.global.sampleCount : 0;
+            statusEl.textContent = sampleCount > 0
+                ? `Inactive (${sampleCount} samples retained — Export to save)`
+                : 'Inactive';
+            return;
+        }
+        const elapsed = Math.max(0, performance.now() - RunProfiler.startedAt);
+        const rooms = RunProfiler.rooms ? RunProfiler.rooms.length : 0;
+        const samples = RunProfiler.global ? RunProfiler.global.sampleCount : 0;
+        statusEl.textContent = `Recording ${(elapsed / 1000).toFixed(0)}s\nRooms: ${rooms}  Samples: ${samples}`;
     },
 
     // Toggle panel visibility
@@ -261,7 +426,13 @@ const DebugPanel = {
 
         // Update currentRoom
         if (typeof currentRoom !== 'undefined') {
+            if (typeof releaseRoomRenderCaches === 'function') {
+                releaseRoomRenderCaches(currentRoom);
+            }
             currentRoom = newRoom;
+            if (typeof prepareRoomRenderCaches === 'function') {
+                prepareRoomRenderCaches(currentRoom, roomNumber);
+            }
         }
 
         // Update enemies array
@@ -310,6 +481,22 @@ const DebugPanel = {
         const roomDisplay = this.panelElement.querySelector('#debugCurrentRoom');
         if (roomDisplay && typeof Game !== 'undefined') {
             roomDisplay.textContent = Game.roomNumber || 1;
+        }
+
+        const scalingEl = this.panelElement.querySelector('#debugScalingFactors');
+        if (scalingEl && typeof CombatScaling !== 'undefined' && typeof Game !== 'undefined') {
+            const roomType = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.type : 'normal';
+            const ctx = CombatScaling.createContext({
+                roomNumber: Game.roomNumber || 1,
+                roomType,
+                gameMode: Game.gameMode || 'gear',
+                difficulty: Game.difficulty || 'normal'
+            });
+            const f = CombatScaling.computeScalingFactors(ctx);
+            scalingEl.textContent =
+                `HP×${f.roomHp.toFixed(2)} DMG×${f.roomDamage.toFixed(2)} ` +
+                `mob×${f.roomMobility.toFixed(2)} tempo×${f.roomTempo.toFixed(3)} ` +
+                `intel=${f.intelligence.toFixed(2)} count=${f.enemyCount}`;
         }
 
         this.updateBossSection();
@@ -415,59 +602,128 @@ const DebugPanel = {
     },
 
     // Update display periodically (called from game loop)
-    update(deltaTime, processTime) {
+    update(deltaTime, processTime, breakdown) {
         if (!this.visible) return;
+
+        const now = Date.now();
+        const shouldUpdateDom = now - (this.lastMetricsDomUpdate || 0) >= 200;
+        if (!shouldUpdateDom) return;
+        this.lastMetricsDomUpdate = now;
 
         this.updateDisplay();
 
-        // Ensure arrays are initialized
         if (!this.frameTimes) this.frameTimes = [];
         if (!this.cpuTimes) this.cpuTimes = [];
+        if (!this.phaseSamples) this.phaseSamples = {};
 
-        const now = Date.now();
-
-        // --- Frame Time Tracking ---
         if (typeof deltaTime === 'number' && !isNaN(deltaTime)) {
             const frameTime = deltaTime * 1000;
             if (isFinite(frameTime)) {
                 this.frameTimes.push({ time: now, value: frameTime });
-
-                // Prune old entries
                 const cutoff = now - 10000;
                 while (this.frameTimes.length > 0 && this.frameTimes[0].time < cutoff) {
                     this.frameTimes.shift();
                 }
-
-                // Update UI
-                const ft1s = this.calculateAverage(this.frameTimes, now - 1000);
-                const ft5s = this.calculateAverage(this.frameTimes, now - 5000);
-                const ft10s = this.calculateAverage(this.frameTimes, now - 10000);
-
-                this.updateMetricUI('debugFt1s', ft1s);
-                this.updateMetricUI('debugFt5s', ft5s);
-                this.updateMetricUI('debugFt10s', ft10s);
+                this.updateMetricUI('debugFt1s', this.calculateAverage(this.frameTimes, now - 1000));
+                this.updateMetricUI('debugFt5s', this.calculateAverage(this.frameTimes, now - 5000));
+                this.updateMetricUI('debugFt10s', this.calculateAverage(this.frameTimes, now - 10000));
             }
         }
 
-        // --- CPU Time Tracking ---
         if (typeof processTime === 'number' && !isNaN(processTime) && isFinite(processTime)) {
             this.cpuTimes.push({ time: now, value: processTime });
-
-            // Prune old entries
             const cutoff = now - 10000;
             while (this.cpuTimes.length > 0 && this.cpuTimes[0].time < cutoff) {
                 this.cpuTimes.shift();
             }
-
-            // Update UI
-            const cpu1s = this.calculateAverage(this.cpuTimes, now - 1000);
-            const cpu5s = this.calculateAverage(this.cpuTimes, now - 5000);
-            const cpu10s = this.calculateAverage(this.cpuTimes, now - 10000);
-
-            this.updateMetricUI('debugCpu1s', cpu1s);
-            this.updateMetricUI('debugCpu5s', cpu5s);
-            this.updateMetricUI('debugCpu10s', cpu10s);
+            this.updateMetricUI('debugCpu1s', this.calculateAverage(this.cpuTimes, now - 1000));
+            this.updateMetricUI('debugCpu5s', this.calculateAverage(this.cpuTimes, now - 5000));
+            this.updateMetricUI('debugCpu10s', this.calculateAverage(this.cpuTimes, now - 10000));
         }
+
+        if (breakdown && typeof breakdown === 'object') {
+            this.pushPhaseSample('update', breakdown.update, now);
+            this.pushPhaseSample('render', breakdown.render, now);
+            this.pushPhaseSample('static', breakdown.static, now);
+            this.pushPhaseSample('world', breakdown.world, now);
+            this.pushPhaseSample('worldGlow', breakdown.worldGlow, now);
+            this.pushPhaseSample('worldBodies', breakdown.worldBodies, now);
+            this.pushPhaseSample('vignette', breakdown.vignette, now);
+            this.pushPhaseSample('postFx', breakdown.postFx, now);
+            this.pushPhaseSample('ui', breakdown.ui, now);
+
+            const phaseSum = (breakdown.static || 0) + (breakdown.world || 0) +
+                (breakdown.vignette || 0) + (breakdown.postFx || 0) + (breakdown.ui || 0);
+            const otherRender = typeof breakdown.render === 'number'
+                ? Math.max(0, breakdown.render - phaseSum)
+                : 0;
+            this.pushPhaseSample('other', otherRender, now);
+
+            this.updatePhaseMetricUI('debugPhaseUpdate', this.getPhaseAverage('update', now));
+            this.updatePhaseMetricUI('debugPhaseRender', this.getPhaseAverage('render', now));
+            this.updatePhaseMetricUI('debugPhaseStatic', this.getPhaseAverage('static', now));
+            this.updatePhaseMetricUI('debugPhaseWorld', this.getPhaseAverage('world', now));
+            this.updatePhaseMetricUI('debugPhaseWorldGlow', this.getPhaseAverage('worldGlow', now));
+            this.updatePhaseMetricUI('debugPhaseWorldBodies', this.getPhaseAverage('worldBodies', now));
+            this.updatePhaseMetricUI('debugPhaseVignette', this.getPhaseAverage('vignette', now));
+            this.updatePhaseMetricUI('debugPhasePostFx', this.getPhaseAverage('postFx', now));
+            this.updatePhaseMetricUI('debugPhaseUi', this.getPhaseAverage('ui', now));
+            this.updatePhaseMetricUI('debugPhaseOther', this.getPhaseAverage('other', now));
+            this.updatePhaseTextUI('debugCatchupUpdates', Number.isFinite(breakdown.catchupUpdates) ? breakdown.catchupUpdates.toString() : '-');
+            this.updatePhaseTextUI('debugAccumulatorDrop', breakdown.accumulatorTruncated ? 'yes' : 'no');
+
+            const snapshot = breakdown.snapshot;
+            if (snapshot) {
+                this.updatePhaseTextUI('debugFps', snapshot.fps ? snapshot.fps.toString() : '-');
+                this.updatePhaseTextUI('debugQualityTier', snapshot.qualityTier || '-');
+
+                if (snapshot.frameBudget) {
+                    this.updatePhaseMetricUI('debugBudgetFrame', snapshot.frameBudget.frameAvg);
+                    this.updatePhaseMetricUI('debugBudgetRender', snapshot.frameBudget.renderAvg);
+                }
+
+                if (snapshot.counts) {
+                    const c = snapshot.counts;
+                    const countsEl = this.panelElement.querySelector('#debugSceneCounts');
+                    if (countsEl) {
+                        countsEl.textContent =
+                            `Enemies ${c.enemiesVisible}/${c.enemiesTotal}  ` +
+                            `Proj ${c.projectilesVisible}/${c.projectilesTotal}\n` +
+                            `Loot ${c.groundLootVisible}/${c.groundLootTotal}  ` +
+                            `Cards ${c.groundCardsVisible}/${c.groundCardsTotal}\n` +
+                            `Items ${c.groundItemsVisible}/${c.groundItemsTotal}`;
+                    }
+                }
+
+                const sub = snapshot.subTimings || {};
+                this.updatePhaseMetricUI('debugRenderGroundLoot', sub.groundLoot);
+                this.updatePhaseMetricUI('debugRenderGearRings', sub.gearRings);
+                this.updatePhaseMetricUI('debugRenderRemote', sub.remotePlayers);
+                this.updatePhaseMetricUI('debugRenderWorldGlow', sub.worldGlow);
+                this.updatePhaseMetricUI('debugRenderWorldBodies', sub.worldBodies);
+            }
+        }
+
+        if (typeof RunProfiler !== 'undefined') {
+            this.updateProfileStatusUI();
+        }
+    },
+
+    pushPhaseSample(key, value, now) {
+        if (typeof value !== 'number' || !isFinite(value)) return;
+        if (!this.phaseSamples[key]) this.phaseSamples[key] = [];
+        this.phaseSamples[key].push({ time: now, value });
+        const cutoff = now - 1000;
+        const samples = this.phaseSamples[key];
+        while (samples.length > 0 && samples[0].time < cutoff) {
+            samples.shift();
+        }
+    },
+
+    getPhaseAverage(key, now) {
+        const samples = this.phaseSamples[key];
+        if (!samples || samples.length === 0) return 0;
+        return this.calculateAverage(samples, now - 1000);
     },
 
     calculateAverage(data, startTime) {
@@ -487,6 +743,30 @@ const DebugPanel = {
         if (el) {
             el.textContent = value.toFixed(1);
             this.colorCodeFrameTime(el, value);
+        }
+    },
+
+    updatePhaseMetricUI(id, value) {
+        const el = this.panelElement.querySelector('#' + id);
+        if (!el) return;
+        if (typeof value === 'number' && isFinite(value)) {
+            el.textContent = `${value.toFixed(1)}ms`;
+            this.colorCodeFrameTime(el, value);
+        } else {
+            el.textContent = '-';
+        }
+    },
+
+    updatePhaseTextUI(id, value) {
+        const el = this.panelElement.querySelector('#' + id);
+        if (!el) return;
+        el.textContent = value;
+        if (id === 'debugAccumulatorDrop') {
+            el.style.color = value === 'yes' ? '#ff5555' : '#ffffff';
+        } else if (id === 'debugQualityTier') {
+            el.style.color = value === 'heavy' ? '#ff5555' : (value === 'medium' ? '#ffaa00' : '#00ff00');
+        } else {
+            el.style.color = '#ffffff';
         }
     },
 
@@ -651,6 +931,9 @@ window.dropGear = function (slot = null, tier = null) {
     }
 
     // Add to ground loot
+    if (typeof ensureGearDropMetadata === 'function') {
+        ensureGearDropMetadata(gear);
+    }
     groundLoot.push(gear);
 
     // Sync to window if available
@@ -672,6 +955,39 @@ window.dropGear = function (slot = null, tier = null) {
     return gear;
 };
 
+// Flood room with mixed-tier gear for render perf testing
+// Usage: floodGroundLoot() or floodGroundLoot(30)
+window.floodGroundLoot = function (count = 24) {
+    if (typeof Game === 'undefined' || !Game.player) {
+        console.error('[Dev] Game or player not available');
+        return;
+    }
+    if (typeof generateGear !== 'function' || typeof groundLoot === 'undefined') {
+        console.error('[Dev] generateGear or groundLoot not available');
+        return;
+    }
+    const tiers = ['gray', 'green', 'blue', 'purple', 'orange'];
+    const roomNum = Game.roomNumber || 1;
+    let spawned = 0;
+    for (let i = 0; i < count; i++) {
+        const angle = (Math.PI * 2 * i) / count;
+        const radius = 80 + (i % 5) * 35;
+        const x = Game.player.x + Math.cos(angle) * radius;
+        const y = Game.player.y + Math.sin(angle) * radius;
+        const tier = tiers[i % tiers.length];
+        const gear = generateGear(x, y, tier);
+        if (gear) {
+            if (typeof ensureGearDropMetadata === 'function') {
+                ensureGearDropMetadata(gear);
+            }
+            groundLoot.push(gear);
+            spawned++;
+        }
+    }
+    console.log(`[Dev] Flooded ${spawned} ground gear items around player (render perf test)`);
+    return spawned;
+};
+
 // Auto-initialize when page loads
 window.addEventListener('load', () => {
     DebugPanel.init();
@@ -682,5 +998,9 @@ window.addEventListener('load', () => {
     console.log('Debug Panel initialized. Use DebugPanel.toggle() or Ctrl+D to open/close.');
     console.log('Debug Flags available: Use DebugFlags.enable("DAMAGE_NUMBERS") to toggle verbose logging.');
     console.log('Drop gear commands: dropGear(), dropGear("weapon", "purple"), dropGear(null, "orange")');
+    console.log('Render perf test: floodGroundLoot() or floodGroundLoot(30)');
+    console.log('Open debug panel (Ctrl+D) for live metrics; enable "Metrics When Hidden" to sample with panel closed');
+    console.log('Run profiler: RunProfiler.start(), RunProfiler.exportJson(), RunProfiler.getSummaryText()');
+    console.log('Enable "Auto-start on run" in debug panel to profile full runs automatically');
 });
 

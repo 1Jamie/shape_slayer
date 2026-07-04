@@ -151,10 +151,20 @@ class EnemyBase {
         // Multiplayer interpolation targets (for clients)
         this.targetX = x;
         this.targetY = y;
+        this.lastSafeX = x;
+        this.lastSafeY = y;
         this.targetRotation = 0;
         this.lastUpdateTime = 0;
         this.lastVelocityX = 0;
         this.lastVelocityY = 0;
+
+        // Obstacle navigation is local-first, with a cached grid path fallback for concave corners.
+        this.navigationPath = null;
+        this.navigationPathIndex = 0;
+        this.navigationPathTarget = null;
+        this.navigationRepathTimer = 0;
+        this.blockedMoveCount = 0;
+        this.obstacleFollowSide = Math.random() < 0.5 ? -1 : 1;
 
         // Threat/aggro system for multiplayer (per-enemy independent tracking)
         this.threatTable = new Map(); // playerId -> [{damage, timestamp}]
@@ -337,16 +347,16 @@ class EnemyBase {
 
     // Calculate intelligence level from room number (0.0 to 1.0)
     getIntelligenceLevel(roomNumber) {
+        if (typeof CombatScaling !== 'undefined') {
+            const difficulty = typeof Game !== 'undefined' ? (Game.difficulty || 'normal') : 'normal';
+            return CombatScaling.computeIntelligence(roomNumber, difficulty);
+        }
         if (roomNumber <= 3) {
-            // Early rooms: 0.5-0.65 (smarter base, faster ramp)
             return 0.5 + (roomNumber / 3) * 0.15;
         } else if (roomNumber <= 10) {
-            // Mid rooms: 0.65-0.85 (faster progression)
             return 0.65 + ((roomNumber - 3) / 7) * 0.2;
-        } else {
-            // Late rooms: 0.85-1.0 (quickly reach max)
-            return 0.85 + Math.min((roomNumber - 10) / 10, 0.15);
         }
+        return 0.85 + Math.min((roomNumber - 10) / 10, 0.15);
     }
 
     // Get reaction speed based on intelligence (slower early, faster late)
@@ -395,8 +405,17 @@ class EnemyBase {
 
     smoothMoveTo(targetX, targetY, smoothing = this.positionSmoothing) {
         const factor = Math.min(Math.max(smoothing, 0), 1);
-        this.x += (targetX - this.x) * factor;
-        this.y += (targetY - this.y) * factor;
+        this.navigationIntentTarget = { x: targetX, y: targetY };
+        const deltaX = (targetX - this.x) * factor;
+        const deltaY = (targetY - this.y) * factor;
+        const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+        if (distance <= 0.0001 || !isFinite(distance)) return;
+
+        let heading = Math.atan2(deltaY, deltaX);
+        heading = this.getObstacleAwareHeading(heading, distance, 1);
+        if (heading === null) return;
+
+        this.tryMoveBy(Math.cos(heading) * distance, Math.sin(heading) * distance);
     }
 
     smoothMoveBy(offsetX, offsetY, smoothing = this.positionSmoothing) {
@@ -446,16 +465,390 @@ class EnemyBase {
         }
         const normX = dirX / magnitude;
         const normY = dirY / magnitude;
+        this.navigationIntentTarget = {
+            x: this.x + normX * Math.max(360, speed * 2.2),
+            y: this.y + normY * Math.max(360, speed * 2.2)
+        };
         const targetAngle = Math.atan2(normY, normX);
-        const heading = this.updateSmoothedHeading(targetAngle, smoothing);
+        let heading = this.updateSmoothedHeading(targetAngle, smoothing);
+        const adjustedHeading = this.getObstacleAwareHeading(heading, speed, deltaTime);
+        if (adjustedHeading === null) {
+            return;
+        }
+        heading = adjustedHeading;
         const moveX = Math.cos(heading) * speed * deltaTime;
         const moveY = Math.sin(heading) * speed * deltaTime;
-        this.x += moveX;
-        this.y += moveY;
+        this.tryMoveBy(moveX, moveY);
         if (updateFacing) {
             this.rotation = heading;
             this.movementHeading = heading;
         }
+    }
+
+    getNavigationRadius() {
+        let base = this.size || 20;
+        if (this.width && this.height) {
+            base = Math.max(this.width, this.height) * 0.5;
+        }
+        const pad = this.isBoss ? 14 : 4;
+        return base + pad;
+    }
+
+    getPathfindingRadius() {
+        const navRadius = this.getNavigationRadius();
+        if (!this.isBoss) {
+            return navRadius + 2;
+        }
+        const layout = typeof currentRoom !== 'undefined' && currentRoom && currentRoom.layout
+            ? currentRoom.layout
+            : null;
+        const cellPad = layout ? Math.max(8, layout.cellSize * 0.14) : 10;
+        return navRadius + cellPad;
+    }
+
+    isNavigationPathPractical(path, layout, targetX, targetY) {
+        if (!path || path.length < 2) return false;
+        if (this.isBoss) return true;
+
+        const directDist = Math.hypot(targetX - this.x, targetY - this.y);
+        if (directDist < (layout.cellSize || 40) * 1.5) return true;
+
+        let pathLen = 0;
+        let prevX = this.x;
+        let prevY = this.y;
+        for (let i = 0; i < path.length; i++) {
+            pathLen += Math.hypot(path[i].x - prevX, path[i].y - prevY);
+            prevX = path[i].x;
+            prevY = path[i].y;
+        }
+
+        const cellSize = layout.cellSize || 40;
+        return pathLen <= directDist * 1.55 + cellSize * 2.5;
+    }
+
+    tryWallFollowHeading(preferredHeading, canMoveAt, isCorridorClear, stepDistance, requireCorridor = false) {
+        const side = this.obstacleFollowSide || 1;
+        const offsets = [
+            Math.PI / 8 * side,
+            Math.PI / 4 * side,
+            Math.PI / 2 * side,
+            Math.PI * 0.75 * side,
+            -Math.PI / 8 * side,
+            -Math.PI / 4 * side,
+            -Math.PI / 2 * side,
+            -Math.PI * 0.75 * side,
+            Math.PI
+        ];
+        const corridorDistance = requireCorridor ? stepDistance * 1.5 : stepDistance;
+
+        if (requireCorridor) {
+            for (let i = 0; i < offsets.length; i++) {
+                const candidate = preferredHeading + offsets[i];
+                if (canMoveAt(candidate) && isCorridorClear(candidate, corridorDistance)) {
+                    this.obstacleFollowSide = offsets[i] >= 0 ? 1 : -1;
+                    this.movementHeading = candidate;
+                    return candidate;
+                }
+            }
+        }
+
+        for (let i = 0; i < offsets.length; i++) {
+            const candidate = preferredHeading + offsets[i];
+            if (canMoveAt(candidate)) {
+                this.obstacleFollowSide = offsets[i] >= 0 ? 1 : -1;
+                this.movementHeading = candidate;
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    tryMoveBy(deltaX, deltaY) {
+        if (!Number.isFinite(deltaX) || !Number.isFinite(deltaY)) return false;
+        if (deltaX === 0 && deltaY === 0) return false;
+        const previousX = this.x;
+        const previousY = this.y;
+        const nextX = this.x + deltaX;
+        const nextY = this.y + deltaY;
+
+        if (this.ignoreSceneryCollision) {
+            this.x = nextX;
+            this.y = nextY;
+            return true;
+        }
+
+        if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.layout && typeof RoomLayoutGenerator !== 'undefined') {
+            const radius = this.getNavigationRadius();
+            if (RoomLayoutGenerator.isPointWalkable(currentRoom.layout, nextX, nextY, radius)) {
+                this.x = nextX;
+                this.y = nextY;
+                this.lastSafeX = this.x;
+                this.lastSafeY = this.y;
+                this.blockedMoveCount = Math.max(0, (this.blockedMoveCount || 0) - 1);
+                return true;
+            }
+
+            const resolved = RoomLayoutGenerator.resolveCircleCollision(
+                currentRoom.layout,
+                nextX,
+                nextY,
+                radius,
+                previousX,
+                previousY
+            );
+            this.x = resolved.x;
+            this.y = resolved.y;
+            if (!resolved.collided) {
+                this.lastSafeX = this.x;
+                this.lastSafeY = this.y;
+                this.blockedMoveCount = Math.max(0, (this.blockedMoveCount || 0) - 1);
+                return true;
+            }
+
+            this.blockedMoveCount = (this.blockedMoveCount || 0) + 1;
+            if (this.navigationPath) {
+                this.navigationRepathTimer = 0;
+            }
+            if (this.blockedMoveCount >= 8 && RoomLayoutGenerator.findUnstuckPosition) {
+                const unstuck = RoomLayoutGenerator.findUnstuckPosition(
+                    currentRoom.layout,
+                    this.x,
+                    this.y,
+                    radius,
+                    previousX,
+                    previousY
+                );
+                if (unstuck) {
+                    this.x = unstuck.x;
+                    this.y = unstuck.y;
+                    this.lastSafeX = unstuck.x;
+                    this.lastSafeY = unstuck.y;
+                    this.blockedMoveCount = 0;
+                    this.navigationPath = null;
+                    this.navigationPathIndex = 0;
+                    this.navigationRepathTimer = 0;
+                }
+            }
+            return false;
+        }
+
+        this.x = nextX;
+        this.y = nextY;
+        return true;
+    }
+
+    getNavigationTargetForHeading(preferredHeading) {
+        const candidates = [];
+        if (this.targetLock && this.targetLockTimer > 0 && Number.isFinite(this.targetLock.x) && Number.isFinite(this.targetLock.y)) {
+            candidates.push(this.targetLock);
+        }
+        if (this.currentTarget && typeof this.getPlayerById === 'function') {
+            const targetPlayer = this.getPlayerById(this.currentTarget);
+            if (targetPlayer && Number.isFinite(targetPlayer.x) && Number.isFinite(targetPlayer.y)) {
+                candidates.push(targetPlayer);
+            }
+        }
+        if (typeof this.getNearestPlayer === 'function') {
+            const nearest = this.getNearestPlayer();
+            if (nearest && nearest.alive !== false && Number.isFinite(nearest.x) && Number.isFinite(nearest.y)) {
+                candidates.push(nearest);
+            }
+        }
+        if (this.navigationIntentTarget && Number.isFinite(this.navigationIntentTarget.x) && Number.isFinite(this.navigationIntentTarget.y)) {
+            candidates.push(this.navigationIntentTarget);
+        }
+
+        for (let i = 0; i < candidates.length; i++) {
+            const target = candidates[i];
+            const dx = target.x - this.x;
+            const dy = target.y - this.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < 80) continue;
+            const targetHeading = Math.atan2(dy, dx);
+            const headingDelta = Math.abs(normalizeAngle(targetHeading - preferredHeading));
+            if (headingDelta <= Math.PI * 0.64) {
+                return { x: target.x, y: target.y };
+            }
+        }
+
+        return null;
+    }
+
+    getPathFallbackHeading(layout, preferredHeading, speed, deltaTime, canMoveAt) {
+        if (!RoomLayoutGenerator.findPath) return null;
+        const target = this.getNavigationTargetForHeading(preferredHeading);
+        if (!target) return null;
+
+        const radius = this.getPathfindingRadius();
+        const navRadius = this.getNavigationRadius();
+        const targetChanged = !this.navigationPathTarget ||
+            Math.hypot(target.x - this.navigationPathTarget.x, target.y - this.navigationPathTarget.y) > layout.cellSize * 1.25;
+        this.navigationRepathTimer = Math.max(0, (this.navigationRepathTimer || 0) - deltaTime);
+
+        if ((this.blockedMoveCount || 0) >= 2) {
+            this.navigationRepathTimer = 0;
+        }
+
+        if (!this.navigationPath || targetChanged || this.navigationRepathTimer <= 0) {
+            const pathOpts = {
+                radiusPadding: Math.max(0, radius - navRadius),
+                maxVisited: this.isBoss ? 1000 : 420,
+                maxPathLength: this.isBoss
+                    ? Math.max(64, Math.ceil(Math.max(layout.cols, layout.rows) * 0.4))
+                    : Math.min(36, Math.ceil(Math.max(layout.cols, layout.rows) * 0.18))
+            };
+            this.navigationPath = RoomLayoutGenerator.findPath(
+                layout,
+                { x: this.x, y: this.y },
+                target,
+                navRadius,
+                pathOpts
+            );
+            if (!this.isNavigationPathPractical(this.navigationPath, layout, target.x, target.y)) {
+                this.navigationPath = null;
+            }
+            this.navigationPathIndex = 1;
+            this.navigationPathTarget = { x: target.x, y: target.y };
+            this.navigationRepathTimer = this.isBoss ? 0.18 + Math.random() * 0.06 : 0.34 + Math.random() * 0.1;
+        }
+
+        if (!this.navigationPath || this.navigationPath.length < 2) return null;
+        const waypointClearance = Math.max(layout.cellSize * 0.42, navRadius + speed * deltaTime);
+        while (this.navigationPathIndex < this.navigationPath.length - 1) {
+            const point = this.navigationPath[this.navigationPathIndex];
+            if (Math.hypot(point.x - this.x, point.y - this.y) > waypointClearance) break;
+            this.navigationPathIndex++;
+        }
+
+        const waypoint = this.navigationPath[this.navigationPathIndex];
+        if (!waypoint) return null;
+        const heading = Math.atan2(waypoint.y - this.y, waypoint.x - this.x);
+        if (canMoveAt(heading)) {
+            this.movementHeading = heading;
+            return heading;
+        }
+
+        return null;
+    }
+
+    getObstacleAwareHeading(preferredHeading, speed, deltaTime) {
+        if (typeof currentRoom === 'undefined' || !currentRoom || !currentRoom.layout || typeof RoomLayoutGenerator === 'undefined') {
+            return preferredHeading;
+        }
+
+        const layout = currentRoom.layout;
+        const radius = this.getNavigationRadius();
+        const cellSize = layout.cellSize || 40;
+        const stepDistance = Math.max(radius + 10, speed * deltaTime + radius + 8);
+        const blockedCount = this.blockedMoveCount || 0;
+        const blockedRecently = blockedCount > 0;
+        const blockedStuck = blockedCount >= 3;
+
+        const canMoveAt = (heading, distance = stepDistance) => {
+            const nextX = this.x + Math.cos(heading) * distance;
+            const nextY = this.y + Math.sin(heading) * distance;
+            return RoomLayoutGenerator.isPointWalkable(layout, nextX, nextY, radius);
+        };
+
+        const isCorridorClear = (heading, distance) => {
+            const lookX = this.x + Math.cos(heading) * distance;
+            const lookY = this.y + Math.sin(heading) * distance;
+            return RoomLayoutGenerator.isProjectilePathClear(
+                layout,
+                { x: this.x, y: this.y },
+                { x: lookX, y: lookY },
+                radius
+            );
+        };
+
+        const directStepClear = canMoveAt(preferredHeading);
+
+        if (directStepClear && !blockedRecently) {
+            this.navigationPath = null;
+            this.navigationPathIndex = 0;
+            return preferredHeading;
+        }
+
+        if (this.navigationPath && directStepClear && !blockedStuck) {
+            const shortLook = this.isBoss ? cellSize * 1.4 : cellSize * 0.9;
+            if (isCorridorClear(preferredHeading, shortLook)) {
+                this.navigationPath = null;
+                this.navigationPathIndex = 0;
+                return preferredHeading;
+            }
+        }
+
+        let needsPath = !directStepClear || blockedStuck;
+
+        if (this.isBoss && !needsPath) {
+            const lookaheadDistance = Math.min(Math.max(cellSize * 1.6, stepDistance * 1.5), 120);
+            const navTarget = this.getNavigationTargetForHeading(preferredHeading);
+            if (navTarget) {
+                const distToTarget = Math.hypot(navTarget.x - this.x, navTarget.y - this.y);
+                if (distToTarget > cellSize * 2.5) {
+                    needsPath = !RoomLayoutGenerator.isProjectilePathClear(
+                        layout,
+                        { x: this.x, y: this.y },
+                        navTarget,
+                        radius
+                    );
+                }
+            }
+            if (!needsPath && !isCorridorClear(preferredHeading, lookaheadDistance)) {
+                needsPath = true;
+            }
+        }
+
+        if (!needsPath) {
+            this.navigationPath = null;
+            this.navigationPathIndex = 0;
+            return preferredHeading;
+        }
+
+        if (!this.isBoss || !blockedStuck) {
+            const wallFollowHeading = this.tryWallFollowHeading(
+                preferredHeading,
+                canMoveAt,
+                (heading, distance) => isCorridorClear(heading, distance),
+                stepDistance,
+                this.isBoss
+            );
+            if (wallFollowHeading !== null) {
+                return wallFollowHeading;
+            }
+        }
+
+        const pathHeading = this.getPathFallbackHeading(layout, preferredHeading, speed, deltaTime, canMoveAt);
+        if (pathHeading !== null) return pathHeading;
+
+        return this.tryWallFollowHeading(preferredHeading, canMoveAt, isCorridorClear, stepDistance, false);
+    }
+
+    hasLineOfSightTo(targetX, targetY, projectileRadius = 4) {
+        if (typeof currentRoom === 'undefined' || !currentRoom || !currentRoom.layout || typeof RoomLayoutGenerator === 'undefined') {
+            return true;
+        }
+        return RoomLayoutGenerator.isProjectilePathClear(
+            currentRoom.layout,
+            { x: this.x, y: this.y },
+            { x: targetX, y: targetY },
+            projectileRadius
+        );
+    }
+
+    getLineOfSightRepositionDirection(targetX, targetY) {
+        const dx = targetX - this.x;
+        const dy = targetY - this.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist <= 0) return { x: 0, y: 0 };
+        const towardX = dx / dist;
+        const towardY = dy / dist;
+        const side = (Math.floor((this.id ? this.id.length : 1) + Date.now() / 1000) % 2 === 0) ? 1 : -1;
+        return {
+            x: towardX * 0.35 + (-towardY) * side * 0.65,
+            y: towardY * 0.35 + towardX * side * 0.65
+        };
     }
 
     getNearbyAlliesCount(enemies = [], radius = 200, includeSelf = false) {
@@ -1362,8 +1755,7 @@ class EnemyBase {
     // Process knockback (should be called before AI movement in update)
     processKnockback(deltaTime) {
         if (this.knockbackVx !== 0 || this.knockbackVy !== 0) {
-            this.x += this.knockbackVx * deltaTime;
-            this.y += this.knockbackVy * deltaTime;
+            this.tryMoveBy(this.knockbackVx * deltaTime, this.knockbackVy * deltaTime);
 
             // Decay knockback over time
             this.knockbackVx *= Math.pow(this.knockbackDecay, deltaTime);
@@ -1741,6 +2133,24 @@ class EnemyBase {
         if (typeof currentRoom !== 'undefined' && currentRoom) {
             this.x = clamp(this.x, this.size, currentRoom.width - this.size);
             this.y = clamp(this.y, this.size, currentRoom.height - this.size);
+            if (this.ignoreSceneryCollision) return;
+            if (currentRoom.layout && typeof RoomLayoutGenerator !== 'undefined') {
+                if (RoomLayoutGenerator.isPointWalkable(currentRoom.layout, this.x, this.y, this.size)) {
+                    this.lastSafeX = this.x;
+                    this.lastSafeY = this.y;
+                } else {
+                    const resolved = RoomLayoutGenerator.resolveCircleCollision(
+                        currentRoom.layout,
+                        this.x,
+                        this.y,
+                        this.size,
+                        this.lastSafeX,
+                        this.lastSafeY
+                    );
+                    this.x = resolved.x;
+                    this.y = resolved.y;
+                }
+            }
         } else if (typeof Game !== 'undefined') {
             // Fallback to canvas bounds if room not available
             this.x = clamp(this.x, this.size, Game.canvas.width - this.size);
@@ -1772,72 +2182,30 @@ class EnemyBase {
 
     // Render status effect indicators above health bar
     renderStatusEffects(ctx) {
-        const effects = [];
         const iconSize = 8;
         const iconSpacing = 12;
         const startY = this.y - this.size - 18; // Above health bar
-        let currentX = this.x;
-
-        // Bleed indicator (red drop icon with stack count)
-        if (this.bleeding && this.bleedStacks > 0) {
-            effects.push({
-                x: currentX,
-                y: startY,
-                type: 'bleed',
-                stacks: this.bleedStacks,
-                color: '#ff0000'
-            });
-            currentX += iconSpacing;
-        }
-
-        // Burn indicator (orange flame icon)
-        if (this.burning && this.burnDuration > 0) {
-            effects.push({
-                x: currentX,
-                y: startY,
-                type: 'burn',
-                color: '#ff6600'
-            });
-            currentX += iconSpacing;
-        }
-
-        // Vulnerability indicator (purple icon)
-        if (this.vulnerable && this.vulnerabilityDuration > 0) {
-            effects.push({
-                x: currentX,
-                y: startY,
-                type: 'vulnerability',
-                color: '#aa00ff'
-            });
-            currentX += iconSpacing;
-        }
-
-        // Slow indicator (blue snowflake icon)
-        if (this.slowed && this.slowDuration > 0) {
-            effects.push({
-                x: currentX,
-                y: startY,
-                type: 'slow',
-                color: '#0099ff'
-            });
-            currentX += iconSpacing;
-        }
-
-        // Render all effects
-        if (effects.length === 0) return;
+        let effectCount = 0;
+        if (this.bleeding && this.bleedStacks > 0) effectCount++;
+        if (this.burning && this.burnDuration > 0) effectCount++;
+        if (this.vulnerable && this.vulnerabilityDuration > 0) effectCount++;
+        if (this.slowed && this.slowDuration > 0) effectCount++;
+        if (effectCount === 0) return;
 
         // Center the effects horizontally
-        const totalWidth = (effects.length - 1) * iconSpacing;
+        const totalWidth = (effectCount - 1) * iconSpacing;
         const startX = this.x - totalWidth / 2;
+        let effectIndex = 0;
 
-        effects.forEach((effect, index) => {
+        const drawEffect = (type, color, stacks = 0) => {
+            const index = effectIndex++;
             const x = startX + index * iconSpacing;
-            const y = effect.y;
+            const y = startY;
 
             ctx.save();
 
             // Draw icon background circle
-            ctx.fillStyle = effect.color;
+            ctx.fillStyle = color;
             ctx.globalAlpha = 0.8;
             ctx.beginPath();
             ctx.arc(x, y, iconSize / 2 + 1, 0, Math.PI * 2);
@@ -1854,7 +2222,7 @@ class EnemyBase {
             ctx.globalAlpha = 1.0;
             ctx.beginPath();
 
-            switch (effect.type) {
+            switch (type) {
                 case 'bleed':
                     // Draw drop shape
                     ctx.moveTo(x, y - iconSize / 2);
@@ -1864,7 +2232,7 @@ class EnemyBase {
                     ctx.closePath();
                     ctx.fill();
                     // Draw stack count ABOVE the icon
-                    if (effect.stacks > 1) {
+                    if (stacks > 1) {
                         ctx.fillStyle = '#ffffff';
                         ctx.font = 'bold 10px Arial';
                         ctx.textAlign = 'center';
@@ -1872,7 +2240,7 @@ class EnemyBase {
                         // Add text shadow for better visibility
                         ctx.shadowColor = '#000000';
                         ctx.shadowBlur = 3;
-                        ctx.fillText(effect.stacks.toString(), x, y - iconSize / 2 - 3);
+                        ctx.fillText(stacks.toString(), x, y - iconSize / 2 - 3);
                         ctx.shadowBlur = 0;
                     }
                     break;
@@ -1909,7 +2277,12 @@ class EnemyBase {
             }
 
             ctx.restore();
-        });
+        };
+
+        if (this.bleeding && this.bleedStacks > 0) drawEffect('bleed', '#ff0000', this.bleedStacks);
+        if (this.burning && this.burnDuration > 0) drawEffect('burn', '#ff6600');
+        if (this.vulnerable && this.vulnerabilityDuration > 0) drawEffect('vulnerability', '#aa00ff');
+        if (this.slowed && this.slowDuration > 0) drawEffect('slow', '#0099ff');
     }
 
     // AI Behavior Methods - Shared across all enemies
@@ -2888,8 +3261,7 @@ class EnemyBase {
                 const pushY = (dy / dist) * pushStrength;
 
                 // Only move this enemy (other will handle its own separation)
-                this.x += pushX;
-                this.y += pushY;
+                this.tryMoveBy(pushX, pushY);
             }
         });
     }
@@ -3459,6 +3831,33 @@ class EnemyBase {
         throw new Error('EnemyBase.render() must be implemented by subclass');
     }
 
+    static getShieldGlowSprite(radius) {
+        if (!this._shieldGlowCache) {
+            this._shieldGlowCache = new Map();
+        }
+        const keyRadius = Math.ceil(radius);
+        if (this._shieldGlowCache.has(keyRadius)) {
+            return this._shieldGlowCache.get(keyRadius);
+        }
+
+        const padding = 12;
+        const canvasRadius = keyRadius + padding;
+        const canvas = document.createElement('canvas');
+        canvas.width = canvasRadius * 2;
+        canvas.height = canvasRadius * 2;
+        const gCtx = canvas.getContext('2d');
+        const center = canvasRadius;
+        const gradient = gCtx.createRadialGradient(center, center, Math.max(0, keyRadius - 5), center, center, keyRadius + 10);
+        gradient.addColorStop(0, 'rgba(0, 200, 255, 0.3)');
+        gradient.addColorStop(1, 'rgba(0, 200, 255, 0)');
+        gCtx.fillStyle = gradient;
+        gCtx.beginPath();
+        gCtx.arc(center, center, keyRadius + 10, 0, Math.PI * 2);
+        gCtx.fill();
+        this._shieldGlowCache.set(keyRadius, canvas);
+        return canvas;
+    }
+
     // Render shield (call this from subclass render functions after drawing the enemy)
     renderShield(ctx) {
         if (!this.hasShield || this.shieldHealth <= 0) return;
@@ -3471,13 +3870,11 @@ class EnemyBase {
         const shieldAlpha = 0.6 + (this.shieldHealth / this.maxShieldHealth) * 0.4; // Fade as shield weakens
 
         // Outer glow
-        const gradient = ctx.createRadialGradient(0, 0, shieldRadius - 5, 0, 0, shieldRadius + 10);
-        gradient.addColorStop(0, `rgba(0, 200, 255, ${shieldAlpha * 0.3})`);
-        gradient.addColorStop(1, `rgba(0, 200, 255, 0)`);
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.arc(0, 0, shieldRadius + 10, 0, Math.PI * 2);
-        ctx.fill();
+        const glowSprite = EnemyBase.getShieldGlowSprite(shieldRadius);
+        ctx.save();
+        ctx.globalAlpha = shieldAlpha;
+        ctx.drawImage(glowSprite, -glowSprite.width / 2, -glowSprite.height / 2);
+        ctx.restore();
 
         // Shield ring
         ctx.strokeStyle = this.shieldReflects ? `rgba(255, 200, 0, ${shieldAlpha})` : `rgba(0, 200, 255, ${shieldAlpha})`;

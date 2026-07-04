@@ -420,7 +420,8 @@ class Mage extends PlayerBase {
                 elapsed: 0,
                 type: 'magic',
                 color: this.color,
-                playerId: this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null) // For damage attribution
+                playerId: this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null), // For damage attribution
+                lifestealBatchId: this._lifestealSwingId || 0
             };
 
             // Apply Volley pierce/chain bonuses if active
@@ -450,9 +451,12 @@ class Mage extends PlayerBase {
         const pos = this.getGameplayPosition();
 
         // Create a new beam object
+        if (this._beamIdCounter == null) this._beamIdCounter = 0;
         const newBeam = {
+            beamId: ++this._beamIdCounter,
             elapsed: 0,
             lastTickTime: 0,
+            damageTickCount: 0,
             origin: { x: pos.x, y: pos.y },
             direction: {
                 x: Math.cos(this.rotation),
@@ -791,7 +795,7 @@ class Mage extends PlayerBase {
 
                         // Apply lifesteal
                         if (typeof applyLifesteal !== 'undefined') {
-                            applyLifesteal(this, damageDealt);
+                            applyLifesteal(this, damageDealt, { enemy, source: 'ability' });
                         }
 
                         // Apply legendary effects
@@ -1077,25 +1081,22 @@ class Mage extends PlayerBase {
         Game.enemies.forEach(enemy => {
             if (!enemy.alive) return;
 
-            // Calculate point-to-line distance
-            const dx = enemy.x - beam.origin.x;
-            const dy = enemy.y - beam.origin.y;
-
-            // Project enemy position onto beam direction
-            const projection = dx * beam.direction.x + dy * beam.direction.y;
-
-            // Check if enemy is in range
-            if (projection < 0 || projection > beamRange) return;
-
-            // Calculate perpendicular distance to beam line
-            const perpX = dx - projection * beam.direction.x;
-            const perpY = dy - projection * beam.direction.y;
-            const perpDist = Math.sqrt(perpX * perpX + perpY * perpY);
-
-            // Check if within beam width
-            if (perpDist <= beamWidth / 2 + enemy.size) {
-                hitCandidates.push({ enemy, distance: projection });
+            const beamHit = typeof getEnemyBeamHit === 'function'
+                ? getEnemyBeamHit(enemy, beam.origin, beam.direction.x, beam.direction.y, beamRange, beamWidth)
+                : null;
+            if (!beamHit) {
+                const dx = enemy.x - beam.origin.x;
+                const dy = enemy.y - beam.origin.y;
+                const projection = dx * beam.direction.x + dy * beam.direction.y;
+                if (projection < 0 || projection > beamRange) return;
+                const perpX = dx - projection * beam.direction.x;
+                const perpY = dy - projection * beam.direction.y;
+                const perpDist = Math.sqrt(perpX * perpX + perpY * perpY);
+                if (perpDist > beamWidth / 2 + enemy.size) return;
+                hitCandidates.push({ enemy, distance: projection, hitX: enemy.x, hitY: enemy.y });
+                return;
             }
+            hitCandidates.push({ enemy, distance: beamHit.distance, hitX: beamHit.hitX, hitY: beamHit.hitY });
         });
 
         // Sort by distance (closest first)
@@ -1124,6 +1125,9 @@ class Mage extends PlayerBase {
     processBeamDamageTick(beam) {
         if (typeof Game === 'undefined' || !Game.enemies) return;
 
+        beam.damageTickCount = (beam.damageTickCount || 0) + 1;
+        const beamPulseKey = `${beam.beamId}:${beam.damageTickCount}`;
+
         const beamRange = MAGE_CONFIG.beamRange;
         const beamWidth = MAGE_CONFIG.beamWidth;
         const maxPenetration = this.effectiveBeamMaxPenetration || MAGE_CONFIG.beamMaxPenetration;
@@ -1135,25 +1139,22 @@ class Mage extends PlayerBase {
         Game.enemies.forEach(enemy => {
             if (!enemy.alive) return;
 
-            // Calculate point-to-line distance
-            const dx = enemy.x - beam.origin.x;
-            const dy = enemy.y - beam.origin.y;
-
-            // Project enemy position onto beam direction
-            const projection = dx * beam.direction.x + dy * beam.direction.y;
-
-            // Check if enemy is in range
-            if (projection < 0 || projection > beamRange) return;
-
-            // Calculate perpendicular distance to beam line
-            const perpX = dx - projection * beam.direction.x;
-            const perpY = dy - projection * beam.direction.y;
-            const perpDist = Math.sqrt(perpX * perpX + perpY * perpY);
-
-            // Check if within beam width
-            if (perpDist <= beamWidth / 2 + enemy.size) {
-                hitCandidates.push({ enemy, distance: projection });
+            const beamHit = typeof getEnemyBeamHit === 'function'
+                ? getEnemyBeamHit(enemy, beam.origin, beam.direction.x, beam.direction.y, beamRange, beamWidth)
+                : null;
+            if (!beamHit) {
+                const dx = enemy.x - beam.origin.x;
+                const dy = enemy.y - beam.origin.y;
+                const projection = dx * beam.direction.x + dy * beam.direction.y;
+                if (projection < 0 || projection > beamRange) return;
+                const perpX = dx - projection * beam.direction.x;
+                const perpY = dy - projection * beam.direction.y;
+                const perpDist = Math.sqrt(perpX * perpX + perpY * perpY);
+                if (perpDist > beamWidth / 2 + enemy.size) return;
+                hitCandidates.push({ enemy, distance: projection, hitX: enemy.x, hitY: enemy.y });
+                return;
             }
+            hitCandidates.push({ enemy, distance: beamHit.distance, hitX: beamHit.hitX, hitY: beamHit.hitY });
         });
 
         // Sort by distance (closest first)
@@ -1186,7 +1187,11 @@ class Mage extends PlayerBase {
             // Get player ID from beam for damage attribution
             const attackerId = beam.playerId;
 
-            enemy.takeDamage(finalDamage, attackerId);
+            if (enemy.isBoss && typeof enemy.takeDamage === 'function') {
+                enemy.takeDamage(finalDamage, candidate.hitX, candidate.hitY, beamWidth / 2, attackerId);
+            } else {
+                enemy.takeDamage(finalDamage, attackerId);
+            }
 
             // Track damage stats for end scene (host/solo only)
             const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
@@ -1212,7 +1217,7 @@ class Mage extends PlayerBase {
 
             // Apply lifesteal
             if (typeof applyLifesteal !== 'undefined') {
-                applyLifesteal(this, damageDealt);
+                applyLifesteal(this, damageDealt, { enemy, source: 'beam', pulseKey: beamPulseKey });
             }
 
             // Apply legendary effects (burn, freeze) and chain lightning
@@ -1455,7 +1460,9 @@ class Mage extends PlayerBase {
 
             // Draw particle effects along beam (use actual endpoint distance)
             const beamLength = Math.sqrt((endX - beam.origin.x) ** 2 + (endY - beam.origin.y) ** 2);
-            const numParticles = 8;
+            const degraded = typeof Game !== 'undefined' && Game.renderQuality &&
+                Game.renderQuality.gearRingPoints <= 32;
+            const numParticles = degraded ? 4 : 8;
             for (let i = 0; i < numParticles; i++) {
                 const t = (i / numParticles + beam.elapsed * 2) % 1;
                 const px = beam.origin.x + (endX - beam.origin.x) * t;

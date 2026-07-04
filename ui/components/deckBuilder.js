@@ -238,18 +238,26 @@
 		}
 	}
 
+	function notify(message, duration = 3000) {
+		if (typeof window.showToast === 'function') {
+			window.showToast(message, duration);
+		} else {
+			console.warn('[DeckBuilder]', message);
+		}
+	}
+
 	function saveDeck() {
 		const deck = getCurrentDeck();
 		const deckSize = getDeckSize();
 		
 		// Validation
 		if (deck.length < 10) {
-			alert('Deck must have at least 10 cards!');
+			notify('Deck must have at least 10 cards!');
 			return;
 		}
 		
 		if (deck.length > deckSize) {
-			alert(`Deck cannot exceed ${deckSize} cards!`);
+			notify(`Deck cannot exceed ${deckSize} cards!`);
 			return;
 		}
 		
@@ -259,7 +267,7 @@
 			cardCounts[cardId] = (cardCounts[cardId] || 0) + 1;
 			const card = window.CardCatalog && window.CardCatalog.getById ? window.CardCatalog.getById(cardId) : null;
 			if (card && cardCounts[cardId] > (card.maxCopies || 1)) {
-				alert(`Too many copies of ${card.name || cardId}! Maximum is ${card.maxCopies || 1}.`);
+				notify(`Too many copies of ${card.name || cardId}! Maximum is ${card.maxCopies || 1}.`);
 				return;
 			}
 		}
@@ -267,7 +275,7 @@
 		// Save
 		if (typeof SaveSystem !== 'undefined' && SaveSystem.setDeckConfig) {
 			SaveSystem.setDeckConfig({ cards: deck, size: deckSize });
-			alert('Deck saved!');
+			notify('Deck saved!', 2000);
 		}
 	}
 
@@ -520,7 +528,7 @@
 		document.addEventListener('keydown', (e) => {
 			// Don't intercept if user is typing in an input field
 			const target = e.target;
-			if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+			if (typeof isFormFieldTarget === 'function' && isFormFieldTarget(target)) {
 				return;
 			}
 			

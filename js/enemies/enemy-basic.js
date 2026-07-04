@@ -185,6 +185,17 @@ class Enemy extends EnemyBase {
     update(deltaTime) {
         if (!this.alive) return;
 
+        if (this.pheromoneControlled) {
+            this.processStun(deltaTime);
+            this.processSlow(deltaTime);
+            this.processBurn(deltaTime);
+            this.processBleed(deltaTime);
+            this.processDebuffs(deltaTime);
+            this.updateTelegraph(deltaTime);
+            this.updateRecoveryWindow(deltaTime);
+            return;
+        }
+
         // Check detection range - only activate when any player is nearby
         if (!this.checkDetection()) {
             // Enemy is in standby, don't update AI
@@ -615,8 +626,7 @@ class Enemy extends EnemyBase {
                             const pushX = (this.x - targetX) / distance * pushDistance;
                             const pushY = (this.y - targetY) / distance * pushDistance;
 
-                            this.x += pushX;
-                            this.y += pushY;
+                            this.tryMoveBy(pushX, pushY);
 
                             if (this.keepInBounds) {
                                 this.keepInBounds();
@@ -1012,8 +1022,12 @@ class Enemy extends EnemyBase {
             const remainingDistance = Math.max(0, this.lungeDistance - lungeTravelDist);
             const actualMove = Math.min(moveDistance, remainingDistance);
 
-            this.x += lungeDirX * actualMove;
-            this.y += lungeDirY * actualMove;
+            const moved = this.tryMoveBy(lungeDirX * actualMove, lungeDirY * actualMove);
+            if (!moved) {
+                this.state = 'recovery';
+                this.recoveryElapsed = 0;
+                this.lungeElapsed = this.lungeDuration;
+            }
 
             // Update rotation to face lunge direction
             this.rotation = Math.atan2(lungeDirY, lungeDirX);

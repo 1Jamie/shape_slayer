@@ -10,7 +10,7 @@ Shape Slayer is a fast, skill-first top-down action roguelike built for quick ru
 - **Boss battles with personality:** Cinematic intros, multi-phase move sets, breakable weak points, and arenas that fight back.
 - **Endless build tinkering:** Loot tiers, legendary effects, class-specific modifiers, and a persistent upgrade hub keep you chasing the next broken combo.
 - **Drop-in multiplayer:** Up to four players can queue up instantly with six-character lobby codes. Host migration and reconnection mean a disconnect won’t kill the run.
-- **Runs anywhere:** No installs, no frameworks—just open the page and start slaying.
+- **Runs anywhere:** No installs, no frameworks-just open the page and start slaying.
 
 ## Jump In
 
@@ -28,7 +28,7 @@ Shape Slayer is a fast, skill-first top-down action roguelike built for quick ru
 | **Tank** (Pentagon) | Crowd-controlling bulwark | Life-stealing hammer swings, Shout stun/slow, shield wall that retaliates |
 | **Mage** (Hexagon) | Mobile artillery | Basic spell bolts, piercing beam heavy, blink + nova special with decoy |
 
-Every class has bespoke config-tuned stats, animations, and gear synergies—rotate through them to learn how each handles the escalating chaos.
+Every class has bespoke config-tuned stats, animations, and gear synergies-rotate through them to learn how each handles the escalating chaos.
 
 ## What’s Waiting in the Arenas
 
@@ -171,7 +171,7 @@ SERVER_MODE=slave MASTER_SERVER_IP=10.0.0.100 WORKER_COUNT=4 npm start   # scale
 Shape Slayer is an evolving passion project focused on readability, responsiveness, and relentless fun. Dive in, break the build systems, and let us know what ridiculous combos you discover.
 
 - **Bugs or ideas?** Open an issue on GitHub.
-- **Want to contribute?** The codebase is plain vanilla JavaScript—fork it and go wild.
+- **Want to contribute?** The codebase is plain vanilla JavaScript-fork it and go wild.
 - **Need help?** Check the in-game debug panel (`Ctrl+D`), the console, or server logs for detailed output.
 
 ## Classes

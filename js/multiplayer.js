@@ -220,8 +220,11 @@ class MultiplayerManager {
                 case 'kicked_from_lobby':
                     this.handleKickedFromLobby(msg.data);
                     break;
-                case 'player_list_update':
-                    this.handlePlayerListUpdate(msg.data);
+                case 'lobby_migrating':
+                    this.handleLobbyMigrating(msg.data);
+                    break;
+                case 'player_disconnected':
+                    this.handlePlayerDisconnected(msg.data);
                     break;
                 case 'heartbeat_ack':
                     // Heartbeat acknowledged
@@ -612,6 +615,10 @@ class MultiplayerManager {
             gameState: Game.state || 'NEXUS', // Include current game state (NEXUS, PLAYING, etc.)
             roomNumber: Game.roomNumber || 1,
             doorOpen: (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.doorOpen : false,
+            roomType: (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.type : 'normal',
+            roomLayout: (Game.state === 'PLAYING' && typeof currentRoom !== 'undefined' && currentRoom && currentRoom.layout && typeof RoomLayoutGenerator !== 'undefined')
+                ? RoomLayoutGenerator.serializeLayout(currentRoom.layout)
+                : null,
             
             // Door waiting state (for multiplayer UI)
             playersOnDoor: Game.playersOnDoor || [],
@@ -645,25 +652,23 @@ class MultiplayerManager {
                 color: proj.color,
                 damage: proj.damage,
                 lifetime: proj.lifetime,
-                elapsed: proj.elapsed
+                elapsed: proj.elapsed,
+                trailLength: proj.trailLength,
+                trailColor: proj.trailColor,
+                baseAngle: proj.baseAngle,
+                baseSpeed: proj.baseSpeed,
+                waveAmplitude: proj.waveAmplitude,
+                waveFrequency: proj.waveFrequency,
+                wavePhase: proj.wavePhase,
+                waveClock: proj.waveClock,
+                playerId: proj.playerId || proj.ownerId || null,
+                ownerId: proj.ownerId || proj.playerId || null
             })) : [],
             
             // Serialize ground loot (only if in PLAYING state)
-            groundLoot: (Game.state === 'PLAYING' && typeof groundLoot !== 'undefined') ? groundLoot.map(gear => ({
-                id: gear.id, // Unique ID for sync
-                x: gear.x,
-                y: gear.y,
-                slot: gear.slot,
-                tier: gear.tier,
-                color: gear.color,            // Sync gear colors
-                stats: gear.stats,
-                affixes: gear.affixes || [],  // NEW: Affix system
-                classModifier: gear.classModifier || null, // NEW: Class modifiers
-                weaponType: gear.weaponType || null, // NEW: Weapon types
-                armorType: gear.armorType || null,   // NEW: Armor types
-                legendaryEffect: gear.legendaryEffect || null, // NEW: Legendary effects
-                name: gear.name               // NEW: Gear names
-            })) : [],
+            groundLoot: (Game.state === 'PLAYING' && typeof groundLoot !== 'undefined')
+                ? groundLoot.map(gear => this.serializeGearForNetwork(gear))
+                : [],
             
             // Serialize item pylons (only if in PLAYING state and multiplayer)
             // Each player gets a random item of the pylon's rarity
@@ -774,6 +779,8 @@ class MultiplayerManager {
         if (state.roomNumber !== baseline.roomNumber) meta.roomNumber = state.roomNumber;
         if (state.gameState !== baseline.gameState) meta.gameState = state.gameState;
         if (state.doorOpen !== baseline.doorOpen) meta.doorOpen = state.doorOpen;
+        if (state.roomType !== baseline.roomType) meta.roomType = state.roomType;
+        if ((state.roomLayout && state.roomLayout.hash) !== (baseline.roomLayout && baseline.roomLayout.hash)) meta.roomLayout = state.roomLayout;
         if (!this.valuesEqual(state.playersOnDoor, baseline.playersOnDoor)) meta.playersOnDoor = state.playersOnDoor;
         if (state.totalAlivePlayers !== baseline.totalAlivePlayers) meta.totalAlivePlayers = state.totalAlivePlayers;
         if (state.allPlayersDead !== baseline.allPlayersDead) meta.allPlayersDead = state.allPlayersDead;
@@ -1519,9 +1526,18 @@ class MultiplayerManager {
         const wasHost = this.isHost;
         this.isHost = data.newHostId === this.playerId;
         
-        console.log(`[Multiplayer] Host migrated. Am I host? ${this.isHost}`);
+        console.log(`[Multiplayer] Host migrated. Am I host? ${this.isHost} (new host: ${data.newHostId})`);
         
-        // Notify game
+        if (typeof Game !== 'undefined' && typeof Game.handleHostMigration === 'function') {
+            Game.handleHostMigration({
+                wasHost,
+                isHost: this.isHost,
+                newHostId: data.newHostId,
+                previousHostId: data.previousHostId || null
+            });
+        }
+        
+        // Notify game UI
         if (typeof onHostMigrated === 'function') {
             onHostMigrated(data, wasHost, this.isHost);
         }
@@ -2069,6 +2085,24 @@ class MultiplayerManager {
         if (typeof Game !== 'undefined') {
             Game.roomNumber = data.roomNumber;
         }
+
+        if (data.roomLayout) {
+            this.applySyncedRoomLayout(data.roomNumber, data.roomType || 'normal', data.roomLayout);
+            const spawnZone = data.roomLayout.spawnZone || { x: 140, y: 675 };
+            if (typeof Game !== 'undefined' && Game.player) {
+                Game.player.x = spawnZone.x;
+                Game.player.y = spawnZone.y;
+            }
+            if (this.remotePlayers && this.remotePlayers.length > 0) {
+                this.remotePlayers.forEach(rp => {
+                    rp.x = spawnZone.x;
+                    rp.y = spawnZone.y;
+                });
+                if (typeof Game !== 'undefined') {
+                    Game.remotePlayers = this.remotePlayers;
+                }
+            }
+        }
         
         // Notify game
         if (typeof onRoomTransition === 'function') {
@@ -2303,6 +2337,12 @@ class MultiplayerManager {
         if (typeof Game === 'undefined' || typeof groundLoot === 'undefined') return;
         
         const { playerId, lootId, gear } = data;
+        const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
+        
+        // Sender already applied pickup locally before broadcasting
+        if (playerId === localPlayerId) {
+            return;
+        }
         
         // Find and remove the loot by ID
         const index = groundLoot.findIndex(g => g.id === lootId);
@@ -2349,6 +2389,9 @@ class MultiplayerManager {
                 size: gear.size || 15,
                 pulse: gear.pulse || 0
             };
+            if (typeof ensureGearDropMetadata === 'function') {
+                ensureGearDropMetadata(fullGear);
+            }
             groundLoot.push(fullGear);
             console.log(`[Multiplayer] Player ${playerId} dropped ${gear.tier} ${gear.slot} at (${gear.x.toFixed(0)}, ${gear.y.toFixed(0)})`);
         }
@@ -2553,6 +2596,19 @@ class MultiplayerManager {
         const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : 1350;
         dropX = Math.max(margin, Math.min(roomWidth - margin, dropX));
         dropY = Math.max(margin, Math.min(roomHeight - margin, dropY));
+        if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.layout && typeof RoomLayoutGenerator !== 'undefined' &&
+            !RoomLayoutGenerator.isPointWalkable(currentRoom.layout, dropX, dropY, drop.size || 15)) {
+            const safePoint = RoomLayoutGenerator.findSafeSpawnPoint(currentRoom.layout, {
+                radius: drop.size || 15,
+                margin,
+                minDistanceFrom: [{ x: currentRoom.layout.spawnZone.x, y: currentRoom.layout.spawnZone.y, distance: 120 }],
+                maxAttempts: 80
+            });
+            if (safePoint) {
+                dropX = safePoint.x;
+                dropY = safePoint.y;
+            }
+        }
         
         drop.x = dropX;
         drop.y = dropY;
@@ -2561,6 +2617,40 @@ class MultiplayerManager {
         return drop;
     }
     
+    normalizeGroundLootFromNetwork(lootData) {
+        const tierColors = {
+            gray: '#999999',
+            green: '#4caf50',
+            blue: '#2196f3',
+            purple: '#9c27b0',
+            orange: '#ff9800'
+        };
+        const gear = {
+            id: lootData.id,
+            x: lootData.x,
+            y: lootData.y,
+            slot: lootData.slot,
+            tier: lootData.tier,
+            stats: lootData.stats || {},
+            affixes: lootData.affixes || [],
+            weaponType: lootData.weaponType || null,
+            armorType: lootData.armorType || null,
+            classModifier: lootData.classModifier || null,
+            legendaryEffect: lootData.legendaryEffect || null,
+            name: lootData.name || '',
+            bonus: lootData.bonus,
+            scaling: lootData.scaling,
+            roomNumber: lootData.roomNumber,
+            size: lootData.size || 15,
+            color: lootData.color || tierColors[lootData.tier] || '#999999',
+            pulse: lootData.pulse || 0
+        };
+        if (typeof ensureGearDropMetadata === 'function') {
+            ensureGearDropMetadata(gear);
+        }
+        return gear;
+    }
+
     serializeGearForNetwork(gear) {
         return {
             id: gear.id,
@@ -2929,6 +3019,8 @@ class MultiplayerManager {
             if (delta.meta.roomNumber !== undefined) base.roomNumber = delta.meta.roomNumber;
             if (delta.meta.doorOpen !== undefined) base.doorOpen = delta.meta.doorOpen;
             if (delta.meta.gameState !== undefined) base.gameState = delta.meta.gameState;
+            if (delta.meta.roomType !== undefined) base.roomType = delta.meta.roomType;
+            if (delta.meta.roomLayout !== undefined) base.roomLayout = this.deepClone(delta.meta.roomLayout);
             if (delta.meta.playersOnDoor !== undefined) base.playersOnDoor = this.deepClone(delta.meta.playersOnDoor);
             if (delta.meta.totalAlivePlayers !== undefined) base.totalAlivePlayers = delta.meta.totalAlivePlayers;
             if (delta.meta.allPlayersDead !== undefined) base.allPlayersDead = delta.meta.allPlayersDead;
@@ -3043,7 +3135,69 @@ class MultiplayerManager {
         this.latestGameState = this.deepClone(base);
         return base;
     }
+
+    beginClientRoomEnterTransition(roomNumber) {
+        if (typeof Game === 'undefined' || !Game || typeof Game.beginRoomEnterTransition !== 'function') {
+            return;
+        }
+        Game.beginRoomEnterTransition({
+            roomNumber: roomNumber || Game.roomNumber || 1,
+            onComplete: () => {
+                if (typeof Game.maybeStartBossIntroForCurrentRoom === 'function') {
+                    Game.maybeStartBossIntroForCurrentRoom();
+                }
+            }
+        });
+    }
     
+    applySyncedRoomLayout(roomNumber, roomType, roomLayout) {
+        if (!roomLayout || typeof RoomLayoutGenerator === 'undefined' || typeof Room === 'undefined') return;
+        const layout = RoomLayoutGenerator.hydrateLayout(roomLayout);
+        if (!layout) return;
+
+        if (layout.hash && typeof RoomLayoutGenerator.computeLayoutHash === 'function') {
+            const localHash = RoomLayoutGenerator.computeLayoutHash(layout);
+            if (localHash !== layout.hash) {
+                console.warn(`[Multiplayer] Room layout hash mismatch for room ${roomNumber}; using host layout (${layout.hash})`);
+            }
+        }
+
+        let room = (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.number === roomNumber)
+            ? currentRoom
+            : new Room(roomNumber);
+
+        room.type = roomType || layout.roomType || room.type || 'normal';
+        room.seed = layout.seed;
+        room.biomeId = layout.biomeId;
+        room.bossTheme = layout.bossTheme;
+        room.layoutVersion = layout.layoutVersion;
+        room.layoutHash = layout.hash;
+        room.layout = layout;
+        room.width = layout.width;
+        room.height = layout.height;
+        room.walkableGrid = layout.grid;
+        room.obstacles = layout.obstacles || [];
+        room.spawnZones = [layout.spawnZone];
+        room.exitZones = [layout.exitZone];
+        room.visualMotifs = layout.visualMotifs || [];
+        room.paths = layout.paths || [];
+        room.landmarks = layout.landmarks || [];
+        room.encounterZones = layout.encounterZones || [];
+        room.decorationSeed = layout.decorationSeed || null;
+        room.decorationProfile = layout.decorationProfile || null;
+        room.archetype = layout.archetype || null;
+        room.entranceVariant = layout.entranceVariant || null;
+
+        if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom !== room && typeof releaseRoomRenderCaches === 'function') {
+            releaseRoomRenderCaches(currentRoom);
+        }
+        currentRoom = room;
+        if (typeof window !== 'undefined') {
+            window.currentRoom = currentRoom;
+        }
+        this.beginClientRoomEnterTransition(roomNumber);
+    }
+
     applyGameState(state) {
         if (!state) return;
         
@@ -3057,6 +3211,10 @@ class MultiplayerManager {
             if (previousRoomNumber !== state.roomNumber && typeof Game.updateMusicForCurrentRoom === 'function') {
                 Game.updateMusicForCurrentRoom();
             }
+        }
+
+        if (state.roomLayout) {
+            this.applySyncedRoomLayout(state.roomNumber || Game.roomNumber || 1, state.roomType || 'normal', state.roomLayout);
         }
         
         // Sync player stats from host (authoritative for all stats)
@@ -3199,9 +3357,13 @@ class MultiplayerManager {
                                 // Create new shadow instance
                                 if (typeof createPlayer !== 'undefined') {
                                     shadowInstance = createPlayer(playerData.class, playerData.x, playerData.y);
+                                    shadowInstance.playerId = playerData.id;
+                                    shadowInstance.lobbyName = playerData.name || null;
                                     Game.remotePlayerShadowInstances.set(playerData.id, shadowInstance);
                                     console.log(`[Client] Created shadow instance for ${playerData.id} (${playerData.class})`);
                                 }
+                            } else if (!shadowInstance.playerId) {
+                                shadowInstance.playerId = playerData.id;
                             }
                             
                             // Update shadow instance with host state
@@ -3323,6 +3485,17 @@ class MultiplayerManager {
                         // Update targets for interpolation (don't snap immediately)
                         matchingProj.targetX = hostProj.x;
                         matchingProj.targetY = hostProj.y;
+                        matchingProj.color = hostProj.color;
+                        matchingProj.trailLength = hostProj.trailLength;
+                        matchingProj.trailColor = hostProj.trailColor;
+                        matchingProj.baseAngle = hostProj.baseAngle;
+                        matchingProj.baseSpeed = hostProj.baseSpeed;
+                        matchingProj.waveAmplitude = hostProj.waveAmplitude;
+                        matchingProj.waveFrequency = hostProj.waveFrequency;
+                        matchingProj.wavePhase = hostProj.wavePhase;
+                        matchingProj.waveClock = hostProj.waveClock;
+                        if (hostProj.playerId != null) matchingProj.playerId = hostProj.playerId;
+                        if (hostProj.ownerId != null) matchingProj.ownerId = hostProj.ownerId;
                         
                         // Only update velocity if it's significantly different (prevent rewinds)
                         const currentSpeed = Math.sqrt(matchingProj.vx * matchingProj.vx + matchingProj.vy * matchingProj.vy);
@@ -3419,44 +3592,16 @@ class MultiplayerManager {
                     let existingGear = groundLoot.find(g => g.id === lootData.id);
                     
                     if (!existingGear) {
-                        // New loot from host - create it with ALL affix system properties
-                        const tierColors = {
-                            'gray': '#999999',
-                            'green': '#4caf50',
-                            'blue': '#2196f3',
-                            'purple': '#9c27b0',
-                            'orange': '#ff9800'
-                        };
-                        
-                        const gear = {
-                            id: lootData.id,
-                            x: lootData.x,
-                            y: lootData.y,
-                            slot: lootData.slot,
-                            tier: lootData.tier,
-                            stats: lootData.stats || {},
-                            affixes: lootData.affixes || [],                    // NEW: Affix system
-                            weaponType: lootData.weaponType || null,           // NEW: Weapon types
-                            armorType: lootData.armorType || null,             // NEW: Armor types
-                            classModifier: lootData.classModifier || null,     // NEW: Class modifiers
-                            legendaryEffect: lootData.legendaryEffect || null, // NEW: Legendary effects
-                            name: lootData.name || '',                         // NEW: Gear names
-                            size: 15,
-                            color: lootData.color || tierColors[lootData.tier] || '#999999',
-                            pulse: 0
-                        };
+                        const gear = this.normalizeGroundLootFromNetwork(lootData);
                         groundLoot.push(gear);
                         console.log(`[Client] New loot ${gear.id} (${gear.tier} ${gear.slot}) with ${gear.affixes.length} affixes`);
                     } else {
                         // Update existing (position and properties might change)
-                        existingGear.x = lootData.x;
-                        existingGear.y = lootData.y;
-                        existingGear.affixes = lootData.affixes || [];
-                        existingGear.weaponType = lootData.weaponType || null;
-                        existingGear.armorType = lootData.armorType || null;
-                        existingGear.classModifier = lootData.classModifier || null;
-                        existingGear.legendaryEffect = lootData.legendaryEffect || null;
-                        existingGear.name = lootData.name || '';
+                        const normalized = this.normalizeGroundLootFromNetwork({
+                            ...existingGear,
+                            ...lootData
+                        });
+                        Object.assign(existingGear, normalized);
                     }
                 });
             }
@@ -3583,17 +3728,65 @@ class MultiplayerManager {
         }
     }
     
+    handlePlayerDisconnected(data) {
+        if (!data || !data.playerId) return;
+        console.log(`[Multiplayer] Player ${data.playerId} disconnected (reconnect grace: ${data.graceMs || 0}ms)`);
+    }
+    
+    handleLobbyMigrating(data) {
+        const code = (data && data.lobbyCode) || this.lobbyCode;
+        if (!code) return;
+        
+        console.log('[Multiplayer] Server rebalancing, reconnecting...');
+        this._migrating = true;
+        this.lobbyCode = code;
+        this.reconnectAttempts = 0;
+        
+        this.connected = false;
+        this.connecting = false;
+        this.stopHeartbeat();
+        
+        if (this.ws) {
+            this.ws.onclose = null;
+            if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+                this.ws.close();
+            }
+            this.ws = null;
+        }
+        
+        const localPlayer = (this.players || []).find(p => p.id === this.playerId);
+        const playerName = localPlayer ? localPlayer.name : 'Player';
+        const playerClass = (typeof Game !== 'undefined' && Game.selectedClass) || 'square';
+        
+        setTimeout(() => {
+            this.connect().then(() => {
+                this._migrating = false;
+                return this.joinLobby(code, playerName, playerClass);
+            }).catch(err => {
+                this._migrating = false;
+                console.error('[Multiplayer] Migration reconnect failed:', err);
+                this.handleDisconnect();
+            });
+        }, MultiplayerConfig.RECONNECT_DELAY);
+    }
+    
     // Handle disconnect
     handleDisconnect() {
+        if (this._migrating) return;
+        
         // Try to reconnect
         if (this.lobbyCode && this.reconnectAttempts < MultiplayerConfig.RECONNECT_ATTEMPTS) {
             this.reconnectAttempts++;
             console.log(`[Multiplayer] Reconnecting... (${this.reconnectAttempts}/${MultiplayerConfig.RECONNECT_ATTEMPTS})`);
             
+            const localPlayer = (this.players || []).find(p => p.id === this.playerId);
+            const playerName = localPlayer ? localPlayer.name : 'Player';
+            const playerClass = (typeof Game !== 'undefined' && Game.selectedClass) || 'square';
+            const code = this.lobbyCode;
+            
             setTimeout(() => {
                 this.connect().then(() => {
-                    // Rejoin lobby
-                    this.joinLobby(this.lobbyCode, 'Player', Game.selectedClass);
+                    return this.joinLobby(code, playerName, playerClass);
                 }).catch(err => {
                     console.error('[Multiplayer] Reconnect failed:', err);
                 });

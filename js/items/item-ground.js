@@ -110,10 +110,11 @@ function showItemPickupMessage(itemName, rarity) {
 }
 
 // Render ground items
-function renderGroundItems(ctx) {
-    if (!Game.groundItems || Game.groundItems.length === 0) return;
+function renderGroundItems(ctx, visibleItems) {
+    const items = visibleItems || Game.groundItems;
+    if (!items || items.length === 0) return;
 
-    for (const item of Game.groundItems) {
+    for (const item of items) {
         const pulseSize = 2 + Math.sin(item.pulse) * 2;
         const color = ITEM_RARITY_COLORS[item.definition.rarity] || '#999999';
 

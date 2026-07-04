@@ -201,6 +201,14 @@
 		return SaveSystem.getCardShards();
 	}
 
+	function notify(message, duration = 3000) {
+		if (typeof window.showToast === 'function') {
+			window.showToast(message, duration);
+		} else {
+			console.warn('[MasterySystem]', message);
+		}
+	}
+
 	function upgradeCard(cardId) {
 		if (typeof SaveSystem === 'undefined' || !SaveSystem.getCardMastery || !SaveSystem.setCardMastery || !SaveSystem.getCardShards || !SaveSystem.addCardShards) {
 			console.error('[MasterySystem] SaveSystem not available');
@@ -215,19 +223,19 @@
 
 		const currentLevel = getCardMastery(cardId);
 		if (currentLevel >= 5) {
-			alert('Card is already at maximum mastery level!');
+			notify('Card is already at maximum mastery level!');
 			return false;
 		}
 
 		const cost = getMasteryCost(card, currentLevel);
 		if (cost === null) {
-			alert('Cannot upgrade further!');
+			notify('Cannot upgrade further!');
 			return false;
 		}
 
 		const currentShards = getCardShards();
 		if (currentShards < cost) {
-			alert(`Not enough shards! Need ${cost}, have ${currentShards}.`);
+			notify(`Not enough shards! Need ${cost}, have ${currentShards}.`);
 			return false;
 		}
 
@@ -697,7 +705,7 @@
 							needsRebuild = true;
 							build();
 						} else {
-							alert(result.error || 'Failed to unlock card');
+							notify(result.error || 'Failed to unlock card');
 						}
 					}
 				}, false);
@@ -910,7 +918,7 @@
 		document.addEventListener('keydown', (e) => {
 			// Don't intercept if user is typing in an input field
 			const target = e.target;
-			if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+			if (typeof isFormFieldTarget === 'function' && isFormFieldTarget(target)) {
 				return;
 			}
 			

@@ -928,19 +928,10 @@ class OctagonEnemy extends EnemyBase {
             // Ensure we have a valid target before spawning
             const inheritedTarget = this.currentTarget || null;
             const minion = new Enemy(minionX, minionY, inheritedTarget);
-            // Use helper function to scale minion stats based on current room progression
-            if (typeof scaleMinionStats !== 'undefined') {
-                scaleMinionStats(minion, OCTAGON_CONFIG.minionHealthMultiplier,
-                    OCTAGON_CONFIG.minionDamageMultiplier,
-                    OCTAGON_CONFIG.minionXpMultiplier);
-            } else {
-                // Fallback if helper not available (shouldn't happen)
-                minion.maxHp = Math.floor(minion.maxHp * OCTAGON_CONFIG.minionHealthMultiplier);
-                minion.hp = minion.maxHp;
-                minion.damage = Math.floor(minion.damage * OCTAGON_CONFIG.minionDamageMultiplier);
-                minion.xpValue = Math.floor(minion.xpValue * OCTAGON_CONFIG.minionXpMultiplier);
-            }
-            minion.lootChance = 0.0; // No loot from minions
+            scaleMinionStats(minion, OCTAGON_CONFIG.minionHealthMultiplier,
+                OCTAGON_CONFIG.minionDamageMultiplier,
+                OCTAGON_CONFIG.minionXpMultiplier);
+            minion.lootChance = 0.0;
 
             if (typeof currentRoom !== 'undefined' && currentRoom) {
                 currentRoom.enemies.push(minion);
@@ -992,19 +983,10 @@ class OctagonEnemy extends EnemyBase {
             // Ensure we have a valid target before spawning
             const inheritedTarget = this.currentTarget || null;
             const minion = new Enemy(minionX, minionY, inheritedTarget);
-            // Use helper function to scale minion stats based on current room progression
-            if (typeof scaleMinionStats !== 'undefined') {
-                scaleMinionStats(minion, OCTAGON_CONFIG.minionHealthMultiplier,
-                    OCTAGON_CONFIG.minionDamageMultiplier,
-                    OCTAGON_CONFIG.minionXpMultiplier);
-            } else {
-                // Fallback if helper not available (shouldn't happen)
-                minion.maxHp = Math.floor(minion.maxHp * OCTAGON_CONFIG.minionHealthMultiplier);
-                minion.hp = minion.maxHp;
-                minion.damage = Math.floor(minion.damage * OCTAGON_CONFIG.minionDamageMultiplier);
-                minion.xpValue = Math.floor(minion.xpValue * OCTAGON_CONFIG.minionXpMultiplier);
-            }
-            minion.lootChance = 0.0; // No loot from minions
+            scaleMinionStats(minion, OCTAGON_CONFIG.minionHealthMultiplier,
+                OCTAGON_CONFIG.minionDamageMultiplier,
+                OCTAGON_CONFIG.minionXpMultiplier);
+            minion.lootChance = 0.0;
 
             if (typeof currentRoom !== 'undefined' && currentRoom) {
                 currentRoom.enemies.push(minion);
@@ -1047,11 +1029,9 @@ class OctagonEnemy extends EnemyBase {
             // Ensure we have a valid target before spawning
             const inheritedTarget = this.currentTarget || null;
             const minion = new Enemy(spawnX, spawnY, inheritedTarget);
-            if (typeof scaleMinionStats !== 'undefined') {
-                scaleMinionStats(minion, OCTAGON_CONFIG.minionHealthMultiplier,
-                    OCTAGON_CONFIG.minionDamageMultiplier,
-                    OCTAGON_CONFIG.minionXpMultiplier);
-            }
+            scaleMinionStats(minion, OCTAGON_CONFIG.minionHealthMultiplier,
+                OCTAGON_CONFIG.minionDamageMultiplier,
+                OCTAGON_CONFIG.minionXpMultiplier);
             minion.lootChance = 0.0;
 
             if (typeof currentRoom !== 'undefined' && currentRoom) {
@@ -1066,15 +1046,27 @@ class OctagonEnemy extends EnemyBase {
     }
 
     getSpinTelegraphDuration() {
-        return Math.max(0.2, this.spinTelegraphDuration * (1 - this.intelligenceLevel * 0.2));
+        const base = this.spinTelegraphDuration;
+        if (typeof CombatScaling !== 'undefined') {
+            return CombatScaling.getTelegraphScale(this.intelligenceLevel, base);
+        }
+        return Math.max(0.2, base * (1 - this.intelligenceLevel * 0.2));
     }
 
     getChargeTelegraphDuration() {
-        return Math.max(0.2, this.chargeTelegraphDuration * (1 - this.intelligenceLevel * 0.2));
+        const base = this.chargeTelegraphDuration;
+        if (typeof CombatScaling !== 'undefined') {
+            return CombatScaling.getTelegraphScale(this.intelligenceLevel, base);
+        }
+        return Math.max(0.2, base * (1 - this.intelligenceLevel * 0.2));
     }
 
     getShotTelegraphDuration() {
-        return Math.max(0.18, this.telegraphProfile.shoot.duration * (1 - this.intelligenceLevel * 0.25));
+        const base = this.telegraphProfile.shoot.duration;
+        if (typeof CombatScaling !== 'undefined') {
+            return Math.max(0.18, CombatScaling.getTelegraphScale(this.intelligenceLevel, base));
+        }
+        return Math.max(0.18, base * (1 - this.intelligenceLevel * 0.25));
     }
 
     startSpinSequence() {
@@ -1106,6 +1098,11 @@ class OctagonEnemy extends EnemyBase {
     }
 
     startShotSequence(targetX, targetY) {
+        if (!this.hasLineOfSightTo(targetX, targetY, OCTAGON_CONFIG.projectileSize + 2)) {
+            const reposition = this.getLineOfSightRepositionDirection(targetX, targetY);
+            this.applySmoothedDirectionalMovement(reposition.x, reposition.y, this.moveSpeed * 0.5, 0.016, 0.35, false);
+            return;
+        }
         const duration = this.getShotTelegraphDuration();
         const profile = this.telegraphProfile.shoot;
         this.pendingShot = {
@@ -1125,6 +1122,10 @@ class OctagonEnemy extends EnemyBase {
         if (typeof Game === 'undefined') return;
         if (!skipTelegraph) {
             this.startShotSequence(targetX, targetY);
+            return;
+        }
+        if (!this.hasLineOfSightTo(targetX, targetY, OCTAGON_CONFIG.projectileSize + 2)) {
+            this.attackCooldown = Math.max(this.attackCooldown || 0, OCTAGON_CONFIG.shootCooldown * 0.35);
             return;
         }
 
@@ -1206,6 +1207,11 @@ class OctagonEnemy extends EnemyBase {
             dy = predictedY - this.y;
             distance = Math.sqrt(dx * dx + dy * dy);
             if (distance <= 0) return;
+        }
+
+        if (!this.hasLineOfSightTo(this.x + dx, this.y + dy, OCTAGON_CONFIG.projectileSize + 2)) {
+            this.attackCooldown = Math.max(this.attackCooldown || 0, OCTAGON_CONFIG.shootCooldown * 0.35);
+            return;
         }
 
         // Shoot multiple projectiles in quick succession with predictive aiming

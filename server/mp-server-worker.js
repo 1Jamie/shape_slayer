@@ -163,6 +163,12 @@ class WorkerProcess {
             case 'final_stats':
                 this.handleFinalStats(ws, data);
                 break;
+            case 'revive_players':
+                this.handleRevivePlayers(ws, data);
+                break;
+            case 'shards_update':
+                this.handleShardsUpdate(ws, data);
+                break;
             case 'heartbeat':
                 ws.send(JSON.stringify({ type: 'heartbeat_ack' }));
                 break;
@@ -188,6 +194,7 @@ class WorkerProcess {
         const lobby = {
             code,
             host: ws,
+            hostPlayerId: playerId,
             players: [{
                 ws,
                 id: playerId,
@@ -284,6 +291,15 @@ class WorkerProcess {
                 
                 // Update player entry with new WebSocket and data
                 existingPlayer.ws = ws;
+                existingPlayer.disconnected = false;
+                if (existingPlayer.disconnectTimer) {
+                    clearTimeout(existingPlayer.disconnectTimer);
+                    existingPlayer.disconnectTimer = null;
+                }
+                // Restore host connection if this player is the designated host
+                if (lobby.hostPlayerId === existingPlayer.id) {
+                    lobby.host = ws;
+                }
                 // Update name if provided, otherwise keep existing name
                 if (playerName && playerName.trim()) {
                     existingPlayer.name = playerName.trim().slice(0, 20);
@@ -339,7 +355,7 @@ class WorkerProcess {
             data: {
                 code,
                 playerId,
-                isHost: false,
+                isHost: isReconnection ? (lobby.hostPlayerId === playerId) : false,
                 isReconnection: isReconnection,
                 players: lobby.players.map(p => ({
                     id: p.id,
@@ -459,19 +475,150 @@ class WorkerProcess {
             }));
         }
         
-        // Remove player from lobby (this will trigger handleLeaveLobby logic)
+        // Remove player from lobby
+        if (playerToKick.disconnectTimer) {
+            clearTimeout(playerToKick.disconnectTimer);
+            playerToKick.disconnectTimer = null;
+        }
+        
         const playerIndex = lobby.players.findIndex(p => p.id === playerId);
         if (playerIndex !== -1) {
-            lobby.players.splice(playerIndex, 1);
-            this.playerToLobby.delete(playerToKick.ws);
+            if (playerToKick.ws) {
+                this.playerToLobby.delete(playerToKick.ws);
+                
+                if (playerToKick.ws.readyState === WebSocket.OPEN) {
+                    playerToKick.ws.close();
+                }
+            }
+            console.log(`[Worker ${this.getWorkerId()}] Player ${playerId} kicked from lobby ${code} by host`);
+            this.removePlayerFromLobby(lobby, playerToKick);
+        }
+    }
+    
+    handleLeaveLobby(ws) {
+        const code = this.playerToLobby.get(ws);
+        if (!code) return;
+        
+        const lobby = this.lobbies.get(code);
+        if (!lobby) return;
+        
+        const player = lobby.players.find(p => p.ws === ws);
+        if (!player) return;
+        
+        this.removePlayerFromLobby(lobby, player);
+    }
+    
+    handleDisconnect(ws) {
+        const code = this.playerToLobby.get(ws);
+        if (!code) {
+            return;
+        }
+        
+        const lobby = this.lobbies.get(code);
+        if (!lobby) {
+            this.playerToLobby.delete(ws);
+            return;
+        }
+        
+        const player = lobby.players.find(p => p.ws === ws);
+        if (!player) {
+            this.playerToLobby.delete(ws);
+            return;
+        }
+        
+        if (player.disconnectTimer) {
+            clearTimeout(player.disconnectTimer);
+        }
+        
+        player.ws = null;
+        player.disconnected = true;
+        player.disconnectedAt = Date.now();
+        this.playerToLobby.delete(ws);
+        
+        const wasHost = lobby.host === ws;
+        if (wasHost) {
+            lobby.host = null;
+            lobby.hostPlayerId = player.id;
+        }
+        
+        const graceMs = config.lobby.disconnectGraceMs || 15000;
+        player.disconnectTimer = setTimeout(() => {
+            this.finalizeDisconnectedPlayer(code, player.id);
+        }, graceMs);
+        
+        if (config.logging.level === 'debug') {
+            console.log(`[Worker ${this.getWorkerId()}] ${player.name} disconnected from lobby ${code}, grace period ${graceMs}ms`);
+        }
+        
+        this.broadcastToLobby(lobby, {
+            type: 'player_disconnected',
+            data: {
+                playerId: player.id,
+                graceMs
+            }
+        });
+    }
+    
+    finalizeDisconnectedPlayer(code, playerId) {
+        const lobby = this.lobbies.get(code);
+        if (!lobby) return;
+        
+        const player = lobby.players.find(p => p.id === playerId);
+        if (!player) return;
+        
+        // Player reconnected during grace period
+        if (player.ws && player.ws.readyState === WebSocket.OPEN) {
+            return;
+        }
+        
+        this.removePlayerFromLobby(lobby, player);
+    }
+    
+    removePlayerFromLobby(lobby, player) {
+        const code = lobby.code;
+        const playerId = player.id;
+        
+        if (player.disconnectTimer) {
+            clearTimeout(player.disconnectTimer);
+            player.disconnectTimer = null;
+        }
+        
+        const playerIndex = lobby.players.findIndex(p => p.id === playerId);
+        if (playerIndex === -1) return;
+        
+        const wasHost = lobby.hostPlayerId === playerId || lobby.host === player.ws;
+        lobby.players.splice(playerIndex, 1);
+        
+        if (player.ws) {
+            this.playerToLobby.delete(player.ws);
+        }
+        
+        console.log(`[Worker ${this.getWorkerId()}] ${player.name} left lobby ${code} (${lobby.players.length}/${lobby.maxPlayers})`);
+        
+        if (lobby.players.length === 0) {
+            this.lobbies.delete(code);
+            this.notifyMaster('lobby_deleted', { code });
+            console.log(`[Worker ${this.getWorkerId()}] Deleted empty lobby ${code}`);
+            return;
+        }
+        
+        if (wasHost && lobby.players.length > 0) {
+            const newHostPlayer = lobby.players.find(p => p.ws && p.ws.readyState === WebSocket.OPEN) || lobby.players[0];
+            lobby.hostPlayerId = newHostPlayer.id;
+            lobby.host = (newHostPlayer.ws && newHostPlayer.ws.readyState === WebSocket.OPEN) ? newHostPlayer.ws : null;
             
-            // Close the connection
-            if (playerToKick.ws && playerToKick.ws.readyState === WebSocket.OPEN) {
-                playerToKick.ws.close();
+            if (lobby.host) {
+                this.broadcastToLobby(lobby, {
+                    type: 'host_migrated',
+                    data: {
+                        newHostId: newHostPlayer.id,
+                        previousHostId: playerId
+                    }
+                });
+                console.log(`[Worker ${this.getWorkerId()}] Host migrated to ${newHostPlayer.name} in lobby ${code}`);
             }
         }
         
-        // Notify remaining players
         this.broadcastToLobby(lobby, {
             type: 'player_left',
             data: {
@@ -486,66 +633,6 @@ class WorkerProcess {
                 }))
             }
         });
-        
-        console.log(`[Worker ${this.getWorkerId()}] Player ${playerId} kicked from lobby ${code} by host`);
-    }
-    
-    handleLeaveLobby(ws) {
-        const code = this.playerToLobby.get(ws);
-        if (!code) return;
-        
-        const lobby = this.lobbies.get(code);
-        if (!lobby) return;
-        
-        const playerIndex = lobby.players.findIndex(p => p.ws === ws);
-        if (playerIndex === -1) return;
-        
-        const player = lobby.players[playerIndex];
-        lobby.players.splice(playerIndex, 1);
-        this.playerToLobby.delete(ws);
-        
-        console.log(`[Worker ${this.getWorkerId()}] ${player.name} left lobby ${code} (${lobby.players.length}/${lobby.maxPlayers})`);
-        
-        // If lobby is empty, delete it
-        if (lobby.players.length === 0) {
-            this.lobbies.delete(code);
-            this.notifyMaster('lobby_deleted', { code });
-            console.log(`[Worker ${this.getWorkerId()}] Deleted empty lobby ${code}`);
-            return;
-        }
-        
-        // If host left, migrate to next player
-        if (lobby.host === ws && lobby.players.length > 0) {
-            lobby.host = lobby.players[0].ws;
-            lobby.players[0].ws.send(JSON.stringify({
-                type: 'host_migrated',
-                data: { newHostId: lobby.players[0].id }
-            }));
-            console.log(`[Worker ${this.getWorkerId()}] Host migrated to ${lobby.players[0].name} in lobby ${code}`);
-        }
-        
-        // Notify remaining players
-        this.broadcastToLobby(lobby, {
-            type: 'player_left',
-            data: {
-                playerId: player.id,
-                players: lobby.players.map(p => ({
-                    id: p.id,
-                    name: p.name,
-                    class: p.class,
-                    ready: p.ready,
-                    currency: p.currency,
-                    upgrades: p.upgrades
-                }))
-            }
-        });
-    }
-    
-    handleDisconnect(ws) {
-        if (config.logging.level === 'debug') {
-            console.log(`[Worker ${this.getWorkerId()}] Client disconnected`);
-        }
-        this.handleLeaveLobby(ws);
     }
     
     handleGameState(ws, data) {
@@ -720,7 +807,45 @@ class WorkerProcess {
         this.broadcastToLobby(lobby, {
             type: 'loot_pickup',
             data
-        });
+        }, ws);
+    }
+    
+    handleRevivePlayers(ws, data) {
+        const code = this.playerToLobby.get(ws);
+        if (!code) return;
+        
+        const lobby = this.lobbies.get(code);
+        if (!lobby || lobby.host !== ws) return;
+        
+        this.broadcastToLobby(lobby, {
+            type: 'revive_players',
+            data
+        }, ws);
+    }
+    
+    handleShardsUpdate(ws, data) {
+        const code = this.playerToLobby.get(ws);
+        if (!code) return;
+        
+        const lobby = this.lobbies.get(code);
+        if (!lobby || lobby.host !== ws) return;
+        
+        const targetId = data && data.targetPlayerId;
+        if (targetId) {
+            const targetPlayer = lobby.players.find(p => p.id === targetId);
+            if (targetPlayer && targetPlayer.ws.readyState === WebSocket.OPEN) {
+                targetPlayer.ws.send(JSON.stringify({
+                    type: 'shards_update',
+                    data
+                }));
+            }
+            return;
+        }
+        
+        this.broadcastToLobby(lobby, {
+            type: 'shards_update',
+            data
+        }, ws);
     }
     
     handleGearDropped(ws, data) {
@@ -800,15 +925,8 @@ class WorkerProcess {
                     }
                 }));
             }
-        } else if (lobby.host === ws) {
-            ws.send(JSON.stringify({
-                type: 'upgrade_purchase',
-                data: {
-                    ...data,
-                    playerId: lobby.players.find(p => p.ws === ws).id
-                }
-            }));
         }
+        // Host processes upgrade purchases locally in nexus — no server echo needed
     }
     
     handleUpgradePurchased(ws, data) {

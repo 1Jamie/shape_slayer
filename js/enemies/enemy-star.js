@@ -19,6 +19,13 @@ const STAR_CONFIG = {
     minRange: 450,                 // Minimum distance before retreating (pixels) - stay in darkness
     maxRange: 550,                 // Maximum distance before advancing (pixels) - long range sniping
 
+    // Close-combat panic fire (melee players closing the gap)
+    meleePressureRange: 200,       // Point-blank band - backpedal + rapid fire instead of pure flee
+    panicFireCooldownMult: 0.65,   // Faster shots when below minRange
+    panicSpreadMult: 2.0,          // Wider spread under pressure
+    retreatShootMoveMult: 0.5,     // Slow retreat while telegraphing a shot
+    pointBlankVolleyChance: 0.35,  // Chance for fan shot when cornered (room 12+)
+
     // Movement Behavior
     strafeSpeed: 2.0,              // Speed of strafing motion
     strafeAmplitude: 40,           // How far to strafe (pixels)
@@ -324,18 +331,19 @@ class StarEnemy extends EnemyBase {
             this.smoothRotateTo(Math.atan2(dy, dx)); // Keep facing target
 
         } else if (distance < this.minRange) {
-            // Too close - move away with strafing
+            // Too close - retreat but still fire (fire-and-fall-back kiting)
+            const panicLevel = distance < STAR_CONFIG.meleePressureRange ? 2 : 1;
             let awayDirX = -dx / distance;
             let awayDirY = -dy / distance;
+            const perpX = -awayDirY;
+            const perpY = awayDirX;
 
             // Complex retreat patterns (rooms 19+)
             if (this.roomNumber >= STAR_CONFIG.intelligenceThresholds.pressureBehavior) {
                 this.zigzagTimer += deltaTime * 3.0;
                 const zigzagOffset = Math.sin(this.zigzagTimer) * 30;
-                const zigzagPerpX = -awayDirY;
-                const zigzagPerpY = awayDirX;
-                awayDirX += zigzagPerpX * zigzagOffset * 0.3;
-                awayDirY += zigzagPerpY * zigzagOffset * 0.3;
+                awayDirX += perpX * zigzagOffset * 0.3;
+                awayDirY += perpY * zigzagOffset * 0.3;
                 const awayDist = Math.sqrt(awayDirX * awayDirX + awayDirY * awayDirY);
                 if (awayDist > 0) {
                     awayDirX /= awayDist;
@@ -343,24 +351,30 @@ class StarEnemy extends EnemyBase {
                 }
             }
 
-            // Add perpendicular strafing
-            const perpX = -awayDirY;
-            const perpY = awayDirX;
+            // Point-blank: backpedal diagonally instead of pure flee so melee can't mindlessly chase
+            let moveX;
+            let moveY;
+            if (panicLevel >= 2) {
+                const strafeSign = Math.sin(this.strafeTimer) >= 0 ? 1 : -1;
+                const blend = 0.55;
+                moveX = awayDirX * (1 - blend) + perpX * strafeSign * blend;
+                moveY = awayDirY * (1 - blend) + perpY * strafeSign * blend;
+            } else {
+                moveX = awayDirX;
+                moveY = awayDirY;
+            }
+
             const strafeOffset = Math.sin(this.strafeTimer) * this.strafeAmplitude;
 
             // Apply separation from other enemies
             const separation = this.getSeparationForce(enemies, STAR_CONFIG.separationRadius, STAR_CONFIG.separationStrength);
             const sepDist = Math.sqrt(separation.x * separation.x + separation.y * separation.y);
 
-            let moveX = awayDirX;
-            let moveY = awayDirY;
-
             if (sepDist > 0) {
                 const sepNormX = separation.x / sepDist;
                 const sepNormY = separation.y / sepDist;
                 const sepStrength = Math.min(sepDist, 100) / 100;
 
-                // Blend movement with separation (75% away, 25% separation)
                 moveX = moveX * 0.75 + sepNormX * 0.25 * sepStrength;
                 moveY = moveY * 0.75 + sepNormY * 0.25 * sepStrength;
 
@@ -381,13 +395,21 @@ class StarEnemy extends EnemyBase {
                 }
             }
 
-            let desiredVelX = moveX * this.moveSpeed * dodgeSpeedMultiplier + perpX * strafeOffset * 0.4;
-            let desiredVelY = moveY * this.moveSpeed * dodgeSpeedMultiplier + perpY * strafeOffset * 0.4;
+            const isTelegraphing = !!this.pendingShot;
+            const retreatSpeedMult = isTelegraphing
+                ? STAR_CONFIG.retreatShootMoveMult
+                : (panicLevel >= 2 ? 0.75 : 0.9);
+
+            let desiredVelX = moveX * this.moveSpeed * dodgeSpeedMultiplier * retreatSpeedMult + perpX * strafeOffset * 0.35;
+            let desiredVelY = moveY * this.moveSpeed * dodgeSpeedMultiplier * retreatSpeedMult + perpY * strafeOffset * 0.35;
             const desiredSpeed = Math.sqrt(desiredVelX * desiredVelX + desiredVelY * desiredVelY);
             if (desiredSpeed > 0) {
                 this.applySmoothedDirectionalMovement(desiredVelX, desiredVelY, desiredSpeed, deltaTime, 0.4, false);
             }
             this.smoothRotateTo(Math.atan2(dy, dx));
+
+            const hasLineOfSight = this.hasLineOfSightTo(targetX, targetY, STAR_CONFIG.projectileSize + 2);
+            this.attemptRangedAttack(targetX, targetY, targetPlayerRef, distance, hasLineOfSight, panicLevel, deltaTime, dodgeSpeedMultiplier);
         } else if (distance > this.maxRange) {
             // Too far - move closer with separation
             const towardDirX = dx / distance;
@@ -470,14 +492,9 @@ class StarEnemy extends EnemyBase {
 
             this.applySmoothedDirectionalMovement(moveX, moveY, this.moveSpeed * 0.6 * dodgeSpeedMultiplier, deltaTime, 0.4, false);
             this.smoothRotateTo(Math.atan2(dy, dx));
+            const hasLineOfSight = this.hasLineOfSightTo(targetX, targetY, STAR_CONFIG.projectileSize + 2);
 
-            if (targetPlayerRef && targetPlayerRef.isDodging && this.suppressionCooldown <= 0 && !this.pendingShot) {
-                this.queueShot('single', targetX, targetY, { quick: true });
-                this.attackCooldown = this.attackCooldownTime * 0.6;
-                this.suppressionCooldown = 1.2;
-            }
-
-            // Add slight adjustment toward ideal range
+            // Nudge toward ideal shooting distance while strafing
             const rangeDiff = distance - this.shootRange;
             if (Math.abs(rangeDiff) > 10) {
                 const adjustDirX = (rangeDiff > 0 ? -towardDirX : towardDirX);
@@ -486,37 +503,7 @@ class StarEnemy extends EnemyBase {
                 this.smoothRotateTo(Math.atan2(dy, dx));
             }
 
-            // Try to shoot (pass raw target position - shoot method will handle all prediction)
-            if (this.attackCooldown <= 0 && (!this.pendingShot || this.burstFireActive)) {
-                let nextCooldown = this.attackCooldownTime;
-                if (this.roomNumber >= STAR_CONFIG.intelligenceThresholds.volleyAttacks &&
-                    Math.random() < STAR_CONFIG.volleyChance * this.intelligenceLevel) {
-                    this.queueShot('volley', targetX, targetY);
-                } else if (this.burstFireActive && this.burstFireCount > 0) {
-                    this.shoot(targetX, targetY, true, true);
-                    nextCooldown = Math.min(nextCooldown, STAR_CONFIG.burstFireDelay);
-                } else {
-                    if (this.roomNumber >= STAR_CONFIG.intelligenceThresholds.burstFire) {
-                        const roomsPastThreshold = Math.max(0, this.roomNumber - STAR_CONFIG.intelligenceThresholds.burstFire);
-                        const burstScale = Math.min(1.0, roomsPastThreshold / 3);
-                        const burstChance = STAR_CONFIG.burstFireChanceBase +
-                            (STAR_CONFIG.burstFireChanceMax - STAR_CONFIG.burstFireChanceBase) * burstScale;
-
-                        if (Math.random() < burstChance * this.intelligenceLevel) {
-                            this.burstFireActive = true;
-                            this.burstFireCount = STAR_CONFIG.burstFireCount;
-                            this.burstFireTimer = 0;
-                            this.shoot(targetX, targetY, true, true);
-                            nextCooldown = Math.min(nextCooldown, STAR_CONFIG.burstFireDelay);
-                        } else {
-                            this.queueShot('single', targetX, targetY);
-                        }
-                    } else {
-                        this.queueShot('single', targetX, targetY);
-                    }
-                }
-                this.attackCooldown = nextCooldown;
-            }
+            this.attemptRangedAttack(targetX, targetY, targetPlayerRef, distance, hasLineOfSight, 0, deltaTime, dodgeSpeedMultiplier);
         }
 
         // Resolve stacking with other enemies
@@ -530,16 +517,94 @@ class StarEnemy extends EnemyBase {
                 if (this.activeTelegraph) this.endTelegraph();
                 const shot = this.pendingShot;
                 this.pendingShot = null;
-                if (shot.type === 'volley') {
-                    this.shootVolley(shot.x, shot.y, true);
+                if (!this.hasLineOfSightTo(shot.x, shot.y, STAR_CONFIG.projectileSize + 2)) {
+                    this.attackCooldown = Math.max(this.attackCooldown, this.attackCooldownTime * 0.35);
+                } else if (shot.type === 'volley') {
+                    this.shootVolley(shot.x, shot.y, true, { spreadMult: shot.spreadMult || 1 });
                 } else {
-                    this.shoot(shot.x, shot.y, false, true);
+                    this.shoot(shot.x, shot.y, false, true, { spreadMult: shot.spreadMult || 1 });
                 }
             }
         }
 
         // Keep enemy within canvas bounds
         this.keepInBounds();
+    }
+
+    // Shared shooting logic for optimal range and panic-retreat bands
+    attemptRangedAttack(targetX, targetY, targetPlayerRef, distance, hasLineOfSight, panicLevel, deltaTime, dodgeSpeedMultiplier) {
+        const isPanicking = panicLevel > 0;
+        const spreadMult = isPanicking
+            ? STAR_CONFIG.panicSpreadMult * (panicLevel >= 2 ? 1.25 : 1)
+            : 1;
+
+        if (targetPlayerRef && targetPlayerRef.isDodging && this.suppressionCooldown <= 0 && !this.pendingShot && hasLineOfSight) {
+            this.queueShot('single', targetX, targetY, { quick: true, panicLevel, spreadMult });
+            this.attackCooldown = this.attackCooldownTime * (isPanicking ? 0.45 : 0.6);
+            this.suppressionCooldown = 1.2;
+            return;
+        }
+
+        if (!hasLineOfSight) {
+            const reposition = this.getLineOfSightRepositionDirection(targetX, targetY);
+            this.applySmoothedDirectionalMovement(
+                reposition.x, reposition.y,
+                this.moveSpeed * (isPanicking ? 0.55 : 0.75) * dodgeSpeedMultiplier,
+                deltaTime, 0.35, false
+            );
+            this.attackCooldown = Math.max(this.attackCooldown, 0.18);
+            return;
+        }
+
+        if (this.attackCooldown > 0 || (this.pendingShot && !this.burstFireActive)) {
+            return;
+        }
+
+        let nextCooldown = this.attackCooldownTime;
+        if (isPanicking) {
+            nextCooldown *= STAR_CONFIG.panicFireCooldownMult;
+            if (panicLevel >= 2) {
+                nextCooldown *= 0.75;
+            }
+        }
+
+        const shotOptions = { panicLevel, spreadMult };
+
+        if (!isPanicking &&
+            this.roomNumber >= STAR_CONFIG.intelligenceThresholds.volleyAttacks &&
+            Math.random() < STAR_CONFIG.volleyChance * this.intelligenceLevel) {
+            this.queueShot('volley', targetX, targetY, shotOptions);
+        } else if (isPanicking && panicLevel >= 2 &&
+            this.roomNumber >= STAR_CONFIG.intelligenceThresholds.volleyAttacks &&
+            Math.random() < STAR_CONFIG.pointBlankVolleyChance * this.intelligenceLevel) {
+            this.queueShot('volley', targetX, targetY, { ...shotOptions, quick: true });
+            nextCooldown *= 0.85;
+        } else if (this.burstFireActive && this.burstFireCount > 0) {
+            this.shoot(targetX, targetY, true, true, shotOptions);
+            nextCooldown = Math.min(nextCooldown, STAR_CONFIG.burstFireDelay);
+        } else if (!isPanicking && this.roomNumber >= STAR_CONFIG.intelligenceThresholds.burstFire) {
+            const roomsPastThreshold = Math.max(0, this.roomNumber - STAR_CONFIG.intelligenceThresholds.burstFire);
+            const burstScale = Math.min(1.0, roomsPastThreshold / 3);
+            const burstChance = STAR_CONFIG.burstFireChanceBase +
+                (STAR_CONFIG.burstFireChanceMax - STAR_CONFIG.burstFireChanceBase) * burstScale;
+
+            if (Math.random() < burstChance * this.intelligenceLevel) {
+                this.burstFireActive = true;
+                this.burstFireCount = STAR_CONFIG.burstFireCount;
+                this.burstFireTimer = 0;
+                this.shoot(targetX, targetY, true, true, shotOptions);
+                nextCooldown = Math.min(nextCooldown, STAR_CONFIG.burstFireDelay);
+            } else {
+                this.queueShot('single', targetX, targetY, shotOptions);
+            }
+        } else {
+            this.queueShot('single', targetX, targetY, {
+                ...shotOptions,
+                quick: isPanicking
+            });
+        }
+
+        this.attackCooldown = nextCooldown;
     }
 
     // Override die() to use star difficulty for loot
@@ -682,14 +747,22 @@ class StarEnemy extends EnemyBase {
     }
 
     queueShot(type, targetX, targetY, options = {}) {
+        if (!this.hasLineOfSightTo(targetX, targetY, STAR_CONFIG.projectileSize + 2)) {
+            return;
+        }
         const profile = this.telegraphProfile[type] || this.telegraphProfile.single;
-        const quickFactor = options.quick ? 0.6 : (1 - this.intelligenceLevel * 0.2);
-        const duration = Math.max(0.15, profile.duration * quickFactor);
+        const panicLevel = options.panicLevel || 0;
+        const quickFactor = options.quick
+            ? (panicLevel >= 2 ? 0.45 : 0.6)
+            : (1 - this.intelligenceLevel * 0.2);
+        const duration = Math.max(0.12, profile.duration * quickFactor);
         this.pendingShot = {
             type,
             x: targetX,
             y: targetY,
-            timer: duration
+            timer: duration,
+            spreadMult: options.spreadMult || 1,
+            panicLevel
         };
         this.beginTelegraph(profile.type, {
             duration,
@@ -699,12 +772,13 @@ class StarEnemy extends EnemyBase {
         });
     }
 
-    shoot(targetX, targetY, isBurstFire = false, skipTelegraph = false) {
+    shoot(targetX, targetY, isBurstFire = false, skipTelegraph = false, options = {}) {
         if (!skipTelegraph) {
-            this.queueShot('single', targetX, targetY, { quick: false });
+            this.queueShot('single', targetX, targetY, options);
             return;
         }
         if (typeof Game === 'undefined') return;
+        if (!this.hasLineOfSightTo(targetX, targetY, STAR_CONFIG.projectileSize + 2)) return;
 
         // Get actual player for better prediction (not clone/decoy)
         // Try to get the actual player object with velocity properties
@@ -802,8 +876,8 @@ class StarEnemy extends EnemyBase {
         let dirX = dx / distance;
         let dirY = dy / distance;
 
-        // Add slight spread variation (reduced for predictive aiming)
-        const spreadMultiplier = this.usePredictiveAiming ? (1 - this.intelligenceLevel * 0.5) : 1.0;
+        // Add slight spread variation (reduced for predictive aiming, increased under panic)
+        const spreadMultiplier = (options.spreadMult || 1) * (this.usePredictiveAiming ? (1 - this.intelligenceLevel * 0.5) : 1.0);
         const spreadAngle = (Math.random() - 0.5) * STAR_CONFIG.projectileSpreadAngle * spreadMultiplier;
         const cos = Math.cos(spreadAngle);
         const sin = Math.sin(spreadAngle);
@@ -845,12 +919,13 @@ class StarEnemy extends EnemyBase {
         }
     }
 
-    shootVolley(targetX, targetY, skipTelegraph = false) {
+    shootVolley(targetX, targetY, skipTelegraph = false, options = {}) {
         if (!skipTelegraph) {
-            this.queueShot('volley', targetX, targetY);
+            this.queueShot('volley', targetX, targetY, options);
             return;
         }
         if (typeof Game === 'undefined') return;
+        if (!this.hasLineOfSightTo(targetX, targetY, STAR_CONFIG.projectileSize + 2)) return;
 
         // Get actual player for better prediction - ensure we have velocity properties
         let targetPlayer = this.getPlayerById(this.currentTarget);
@@ -931,7 +1006,7 @@ class StarEnemy extends EnemyBase {
         }
 
         const baseAngle = Math.atan2(dy, dx);
-        const spread = STAR_CONFIG.volleySpread;
+        const spread = STAR_CONFIG.volleySpread * (options.spreadMult || 1);
 
         // Play projectile shoot sound
         if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {

@@ -667,13 +667,28 @@
         },
 
         async submit(payload) {
+            const body = JSON.stringify(payload);
+            const endpoint = getMetricsEndpoint();
+
+            if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+                try {
+                    const blob = new Blob([body], { type: 'application/json' });
+                    if (navigator.sendBeacon(endpoint, blob)) {
+                        return;
+                    }
+                } catch (beaconError) {
+                    console.warn('[Telemetry] sendBeacon failed, falling back to fetch:', beaconError);
+                }
+            }
+
             try {
-                await fetch(getMetricsEndpoint(), {
+                await fetch(endpoint, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify(payload)
+                    body,
+                    keepalive: true
                 });
             } catch (error) {
                 console.error('[Telemetry] Failed to submit metrics:', error);

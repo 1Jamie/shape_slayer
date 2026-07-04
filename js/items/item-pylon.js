@@ -135,6 +135,21 @@ function interactWithItemPylon(pylon, player) {
 // The pylon determines a rarity when created, and each player gets a random item of that rarity
 function createItemPylon(x, y, itemDef = null) {
     if (!Game.itemPylons) Game.itemPylons = [];
+    let pylonX = x;
+    let pylonY = y;
+    if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.layout && typeof RoomLayoutGenerator !== 'undefined' &&
+        !RoomLayoutGenerator.isPointWalkable(currentRoom.layout, pylonX, pylonY, 25)) {
+        const safePoint = RoomLayoutGenerator.findSafeSpawnPoint(currentRoom.layout, {
+            radius: 25,
+            margin: 80,
+            minDistanceFrom: [{ x: currentRoom.layout.spawnZone.x, y: currentRoom.layout.spawnZone.y, distance: 160 }],
+            maxAttempts: 100
+        });
+        if (safePoint) {
+            pylonX = safePoint.x;
+            pylonY = safePoint.y;
+        }
+    }
 
     // Determine rarity for this pylon (all players will get items of this rarity)
     let pylonRarity = 'common';
@@ -157,8 +172,8 @@ function createItemPylon(x, y, itemDef = null) {
 
     const pylon = {
         id: 'pylon_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
-        x: x,
-        y: y,
+        x: pylonX,
+        y: pylonY,
         size: 20,
         pulse: 0,
         rarity: pylonRarity, // Store the rarity - all players will get items of this rarity
@@ -180,7 +195,7 @@ function createItemPylon(x, y, itemDef = null) {
             }
         });
     }
-    console.log(`[Item Pylon] Created ${pylonRarity} rarity pylon at (${x.toFixed(1)}, ${y.toFixed(1)}) - each player will get a random ${pylonRarity} item`);
+    console.log(`[Item Pylon] Created ${pylonRarity} rarity pylon at (${pylonX.toFixed(1)}, ${pylonY.toFixed(1)}) - each player will get a random ${pylonRarity} item`);
 
     return pylon;
 }

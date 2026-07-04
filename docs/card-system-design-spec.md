@@ -39,6 +39,10 @@ This document outlines the complete design for replacing the gear/loot system wi
 - Mastery 4: White, Green, Blue, Purple, or Orange
 - Mastery 5: All quality bands unlocked (maximum)
 
+**Memory Fragment**: Narrative text attached to a card quality band and revealed through permanent mastery. Fragments concatenate in mastery order so a fully mastered card reads as one complete memory. These fragments are free rewards for mastery investment; shard costs buy power, and memory comes with it.
+
+**Legendary Flavor**: The Orange quality epitaph for a card. It summarizes the full recovered memory in one quotable line. The `memoryFragments` are the story; `legendaryFlavor` is the inscription.
+
 **Bonus Cards**: Additional card offers added to packs. When a room modifier or pack type grants "+1 bonus card", it means one additional card is added to the pack's card selection (e.g., a pack that normally offers 1 card now offers 2 cards).
 
 **Hand Size**: The maximum number of card slots available in the player's hand during a run. Default is 4, upgradeable via meta-progression. Cards beyond hand size cannot be held.
@@ -93,6 +97,8 @@ This document outlines the complete design for replacing the gear/loot system wi
 
 **Team Card**: A special card type for multiplayer (1-4 players) that provides run-wide boons for the entire team. Equipped before starting a run in the Nexus. Only one team card can be active per run. Team cards affect all players and can modify quality distributions, drop rates, or provide team-wide buffs.
 
+**Story-Only Progression Card**: A non-deck card used for memory/archive progression. Story-only cards can appear in the Nexus index, boss archives, or ending requirements, but they cannot be drawn, equipped, combined, upgraded for power, or added to the run deck.
+
 **Combined Card**: A special card created during a run by combining two cards from the hand into one slot. Combined cards have both effects active simultaneously. They are single-run only (lost at run end), cannot be combined further (depth limit 1), and have 1.75x upgrade costs. Quality band is the average of both source cards (rounded down).
 
 **Permanent Unlock vs. Temporary Power** (The "Unlock vs. Power" Model):
@@ -113,14 +119,15 @@ This document outlines the complete design for replacing the gear/loot system wi
   id: string,                    // Unique identifier (e.g., "precision_001")
   family: string,                // Card family (e.g., "Precision", "Volley")
   name: string,                  // Display name
-  category: string,              // Offense, Defense, Mobility, Ability, Economy, Enemy, Room, Team
+  category: string,              // Offense, Defense, Mobility, Ability, Economy, Enemy, Room, Team, Story
   qualityBands: {
-    white: { value: number, description: string, flavorText: string },
-    green: { value: number, description: string, flavorText: string },
-    blue: { value: number, description: string, flavorText: string, bonus?: object },
-    purple: { value: number, description: string, flavorText: string, bonus?: object },
-    orange: { value: number, description: string, flavorText: string, legendaryFlavor: string }
+    white: { value: number, description: string, flavorText: string, memoryFragments: string[] },
+    green: { value: number, description: string, flavorText: string, memoryFragments: string[] },
+    blue: { value: number, description: string, flavorText: string, memoryFragments: string[], bonus?: object },
+    purple: { value: number, description: string, flavorText: string, memoryFragments: string[], bonus?: object },
+    orange: { value: number, description: string, flavorText: string, memoryFragments: string[], legendaryFlavor: string }
   },
+  preOrderIdentity: string,       // Lost identity recovered by mastery (e.g., "hunter", "mountain", "flock")
   effectType: string,            // stat_modifier, ability_modifier, enemy_modifier, etc.
   effectTarget: string,          // What the effect modifies
   application: string,           // passive, active, conditional, trigger
@@ -131,9 +138,174 @@ This document outlines the complete design for replacing the gear/loot system wi
   combinedFrom: [string, string], // If combined, array of two source card IDs (runtime-only, not saved)
   nonStacking: boolean,          // true if only one of this card can be in hand at a time
   isCurse: boolean,              // true if this is a curse card (cannot be voluntarily discarded)
+  isStoryOnly: boolean,          // true if this is archive/index-only and cannot enter decks or hands
   maxCopies: number              // Maximum copies allowed in deck (1-4, see Deck Limits section)
   // Note: Combined cards are single-run only and do not persist to save data or deck
   // Note: Curse cards cannot be voluntarily discarded and must be removed through special mechanics
+  // Note: Story-only cards are excluded from deck building, packs, hands, and combinations
+}
+```
+
+### 1.1.5 Card Memory Fragment Schema
+
+Card lore is stored with the card definition, not in separate quest state. Permanent mastery determines which fragments display.
+
+```javascript
+{
+  id: "precision_001",
+  family: "Precision",
+  preOrderIdentity: "hunter",
+  qualityBands: {
+    white: {
+      value: 5,
+      description: "+5% crit chance",
+      flavorText: "Basic geometric precision",
+      memoryFragments: [
+        "I was steady once."
+      ]
+    },
+    green: {
+      value: 10,
+      description: "+10% crit chance",
+      flavorText: "Refined calculation",
+      memoryFragments: [
+        "I held a bow for hours without shaking."
+      ]
+    },
+    blue: {
+      value: 15,
+      description: "+15% crit chance, -3% defense",
+      flavorText: "Advanced theorem",
+      memoryFragments: [
+        "The order said efficiency required sacrifice."
+      ]
+    },
+    purple: {
+      value: 20,
+      description: "+20% crit chance, -3% defense. Crits restore 2% HP",
+      flavorText: "Masterful application",
+      memoryFragments: [
+        "It was wrong. I was already efficient."
+      ]
+    },
+    orange: {
+      value: 25,
+      description: "+25% crit chance, -3% defense. Crits restore 5% HP and apply Vulnerability",
+      flavorText: "Bend probability itself",
+      legendaryFlavor: "Before I was a theorem, I was a hunter. I knew where the prey would be.",
+      memoryFragments: [
+        "They made me a calculation.",
+        "But I remember the wind. I remember the aim. I remember the name I had before they called me Precision."
+      ]
+    }
+  }
+}
+```
+
+**Reveal Rules**:
+- Mastery 0: Show White fragments only
+- Mastery 1: Show White + Green fragments
+- Mastery 2: Show White + Green + Blue fragments
+- Mastery 3: Show White + Green + Blue + Purple fragments
+- Mastery 4: Show Orange `legendaryFlavor` and the first Orange fragment
+- Mastery 5: Show any remaining Orange fragments, then mark the memory complete in the Nexus index and card tooltip
+- Fragments are revealed by permanent mastery only; temporary in-run upgrades do not reveal new memory
+- Boss-drop permanent mastery unlocks reveal fragments immediately when the card is picked up
+- Fragment order is always White → Green → Blue → Purple → Orange, preserving a readable top-to-bottom story
+- If a quality band has multiple fragments, reveal them sequentially within that band's mastery window; Orange is expected to carry the Mastery 4 and Mastery 5 lines
+
+**Quality Band Narrative Direction**:
+
+| Band | Naming Convention | Flavor Direction |
+|------|-------------------|------------------|
+| White | Functional, sterile | Mechanical description with the first simple memory line |
+| Green | Slightly evocative | The card begins to sound lived-in |
+| Blue | Poetic, hinting | The pre-order identity starts to show |
+| Purple | Memory bleeding through | The system's functional language starts to fail |
+| Orange | Full revelation | The card states what it was before order |
+
+**Family Identity Examples**:
+
+| Card Family | Pre-Order Identity | Memory Direction |
+|-------------|--------------------|------------------|
+| Precision | Hunters, aim, leaf-vein exactness | Steadiness before it became calculation |
+| Bulwark | Mountains, walls, shelters | Protection before it became armor |
+| Velocity | Runners, messengers, wind-paths | Movement before it became optimization |
+| Volley | Flocks, archers, scattering life | Many bodies moving as one |
+| Phoenix Down | Rebirth, cycles, natural return | Death as season, not failure |
+| Curse cards | Corrupted or redacted memory | The order's false version of what was lost |
+
+### 1.1.6 Story-Only Progression Cards
+
+Story-only cards are the bridge between the card system and the ending lore. They use the card presentation language, but they are not gameplay power.
+
+**Rules**:
+- `category: "Story"` and `isStoryOnly: true`
+- Cannot be added to decks, hands, rewards, card packs, or combination UI
+- Cannot be upgraded through normal shard mastery unless explicitly marked as a memory restoration objective
+- May unlock through boss clears, index completion, completed run milestones, or special ending prerequisites
+- May use `memoryFragments` and `legendaryFlavor`, but `value` should be `0` and `description` should state "Archive entry" or "No gameplay effect"
+- May omit unused quality bands if the story card exists only at Orange/archive quality
+- Can count toward ending/index requirements without affecting combat balance
+- If the story-only card is tied to the final boss, its mastery cap can be gated by final boss clear count while actual mastery still requires shard purchases
+- Story-only upgrades are memory progression, not power progression
+
+**Primary Uses**:
+- Boss pre-order identity cards, e.g. Swarm King as garden, Twin Prism as dawn, Fortress as city of doors
+- Final boss apology card, unlocked after the final boss card reaches maximum mastery and the special ending conditions are met
+- Archive completion cards that connect multiple mastered card families into a readable world history
+- Post-special-ending archive state, including the Final Shape line: `Memory Complete. No further restoration possible.`
+
+**Final Shape Memory Card Pacing**:
+- `final_shape_memory` is a story-only boss card with `value: 0` and no gameplay effect
+- It is not available in decks, hands, packs, rewards, or combinations
+- First final boss clear: show standard sterile toast `New Boss Card Added`; add the card to the Nexus Memory Archive and unlock upgrade access through M1
+- Second final boss clear: show sterile toast `Archive Entry Updated` or reuse the standard boss-card toast style; unlock upgrade access through M3
+- Third final boss clear: show sterile archive update; unlock upgrade access through M5
+- Shards must still be spent in the Nexus Memory Archive to actually raise mastery and reveal the newly available fragments
+- The Special Ending is armed only after the card is both clear-count unlocked through M5 and actually mastered to M5 through shard investment
+- The Special Ending triggers on the next final boss clear after that M5 archive investment, not on the same run that unlocks M5 access
+- This pacing deliberately asks the player to execute the apologizing entity multiple times to gain access to the apology, then choose a value-0 memory over mechanical optimization
+- Do not use celebratory UI, special music, or emotional callouts when these updates occur; the order files the card like any other data point
+
+**Example Final Boss Story Card**:
+```javascript
+{
+  id: "final_shape_memory",
+  family: "Final Shape",
+  name: "The One Who Named Us",
+  category: "Story",
+  preOrderIdentity: "the first archivist",
+  isStoryOnly: true,
+  value: 0,
+  gameplayEffect: null,
+  unlockProgression: {
+    type: "final_boss_clear_count_plus_shards",
+    clear1UnlocksMasteryCap: 1,
+    clear2UnlocksMasteryCap: 3,
+    clear3UnlocksMasteryCap: 5,
+    specialEndingRequires: {
+      finalBossClearCount: 3,
+      masteryLevel: 5,
+      trigger: "next_final_boss_clear_after_m5_investment"
+    }
+  },
+  qualityBands: {
+    orange: {
+      value: 0,
+      description: "Archive entry. No gameplay effect.",
+      flavorText: "A memory too complete for the system to hold.",
+      legendaryFlavor: "I was the one who named you all.",
+      memoryFragments: [
+        "I gave you your shapes so you could survive.",
+        "I only wanted you to be safe.",
+        "I did not know the order would take them, or that you would forget me.",
+        "I did not know I would become the shape that waited at the end of every run.",
+        "I am sorry.",
+        "Please remember yourselves."
+      ]
+    }
+  }
 }
 ```
 
@@ -148,6 +320,8 @@ This document outlines the complete design for replacing the gear/loot system wi
   // Card system
   cardsUnlocked: [],              // Array of card IDs player owns
   cardMastery: {},                // Map: cardId -> mastery level (0-5)
+  storyCardsUnlocked: [],         // Array of story-only/archive card IDs unlocked for the Nexus index
+  storyCardProgress: {},          // Map: storyCardId -> archive progression state (e.g., final boss clear gates, mastery cap, M5 investment)
   deckConfig: {
     cards: [],                    // Array of card IDs in deck
     size: 20                      // Max deck size (upgradeable)
@@ -176,6 +350,69 @@ This document outlines the complete design for replacing the gear/loot system wi
 - Map highest tier gear owned → equivalent starter cards
 - Provide fallback deck for new players (all white quality basics)
 - One-time migration on first load after update
+
+### 1.4 Profile Erosion Metadata
+
+Some narrative erosion systems must live outside normal save slots. These values belong in profile metadata, not exported save data, so clearing normal progress does not cleanly erase the long-term visual record.
+
+**Profile Metadata Examples**:
+```javascript
+{
+  erosionRuns: 0,                 // Completed runs counted for title/player erosion
+  specialEndingSeen: false,       // Enables post-special-ending erosion/audio behavior
+  specialEndingErosionApplied: false,
+  specialEndingTitleCommaApplied: false, // Enables instant shape_slayer -> shape, slayer title mutation
+  playerColorErosionFactor: 0     // Derived or cached 0.0-1.0 visual erosion value
+}
+```
+
+**Player Color Erosion Rules**:
+- Increment from completed runs only: final boss victory or death
+- Does not increment on manual quit, restart, or abandoned run
+- Applies only to the player body/ship color
+- Must not affect projectiles, enemies, UI, cards, room effects, or background
+- Never reduce player readability; retain a strong faint outline/glow
+- Never reach full grayscale; cap at an exhausted cool gray-blue
+- No UI indicator, setting label, achievement, or notification should reveal the system
+- Full application/site-data wipe may reset it, matching title screen erosion behavior
+- After `specialEndingSeen`, increase future player-color erosion rate by roughly 10-15%
+- The post-special increase affects slope only; do not apply an immediate color jump to the player body
+
+**Suggested Render Formula**:
+```javascript
+const erosionFactor = getProfileErosionFactor(completedRuns);
+const color = shiftHueCool(
+  desaturate(basePlayerColor, erosionFactor * 0.6),
+  erosionFactor
+);
+```
+
+**Curve Targets**:
+- Runs 0-10: full vibrancy
+- Runs 15-25: roughly 3-8% saturation loss
+- Runs 35-50: roughly 15-25% saturation loss
+- Runs 70+: roughly 40-60% saturation loss with cool hue drift
+- Use a gentle easing/logarithmic curve so the change is subtle in play but visible in screenshot comparisons
+
+**Title Mutation Rule**:
+- After `specialEndingSeen` is persisted, the next title load renders `shape, slayer` instead of `shape_slayer`
+- The change must be instant and unanimated, with no transition, glitch flourish, sound, or UI callout
+- It should feel like corrupted title parsing or a system bug, not a developer joke
+- Persist with profile metadata, not save-slot data
+
+**Corrupted Pixel Test**:
+- The title-screen corrupted pixel is hardcoded at a fixed coordinate in the base title background clear
+- It must not animate, blink, pulse, or appear for only one frame
+- If a player can reliably notice it during normal play without being told, it is too prominent
+- If it cannot be found in a still screenshot by someone actively searching, it is too subtle
+- Target state: invisible in motion, findable in evidence
+
+**Final Hold Runtime Guardrails**:
+- The 30-second silence after `You may stop now` must not block the main thread
+- Continue ticking the render loop so the application does not trigger browser/OS "not responding" behavior
+- Do not loop silent audio buffers in a way that causes audio glitches, device wakeups, or platform warnings
+- The game should appear alive but unresponsive: no input effect, no cursor, no prompt, no menu, but a healthy process
+- The Living Freeze pulse is the only proof of life after the silence transitions into The Hold
 
 ---
 
@@ -1010,6 +1247,20 @@ Run-wide modifiers equipped pre-run. Each player equips one team card from their
 
 **Note**: Curses do not have mastery levels - they must be removed through purification mechanics
 
+**Curse Memory Behavior**:
+- Curses do not reveal clean memories because they cannot be mastered
+- Curse flavor is the order's corrupted version of a real card memory: redacted, inverted, or rewritten
+- Curse tooltips may show corrupted fragments immediately, but they never unlock new lines through mastery
+- The player should recognize missing or damaged lines after mastering related non-curse cards
+- Curses do not contribute to "Memory Complete" counts, but the Nexus index may catalog them under a corrupted archive category
+
+**Curse Memory Example**:
+```text
+I was steady once. [CORRUPTED]
+The order said [CORRUPTED] sacrifice.
+[DATA MISSING]
+```
+
 #### Unstable Precision
 - **Category**: Curse - Offense
 - **Non-Stacking**: Yes
@@ -1252,6 +1503,28 @@ This system creates clear distinction between **permanent unlocks** (meta-progre
 - Granted at mastery levels 2, 4, and 5
 - Can reroll a card's quality band once per run
 - Stored in save system, consumed on use
+
+**Memory Fragment Unlocks**:
+- Permanent mastery unlocks the next readable memory line for that card family
+- Temporary in-run upgrades change card power only; they do not reveal memory fragments and do not mark index progress
+- Fragment visibility is derived from `cardMastery[cardId]`; no separate per-fragment save data is required for normal cards
+- When a boss drop grants permanent mastery, reveal the newly unlocked fragment immediately in the pickup notification or post-room reward summary
+- At Mastery 5, the card is marked "Memory Complete" in the Nexus card library and contributes to the Nexus index archive
+- `legendaryFlavor` appears when Orange is permanently unlocked and should read as the card's epitaph, not as another mechanical tooltip line
+- Memory completion is archival, not restorative: the player completes a record, not the lost world
+- Do not use language such as "fixed", "saved", "purified", or "restored to life" for completed memories
+- Preferred completion language: "Memory Complete", "Archive Entry Restored", "6/6 Fragments Recovered", "Index Consistency Improved"
+- The emotional contradiction is intentional: sterile UI completion language sits beside memory text that makes clear the subject is still gone
+- M2 conflict fragments should use clinical order language: diagnostic, procedural, and non-moral
+- Curse corruption should usually strike the M2/M3 conflict-value lines, leaving a visible hole where the grief or rebuttal should be
+- Card memories should distinguish theft from exploitation: some cards show living practices stolen and weaponized, while others show existing wounds or survival-coping behaviors made useful by the order
+- M3 value fragments should center what real people needed: connection, gentleness, meaning through imperfection, or witnessing each other
+- Final Shape archive text may apologize or testify, but must not offer a fix, reversal, or restoration path
+- Player complicity should read as survival drift, not intentional villainy: avoid language that implies the player knowingly chose evil
+- Preferred framing: the player kept choosing safety, clarity, power, and efficiency because those choices helped them survive, and only later understands what those choices erased
+- After the special ending, rare flavor variants may appear on mastered cards, but they must be quiet/resigned variants of existing memories, not new rewards or new restoration paths
+- Frequency target for post-ending flavor variants: approximately 1 in 8-10 completed runs
+- Post-ending variants should never fire unlock fanfare or achievement-style UI; they are evidence that the ending followed the player back into ordinary play
 
 **Combined Card Costs**:
 - Combined cards have increased upgrade costs (1.75x normal)
@@ -1851,7 +2124,7 @@ This system creates clear distinction between **permanent unlocks** (meta-progre
   - Prism Shield (Reflect)
 
 **3. Build-Definer Limits (Non-Stacking / Powerful) - Max 2 Copies**
-- **Logic**: These are Non-Stacking cards. You only ever want one in your hand. Allowing 2 copies is the "Consistency Tax" sweet spot—it gives you a much better opening draw chance, but ensures you will have exactly one "dead draw" later in the run.
+- **Logic**: These are Non-Stacking cards. You only ever want one in your hand. Allowing 2 copies is the "Consistency Tax" sweet spot-it gives you a much better opening draw chance, but ensures you will have exactly one "dead draw" later in the run.
 - **Cards**:
   - **Offense**: Volley, Execute, Fractal Conduit, Detonating Vertex, Overcharge
   - **Defense**: Fortify Aura, Phasing
@@ -1927,6 +2200,7 @@ Game.activeTeamCards = [];      // Active team cards (multiplayer)
 - Deck contains card **TYPES/FAMILIES** (e.g., "3x Precision", "2x Bulwark")
 - **Quality bands are NOT pre-determined in deck** - Quality is rolled when card is drawn from deck
 - Same card type can appear multiple times in deck with different qualities when drawn
+- Story-only cards are excluded from deck composition and cannot be drawn
 
 **Drawing from Deck**:
 - When drawing from `drawPile`, quality is rolled based on current room distribution **AND mastery level**
@@ -2184,6 +2458,13 @@ Game.activeTeamCards = [];      // Active team cards (multiplayer)
 - Visual indicator for combined cards (special border/icon)
 - **Combined cards are disabled/grayed out in the combination interface** - they cannot be selected for further combination (depth limit: 1)
 
+**Combined Card Memory Behavior**:
+- Combined cards do not create new permanent memory entries because they are single-run only
+- Tooltip displays the revealed fragments for both source cards, separated by a hard divider
+- Do not create fused echo text for combined cards; the combination space is too large to support hand-authored lore cleanly
+- Combined cards must never add, unlock, mutate, or replace source card memories in the Nexus index
+- Curse + non-curse combinations should preserve contrast: clean memory on one side, corrupted memory on the other
+
 ---
 
 ## Phase 5: UI Implementation
@@ -2202,6 +2483,21 @@ Game.activeTeamCards = [];      // Active team cards (multiplayer)
 - Show mastery levels and upgrade costs
 - Upgrade interface (spend shards)
 - Unlock requirements display
+- Show revealed memory fragments in order
+- Mark Mastery 5 cards as "Memory Complete"
+
+**Nexus Index / Memory Archive**:
+- Collects all revealed `memoryFragments` across unlocked cards
+- Groups fragments by card family and displays them in White → Green → Blue → Purple → Orange order
+- Shows incomplete memories as locked or corrupted lines without revealing future text
+- Locked lines must not use generic question marks such as `???`
+- Render locked unrevealed text as solid monochrome blocks, e.g. `██████ █████`, or as a scrambled cipher font that resolves into English when mastery is purchased
+- The reveal animation should be harsh and geometric: block glyphs snap, shear, or resolve in-place rather than fading softly
+- Separates curse cards into a corrupted archive group
+- Does not reveal fragments from temporary in-run upgrades
+- At enough completed card memories, the index becomes the readable archive of the pre-order world described in `docs/lore.md`
+- The index should feel increasingly like a tomb, not a checklist: early states can look like collection progress, but high completion should emphasize testimony, names, and absence
+- Full index completion must not play celebratory fanfare; use silence or a sterile terminal state such as "ALL KNOWN NAMES RECOVERED / NO RESTORATION AVAILABLE"
 
 **Team Card Selector** (multiplayer only):
 - Browse unlocked team cards
@@ -2298,6 +2594,11 @@ Game.activeTeamCards = [];      // Active team cards (multiplayer)
 - Quality band indicators (border glow intensity)
 - Flavor text tooltips on hover
 - Card art/icons (geometric shapes matching game theme)
+- **Quality-band art progression**:
+  - **White / Green**: Clean, vibrant, almost cheerful geometric icons; preserve the feeling of normal game rewards
+  - **Blue**: Mostly clean with subtle tension, such as sharper edges, faint misalignment, or a tiny scar in the icon geometry
+  - **Purple / Orange**: Worn, cracked, or memory-bleeding visuals; use controlled fractures, hard seams, corrupted pixels, or thin bleeding light
+  - **Orange**: Complete but damaged; the identity is legible, but the card must not look healed or restored
 - **Boss Mastery Unlock Indicator**: Special visual treatment for boss cards that unlock mastery:
   - Prominent "Boss Unlock Available!" text/banner on card
   - Golden/glowing border or icon overlay
@@ -2309,6 +2610,8 @@ Game.activeTeamCards = [];      // Active team cards (multiplayer)
 - Quality band and value
 - Effect description
 - Flavor text
+- Revealed memory fragments, concatenated in mastery order
+- Orange `legendaryFlavor` as a distinct epitaph line when permanently unlocked
 - Trade-offs (if any)
 - Mastery level and upgrade info
 - **Card Origin Information** (new line below trade-offs):

@@ -114,10 +114,13 @@ const Game = {
     ctx: null,
 
     // Game state
-    state: 'NEXUS', // 'NEXUS', 'PLAYING', 'PAUSED'
+    state: 'NEXUS', // 'NEXUS', 'PLAYING', 'PAUSED', 'ENTERING_ROOM'
     paused: false,
     pausedFromState: null, // Track where we paused from ('PLAYING' or 'NEXUS')
     showPauseMenu: false, // Visual pause menu flag (for multiplayer - doesn't pause game)
+    roomEnterTransition: null,
+    nexusPrewarm: null,
+    nexusPrewarmComplete: false,
     lastTime: 0,
     gameOverMusicPlaying: false,
 
@@ -125,6 +128,23 @@ const Game = {
     accumulator: 0, // Accumulated real time for fixed timestep updates
     fixedTimestep: 1 / 60, // 60 Hz fixed timestep (0.016666... seconds)
     maxCatchupUpdates: 5, // Maximum fixed updates per frame to prevent stuttering
+    accumulatorTruncateThreshold: 0.1, // Drop catch-up after severe stalls to avoid spiral of death
+    frameRenderTimings: null,
+    currentFrameTimings: null,
+    lastAccumulatorTruncated: false,
+    frameBudgetSamples: [],
+    renderQuality: {
+        vignetteScale: 0.5,
+        maxSceneryLights: Infinity,
+        gearRingPoints: 64,
+        groundLootAnimatedRing: true,
+        remoteFullRender: true,
+        maxBeamLights: 8,
+        damageFxScale: 1
+    },
+    renderSubTimings: { groundLoot: 0, gearRings: 0, remotePlayers: 0, worldGlow: 0, worldBodies: 0 },
+    renderSubTimingSamples: null,
+    debugFrameBudget: { frameAvg: 0, renderAvg: 0 },
 
     // Modal states
     launchModalVisible: false,
@@ -181,6 +201,7 @@ const Game = {
     player: null,
     enemies: [],
     projectiles: [],
+    _projectilePool: [],
     previousProjectiles: [], // Previous projectile state for interpolation (clients)
     particles: [],
     damageNumbers: [],
@@ -278,6 +299,7 @@ const Game = {
     useSetTimeoutLoop: false,
     timeoutId: null,
     loopStopped: false,
+    pseudoFullscreenActive: false,
 
     // Load multiplayer module dynamically
     loadMultiplayerModule() {
@@ -320,9 +342,6 @@ const Game = {
 
         // Prevent text selection and right-click context menu on canvas
         this.canvas.style.userSelect = 'none';
-        this.canvas.style.webkitUserSelect = 'none';
-        this.canvas.style.mozUserSelect = 'none';
-        this.canvas.style.msUserSelect = 'none';
 
         this.ctx = this.canvas.getContext('2d');
 
@@ -332,6 +351,7 @@ const Game = {
 
         // Setup responsive scaling
         this.setupResponsiveCanvas();
+        this.prewarmRenderCaches();
 
         // Initialize input system
         Input.init(this.canvas);
@@ -343,6 +363,14 @@ const Game = {
 
         // Setup fullscreen API event listeners
         this.setupFullscreenListeners();
+
+        if (this.fullscreenEnabled &&
+            typeof DeviceDetection !== 'undefined' &&
+            DeviceDetection.supportsElementFullscreen &&
+            !DeviceDetection.supportsElementFullscreen()) {
+            this.pseudoFullscreenActive = true;
+            document.body.classList.add('pseudo-fullscreen');
+        }
 
         // Handle window resize
         const handleResize = () => {
@@ -459,7 +487,7 @@ const Game = {
         document.addEventListener('keydown', (e) => {
             // Don't intercept keys if user is typing in an input field
             const target = e.target;
-            if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+            if (target && typeof isFormFieldTarget === 'function' && isFormFieldTarget(target)) {
                 return;
             }
 
@@ -598,7 +626,7 @@ const Game = {
                     }
                 }
             }
-            if (e.key === ' ' || e.key === 'Spacebar') {
+            if (e.key === ' ') {
                 // Toggle spectate mode (multiplayer only, when local player dead but not all dead)
                 if (this.player && this.player.dead && !this.allPlayersDead && this.multiplayerEnabled) {
                     this.spectateMode = !this.spectateMode;
@@ -616,7 +644,6 @@ const Game = {
         if (!this.canvas) return;
 
         // Use actual available viewport - must account for browser chrome on mobile
-        let availableWidth, availableHeight;
 
         // Detect the active UI layout FIRST (before using it in viewport calculation)
         const isMobileDevice = typeof Input !== 'undefined' && Input.isMobileUiMode
@@ -624,26 +651,11 @@ const Game = {
             : (typeof Input !== 'undefined' && Input.isMobileDevice && Input.isMobileDevice());
         this.isMobileDevice = isMobileDevice;
 
-        // Check if we're in fullscreen mode
-        const isFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement ||
-            document.mozFullScreenElement || document.msFullscreenElement);
-
-        // MOBILE CHROME FIX: Use visualViewport as primary source (most accurate)
-        // Fallback chain for maximum compatibility
-        // On mobile, prefer window.innerWidth/Height to get full screen size
-        if (isFullscreen) {
-            // Fullscreen: use window dimensions
-            availableWidth = window.innerWidth;
-            availableHeight = window.innerHeight;
-        } else if (window.visualViewport && !isMobileDevice) {
-            // Desktop with visualViewport: use it for accuracy
-            availableWidth = window.visualViewport.width;
-            availableHeight = window.visualViewport.height;
-        } else {
-            // Mobile or fallback: use window dimensions to fill screen
-            availableWidth = window.innerWidth;
-            availableHeight = window.innerHeight;
-        }
+        // Use visualViewport when available (accurate on mobile Safari + desktop)
+        const viewport = this.getViewportSize();
+        const isFullscreen = this.isFullscreenActive();
+        const availableWidth = viewport.width;
+        const availableHeight = viewport.height;
 
         let canvasWidth = Math.floor(availableWidth);
         let canvasHeight = Math.floor(availableHeight);
@@ -699,10 +711,9 @@ const Game = {
             this.mobileZoom = 1.0; // Not used on desktop, but set for consistency
         }
 
-        // High DPI Support (Fix Aliasing)
-        // Force minimum 2.0 DPR for supersampling (General AA)
-        const minPixelRatio = 2.0;
-        const dpr = Math.max(window.devicePixelRatio || 1, minPixelRatio);
+        // High DPI Support — cap at 2x, never force upscale on 1x displays
+        const deviceDpr = window.devicePixelRatio || 1;
+        const dpr = Math.min(2, Math.max(1, deviceDpr));
         this.dpr = dpr; // Store for use in other rendering methods
 
         // Set canvas resolution (internal rendering size) scaled by DPR
@@ -714,7 +725,9 @@ const Game = {
         this.canvas.style.width = canvasWidth + 'px';
         this.canvas.style.height = canvasHeight + 'px';
         this.canvas.style.maxWidth = '100vw';
-        this.canvas.style.maxHeight = '100vh';
+        this.canvas.style.maxHeight = (typeof CSS !== 'undefined' && CSS.supports && CSS.supports('height', '100dvh'))
+            ? '100dvh'
+            : '100vh';
         this.canvas.style.position = 'fixed';
         this.canvas.style.top = '0';
         this.canvas.style.left = '0';
@@ -821,15 +834,35 @@ const Game = {
         return { x: clampedX, y: clampedY };
     },
 
+    getViewportSize() {
+        if (typeof window !== 'undefined' && window.visualViewport) {
+            return {
+                width: window.visualViewport.width,
+                height: window.visualViewport.height
+            };
+        }
+        return {
+            width: typeof window !== 'undefined' ? window.innerWidth : 0,
+            height: typeof window !== 'undefined' ? window.innerHeight : 0
+        };
+    },
+
+    isNativeFullscreenActive() {
+        return !!(document.fullscreenElement ||
+            document.webkitFullscreenElement ||
+            document.mozFullScreenElement);
+    },
+
+    isFullscreenActive() {
+        return this.isNativeFullscreenActive() || !!this.pseudoFullscreenActive;
+    },
+
     // Setup fullscreen API listeners
     setupFullscreenListeners() {
         // Listen for fullscreen changes
         const fullscreenChange = () => {
-            const isFullscreen = !!(document.fullscreenElement ||
-                document.webkitFullscreenElement ||
-                document.mozFullScreenElement ||
-                document.msFullscreenElement);
-            this.fullscreenEnabled = isFullscreen;
+            const isFullscreen = this.isNativeFullscreenActive();
+            this.fullscreenEnabled = isFullscreen || !!this.pseudoFullscreenActive;
 
             console.log(`[FULLSCREEN] Changed to: ${isFullscreen}`);
 
@@ -902,31 +935,42 @@ const Game = {
         document.addEventListener('fullscreenchange', fullscreenChange);
         document.addEventListener('webkitfullscreenchange', fullscreenChange);
         document.addEventListener('mozfullscreenchange', fullscreenChange);
-        document.addEventListener('MSFullscreenChange', fullscreenChange);
     },
 
     // Toggle fullscreen
     toggleFullscreen() {
         if (!this.canvas) return;
 
-        const isFullscreen = !!(document.fullscreenElement ||
-            document.webkitFullscreenElement ||
-            document.mozFullScreenElement ||
-            document.msFullscreenElement);
+        if (typeof DeviceDetection !== 'undefined' &&
+            DeviceDetection.supportsElementFullscreen &&
+            !DeviceDetection.supportsElementFullscreen()) {
+            this.pseudoFullscreenActive = !this.pseudoFullscreenActive;
+            document.body.classList.toggle('pseudo-fullscreen', this.pseudoFullscreenActive);
+            this.fullscreenEnabled = this.pseudoFullscreenActive;
+            this.setupResponsiveCanvas();
+            if (typeof SaveSystem !== 'undefined') {
+                SaveSystem.setFullscreenPreference(this.fullscreenEnabled);
+            }
+            if (typeof window.showToast === 'function') {
+                const msg = this.pseudoFullscreenActive
+                    ? 'Expanded to screen — add to Home Screen for true fullscreen on iOS'
+                    : 'Exited expanded view';
+                window.showToast(msg, 2500);
+            }
+            return;
+        }
+
+        const isFullscreen = this.isNativeFullscreenActive();
 
         if (isFullscreen) {
-            // Exit fullscreen
             if (document.exitFullscreen) {
                 document.exitFullscreen();
             } else if (document.webkitExitFullscreen) {
                 document.webkitExitFullscreen();
             } else if (document.mozCancelFullScreen) {
                 document.mozCancelFullScreen();
-            } else if (document.msExitFullscreen) {
-                document.msExitFullscreen();
             }
         } else {
-            // Enter fullscreen - use document.documentElement to include DOM UI
             const element = document.documentElement;
             if (element.requestFullscreen) {
                 element.requestFullscreen();
@@ -934,8 +978,6 @@ const Game = {
                 element.webkitRequestFullscreen();
             } else if (element.mozRequestFullScreen) {
                 element.mozRequestFullScreen();
-            } else if (element.msRequestFullscreen) {
-                element.msRequestFullscreen();
             }
         }
     },
@@ -964,11 +1006,11 @@ const Game = {
                 this.autoPausedForBackground = true;
                 this.togglePause();
             }
-        }
-
-        if (!isHidden && isMobile) {
-            if (typeof MusicManager !== 'undefined' && MusicManager && typeof MusicManager.pauseForBackground === 'function') {
-                // No auto resume; just clear flag so manual resume works normally
+        } else if (!isHidden) {
+            this.backgroundPauseActive = false;
+            if (this.autoPausedForBackground && this.state === 'PAUSED') {
+                this.autoPausedForBackground = false;
+                this.togglePause();
             }
         }
     },
@@ -1014,11 +1056,18 @@ const Game = {
         // Cap real delta time to prevent huge jumps (max 250ms to prevent spiral of death)
         const cappedRealDeltaTime = Math.min(realDeltaTime, 0.25);
 
-        // Accumulate real time for fixed timestep updates
-        this.accumulator += cappedRealDeltaTime;
+        // Accumulate real time for fixed timestep updates. Severe spikes are truncated
+        // so the browser does not lock up trying to run many catch-up updates.
+        this.lastAccumulatorTruncated = realDeltaTime > (this.accumulatorTruncateThreshold || 0.1);
+        if (this.lastAccumulatorTruncated) {
+            this.accumulator = 0;
+        } else {
+            this.accumulator += cappedRealDeltaTime;
+        }
 
         // Measure CPU process time
         const processStart = performance.now();
+        let updateTime = 0;
 
         // Handle hit pause (uses fixed timestep for consistency)
         if (this.hitPauseTime > 0) {
@@ -1066,13 +1115,18 @@ const Game = {
         const maxUpdates = this.maxCatchupUpdates || 5;
         let updatesRun = 0;
         while (this.accumulator >= this.fixedTimestep && updatesRun < maxUpdates) {
+            const updateStart = performance.now();
             if (this.state === 'PLAYING') {
                 this.update(this.fixedTimestep);
+            } else if (this.state === 'ENTERING_ROOM') {
+                this.updateRoomEnterTransition();
             } else if (this.state === 'NEXUS') {
                 if (typeof updateNexus !== 'undefined') {
                     updateNexus(this.ctx, this.fixedTimestep);
                 }
+                this.tickNexusPrewarm();
             }
+            updateTime += performance.now() - updateStart;
             this.accumulator -= this.fixedTimestep;
             updatesRun++;
         }
@@ -1080,14 +1134,44 @@ const Game = {
         // Note: In multiplayer, showPauseMenu doesn't stop updates - game continues running
 
         // Render once per frame (variable rate, smooth visuals)
+        const renderStart = performance.now();
+        this.currentFrameTimings = {
+            static: 0,
+            world: 0,
+            worldGlow: 0,
+            worldBodies: 0,
+            vignette: 0,
+            postFx: 0,
+            ui: 0
+        };
         this.render();
+        const renderTime = performance.now() - renderStart;
+        const renderTimings = this.currentFrameTimings || {};
+        this.frameRenderTimings = Object.assign({}, renderTimings, {
+            update: updateTime,
+            render: renderTime,
+            catchupUpdates: updatesRun,
+            accumulatorMs: this.accumulator * 1000,
+            accumulatorTruncated: this.lastAccumulatorTruncated,
+            snapshot: typeof this.buildDebugMetricsSnapshot === 'function' ? this.buildDebugMetricsSnapshot() : null
+        });
+        this.updateFrameBudgetGovernor(realDeltaTime * 1000, renderTime);
 
         const processEnd = performance.now();
         const processTime = processEnd - processStart;
 
         // Update debug panel metrics with actual CPU time and frame time
         if (typeof DebugPanel !== 'undefined') {
-            DebugPanel.update(realDeltaTime, processTime);
+            DebugPanel.update(realDeltaTime, processTime, this.frameRenderTimings);
+        }
+
+        if (typeof RunProfiler !== 'undefined' && RunProfiler.isActive()) {
+            RunProfiler.recordFrame(realDeltaTime, processTime, this.frameRenderTimings, {
+                state: this.state,
+                roomNumber: this.roomNumber,
+                catchupUpdates: updatesRun,
+                accumulatorTruncated: this.lastAccumulatorTruncated
+            });
         }
 
         // Continue the loop - use setTimeout in background for multiplayer, RAF otherwise
@@ -1100,9 +1184,183 @@ const Game = {
 
     // Trigger screen shake
     triggerScreenShake(intensity, duration, direction = null) {
-        this.screenShakeIntensity = intensity;
-        this.screenShakeDuration = duration;
-        this.screenShakeDirection = direction; // 'player' or 'boss' for directional bias
+        const shouldReplace = this.screenShakeDuration <= 0 || intensity >= this.screenShakeIntensity;
+        if (shouldReplace) {
+            this.screenShakeIntensity = intensity;
+            this.screenShakeDuration = duration;
+            this.screenShakeDirection = direction; // 'player' or 'boss' for directional bias
+        } else {
+            // Preserve stronger shake; briefly extend for follow-up hits
+            this.screenShakeDuration = Math.max(this.screenShakeDuration, duration * 0.45);
+        }
+    },
+
+    triggerChromaticTrauma(frames = 5, intensity = 0.75) {
+        const now = performance.now();
+        const duration = Math.max(1, frames) * (1000 / 60);
+        this.chromaticTraumaStart = now;
+        this.chromaticTraumaDuration = duration;
+        this.chromaticTraumaUntil = now + duration;
+        this.chromaticTraumaIntensity = Math.max(0, Math.min(1, intensity));
+    },
+
+    getDamageTraumaParams(playerToCheck, nowSec, traumaNowMs, damageTraumaDuration) {
+        const params = { intensity: 0, offset: 0, damagePercentage: 0, active: false };
+        const minHitRatioForCa = 0.03;
+
+        if (playerToCheck && playerToCheck.lastDamageTime) {
+            const elapsed = nowSec - playerToCheck.lastDamageTime;
+            if (elapsed >= 0 && elapsed < damageTraumaDuration) {
+                const hitRatio = playerToCheck.maxHp > 0 && playerToCheck.lastDamageAmount > 0
+                    ? playerToCheck.lastDamageAmount / playerToCheck.maxHp
+                    : 0;
+                if (hitRatio >= minHitRatioForCa) {
+                    const progress = Math.min(elapsed / damageTraumaDuration, 1.0);
+                    params.intensity = Math.max(params.intensity, 1.0 - progress);
+                    const normalizedDamage = Math.min(hitRatio / 0.45, 1.0);
+                    params.damagePercentage = Math.max(params.damagePercentage, 0.1 + 0.9 * normalizedDamage);
+                    params.active = true;
+                }
+            }
+        }
+
+        if (this.chromaticTraumaUntil && traumaNowMs < this.chromaticTraumaUntil) {
+            const traumaElapsed = traumaNowMs - (this.chromaticTraumaStart || traumaNowMs);
+            const traumaDuration = Math.max(1, this.chromaticTraumaDuration || (5 * 1000 / 60));
+            const traumaProgress = Math.min(traumaElapsed / traumaDuration, 1.0);
+            const traumaIntensity = (1.0 - traumaProgress) * (this.chromaticTraumaIntensity || 0.75);
+            params.intensity = Math.max(params.intensity, traumaIntensity);
+            params.damagePercentage = Math.max(params.damagePercentage, 0.45 * (this.chromaticTraumaIntensity || 0.75));
+            params.active = true;
+        }
+
+        if (!params.active || params.intensity <= 0) {
+            return params;
+        }
+
+        const baseMaxOffset = 2;
+        const maxMaxOffset = 16;
+        const maxOffset = baseMaxOffset + (maxMaxOffset - baseMaxOffset) * params.damagePercentage;
+        const easeIntensity = params.intensity * (2 - params.intensity);
+        params.offset = maxOffset * easeIntensity;
+        return params;
+    },
+
+    ensureWorldRenderTarget(pixelWidth, pixelHeight, dpr) {
+        if (!this.offscreenCanvas) {
+            this.offscreenCanvas = document.createElement('canvas');
+            this.offscreenCtx = this.offscreenCanvas.getContext('2d');
+        }
+        if (this.offscreenCanvas.width !== pixelWidth || this.offscreenCanvas.height !== pixelHeight) {
+            this.offscreenCanvas.width = pixelWidth;
+            this.offscreenCanvas.height = pixelHeight;
+            this.offscreenCtx.setTransform(1, 0, 0, 1, 0, 0);
+            this.offscreenCtx.scale(dpr, dpr);
+        }
+        return this.offscreenCtx;
+    },
+
+    ensureChannelBuffer(logicalWidth, logicalHeight, pixelWidth, pixelHeight, dpr, processScale) {
+        const scaledPixelW = Math.max(1, Math.floor(pixelWidth * processScale));
+        const scaledPixelH = Math.max(1, Math.floor(pixelHeight * processScale));
+        if (!this.channelCanvas) {
+            this.channelCanvas = document.createElement('canvas');
+            this.channelCtx = this.channelCanvas.getContext('2d');
+        }
+        if (this.channelCanvas.width !== scaledPixelW || this.channelCanvas.height !== scaledPixelH) {
+            this.channelCanvas.width = scaledPixelW;
+            this.channelCanvas.height = scaledPixelH;
+        }
+        this.channelCtx.setTransform(1, 0, 0, 1, 0, 0);
+        this.channelCtx.scale(dpr * processScale, dpr * processScale);
+        return this.channelCtx;
+    },
+
+    renderPlayingWorldLayer(ctx) {
+        const logicalWidth = this.config.width;
+        const logicalHeight = this.config.height;
+        const biome = typeof getBiomeForRoom !== 'undefined' ? getBiomeForRoom(this.roomNumber) : { baseColor: '#1a1a2e' };
+        Renderer.clear(ctx, logicalWidth, logicalHeight, biome.baseColor);
+
+        ctx.save();
+        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
+        const currentZoom = isMobile ? (this.mobileZoom || 1.0) : (this.baseZoom);
+        const centerX = logicalWidth / 2;
+        const centerY = logicalHeight / 2;
+        ctx.translate(centerX + this.screenShakeOffset.x, centerY + this.screenShakeOffset.y);
+        ctx.scale(currentZoom, currentZoom);
+        ctx.translate(-this.camera.x, -this.camera.y);
+
+        const staticStart = performance.now();
+        if (typeof renderCachedRoomStaticLayer === 'function' && renderCachedRoomStaticLayer(ctx, this.roomNumber)) {
+            if (typeof renderRoomAmbientLife === 'function') {
+                renderRoomAmbientLife(ctx, this.roomNumber);
+            }
+        } else {
+            if (typeof renderRoomBackground !== 'undefined') {
+                renderRoomBackground(ctx, this.roomNumber);
+            }
+            if (typeof renderRoomBoundaries !== 'undefined') {
+                renderRoomBoundaries(ctx, this.roomNumber);
+            }
+            if (typeof renderRoomObstacles !== 'undefined') {
+                renderRoomObstacles(ctx, this.roomNumber);
+            }
+        }
+        this.currentFrameTimings.static += performance.now() - staticStart;
+
+        if (typeof DebugFlags !== 'undefined' && DebugFlags.ROOM_LAYOUT && typeof renderRoomLayoutDebug !== 'undefined') {
+            renderRoomLayoutDebug(ctx);
+        }
+
+        const worldStart = performance.now();
+        this.renderGameWorld(ctx);
+        this.currentFrameTimings.world += performance.now() - worldStart;
+        ctx.restore();
+    },
+
+    applyChromaticAberrationFromOffscreen(traumaParams) {
+        const dpr = this.dpr || 1;
+        const logicalWidth = this.config.width;
+        const logicalHeight = this.config.height;
+        const pixelWidth = logicalWidth * dpr;
+        const pixelHeight = logicalHeight * dpr;
+        const adaptiveEnabled = typeof DebugFlags === 'undefined' || DebugFlags.ADAPTIVE_RENDER_QUALITY !== false;
+        const processScale = adaptiveEnabled && this.renderQuality && this.renderQuality.damageFxScale
+            ? this.renderQuality.damageFxScale
+            : 1;
+
+        const channelCtx = this.ensureChannelBuffer(
+            logicalWidth, logicalHeight, pixelWidth, pixelHeight, dpr, processScale
+        );
+        const intensity = traumaParams.intensity;
+        const offset = traumaParams.offset * processScale;
+
+        this.ctx.clearRect(0, 0, logicalWidth, logicalHeight);
+
+        if (intensity < 0.18) {
+            this.ctx.drawImage(this.offscreenCanvas, 0, 0, logicalWidth, logicalHeight);
+            return;
+        }
+
+        this.ctx.drawImage(this.offscreenCanvas, 0, 0, logicalWidth, logicalHeight);
+        this.ctx.globalCompositeOperation = 'lighter';
+        this.ctx.globalAlpha = intensity;
+
+        const drawTintedChannel = (color, xOffset) => {
+            channelCtx.globalCompositeOperation = 'copy';
+            channelCtx.drawImage(this.offscreenCanvas, 0, 0, logicalWidth, logicalHeight);
+            channelCtx.globalCompositeOperation = 'multiply';
+            channelCtx.fillStyle = color;
+            channelCtx.fillRect(0, 0, logicalWidth, logicalHeight);
+            this.ctx.drawImage(this.channelCanvas, xOffset, 0, logicalWidth, logicalHeight);
+        };
+
+        drawTintedChannel('#FF0000', -offset);
+        drawTintedChannel('#0000FF', offset);
+
+        this.ctx.globalAlpha = 1;
+        this.ctx.globalCompositeOperation = 'source-over';
     },
 
     // Trigger hit pause
@@ -2119,6 +2377,68 @@ const Game = {
         return this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode && !multiplayerManager.isHost;
     },
 
+    // Promote/demote simulation authority when the lobby host changes
+    handleHostMigration({ wasHost, isHost, newHostId, previousHostId }) {
+        if (!this.multiplayerEnabled || typeof multiplayerManager === 'undefined' || !multiplayerManager) {
+            return;
+        }
+
+        const localId = this.getLocalPlayerId ? this.getLocalPlayerId() : multiplayerManager.playerId;
+        const lobbyPlayers = multiplayerManager.players || [];
+        const statePlayers = (multiplayerManager.latestGameState && multiplayerManager.latestGameState.players) || [];
+
+        if (isHost && !wasHost) {
+            console.log(`[Host Migration] Promoted to host (was ${previousHostId || 'unknown'})`);
+
+            if (this.remotePlayerShadowInstances) {
+                this.remotePlayerShadowInstances.clear();
+            }
+
+            lobbyPlayers.forEach(player => {
+                if (!player || player.id === localId) return;
+
+                if (!this.playerCurrencies.has(player.id)) {
+                    this.playerCurrencies.set(player.id, player.currency || 0);
+                }
+                if (!this.playerUpgrades.has(player.id) && player.upgrades) {
+                    this.playerUpgrades.set(player.id, JSON.parse(JSON.stringify(player.upgrades)));
+                }
+
+                this.initializeRemotePlayerInstance(player.id, player.class);
+                this.initializeRemotePlayerState(player.id);
+
+                const stateData = statePlayers.find(p => p.id === player.id);
+                const remoteInstance = this.remotePlayerInstances.get(player.id);
+                if (remoteInstance && stateData && remoteInstance.applyState) {
+                    remoteInstance.applyState(stateData);
+                }
+            });
+
+            if (typeof multiplayerManager.sendGameState === 'function') {
+                setTimeout(() => multiplayerManager.sendGameState(), 50);
+            }
+            return;
+        }
+
+        if (!isHost && wasHost) {
+            console.log(`[Host Migration] Demoted from host to client (new host: ${newHostId})`);
+
+            if (this.remotePlayerInstances) {
+                this.remotePlayerInstances.clear();
+            }
+            if (this.remotePlayerStates) {
+                this.remotePlayerStates.clear();
+            }
+            if (this.remotePlayerInputs) {
+                this.remotePlayerInputs.clear();
+            }
+
+            multiplayerManager.latestGameState = null;
+            multiplayerManager.lastSentGameState = null;
+            multiplayerManager.expectedSequence = null;
+        }
+    },
+
     // Get enemy index in the enemies array
     getEnemyIndex(enemy) {
         return this.enemies.indexOf(enemy);
@@ -2345,6 +2665,11 @@ const Game = {
         // Update ground items (pulse animation)
         if (typeof updateGroundItems !== 'undefined') {
             updateGroundItems(deltaTime);
+        }
+
+        // Update ground gear pulse (gear mode)
+        if (typeof updateGroundLoot !== 'undefined') {
+            updateGroundLoot(deltaTime);
         }
 
         // Update item pylons (multiplayer)
@@ -2651,11 +2976,6 @@ const Game = {
 
         // Update door pulse animation
         this.doorPulse += deltaTime;
-
-        // Update debug panel if visible
-        if (typeof DebugPanel !== 'undefined') {
-            DebugPanel.update();
-        }
 
         // Multiplayer: Send game state if host, or player state if client
         // IMPORTANT: Send state BEFORE filtering dead enemies so clients know which ones died
@@ -3030,25 +3350,29 @@ const Game = {
         // Multiplayer: Notify all players of loot pickup so it's removed everywhere
         // Send full gear object so host can equip it on remote player instance
         if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
+            const gearPayload = (typeof multiplayerManager.serializeGearForNetwork === 'function')
+                ? multiplayerManager.serializeGearForNetwork(gear)
+                : {
+                    id: gear.id,
+                    slot: gear.slot,
+                    tier: gear.tier,
+                    color: gear.color,
+                    bonus: gear.bonus,
+                    stats: gear.stats,
+                    affixes: gear.affixes || [],
+                    classModifier: gear.classModifier || null,
+                    weaponType: gear.weaponType || null,
+                    armorType: gear.armorType || null,
+                    legendaryEffect: gear.legendaryEffect || null,
+                    name: gear.name
+                };
+
             multiplayerManager.send({
                 type: 'loot_pickup',
                 data: {
                     playerId: multiplayerManager.playerId,
-                    lootId: gear.id, // Use loot ID for reliable sync
-                    gear: {
-                        id: gear.id,
-                        slot: gear.slot,
-                        tier: gear.tier,
-                        color: gear.color,
-                        bonus: gear.bonus,
-                        stats: gear.stats,
-                        affixes: gear.affixes || [],  // NEW: Affix system
-                        classModifier: gear.classModifier || null, // NEW: Class modifiers
-                        weaponType: gear.weaponType || null, // NEW: Weapon types
-                        armorType: gear.armorType || null,   // NEW: Armor types
-                        legendaryEffect: gear.legendaryEffect || null, // NEW: Legendary effects
-                        name: gear.name               // NEW: Gear names
-                    }
+                    lootId: gear.id,
+                    gear: gearPayload
                 }
             });
         }
@@ -3116,6 +3440,31 @@ const Game = {
         }
     },
 
+    getRoomSpawnPoint(room = null, index = 0) {
+        const activeRoom = room || (typeof currentRoom !== 'undefined' ? currentRoom : null);
+        const layoutSpawn = activeRoom && activeRoom.layout && activeRoom.layout.spawnZone
+            ? activeRoom.layout.spawnZone
+            : null;
+        const spawnZone = layoutSpawn || (
+            activeRoom && Array.isArray(activeRoom.spawnZones) && activeRoom.spawnZones[0]
+                ? activeRoom.spawnZones[0]
+                : { x: 140, y: ((activeRoom && activeRoom.height) || 1350) / 2 }
+        );
+        const roomWidth = (activeRoom && activeRoom.width) || 2400;
+        const roomHeight = (activeRoom && activeRoom.height) || 1350;
+        const playerSize = (this.player && this.player.size) || 30;
+        const spawnSpread = 70;
+        const column = index % 3;
+        const row = Math.floor(index / 3);
+        const offsetX = column * spawnSpread;
+        const offsetY = (row % 2 === 0 ? 1 : -1) * Math.ceil(row / 2) * spawnSpread * 0.75;
+
+        return {
+            x: Math.min(Math.max(spawnZone.x + offsetX, playerSize * 2), roomWidth - playerSize * 2),
+            y: Math.min(Math.max(spawnZone.y + offsetY, playerSize * 2), roomHeight - playerSize * 2)
+        };
+    },
+
     reviveDeadPlayers(options = {}) {
         const {
             reason = 'unknown',
@@ -3134,11 +3483,6 @@ const Game = {
         };
 
         const doorRect = (typeof getDoorPosition === 'function') ? getDoorPosition() : null;
-        const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.width) ? currentRoom.width : this.config.width;
-        const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.height) ? currentRoom.height : this.config.height;
-        const spawnBaseX = 140;
-        const spawnBaseY = roomHeight / 2;
-        const spawnSpread = 70;
         const safeRespawnNeeded = (reason === 'room_clear' || reason === 'room_transition' || respawnStrategy === 'safe');
 
         const resetActionState = (playerObj) => {
@@ -3171,13 +3515,12 @@ const Game = {
                 return;
             }
 
-            const column = index % 3;
-            const row = Math.floor(index / 3);
-            const offsetX = column * spawnSpread;
-            const offsetY = (row % 2 === 0 ? 1 : -1) * Math.ceil(row / 2) * spawnSpread * 0.75;
-
-            playerObj.x = Math.min(spawnBaseX + offsetX, roomWidth - playerObj.size * 2);
-            playerObj.y = Math.min(Math.max(spawnBaseY + offsetY, playerObj.size * 2), roomHeight - playerObj.size * 2);
+            const spawnPoint = this.getRoomSpawnPoint(
+                (typeof currentRoom !== 'undefined' ? currentRoom : null),
+                index
+            );
+            playerObj.x = spawnPoint.x;
+            playerObj.y = spawnPoint.y;
         };
 
         const applyRevival = (playerObj, playerId, index = 0, isLocal = false) => {
@@ -3308,6 +3651,167 @@ const Game = {
         return Array.from(revived);
     },
 
+    beginRoomEnterTransition(options = {}) {
+        if (typeof RunProfiler !== 'undefined' && RunProfiler.isActive()) {
+            RunProfiler.markRoomTransitionStart();
+        }
+        this.roomEnterTransition = {
+            phase: 0,
+            roomNumber: options.roomNumber != null ? options.roomNumber : this.roomNumber,
+            startedAt: performance.now(),
+            minMs: options.minMs != null ? options.minMs : 280,
+            onComplete: typeof options.onComplete === 'function' ? options.onComplete : null
+        };
+        this.state = 'ENTERING_ROOM';
+        this.paused = false;
+    },
+
+    updateRoomEnterTransition() {
+        const transition = this.roomEnterTransition;
+        if (!transition) {
+            this.finishRoomEnterTransition();
+            return;
+        }
+
+        if (transition.phase === 0) {
+            if (typeof currentRoom !== 'undefined' && currentRoom && typeof prepareRoomRenderData === 'function') {
+                prepareRoomRenderData(currentRoom, transition.roomNumber);
+            }
+            transition.phase = 1;
+            return;
+        }
+
+        if (transition.phase === 1) {
+            if (typeof currentRoom !== 'undefined' && currentRoom) {
+                if (typeof bakeRoomStaticSceneCache === 'function') {
+                    bakeRoomStaticSceneCache(currentRoom, transition.roomNumber);
+                } else if (typeof prepareRoomRenderCaches === 'function') {
+                    prepareRoomRenderCaches(currentRoom, transition.roomNumber);
+                }
+            }
+            transition.phase = 2;
+            return;
+        }
+
+        if (transition.phase === 2 && performance.now() - transition.startedAt >= transition.minMs) {
+            this.finishRoomEnterTransition();
+        }
+    },
+
+    finishRoomEnterTransition() {
+        const onComplete = this.roomEnterTransition && this.roomEnterTransition.onComplete;
+        const roomNumber = this.roomEnterTransition ? this.roomEnterTransition.roomNumber : this.roomNumber;
+        this.roomEnterTransition = null;
+        this.state = 'PLAYING';
+        if (typeof RunProfiler !== 'undefined' && RunProfiler.isActive()) {
+            RunProfiler.markRoomTransitionEnd(roomNumber);
+            const roomType = (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type) ? currentRoom.type : 'normal';
+            const biomeId = (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.biomeId) ? currentRoom.biomeId : null;
+            RunProfiler.markRoomEnter(roomNumber, roomType, biomeId);
+        }
+        if (typeof this.initializeCamera === 'function') {
+            this.initializeCamera();
+        }
+        if (typeof onComplete === 'function') {
+            onComplete();
+        }
+    },
+
+    maybeStartBossIntroForCurrentRoom() {
+        if (typeof currentRoom === 'undefined' || !currentRoom || currentRoom.type !== 'boss') {
+            return;
+        }
+        if (!Array.isArray(this.enemies) || this.enemies.length === 0 || !this.enemies[0].isBoss) {
+            return;
+        }
+        const boss = this.enemies[0];
+        const currentRoomNumber = this.roomNumber || (currentRoom ? currentRoom.number : 0);
+        if (currentRoomNumber <= 30) {
+            this.startBossIntro(boss);
+        } else {
+            boss.introComplete = true;
+        }
+    },
+
+    tickNexusPrewarm() {
+        if (this.state !== 'NEXUS' || this.nexusPrewarmComplete) {
+            return;
+        }
+        if (!this.selectedClass) {
+            return;
+        }
+
+        if (!this.nexusPrewarm) {
+            if (typeof generateRoom === 'undefined') {
+                return;
+            }
+            this.nexusPrewarm = {
+                phase: 0,
+                room: generateRoom(1),
+                roomNumber: 1
+            };
+        }
+
+        const prewarm = this.nexusPrewarm;
+        if (prewarm.phase === 0) {
+            if (typeof prepareRoomRenderData === 'function') {
+                prepareRoomRenderData(prewarm.room, prewarm.roomNumber);
+            }
+            prewarm.phase = 1;
+            return;
+        }
+
+        if (prewarm.phase === 1) {
+            if (typeof bakeRoomStaticSceneCache === 'function') {
+                bakeRoomStaticSceneCache(prewarm.room, prewarm.roomNumber);
+            } else if (typeof prepareRoomRenderCaches === 'function') {
+                prepareRoomRenderCaches(prewarm.room, prewarm.roomNumber);
+            }
+            if (typeof releaseRoomRenderCaches === 'function') {
+                releaseRoomRenderCaches(prewarm.room);
+            }
+            this.nexusPrewarm = null;
+            this.nexusPrewarmComplete = true;
+        }
+    },
+
+    renderRoomEnterScreen(ctx) {
+        const logicalWidth = this.config.width;
+        const logicalHeight = this.config.height;
+        const biome = typeof getBiomeForRoom !== 'undefined'
+            ? getBiomeForRoom(this.roomNumber)
+            : { baseColor: '#1a1a2e', accentColor: '#6699ff' };
+
+        Renderer.clear(ctx, logicalWidth, logicalHeight, biome.baseColor);
+
+        if (this.roomEnterTransition && this.roomEnterTransition.phase >= 1 &&
+            typeof currentRoom !== 'undefined' && currentRoom &&
+            typeof renderCachedRoomStaticLayer === 'function') {
+            ctx.save();
+            ctx.globalAlpha = 0.35;
+            renderCachedRoomStaticLayer(ctx, this.roomNumber);
+            ctx.restore();
+        }
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.72)';
+        ctx.fillRect(0, 0, logicalWidth, logicalHeight);
+
+        const hex = (biome.accentColor || '#6699ff').replace('#', '');
+        const accentR = parseInt(hex.substring(0, 2), 16);
+        const accentG = parseInt(hex.substring(2, 4), 16);
+        const accentB = parseInt(hex.substring(4, 6), 16);
+
+        ctx.fillStyle = `rgba(${accentR}, ${accentG}, ${accentB}, 0.9)`;
+        ctx.font = 'bold 22px Orbitron, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`Entering Room ${this.roomNumber}`, logicalWidth / 2, logicalHeight / 2 - 12);
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+        ctx.font = '12px Orbitron, sans-serif';
+        ctx.fillText('Preparing environment...', logicalWidth / 2, logicalHeight / 2 + 18);
+    },
+
     // Advance to next room
     advanceToNextRoom() {
         this.roomNumber++;
@@ -3374,10 +3878,10 @@ const Game = {
                     Game.itemPylons.length = 0;
                 }
 
-                // Reset player position to left side (new room size)
-                const roomHeight = 1350;
-                this.player.x = 100;
-                this.player.y = roomHeight / 2; // Vertically centered (675)
+                // Clients wait for the host layout; keep the fallback routed through the same spawn helper.
+                const spawnPoint = this.getRoomSpawnPoint(null, 0);
+                this.player.x = spawnPoint.x;
+                this.player.y = spawnPoint.y;
 
                 // Initialize camera to follow player
                 this.initializeCamera();
@@ -3390,6 +3894,9 @@ const Game = {
 
                 // Update currentRoom to the new room
                 if (typeof currentRoom !== 'undefined') {
+                    if (typeof releaseRoomRenderCaches === 'function') {
+                        releaseRoomRenderCaches(currentRoom);
+                    }
                     currentRoom = newRoom;
                     // Sync to window for DOM components
                     if (typeof window !== 'undefined') {
@@ -3401,15 +3908,6 @@ const Game = {
                 this.enemies = newRoom.enemies;
 
                 // No longer pre-assign targets - proximity detection and damage-based aggro handle targeting
-
-                // Check if this is a boss room and start intro
-                if (newRoom.type === 'boss' && this.enemies.length > 0 && this.enemies[0].isBoss) {
-                    const boss = this.enemies[0];
-                    // Start boss intro
-                    this.startBossIntro(boss);
-                }
-
-                // Clear ground loot from previous room
                 if (typeof groundLoot !== 'undefined') {
                     groundLoot.length = 0;
                 }
@@ -3440,16 +3938,19 @@ const Game = {
                     }
                 }
 
-                // Reset player position to left side (new room size)
-                const roomHeight = 1350;
-                this.player.x = 100;
-                this.player.y = roomHeight / 2; // Vertically centered (675)
+                // Reset player position to the generated spawn zone.
+                const spawnPoint = this.getRoomSpawnPoint(newRoom, 0);
+                this.player.x = spawnPoint.x;
+                this.player.y = spawnPoint.y;
 
                 // Reset remote player instances to spawn (host only)
                 if (this.isHost() && this.remotePlayerInstances) {
+                    let remoteIndex = 1;
                     this.remotePlayerInstances.forEach((playerInstance, playerId) => {
-                        playerInstance.x = 100;
-                        playerInstance.y = roomHeight / 2;
+                        const remoteSpawn = this.getRoomSpawnPoint(newRoom, remoteIndex);
+                        playerInstance.x = remoteSpawn.x;
+                        playerInstance.y = remoteSpawn.y;
+                        remoteIndex++;
                     });
                 }
 
@@ -3498,6 +3999,10 @@ const Game = {
                             type: 'room_transition',
                             data: {
                                 roomNumber: this.roomNumber,
+                                roomType: newRoom.type,
+                                roomLayout: (typeof RoomLayoutGenerator !== 'undefined' && newRoom.layout)
+                                    ? RoomLayoutGenerator.serializeLayout(newRoom.layout)
+                                    : null,
                                 reviveePlayers: transitionRevivedIds && transitionRevivedIds.length
                                     ? transitionRevivedIds
                                     : (transitionRevivedIds === undefined ? undefined : []),
@@ -3511,12 +4016,23 @@ const Game = {
                         multiplayerManager.sendPlayerState();
                     }
                 }
+
+                this.beginRoomEnterTransition({
+                    roomNumber: this.roomNumber,
+                    onComplete: () => this.maybeStartBossIntroForCurrentRoom()
+                });
             }
         }
     },
 
     // Render everything
     render() {
+        if (!this.currentFrameTimings) {
+            this.currentFrameTimings = {
+                static: 0, world: 0, worldGlow: 0, worldBodies: 0,
+                vignette: 0, postFx: 0, ui: 0
+            };
+        }
         // Render boss intro if active (before anything else)
         if (this.bossIntroActive) {
             // Clear with dark background for boss intro
@@ -3541,6 +4057,8 @@ const Game = {
                     renderPauseMenu(this.ctx);
                 }
             }
+        } else if (this.state === 'ENTERING_ROOM') {
+            this.renderRoomEnterScreen(this.ctx);
         } else if (this.state === 'PAUSED') {
             // If in multiplayer, convert PAUSED state to proper multiplayer pause menu
             if (inMultiplayer) {
@@ -3604,13 +4122,9 @@ const Game = {
             }
         } else {
             // PLAYING state
-
-            // Check for damage trauma (Chromatic Aberration)
-            // Use a threshold of 0.5 seconds for the glitch effect
             const now = Date.now() / 1000;
-            const damageTraumaDuration = 0.5;
+            const damageTraumaDuration = 0.35;
 
-            // Check local player or client's remote player instance
             let playerToCheck = this.player;
             if (!playerToCheck && this.multiplayerEnabled && typeof this.getLocalPlayerId === 'function') {
                 const localPlayerId = this.getLocalPlayerId();
@@ -3619,184 +4133,41 @@ const Game = {
                 }
             }
 
-            const isDamaged = playerToCheck && playerToCheck.lastDamageTime && (now - playerToCheck.lastDamageTime < damageTraumaDuration);
+            const traumaNow = performance.now();
+            const traumaParams = this.getDamageTraumaParams(
+                playerToCheck, now, traumaNow, damageTraumaDuration
+            );
+            const useChromaticPass = traumaParams.active && traumaParams.intensity >= 0.18;
 
-            if (isDamaged) {
-                // --- OFFSCREEN RENDER PATH (With Chromatic Aberration) ---
+            const dpr = this.dpr || 1;
+            const logicalWidth = this.config.width;
+            const logicalHeight = this.config.height;
+            const worldTarget = useChromaticPass
+                ? this.ensureWorldRenderTarget(logicalWidth * dpr, logicalHeight * dpr, dpr)
+                : this.ctx;
 
-                // Initialize offscreen canvas if needed
-                const dpr = this.dpr || 1;
-                const logicalWidth = this.config.width;
-                const logicalHeight = this.config.height;
-                const pixelWidth = logicalWidth * dpr;
-                const pixelHeight = logicalHeight * dpr;
+            this.renderPlayingWorldLayer(worldTarget);
 
-                if (!this.offscreenCanvas) {
-                    this.offscreenCanvas = document.createElement('canvas');
-                    this.offscreenCanvas.width = pixelWidth;
-                    this.offscreenCanvas.height = pixelHeight;
-                    this.offscreenCtx = this.offscreenCanvas.getContext('2d');
-                    this.offscreenCtx.scale(dpr, dpr); // Scale context for logical drawing
-                } else if (this.offscreenCanvas.width !== pixelWidth || this.offscreenCanvas.height !== pixelHeight) {
-                    this.offscreenCanvas.width = pixelWidth;
-                    this.offscreenCanvas.height = pixelHeight;
-                    this.offscreenCtx.scale(dpr, dpr); // Re-apply scale after resize
-                }
-
-                // Clear offscreen canvas
-                const biome = typeof getBiomeForRoom !== 'undefined' ? getBiomeForRoom(this.roomNumber) : { baseColor: '#1a1a2e' };
-                Renderer.clear(this.offscreenCtx, logicalWidth, logicalHeight, biome.baseColor);
-
-                // Apply camera transform and screen shake to offscreen context
-                this.offscreenCtx.save();
-
-                // Detect if desktop (for zoom)
-                const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
-                const currentZoom = isMobile ? (this.mobileZoom || 1.0) : this.baseZoom;
-
-                // Camera transform
-                const centerX = logicalWidth / 2;
-                const centerY = logicalHeight / 2;
-                this.offscreenCtx.translate(centerX + this.screenShakeOffset.x, centerY + this.screenShakeOffset.y);
-                this.offscreenCtx.scale(currentZoom, currentZoom);
-                this.offscreenCtx.translate(-this.camera.x, -this.camera.y);
-
-                // Render room background with grid pattern (inside camera transform - world space)
-                if (typeof renderRoomBackground !== 'undefined') {
-                    renderRoomBackground(this.offscreenCtx, this.roomNumber);
-                }
-
-                // Render room boundaries (visible walls at room edges)
-                if (typeof renderRoomBoundaries !== 'undefined') {
-                    renderRoomBoundaries(this.offscreenCtx, this.roomNumber);
-                }
-
-                // Render game entities to offscreen canvas
-                this.renderGameWorld(this.offscreenCtx);
-
-                // Restore offscreen context
-                this.offscreenCtx.restore();
-
-                // --- Chromatic Aberration Pass (True RGB Split) ---
-                // Draw offscreen canvas to main canvas with RGB offsets
-                // To prevent "wash out", we isolate channels using multiply blend mode
-
-                // Initialize channel buffer if needed
-                if (!this.channelCanvas) {
-                    this.channelCanvas = document.createElement('canvas');
-                    this.channelCanvas.width = pixelWidth;
-                    this.channelCanvas.height = pixelHeight;
-                    this.channelCtx = this.channelCanvas.getContext('2d');
-                    this.channelCtx.scale(dpr, dpr);
-                } else if (this.channelCanvas.width !== pixelWidth || this.channelCanvas.height !== pixelHeight) {
-                    this.channelCanvas.width = pixelWidth;
-                    this.channelCanvas.height = pixelHeight;
-                    this.channelCtx.scale(dpr, dpr);
-                }
-
-                // Calculate intensity based on time elapsed (Fade Out)
-                const elapsed = now - playerToCheck.lastDamageTime;
-                const progress = Math.min(elapsed / damageTraumaDuration, 1.0);
-                const intensity = 1.0 - progress; // Linear fade out (1.0 -> 0.0)
-
-                // Calculate damage percentage based on damage amount from THIS hit (not total health lost)
-                // Scale from 0% to 45% of max HP (45% = maximum effect)
-                const hitDamagePercentage = playerToCheck.maxHp > 0 && playerToCheck.lastDamageAmount > 0
-                    ? playerToCheck.lastDamageAmount / playerToCheck.maxHp
-                    : 0;
-                // Normalize to 0.1-1.0, capped at 45% of max HP (0.1 at 0% damage, 1.0 at 45%+ damage)
-                const normalizedDamage = Math.min(hitDamagePercentage / 0.45, 1.0);
-                const damagePercentage = 0.1 + (1.0 - 0.1) * normalizedDamage; // Scale from 0.1 to 1.0
-
-                // Scale maxOffset based on damage percentage
-                // At 0% damage: minimal separation (2px)
-                // At 45% damage: maximum separation (16px)
-                const baseMaxOffset = 2; // Minimum offset at 0% damage
-                const maxMaxOffset = 16; // Maximum offset at 45% damage
-                const maxOffset = baseMaxOffset + (maxMaxOffset - baseMaxOffset) * damagePercentage;
-
-                // Ease out the offset to prevent "pop" at the end
-                // Quadratic ease out: t * (2 - t)
-                const easeIntensity = intensity * (2 - intensity);
-                const offset = maxOffset * easeIntensity;
-
-                // Clear main canvas (Black background)
-                this.ctx.clearRect(0, 0, logicalWidth, logicalHeight);
-
-                // Use additive blending to recombine channels
-                this.ctx.globalCompositeOperation = 'lighter';
-
-                // Helper to draw a single channel
-                const drawChannel = (color, xOffset) => {
-                    // 1. Copy scene to channel buffer
-                    this.channelCtx.globalCompositeOperation = 'copy';
-                    // Draw offscreen canvas (source) to channel canvas (dest)
-                    // Both are pixel-sized, but contexts are scaled.
-                    // We need to draw at logical size to fill the scaled context.
-                    this.channelCtx.drawImage(this.offscreenCanvas, 0, 0, logicalWidth, logicalHeight);
-
-                    // 2. Multiply with channel color to isolate it
-                    this.channelCtx.globalCompositeOperation = 'multiply';
-                    this.channelCtx.fillStyle = color;
-                    this.channelCtx.fillRect(0, 0, logicalWidth, logicalHeight);
-
-                    // 3. Draw isolated channel to main canvas with offset
-                    this.ctx.save();
-                    this.ctx.translate(xOffset, 0);
-                    this.ctx.drawImage(this.channelCanvas, 0, 0, logicalWidth, logicalHeight);
-                    this.ctx.restore();
-                };
-
-                // Draw Red Channel (Left)
-                drawChannel('#FF0000', -offset);
-
-                // Draw Green Channel (Center)
-                drawChannel('#00FF00', 0);
-
-                // Draw Blue Channel (Right)
-                drawChannel('#0000FF', offset);
-
-                // Reset composite operation
-                this.ctx.globalCompositeOperation = 'source-over';
-
-            } else {
-                // --- DIRECT RENDER PATH (Sharp, no blur) ---
-
-                // Clear main canvas
-                const biome = typeof getBiomeForRoom !== 'undefined' ? getBiomeForRoom(this.roomNumber) : { baseColor: '#1a1a2e' };
-                Renderer.clear(this.ctx, this.config.width, this.config.height, biome.baseColor);
-
-                // Apply camera transform
-                this.ctx.save();
-
-                // Detect if desktop (for zoom)
-                const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
-                const currentZoom = isMobile ? (this.mobileZoom || 1.0) : this.baseZoom;
-
-                // Camera transform
-                const centerX = this.config.width / 2;
-                const centerY = this.config.height / 2;
-                this.ctx.translate(centerX + this.screenShakeOffset.x, centerY + this.screenShakeOffset.y);
-                this.ctx.scale(currentZoom, currentZoom);
-                this.ctx.translate(-this.camera.x, -this.camera.y);
-
-                // Render room background
-                if (typeof renderRoomBackground !== 'undefined') {
-                    renderRoomBackground(this.ctx, this.roomNumber);
-                }
-                if (typeof renderRoomBoundaries !== 'undefined') {
-                    renderRoomBoundaries(this.ctx, this.roomNumber);
-                }
-
-                // Render game entities
-                this.renderGameWorld(this.ctx);
-
-                // Restore main context
-                this.ctx.restore();
+            if (useChromaticPass) {
+                const postFxStart = performance.now();
+                this.applyChromaticAberrationFromOffscreen(traumaParams);
+                this.currentFrameTimings.postFx += performance.now() - postFxStart;
             }
 
-            // --- DYNAMIC VIGNETTE (Light-Aware) ---
+            const vignetteStart = performance.now();
             this.renderVignette(this.ctx);
+            this.currentFrameTimings.vignette += performance.now() - vignetteStart;
+        }
+
+        const uiStart = performance.now();
+        if (typeof renderEnemyDirectionArrows === 'function') {
+            renderEnemyDirectionArrows(this.ctx, this.player);
+        }
+        if (typeof renderDoorDirectionArrow === 'function') {
+            renderDoorDirectionArrow(this.ctx, this.player);
+        }
+        if (typeof renderExitChevron === 'function') {
+            renderExitChevron(this.ctx);
         }
 
         // Render touch controls (on top of everything)
@@ -3808,6 +4179,7 @@ const Game = {
         if (typeof renderInteractionButton === 'function') {
             renderInteractionButton(this.ctx);
         }
+        this.currentFrameTimings.ui += performance.now() - uiStart;
     },
 
     // Create cached light sprite for efficient rendering
@@ -3834,6 +4206,209 @@ const Game = {
         return canvas;
     },
 
+    getCachedGlowSprite(color) {
+        if (!this.glowCache) {
+            this.glowCache = new Map();
+        }
+        const key = color || 'rgba(255,255,255,0.75)';
+        if (this.glowCache.has(key)) {
+            return this.glowCache.get(key);
+        }
+
+        const size = 128;
+        const canvas = document.createElement('canvas');
+        const diameter = size * 2;
+        const padding = 4;
+        canvas.width = diameter + padding * 2;
+        canvas.height = diameter + padding * 2;
+        const gCtx = canvas.getContext('2d');
+        const center = size + padding;
+        const grad = gCtx.createRadialGradient(center, center, size * 0.1, center, center, size);
+        grad.addColorStop(0, key);
+        grad.addColorStop(1, 'rgba(0,0,0,0)');
+        gCtx.fillStyle = grad;
+        gCtx.beginPath();
+        gCtx.arc(center, center, size, 0, Math.PI * 2);
+        gCtx.fill();
+        this.glowCache.set(key, canvas);
+        return canvas;
+    },
+
+    prewarmRenderCaches() {
+        if (!this.lightSprite) {
+            this.lightSprite = this.createLightSprite();
+        }
+
+        const glowColors = new Set([
+            '#cccccc', '#4caf50', '#2196f3', '#9c27b0', '#ff9800',
+            '#999999', '#ffff00', '#ffaa00', '#ff1493', '#888888'
+        ]);
+        if (typeof CLASS_DEFINITIONS !== 'undefined') {
+            Object.keys(CLASS_DEFINITIONS).forEach(key => {
+                if (CLASS_DEFINITIONS[key] && CLASS_DEFINITIONS[key].color) {
+                    glowColors.add(CLASS_DEFINITIONS[key].color);
+                }
+            });
+        }
+        glowColors.forEach(color => this.getCachedGlowSprite(color));
+
+        if (typeof Renderer !== 'undefined' && Renderer.getCachedDoor) {
+            Renderer.getCachedDoor(80, 120);
+            Renderer.getCachedDoor(100, 140);
+        }
+
+        if (this.ctx && typeof BiomeConfig !== 'undefined' && typeof getBiomeGridPattern === 'function') {
+            Object.keys(BiomeConfig.definitions || {}).forEach(id => {
+                const biome = BiomeConfig.getBiomeDefinition(id);
+                getBiomeGridPattern(this.ctx, biome, false, false);
+                getBiomeGridPattern(this.ctx, biome, true, false);
+                getBiomeGridPattern(this.ctx, biome, false, true);
+                getBiomeGridPattern(this.ctx, biome, true, true);
+            });
+        }
+
+        if (typeof currentRoom !== 'undefined' && currentRoom && typeof prepareRoomRenderCaches === 'function') {
+            prepareRoomRenderCaches(currentRoom, this.roomNumber || currentRoom.number || 1);
+        }
+    },
+
+    updateFrameBudgetGovernor(frameTimeMs, renderTimeMs) {
+        const adaptiveEnabled = typeof DebugFlags === 'undefined' || DebugFlags.ADAPTIVE_RENDER_QUALITY !== false;
+        const baseQuality = {
+            vignetteScale: 0.5,
+            maxSceneryLights: Infinity,
+            gearRingPoints: 64,
+            groundLootAnimatedRing: true,
+            remoteFullRender: true,
+            maxBeamLights: 8,
+            damageFxScale: 1
+        };
+        if (!adaptiveEnabled) {
+            this.frameBudgetSamples.length = 0;
+            this.renderQuality = baseQuality;
+            this.debugFrameBudget = { frameAvg: 0, renderAvg: 0 };
+            return;
+        }
+
+        const now = performance.now();
+        this.frameBudgetSamples.push({ time: now, frame: frameTimeMs, render: renderTimeMs });
+        const cutoff = now - 2000;
+        while (this.frameBudgetSamples.length > 0 && this.frameBudgetSamples[0].time < cutoff) {
+            this.frameBudgetSamples.shift();
+        }
+
+        let frameSum = 0;
+        let renderSum = 0;
+        for (let i = 0; i < this.frameBudgetSamples.length; i++) {
+            frameSum += this.frameBudgetSamples[i].frame;
+            renderSum += this.frameBudgetSamples[i].render;
+        }
+        const count = Math.max(1, this.frameBudgetSamples.length);
+        const frameAvg = frameSum / count;
+        const renderAvg = renderSum / count;
+        this.debugFrameBudget = { frameAvg, renderAvg };
+
+        if (frameAvg > 34 || renderAvg > 28) {
+            this.renderQuality = {
+                vignetteScale: 0.25,
+                maxSceneryLights: 36,
+                gearRingPoints: 24,
+                groundLootAnimatedRing: false,
+                remoteFullRender: false,
+                maxBeamLights: 4,
+                damageFxScale: 0.5
+            };
+        } else if (frameAvg > 30 || renderAvg > 22) {
+            this.renderQuality = {
+                vignetteScale: 0.33,
+                maxSceneryLights: 64,
+                gearRingPoints: 32,
+                groundLootAnimatedRing: false,
+                remoteFullRender: true,
+                maxBeamLights: 4,
+                damageFxScale: 0.75
+            };
+        } else if (frameAvg < 24 && renderAvg < 17) {
+            this.renderQuality = baseQuality;
+        }
+    },
+
+    shouldCollectDebugMetrics() {
+        return (typeof RunProfiler !== 'undefined' && RunProfiler.isActive()) ||
+            (typeof DebugPanel !== 'undefined' && DebugPanel.visible) ||
+            (typeof DebugFlags !== 'undefined' && DebugFlags.RENDER_TIMING);
+    },
+
+    getRenderQualityTier() {
+        const q = this.renderQuality || {};
+        if (q.gearRingPoints === 24 && q.remoteFullRender === false) return 'heavy';
+        if (q.gearRingPoints === 32 || q.groundLootAnimatedRing === false) return 'medium';
+        return 'normal';
+    },
+
+    buildDebugMetricsSnapshot() {
+        const lists = this.visibleFrameLists || {};
+        const totalGroundLoot = (typeof groundLoot !== 'undefined' && Array.isArray(groundLoot))
+            ? groundLoot.length
+            : 0;
+        const totalGroundCards = (typeof window !== 'undefined' && Array.isArray(window.groundCards))
+            ? window.groundCards.length
+            : 0;
+        return {
+            fps: this.fps || 0,
+            qualityTier: this.getRenderQualityTier(),
+            frameBudget: this.debugFrameBudget || { frameAvg: 0, renderAvg: 0 },
+            counts: {
+                enemiesVisible: lists.enemies ? lists.enemies.length : 0,
+                enemiesTotal: this.enemies ? this.enemies.length : 0,
+                projectilesVisible: lists.projectiles ? lists.projectiles.length : 0,
+                projectilesTotal: this.projectiles ? this.projectiles.length : 0,
+                groundLootVisible: lists.groundLoot ? lists.groundLoot.length : 0,
+                groundLootTotal: totalGroundLoot,
+                groundCardsVisible: lists.groundCards ? lists.groundCards.length : 0,
+                groundCardsTotal: totalGroundCards,
+                groundItemsVisible: lists.groundItems ? lists.groundItems.length : 0,
+                groundItemsTotal: this.groundItems ? this.groundItems.length : 0
+            },
+            subTimings: Object.assign({}, this.renderSubTimings || {})
+        };
+    },
+
+    recordRenderSubTiming(key, durationMs) {
+        if (!this.shouldCollectDebugMetrics()) return;
+        if (!this.renderSubTimingSamples) {
+            this.renderSubTimingSamples = {
+                groundLoot: [],
+                gearRings: [],
+                remotePlayers: [],
+                worldGlow: [],
+                worldBodies: []
+            };
+        }
+        const samples = this.renderSubTimingSamples[key];
+        if (!samples) return;
+        const now = performance.now();
+        samples.push({ time: now, value: durationMs });
+        const cutoff = now - 1000;
+        while (samples.length > 0 && samples[0].time < cutoff) {
+            samples.shift();
+        }
+        let sum = 0;
+        for (let i = 0; i < samples.length; i++) sum += samples[i].value;
+        if (!this.renderSubTimings) this.renderSubTimings = {};
+        this.renderSubTimings[key] = samples.length > 0 ? sum / samples.length : 0;
+    },
+
+    trackRenderSection(key, fn) {
+        if (this.shouldCollectDebugMetrics()) {
+            const start = performance.now();
+            fn();
+            this.recordRenderSubTiming(key, performance.now() - start);
+            return;
+        }
+        fn();
+    },
+
     // Render dynamic vignette with light sources
     renderVignette(ctx) {
         // Initialize light sprite if not exists
@@ -3858,8 +4433,11 @@ const Game = {
         }
 
         // Resize offscreen canvases if needed (check against physical size)
-        // OPTIMIZATION: Use lower resolution for lighting (0.5x)
-        const lightScale = 0.5;
+        // Keep lighting low-res and let image smoothing create the soft vignette.
+        const adaptiveEnabled = typeof DebugFlags === 'undefined' || DebugFlags.ADAPTIVE_RENDER_QUALITY !== false;
+        const lightScale = adaptiveEnabled && this.renderQuality && this.renderQuality.vignetteScale
+            ? this.renderQuality.vignetteScale
+            : 0.5;
         const lightWidth = Math.floor(physicalWidth * lightScale);
         const lightHeight = Math.floor(physicalHeight * lightScale);
 
@@ -3878,6 +4456,11 @@ const Game = {
 
         const vCtx = this.vignetteCtx;
         const pCtx = this.playerLightCtx;
+        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
+        const currentZoom = isMobile ? (this.mobileZoom || 1.0) : (this.baseZoom || 1.1);
+        const centerX = logicalWidth / 2;
+        const centerY = logicalHeight / 2;
+        const visibleLists = this.visibleFrameLists || null;
 
         // 1. Clear canvases (using logical dimensions because context is scaled)
         vCtx.clearRect(0, 0, logicalWidth, logicalHeight);
@@ -3885,12 +4468,6 @@ const Game = {
 
         // Helper to get screen coordinates
         const getScreenPos = (x, y) => {
-            // Camera transform logic from renderGameWorld
-            const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
-            const currentZoom = isMobile ? (this.mobileZoom || 1.0) : this.baseZoom;
-            const centerX = logicalWidth / 2;
-            const centerY = logicalHeight / 2;
-
             // Apply camera transform: (world - camera) * zoom + center + shake
             const screenX = (x - this.camera.x) * currentZoom + centerX + this.screenShakeOffset.x;
             const screenY = (y - this.camera.y) * currentZoom + centerY + this.screenShakeOffset.y;
@@ -3921,12 +4498,10 @@ const Game = {
         const isVisibleInVignette = (x, y, radius) => {
             // Check if light affects visible area
             // Account for light radius when culling
-            const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
-            const zoom = isMobile ? (this.mobileZoom || 1.0) : (this.baseZoom || 1.1);
             const margin = radius; // Use light radius as margin
 
-            const screenW = logicalWidth / zoom;
-            const screenH = logicalHeight / zoom;
+            const screenW = logicalWidth / currentZoom;
+            const screenH = logicalHeight / currentZoom;
 
             const viewX = this.camera.x - screenW / 2 - margin;
             const viewY = this.camera.y - screenH / 2 - margin;
@@ -3943,17 +4518,63 @@ const Game = {
 
         // Enemy Lights (Glowing enemies) - CULLED
         // Skip individual enemies with stealth flag OR if global stealth mode enabled
-        this.enemies.forEach(enemy => {
-            if (enemy.alive) {
-                // Skip if this enemy is stealth OR global stealth mode is on
-                if (!enemy.stealthEnemy && !this.enemyStealthMode) {
-                    const lightRadius = enemy.size * 4 + 100;
-                    if (isVisibleInVignette(enemy.x, enemy.y, lightRadius)) {
-                        drawLight(vCtx, enemy.x, enemy.y, lightRadius);
-                    }
-                }
+        const enemyLightCandidates = visibleLists && Array.isArray(visibleLists.enemyLights) ? visibleLists.enemyLights : this.enemies;
+        enemyLightCandidates.forEach(enemy => {
+            if (enemy && enemy.alive && !enemy.stealthEnemy && !this.enemyStealthMode) {
+                const lightRadius = enemy.size * 4 + 100;
+                if (!visibleLists && !isVisibleInVignette(enemy.x, enemy.y, lightRadius)) return;
+                drawLight(vCtx, enemy.x, enemy.y, lightRadius);
             }
         });
+
+        // Bosses need a dedicated mask punch so arena lighting never buries the centerpiece.
+        const bossLightSources = new Set();
+        const addBossLightSource = (enemy) => {
+            if (!enemy) return;
+            const isBossLike = enemy.isBoss ||
+                enemy.bossName ||
+                enemy.type === 'boss' ||
+                enemy.shape === 'vortex' ||
+                (enemy.constructor && /^Boss/.test(enemy.constructor.name || ''));
+            if (isBossLike) bossLightSources.add(enemy);
+        };
+        if (Array.isArray(this.enemies)) {
+            this.enemies.forEach(addBossLightSource);
+        }
+        if (typeof currentRoom !== 'undefined' && currentRoom && Array.isArray(currentRoom.enemies)) {
+            currentRoom.enemies.forEach(addBossLightSource);
+        }
+        if (visibleLists && Array.isArray(visibleLists.enemies)) {
+            visibleLists.enemies.forEach(addBossLightSource);
+        }
+        if (this.bossIntroData && this.bossIntroData.boss) {
+            addBossLightSource(this.bossIntroData.boss);
+        }
+        bossLightSources.forEach(enemy => {
+            if (!enemy || enemy.alive === false || enemy.dead === true) return;
+            const bossSize = Math.max(60, enemy.size || enemy.collisionRadius || 80);
+            const lightRadius = bossSize * 6 + 180;
+            drawLight(vCtx, enemy.x, enemy.y, lightRadius);
+        });
+
+        // Generated scenery glows softly so physical biome shapes remain readable in darkness.
+        if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.layout) {
+            if (typeof prepareRoomRenderData === 'function') {
+                prepareRoomRenderData(currentRoom, this.roomNumber);
+            }
+            const emitters = Array.isArray(currentRoom.sceneryLightEmitters)
+                ? currentRoom.sceneryLightEmitters
+                : (Array.isArray(currentRoom.layout.cachedSceneryLightEmitters) ? currentRoom.layout.cachedSceneryLightEmitters : []);
+            const maxSceneryLights = adaptiveEnabled && this.renderQuality && this.renderQuality.maxSceneryLights
+                ? this.renderQuality.maxSceneryLights
+                : emitters.length;
+            for (let i = 0; i < emitters.length && i < maxSceneryLights; i++) {
+                const emitter = emitters[i];
+                if (emitter && isVisibleInVignette(emitter.x, emitter.y, emitter.radius)) {
+                    drawLight(vCtx, emitter.x, emitter.y, emitter.radius);
+                }
+            }
+        }
 
         // Door Lights (Nexus Portal & Selection Doors & Level Exit)
         // 1. Nexus Portal (only in Nexus)
@@ -3982,53 +4603,57 @@ const Game = {
         }
 
         // 3.5. Ground Cards (Card Mode Loot) - CULLED
-        if (typeof window.groundCards !== 'undefined' && Array.isArray(window.groundCards)) {
-            window.groundCards.forEach(card => {
+        const groundCardLights = visibleLists && Array.isArray(visibleLists.groundCards)
+            ? visibleLists.groundCards
+            : (typeof window.groundCards !== 'undefined' && Array.isArray(window.groundCards) ? window.groundCards : []);
+        groundCardLights.forEach(card => {
                 // Match enemy light pattern: size * 4 + base
                 // Card size is ~16, so 16 * 4 + 120 = 184
                 const lightRadius = 200;
-                if (isVisibleInVignette(card.x, card.y, lightRadius)) {
+                if (visibleLists || isVisibleInVignette(card.x, card.y, lightRadius)) {
                     drawLight(vCtx, card.x, card.y, lightRadius);
                 }
-            });
-        }
+        });
 
         // 3.6. Ground Loot (Gear Items from groundLoot array) - CULLED
         // Note: Gear items use groundLoot array, NOT Game.groundItems
-        if (typeof groundLoot !== 'undefined' && Array.isArray(groundLoot)) {
-            groundLoot.forEach(item => {
+        const groundLootLights = visibleLists && Array.isArray(visibleLists.groundLoot)
+            ? visibleLists.groundLoot
+            : (typeof groundLoot !== 'undefined' && Array.isArray(groundLoot) ? groundLoot : []);
+        groundLootLights.forEach(item => {
                 // Match enemy light pattern: size * 4 + base
                 // Gear items are larger, use bigger radius
                 const lightRadius = 200;
-                if (isVisibleInVignette(item.x, item.y, lightRadius)) {
+                if (visibleLists || isVisibleInVignette(item.x, item.y, lightRadius)) {
                     drawLight(vCtx, item.x, item.y, lightRadius);
                 }
-            });
-        }
+        });
 
         // 3.7. Ground Items (Item System - Single Player) - CULLED
         // Note: Items use Game.groundItems array (not groundLoot)
-        if (typeof Game !== 'undefined' && Game.groundItems && Array.isArray(Game.groundItems)) {
-            Game.groundItems.forEach(item => {
+        const groundItemLights = visibleLists && Array.isArray(visibleLists.groundItems)
+            ? visibleLists.groundItems
+            : (typeof Game !== 'undefined' && Game.groundItems && Array.isArray(Game.groundItems) ? Game.groundItems : []);
+        groundItemLights.forEach(item => {
                 const lightRadius = 150;
-                if (isVisibleInVignette(item.x, item.y, lightRadius)) {
+                if (visibleLists || isVisibleInVignette(item.x, item.y, lightRadius)) {
                     drawLight(vCtx, item.x, item.y, lightRadius);
                 }
-            });
-        }
+        });
 
         // 3.8. Item Pylons (Multiplayer Item Drops) - CULLED
-        if (typeof Game !== 'undefined' && Game.itemPylons && Array.isArray(Game.itemPylons)) {
-            Game.itemPylons.forEach(pylon => {
+        const pylonLights = visibleLists && Array.isArray(visibleLists.itemPylons)
+            ? visibleLists.itemPylons
+            : (typeof Game !== 'undefined' && Game.itemPylons && Array.isArray(Game.itemPylons) ? Game.itemPylons : []);
+        pylonLights.forEach(pylon => {
                 // Skip if disappearing
                 if (pylon.disappearing) return;
 
                 const lightRadius = 180;
-                if (isVisibleInVignette(pylon.x, pylon.y, lightRadius)) {
+                if (visibleLists || isVisibleInVignette(pylon.x, pylon.y, lightRadius)) {
                     drawLight(vCtx, pylon.x, pylon.y, lightRadius);
                 }
-            });
-        }
+        });
 
         // 4. Level Exit Door (Standard Door) - CULLED
         if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen) {
@@ -4048,11 +4673,12 @@ const Game = {
         }
 
         // 5. Non-Player Projectiles (Enemy Projectiles) - CULLED
-        this.projectiles.forEach(proj => {
+        const projectileLightCandidates = visibleLists && Array.isArray(visibleLists.projectileLights) ? visibleLists.projectileLights : this.projectiles;
+        projectileLightCandidates.forEach(proj => {
             // Only render if NOT a player projectile
             if (!proj.playerId) {
-                const lightRadius = proj.size * 6 + 50;
-                if (isVisibleInVignette(proj.x, proj.y, lightRadius)) {
+                const lightRadius = proj.vignetteLightRadius || (proj.size * 6 + 50);
+                if (visibleLists || isVisibleInVignette(proj.x, proj.y, lightRadius)) {
                     drawLight(vCtx, proj.x, proj.y, lightRadius);
                 }
             }
@@ -4077,10 +4703,10 @@ const Game = {
         }
 
         // Player Projectiles - CULLED
-        this.projectiles.forEach(proj => {
+        projectileLightCandidates.forEach(proj => {
             if (proj.playerId) {
                 const lightRadius = proj.size * 6 + 50;
-                if (isVisibleInVignette(proj.x, proj.y, lightRadius)) {
+                if (visibleLists || isVisibleInVignette(proj.x, proj.y, lightRadius)) {
                     drawLight(pCtx, proj.x, proj.y, lightRadius);
                 }
             }
@@ -4096,9 +4722,9 @@ const Game = {
                 const endY = beam.origin.y + beam.direction.y * beamRange;
 
                 // Draw multiple lights along the beam path
-                const numLights = 8;
+                const numLights = (this.renderQuality && this.renderQuality.maxBeamLights) || 8;
                 for (let i = 0; i < numLights; i++) {
-                    const t = i / (numLights - 1);
+                    const t = numLights > 1 ? i / (numLights - 1) : 0;
                     const lightX = beam.origin.x + (endX - beam.origin.x) * t;
                     const lightY = beam.origin.y + (endY - beam.origin.y) * t;
 
@@ -4121,9 +4747,9 @@ const Game = {
                         const endX = beam.origin.x + beam.direction.x * beamRange;
                         const endY = beam.origin.y + beam.direction.y * beamRange;
 
-                        const numLights = 8;
+                        const numLights = (this.renderQuality && this.renderQuality.maxBeamLights) || 8;
                         for (let i = 0; i < numLights; i++) {
-                            const t = i / (numLights - 1);
+                            const t = numLights > 1 ? i / (numLights - 1) : 0;
                             const lightX = beam.origin.x + (endX - beam.origin.x) * t;
                             const lightY = beam.origin.y + (endY - beam.origin.y) * t;
                             const lightSize = 150 * (1 - t * 0.5);
@@ -4156,9 +4782,6 @@ const Game = {
             logicalHeight / 2 + this.screenShakeOffset.y
         );
 
-        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
-        const currentZoom = isMobile ? (this.mobileZoom || 1.0) : this.baseZoom;
-
         vCtx.scale(currentZoom, currentZoom);
         vCtx.translate(-this.camera.x, -this.camera.y);
 
@@ -4170,6 +4793,15 @@ const Game = {
 
         vCtx.restore();
 
+        // Boss hazard beams cut through darkness (light cage, refraction lasers, etc.)
+        const bossVignetteCandidates = visibleLists && Array.isArray(visibleLists.enemies)
+            ? visibleLists.enemies
+            : (Array.isArray(this.enemies) ? this.enemies : []);
+        bossVignetteCandidates.forEach(enemy => {
+            if (!enemy || !enemy.alive || typeof enemy.drawVignetteCuts !== 'function') return;
+            enemy.drawVignetteCuts(vCtx, getScreenPos, isVisibleInVignette);
+        });
+
         // --- PHASE 4: APPLY DARKNESS ---
         // Draw darkness everywhere EXCEPT where we have light
         vCtx.globalCompositeOperation = 'source-out';
@@ -4179,6 +4811,7 @@ const Game = {
         // --- PHASE 5: RENDER TO SCREEN ---
         ctx.save();
         ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform to screen space (physical pixels)
+        ctx.imageSmoothingEnabled = true;
         // Draw the physical canvas onto the physical screen
         // Scale it back up to fill the screen (since we rendered at 0.5x)
         ctx.drawImage(this.vignetteCanvas, 0, 0, physicalWidth, physicalHeight);
@@ -4189,6 +4822,8 @@ const Game = {
     renderGameWorld(ctx) {
         // Note: ctx is now likely the offscreen context, but logic remains the same
         // Camera transform is already applied by caller
+
+        const glowPhaseStart = performance.now();
 
         // ------------------------------------------
         // PHASE 1: THE GLOWS (The "Neon" look)
@@ -4210,6 +4845,41 @@ const Game = {
                 entity.y <= this.camera.y + halfHeight
             );
         };
+
+        const frameLists = {
+            enemies: [],
+            enemyLights: [],
+            projectiles: [],
+            projectileLights: [],
+            groundLoot: [],
+            groundCards: [],
+            groundItems: [],
+            itemPylons: []
+        };
+        this.enemies.forEach(enemy => {
+            if (!enemy || !enemy.alive) return;
+            if (isVisible(enemy, enemy.size * 3)) frameLists.enemies.push(enemy);
+            if (isVisible(enemy, enemy.size * 4 + 100)) frameLists.enemyLights.push(enemy);
+        });
+        this.projectiles.forEach(projectile => {
+            if (!projectile) return;
+            if (isVisible(projectile, projectile.size * 4)) frameLists.projectiles.push(projectile);
+            const lightMargin = projectile.vignetteLightRadius || (projectile.size * 6 + 50);
+            if (isVisible(projectile, lightMargin)) frameLists.projectileLights.push(projectile);
+        });
+        if (typeof groundLoot !== 'undefined' && Array.isArray(groundLoot)) {
+            groundLoot.forEach(item => { if (isVisible(item, 50)) frameLists.groundLoot.push(item); });
+        }
+        if (typeof window !== 'undefined' && window.groundCards && Array.isArray(window.groundCards)) {
+            window.groundCards.forEach(card => { if (isVisible(card, 20)) frameLists.groundCards.push(card); });
+        }
+        if (this.groundItems && Array.isArray(this.groundItems)) {
+            this.groundItems.forEach(item => { if (isVisible(item, 20)) frameLists.groundItems.push(item); });
+        }
+        if (this.itemPylons && Array.isArray(this.itemPylons)) {
+            this.itemPylons.forEach(pylon => { if (pylon && !pylon.disappearing && isVisible(pylon, 30)) frameLists.itemPylons.push(pylon); });
+        }
+        this.visibleFrameLists = frameLists;
 
         // Create cached glow sprite if not exists
         if (!this.glowSprite) {
@@ -4240,46 +4910,7 @@ const Game = {
             this.glowCache = new Map();
         }
 
-        // Helper to get or create a cached glow sprite
-        // Helper to get or create a cached glow sprite
-        const getCachedGlow = (color) => {
-            // Use a fixed large size for the cache key to avoid fragmentation/thrashing
-            // We'll scale this texture down/up as needed
-            const key = color;
-
-            if (this.glowCache.has(key)) {
-                return this.glowCache.get(key);
-            }
-
-            // Create new cached glow
-            // Use a reasonably high resolution (e.g., 128px radius = 256px diameter)
-            // This allows scaling up to ~256px radius without too much blur, and scales down well
-            const size = 128;
-            const canvas = document.createElement('canvas');
-            const diameter = size * 2;
-            // Add padding to avoid clipping at edges
-            const padding = 4;
-            canvas.width = diameter + padding * 2;
-            canvas.height = diameter + padding * 2;
-            const gCtx = canvas.getContext('2d');
-
-            const center = size + padding;
-
-            const grad = gCtx.createRadialGradient(
-                center, center, size * 0.1,
-                center, center, size
-            );
-            grad.addColorStop(0, color);
-            grad.addColorStop(1, 'rgba(0,0,0,0)');
-
-            gCtx.fillStyle = grad;
-            gCtx.beginPath();
-            gCtx.arc(center, center, size, 0, Math.PI * 2);
-            gCtx.fill();
-
-            this.glowCache.set(key, canvas);
-            return canvas;
-        };
+        const getCachedGlow = (color) => this.getCachedGlowSprite(color);
 
         // Optimized drawGlow using cache
         const drawGlow = (x, y, size, color) => {
@@ -4301,42 +4932,27 @@ const Game = {
             }
 
             const cachedCanvas = getCachedGlow(color);
-
-            // Calculate scale factor
-            // Cached image has radius 128 (plus padding)
-            // We want to draw it with radius 'size'
             const cachedRadius = 128;
-            const scale = size / cachedRadius;
-
-            // Draw centered and scaled
-            const offset = cachedCanvas.width / 2;
-
-            ctx.save();
-            ctx.translate(x, y);
-            ctx.scale(scale, scale);
-            ctx.drawImage(cachedCanvas, -offset, -offset);
-            ctx.restore();
+            const drawSize = cachedCanvas.width * (size / cachedRadius);
+            const half = drawSize * 0.5;
+            ctx.drawImage(cachedCanvas, x - half, y - half, drawSize, drawSize);
         };
 
         // Draw Enemy Glows (Culled)
         // Skip individual enemies with stealth flag OR if global stealth mode enabled
-        this.enemies.forEach(enemy => {
-            if (enemy.alive && isVisible(enemy, enemy.size * 3)) {
-                // Skip if this enemy is stealth OR global stealth mode is on
-                if (!enemy.stealthEnemy && !this.enemyStealthMode) {
-                    const glowSize = enemy.size * 2.5;
-                    drawGlow(enemy.x, enemy.y, glowSize, enemy.color);
-                }
+        frameLists.enemies.forEach(enemy => {
+            // Skip if this enemy is stealth OR global stealth mode is on
+            if (!enemy.stealthEnemy && !this.enemyStealthMode) {
+                const glowSize = enemy.size * 2.5;
+                drawGlow(enemy.x, enemy.y, glowSize, enemy.color);
             }
         });
 
         // Draw Projectile Glows (Culled)
-        this.projectiles.forEach(projectile => {
-            if (isVisible(projectile, projectile.size * 4)) {
-                const glowSize = projectile.size * 3.0;
-                const color = projectile.color || (projectile.type === 'knife' ? '#ff1493' : '#ffff00');
-                drawGlow(projectile.x, projectile.y, glowSize, color);
-            }
+        frameLists.projectiles.forEach(projectile => {
+            const glowSize = projectile.glowSize || (projectile.size * 3.0);
+            const color = projectile.color || (projectile.type === 'knife' ? '#ff1493' : '#ffff00');
+            drawGlow(projectile.x, projectile.y, glowSize, color);
         });
 
         // Draw Ground Loot Glows (Gear Items from groundLoot array) - Culled
@@ -4344,6 +4960,7 @@ const Game = {
         if (typeof groundLoot !== 'undefined' && Array.isArray(groundLoot)) {
             // Gear tier colors
             const gearTierColors = {
+                gray: '#999999',
                 white: '#cccccc',
                 green: '#4caf50',
                 blue: '#2196f3',
@@ -4351,12 +4968,10 @@ const Game = {
                 orange: '#ff9800'
             };
 
-            groundLoot.forEach(gear => {
-                if (isVisible(gear, 50)) {
-                    const glowSize = 60; // Fixed size for gear
-                    const color = gearTierColors[gear.tier] || '#cccccc';
-                    drawGlow(gear.x, gear.y, glowSize, color);
-                }
+            frameLists.groundLoot.forEach(gear => {
+                const glowSize = 60; // Fixed size for gear
+                const color = gearTierColors[gear.tier] || '#cccccc';
+                drawGlow(gear.x, gear.y, glowSize, color);
             });
         }
 
@@ -4373,13 +4988,11 @@ const Game = {
                 }
             };
 
-            window.groundCards.forEach(card => {
-                if (isVisible(card, 20)) {
-                    const pulseSize = 2 + Math.sin(card.pulse || 0) * 2;
-                    const glowSize = (16 + pulseSize) * 3.0;
-                    const color = getBandColor(card._resolvedQuality || 'white');
-                    drawGlow(card.x, card.y, glowSize, color);
-                }
+            frameLists.groundCards.forEach(card => {
+                const pulseSize = 2 + Math.sin(card.pulse || 0) * 2;
+                const glowSize = (16 + pulseSize) * 3.0;
+                const color = getBandColor(card._resolvedQuality || 'white');
+                drawGlow(card.x, card.y, glowSize, color);
             });
         }
 
@@ -4393,14 +5006,12 @@ const Game = {
                 epic: '#9c27b0'
             };
 
-            Game.groundItems.forEach(item => {
-                if (isVisible(item, 20)) {
-                    const pulseSize = 2 + Math.sin(item.pulse || 0) * 2;
-                    const glowSize = (item.size + pulseSize) * 3.0;
-                    const rarity = item.definition?.rarity || 'common';
-                    const color = itemRarityColors[rarity] || '#999999';
-                    drawGlow(item.x, item.y, glowSize, color);
-                }
+            frameLists.groundItems.forEach(item => {
+                const pulseSize = 2 + Math.sin(item.pulse || 0) * 2;
+                const glowSize = (item.size + pulseSize) * 3.0;
+                const rarity = item.definition?.rarity || 'common';
+                const color = itemRarityColors[rarity] || '#999999';
+                drawGlow(item.x, item.y, glowSize, color);
             });
         }
 
@@ -4414,17 +5025,12 @@ const Game = {
                 epic: '#9c27b0'
             };
 
-            Game.itemPylons.forEach(pylon => {
-                // Skip if disappearing
-                if (pylon.disappearing) return;
-
-                if (isVisible(pylon, 30)) {
-                    const pulseSize = 3 + Math.sin(pylon.pulse || 0) * 2;
-                    const glowSize = (pylon.size + pulseSize) * 3.5;
-                    const rarity = pylon.rarity || 'common';
-                    const color = itemRarityColors[rarity] || '#999999';
-                    drawGlow(pylon.x, pylon.y, glowSize, color);
-                }
+            frameLists.itemPylons.forEach(pylon => {
+                const pulseSize = 3 + Math.sin(pylon.pulse || 0) * 2;
+                const glowSize = (pylon.size + pulseSize) * 3.5;
+                const rarity = pylon.rarity || 'common';
+                const color = itemRarityColors[rarity] || '#999999';
+                drawGlow(pylon.x, pylon.y, glowSize, color);
             });
         }
 
@@ -4512,6 +5118,14 @@ const Game = {
 
         ctx.restore(); // Restore to source-over
 
+        const glowPhaseTime = performance.now() - glowPhaseStart;
+        if (this.currentFrameTimings) {
+            this.currentFrameTimings.worldGlow += glowPhaseTime;
+        }
+        this.recordRenderSubTiming('worldGlow', glowPhaseTime);
+
+        const bodiesPhaseStart = performance.now();
+
         // ------------------------------------------
         // PHASE 2: THE BODIES (The "Solid" look)
         // ------------------------------------------
@@ -4533,16 +5147,37 @@ const Game = {
         }
 
         // Draw enemies (Solid bodies on top of glows)
-        this.enemies.forEach(enemy => {
-            if (enemy.alive && isVisible(enemy, enemy.size * 2)) {
-                enemy.render(ctx);
-            }
+        frameLists.enemies.forEach(enemy => {
+            enemy.render(ctx);
         });
 
         // Draw projectiles (Solid bodies)
-        this.projectiles.forEach(projectile => {
-            if (!isVisible(projectile, projectile.size * 2)) return;
-
+        frameLists.projectiles.forEach(projectile => {
+            if (projectile.trailLength && projectile.vx !== undefined && projectile.vy !== undefined) {
+                const trailLength = Math.min(6, Math.max(1, projectile.trailLength));
+                const speed = Math.sqrt(projectile.vx * projectile.vx + projectile.vy * projectile.vy) || 1;
+                const dirX = projectile.vx / speed;
+                const dirY = projectile.vy / speed;
+                const color = projectile.trailColor || projectile.color || '#ffff00';
+                ctx.save();
+                ctx.globalCompositeOperation = 'screen';
+                for (let i = trailLength; i >= 1; i--) {
+                    const alpha = (1 - i / (trailLength + 1)) * 0.35;
+                    const offset = i * projectile.size * 1.35;
+                    ctx.globalAlpha = alpha;
+                    ctx.fillStyle = color;
+                    ctx.beginPath();
+                    ctx.arc(
+                        projectile.x - dirX * offset,
+                        projectile.y - dirY * offset,
+                        projectile.size * (1 - i * 0.1),
+                        0,
+                        Math.PI * 2
+                    );
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
             if (projectile.type === 'knife') {
                 ctx.save();
                 ctx.translate(projectile.x, projectile.y);
@@ -4565,7 +5200,7 @@ const Game = {
                 ctx.lineWidth = 2;
                 ctx.stroke();
             } else {
-                ctx.fillStyle = '#ffff00';
+                ctx.fillStyle = projectile.color || '#ffff00';
                 ctx.beginPath();
                 ctx.arc(projectile.x, projectile.y, projectile.size, 0, Math.PI * 2);
                 ctx.fill();
@@ -4574,17 +5209,20 @@ const Game = {
 
         // Draw ground loot
         if (typeof renderGroundLoot !== 'undefined') {
-            renderGroundLoot(ctx);
+            const visibleLoot = frameLists.groundLoot;
+            this.trackRenderSection('groundLoot', () => {
+                renderGroundLoot(ctx, visibleLoot);
+            });
         }
 
         // Draw ground cards
         if (typeof renderGroundCards !== 'undefined') {
-            renderGroundCards(ctx);
+            renderGroundCards(ctx, frameLists.groundCards);
         }
 
         // Draw ground items (item system - single player)
         if (typeof renderGroundItems !== 'undefined') {
-            renderGroundItems(ctx);
+            renderGroundItems(ctx, frameLists.groundItems);
         }
 
         // Draw item pylons (multiplayer item drops)
@@ -4648,6 +5286,12 @@ const Game = {
                 }
             }
         }
+
+        const bodiesPhaseTime = performance.now() - bodiesPhaseStart;
+        if (this.currentFrameTimings) {
+            this.currentFrameTimings.worldBodies += bodiesPhaseTime;
+        }
+        this.recordRenderSubTiming('worldBodies', bodiesPhaseTime);
     },
 
     // Toggle pause
@@ -4998,6 +5642,11 @@ const Game = {
 
         // Reset game state
         this.state = 'NEXUS';
+        this.roomEnterTransition = null;
+        if (typeof RunProfiler !== 'undefined' && RunProfiler.isActive()) {
+            RunProfiler.endRun('returnToNexus');
+            console.log('[RunProfiler] Profile captured on return to Nexus:\n' + RunProfiler.getSummaryText());
+        }
         this.enemies = [];
         this.projectiles = [];
         this.gameOverMusicPlaying = false;
@@ -5459,13 +6108,14 @@ const Game = {
 
         // Only create a new player if one doesn't exist or if the class doesn't match
         // This preserves the nexus player and its initialized state (including HUD)
+        const initialSpawnPoint = this.getRoomSpawnPoint(null, 0);
         if (!this.player || this.player.playerClass !== this.selectedClass) {
-            this.player = createPlayer(this.selectedClass, 100, this.config.height / 2);
+            this.player = createPlayer(this.selectedClass, initialSpawnPoint.x, initialSpawnPoint.y);
             this.player.playerId = this.getLocalPlayerId(); // Set player ID for damage attribution
         } else {
             // Player already exists with correct class, just reset position and HP
-            this.player.x = 100;
-            this.player.y = this.config.height / 2;
+            this.player.x = initialSpawnPoint.x;
+            this.player.y = initialSpawnPoint.y;
             this.player.hp = this.player.maxHp;
             this.player.dead = false;
             this.player.alive = true;
@@ -5499,22 +6149,30 @@ const Game = {
         // Initialize per-player stats tracking
         this.initializePlayerStats();
 
-        // Initialize room system
-        if (typeof initializeRoom !== 'undefined') {
-            initializeRoom(1);
-        }
-
-        // Enter playing state before spawning enemies so music starts immediately
-        this.state = 'PLAYING';
-        this.paused = false;
         this.showPauseMenu = false;
         this.pausedFromState = null;
+        this.roomEnterTransition = null;
 
-        // Spawn enemies
         this.spawnEnemies();
         this.updateMusicForCurrentRoom();
 
-        if (typeof Telemetry !== 'undefined') {
+        if (typeof RunProfiler !== 'undefined') {
+            if (RunProfiler.autoStartOnRun && !RunProfiler.isActive()) {
+                RunProfiler.start({
+                    gameMode: this.gameMode || null,
+                    selectedClass: this.selectedClass || null,
+                    multiplayer: !!this.multiplayerEnabled
+                });
+                if (typeof DebugFlags !== 'undefined') {
+                    DebugFlags.RENDER_TIMING = true;
+                }
+            }
+        }
+
+        const recordStartTelemetry = () => {
+            if (typeof Telemetry === 'undefined') {
+                return;
+            }
             const localPlayerId = this.getLocalPlayerId ? this.getLocalPlayerId() : 'local';
             const runPlayers = this.collectTelemetryParticipants(true);
 
@@ -5559,7 +6217,15 @@ const Game = {
                     metadata: { bossId, roomType: firstRoomType }
                 });
             }
-        }
+        };
+
+        this.beginRoomEnterTransition({
+            roomNumber: 1,
+            onComplete: () => {
+                recordStartTelemetry();
+                this.maybeStartBossIntroForCurrentRoom();
+            }
+        });
 
         // Clear effects
         this.particles = [];
@@ -5606,9 +6272,9 @@ const Game = {
         if (typeof audioMenuVisible !== 'undefined') {
             audioMenuVisible = false;
         }
-        // Create new player with same class (start at left edge of new larger room)
-        const roomHeight = 1350; // New room height
-        this.player = createPlayer(this.selectedClass, 100, roomHeight / 2); // Spawn at left edge, vertically centered
+        // Create new player with same class at the default spawn helper position.
+        const restartSpawnPoint = this.getRoomSpawnPoint(null, 0);
+        this.player = createPlayer(this.selectedClass, restartSpawnPoint.x, restartSpawnPoint.y);
         this.player.playerId = this.getLocalPlayerId(); // Set player ID for damage attribution
 
         // Reset arrays
@@ -5661,10 +6327,10 @@ const Game = {
         }
 
         // Enter playing state before spawning
-        this.state = 'PLAYING';
         this.paused = false;
         this.showPauseMenu = false;
         this.pausedFromState = null;
+        this.roomEnterTransition = null;
         this.lastGKeyState = false;
         this.clickHandled = false;
 
@@ -5672,7 +6338,10 @@ const Game = {
         this.spawnEnemies();
         this.updateMusicForCurrentRoom();
 
-        if (typeof Telemetry !== 'undefined') {
+        const recordRestartTelemetry = () => {
+            if (typeof Telemetry === 'undefined') {
+                return;
+            }
             const localPlayerId = this.getLocalPlayerId ? this.getLocalPlayerId() : 'local';
             const runPlayers = this.collectTelemetryParticipants(true);
 
@@ -5717,10 +6386,15 @@ const Game = {
                     metadata: { bossId, roomType: firstRoomType }
                 });
             }
-        }
+        };
 
-        // Initialize camera position to follow player
-        this.initializeCamera();
+        this.beginRoomEnterTransition({
+            roomNumber: 1,
+            onComplete: () => {
+                recordRestartTelemetry();
+                this.maybeStartBossIntroForCurrentRoom();
+            }
+        });
 
         console.log('Game restarted with class:', this.selectedClass);
     },
@@ -5737,6 +6411,9 @@ const Game = {
 
         // Host or solo: Initialize first room if not already done
         if (typeof initializeRoom !== 'undefined' && (!currentRoom || currentRoom.number === 1)) {
+            if (typeof releaseRoomRenderCaches === 'function') {
+                releaseRoomRenderCaches(currentRoom);
+            }
             currentRoom = generateRoom(1);
             // Sync to window for DOM components
             if (typeof window !== 'undefined') {
@@ -5744,35 +6421,30 @@ const Game = {
             }
             this.enemies = currentRoom.enemies;
 
-            // No longer pre-assign targets - proximity detection and damage-based aggro handle targeting
-
-            // Check if this is a boss room and start intro (skip if room > 30)
-            if (currentRoom.type === 'boss' && this.enemies.length > 0 && this.enemies[0].isBoss) {
-                const boss = this.enemies[0];
-                const currentRoomNumber = this.roomNumber || (currentRoom ? currentRoom.number : 0);
-                if (currentRoomNumber <= 30) {
-                    // Start boss intro only for rooms 30 and below
-                    this.startBossIntro(boss);
-                } else {
-                    // Skip intro for rooms after 30
-                    boss.introComplete = true;
-                }
-            }
-            
-            // Also check for bosses in normal rooms after room 30 (elite enemies)
-            if (this.roomNumber > 30 && currentRoom.type === 'normal') {
-                // Ensure all bosses in normal rooms skip intro
-                for (let enemy of this.enemies) {
-                    if (enemy && enemy.isBoss && !enemy.introComplete) {
-                        enemy.introComplete = true;
-                    }
-                }
+            if (this.player && typeof this.getRoomSpawnPoint === 'function') {
+                const spawnPoint = this.getRoomSpawnPoint(currentRoom, 0);
+                this.player.x = spawnPoint.x;
+                this.player.y = spawnPoint.y;
             }
         }
 
         this.updateMusicForCurrentRoom();
 
         console.log(`Room ${this.roomNumber} initialized with ${this.enemies.length} enemies`);
+    },
+
+    releasePooledProjectile(projectile) {
+        if (!projectile || !projectile._fromProjectilePool) return;
+        if (!this._projectilePool) this._projectilePool = [];
+        this._projectilePool.push(projectile);
+    },
+
+    acquireProjectile(spec) {
+        const pool = this._projectilePool || (this._projectilePool = []);
+        const projectile = pool.pop() || {};
+        Object.assign(projectile, spec);
+        projectile._fromProjectilePool = true;
+        return projectile;
     },
 
     // Update projectiles
@@ -5782,79 +6454,102 @@ const Game = {
             multiplayerManager &&
             !multiplayerManager.isHost;
 
-        this.projectiles = this.projectiles.filter(projectile => {
-            // For multiplayer clients, use dead-reckoning with smooth corrections
+        const projectiles = this.projectiles;
+        const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : 2400;
+        const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : 1350;
+        let writeIndex = 0;
+
+        for (let readIndex = 0; readIndex < projectiles.length; readIndex++) {
+            const projectile = projectiles[readIndex];
+            const previousX = projectile.x;
+            const previousY = projectile.y;
+            let keep = true;
+
+            if (projectile.waveAmplitude && projectile.baseAngle !== undefined) {
+                projectile.waveClock = (projectile.waveClock || 0) + deltaTime;
+                const baseSpeed = projectile.baseSpeed || Math.sqrt(projectile.vx * projectile.vx + projectile.vy * projectile.vy) || 1;
+                const wave = Math.sin(projectile.waveClock * (projectile.waveFrequency || 7) + (projectile.wavePhase || 0)) * projectile.waveAmplitude;
+                const forwardX = Math.cos(projectile.baseAngle);
+                const forwardY = Math.sin(projectile.baseAngle);
+                const perpX = -forwardY;
+                const perpY = forwardX;
+                projectile.vx = forwardX * baseSpeed + perpX * wave;
+                projectile.vy = forwardY * baseSpeed + perpY * wave;
+            }
+
             if (isMultiplayerClient && projectile.id) {
-                // Primary: velocity-based movement (dead-reckoning)
                 projectile.x += projectile.vx * deltaTime;
                 projectile.y += projectile.vy * deltaTime;
 
-                // Secondary: smooth correction toward authoritative position (if target exists)
                 if (projectile.targetX !== undefined && projectile.targetY !== undefined) {
                     const dx = projectile.targetX - projectile.x;
                     const dy = projectile.targetY - projectile.y;
                     const distance = Math.sqrt(dx * dx + dy * dy);
+                    const projectileSnapDistance = MultiplayerConfig.SNAP_DISTANCE * 3;
 
-                    // Use larger snap distance for fast projectiles to prevent rewinds
-                    const projectileSnapDistance = MultiplayerConfig.SNAP_DISTANCE * 3; // 300px for fast projectiles
-
-                    // Only snap if extremely far (likely a new projectile or major desync)
                     if (distance > projectileSnapDistance) {
                         projectile.x = projectile.targetX;
                         projectile.y = projectile.targetY;
                     } else if (distance > 15) {
-                        // Smooth correction for moderate differences (prevents rewinds)
-                        // Use slower correction speed for projectiles to avoid visual jumps
-                        const correctionSpeed = MultiplayerConfig.BASE_LERP_SPEED * 0.15; // Very slow correction
+                        const correctionSpeed = MultiplayerConfig.BASE_LERP_SPEED * 0.15;
                         const t = Math.min(1, deltaTime * correctionSpeed);
                         projectile.x += dx * t;
                         projectile.y += dy * t;
                     }
-                    // If distance < 15px, don't correct - let velocity handle it
                 }
             } else if (isMultiplayerClient && projectile.targetX !== undefined && projectile.targetY !== undefined) {
-                // Fallback: use velocity with gentle position correction (if InterpolationManager not available)
-                // Primary movement: velocity-based (smooth)
                 projectile.x += projectile.vx * deltaTime;
                 projectile.y += projectile.vy * deltaTime;
 
-                // Secondary: gentle correction toward authoritative position
                 const dx = projectile.targetX - projectile.x;
                 const dy = projectile.targetY - projectile.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
+                const projectileSnapDistance = MultiplayerConfig.SNAP_DISTANCE * 2;
 
-                // Use larger snap distance for projectiles (they move fast)
-                const projectileSnapDistance = MultiplayerConfig.SNAP_DISTANCE * 2; // 200px for fast projectiles
-
-                // If very far, snap (correction or new projectile)
                 if (distance > projectileSnapDistance) {
                     projectile.x = projectile.targetX;
                     projectile.y = projectile.targetY;
                 } else if (distance > 10) {
-                    // Gentle correction when moderately off (increased threshold for projectiles)
-                    const correctionSpeed = MultiplayerConfig.BASE_LERP_SPEED * 0.2; // Slower correction for projectiles
+                    const correctionSpeed = MultiplayerConfig.BASE_LERP_SPEED * 0.2;
                     const t = Math.min(1, deltaTime * correctionSpeed);
                     projectile.x += dx * t;
                     projectile.y += dy * t;
                 }
             } else {
-                // Host or solo: normal velocity-based movement
                 projectile.x += projectile.vx * deltaTime;
                 projectile.y += projectile.vy * deltaTime;
             }
 
-            // Update lifetime
+            if (keep && !projectile.ignoresWorldCollision &&
+                typeof currentRoom !== 'undefined' &&
+                currentRoom &&
+                currentRoom.layout &&
+                typeof RoomLayoutGenerator !== 'undefined' &&
+                !RoomLayoutGenerator.isProjectilePathClear(
+                    currentRoom.layout,
+                    { x: previousX, y: previousY },
+                    { x: projectile.x, y: projectile.y },
+                    projectile.size || 4
+                )) {
+                keep = false;
+            }
+
             projectile.elapsed += deltaTime;
 
-            // Remove if expired or out of bounds (use room bounds, not canvas bounds)
-            const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : 2400;
-            const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : 1350;
-            if (projectile.elapsed >= projectile.lifetime) return false;
-            if (projectile.x < -50 || projectile.x > roomWidth + 50) return false;
-            if (projectile.y < -50 || projectile.y > roomHeight + 50) return false;
+            if (keep && projectile.elapsed >= projectile.lifetime) keep = false;
+            if (keep && (projectile.x < -50 || projectile.x > roomWidth + 50)) keep = false;
+            if (keep && (projectile.y < -50 || projectile.y > roomHeight + 50)) keep = false;
 
-            return true;
-        });
+            if (!keep) {
+                this.releasePooledProjectile(projectile);
+                continue;
+            }
+
+            if (writeIndex !== readIndex) projectiles[writeIndex] = projectile;
+            writeIndex++;
+        }
+
+        projectiles.length = writeIndex;
     },
 
     // Check projectiles vs player and player projectiles vs enemies
@@ -5893,10 +6588,16 @@ const Game = {
                         return;
                     }
 
-                    if (checkCircleCollision(
-                        projectile.x, projectile.y, projectile.size,
-                        enemy.x, enemy.y, enemy.size
-                    )) {
+                    const attackHit = typeof resolveEnemyAttackHit === 'function'
+                        ? resolveEnemyAttackHit(projectile.x, projectile.y, projectile.size, enemy)
+                        : (typeof checkEnemyCircleCollision === 'function'
+                            ? checkEnemyCircleCollision(projectile.x, projectile.y, projectile.size, enemy)
+                            : { hit: checkCircleCollision(
+                                projectile.x, projectile.y, projectile.size,
+                                enemy.x, enemy.y, enemy.size
+                            ) });
+
+                    if (attackHit.hit) {
                         // Check for backstab (Rogue passive: player must be behind enemy when projectile hits)
                         let isBackstab = false;
                         let finalDamage = projectile.damage;
@@ -6020,17 +6721,20 @@ const Game = {
                         const damageDealt = Math.min(finalDamage, enemy.hp);
 
                         // HOST ONLY: Apply damage (clients don't run this code path)
-                        enemy.takeDamage(finalDamage, projectileOwnerId);
+                        if (enemy.isBoss && typeof enemy.takeDamage === 'function') {
+                            enemy.takeDamage(finalDamage, projectile.x, projectile.y, projectile.size, projectileOwnerId);
+                        } else {
+                            enemy.takeDamage(finalDamage, projectileOwnerId);
+                        }
 
                         // Precision card bonuses: lifeOnCrit healing (Purple/Orange) - applied after damage dealt
                         if (isCrit && shooterPlayer && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
                             const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
                             const condEffects = CardEffects.getConditionalEffects(handCards);
                             if (condEffects.precision && condEffects.precision.lifeOnCrit && condEffects.precision.lifeOnCrit > 0) {
-                                // Heal on crit based on damage dealt
-                                const healAmount = damageDealt * condEffects.precision.lifeOnCrit;
-                                shooterPlayer.hp = Math.min(shooterPlayer.hp + healAmount, shooterPlayer.maxHp);
-                                // Visual feedback
+                                if (typeof applyLifeOnCritHeal !== 'undefined') {
+                                    applyLifeOnCritHeal(shooterPlayer, damageDealt, condEffects.precision.lifeOnCrit, { enemy });
+                                }
                                 if (typeof createParticleBurst !== 'undefined') {
                                     createParticleBurst(shooterPlayer.x, shooterPlayer.y, '#00ff00', 8);
                                 }
@@ -6068,7 +6772,11 @@ const Game = {
 
                         // Apply lifesteal if shooter has it
                         if (shooterPlayer && typeof applyLifesteal !== 'undefined') {
-                            applyLifesteal(shooterPlayer, damageDealt);
+                            applyLifesteal(shooterPlayer, damageDealt, {
+                                enemy,
+                                source: 'projectile',
+                                batchId: projectile.lifestealBatchId
+                            });
                         }
 
                         // Apply legendary effects if shooter has them
@@ -6357,7 +7065,9 @@ const Game = {
 
         // Remove projectiles that hit (in reverse order)
         for (let i = projectilesToRemove.length - 1; i >= 0; i--) {
+            const removed = this.projectiles[projectilesToRemove[i]];
             this.projectiles.splice(projectilesToRemove[i], 1);
+            this.releasePooledProjectile(removed);
         }
     },
 
@@ -6408,57 +7118,132 @@ const Game = {
     },
 
     // Render remote players (multiplayer)
+    isRemotePlayerNearby(remote, threshold) {
+        if (!remote || !this.camera) return true;
+        const dist = Math.hypot(remote.x - this.camera.x, remote.y - this.camera.y);
+        return dist < (threshold || 400);
+    },
+
+    isRemotePlayerVisible(remote, margin) {
+        if (!remote || !this.camera || !this.config) return true;
+        const m = margin != null ? margin : remote.size * 4;
+        const zoom = this.baseZoom || 1;
+        const halfWidth = (this.config.width / 2) / zoom + m;
+        const halfHeight = (this.config.height / 2) / zoom + m;
+        return (
+            remote.x >= this.camera.x - halfWidth &&
+            remote.x <= this.camera.x + halfWidth &&
+            remote.y >= this.camera.y - halfHeight &&
+            remote.y <= this.camera.y + halfHeight
+        );
+    },
+
+    renderSimplifiedRemote(ctx, remote) {
+        if (!remote) return;
+        const classDef = typeof CLASS_DEFINITIONS !== 'undefined' && CLASS_DEFINITIONS[remote.classType]
+            ? CLASS_DEFINITIONS[remote.classType]
+            : (typeof PLAYER_CLASSES !== 'undefined' && PLAYER_CLASSES[remote.playerClass]
+                ? PLAYER_CLASSES[remote.playerClass]
+                : { shape: 'square', color: '#ff1493' });
+        const color = classDef.color || remote.color || '#ff1493';
+        const size = remote.size || 20;
+        const shape = remote.shape || classDef.shape || 'square';
+
+        if (this.glowCache && typeof this.getCachedGlowSprite === 'function') {
+            const cached = this.getCachedGlowSprite(color);
+            const cachedRadius = 128;
+            const drawSize = cached.width * ((size * 2) / cachedRadius);
+            const half = drawSize * 0.5;
+            ctx.drawImage(cached, remote.x - half, remote.y - half, drawSize, drawSize);
+        }
+
+        ctx.save();
+        ctx.translate(remote.x, remote.y);
+        if (typeof remote.rotation !== 'undefined') {
+            ctx.rotate(remote.rotation);
+        }
+        ctx.fillStyle = color;
+        if (shape === 'triangle') {
+            ctx.beginPath();
+            ctx.moveTo(size, 0);
+            ctx.lineTo(-size * 0.5, -size * 0.866);
+            ctx.lineTo(-size * 0.5, size * 0.866);
+            ctx.closePath();
+            ctx.fill();
+        } else if (shape === 'hexagon') {
+            ctx.beginPath();
+            for (let i = 0; i < 6; i++) {
+                const angle = (Math.PI / 3) * i;
+                const px = Math.cos(angle) * size;
+                const py = Math.sin(angle) * size;
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            ctx.fill();
+        } else if (shape === 'pentagon') {
+            ctx.beginPath();
+            for (let i = 0; i < 5; i++) {
+                const angle = (Math.PI * 2 / 5) * i - Math.PI / 2;
+                const px = Math.cos(angle) * size;
+                const py = Math.sin(angle) * size;
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            ctx.fill();
+        } else {
+            ctx.fillRect(-size * 0.8, -size * 0.8, size * 1.6, size * 1.6);
+        }
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+    },
+
+    renderRemotePlayerInstance(ctx, remote, playerId) {
+        if (!remote || remote.dead || !remote.alive) return;
+        if (!this.isRemotePlayerVisible(remote, remote.size * 4)) return;
+
+        const fullRender = this.renderQuality && this.renderQuality.remoteFullRender !== false;
+        const nearby = this.isRemotePlayerNearby(remote, 400);
+
+        if (fullRender && nearby) {
+            remote.render(ctx);
+        } else {
+            this.renderSimplifiedRemote(ctx, remote);
+        }
+
+        let playerName = 'Player';
+        if (typeof multiplayerManager !== 'undefined' && multiplayerManager.players) {
+            const playerData = multiplayerManager.players.find(p => p.id === playerId);
+            if (playerData && playerData.name) {
+                playerName = playerData.name;
+            }
+        }
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 12px Orbitron';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(playerName, remote.x, remote.y - remote.size - 5);
+    },
+
     renderRemotePlayers(ctx) {
-        if (this.isMultiplayerClient()) {
-            // CLIENTS: Render shadow instances (full player render methods)
-            if (this.remotePlayerShadowInstances && this.remotePlayerShadowInstances.size > 0) {
-                this.remotePlayerShadowInstances.forEach((shadowInstance, playerId) => {
-                    if (shadowInstance && !shadowInstance.dead && shadowInstance.alive) {
-                        // Use the actual player render method - all animations work automatically!
-                        shadowInstance.render(ctx);
-
-                        // Render player name above player
-                        let playerName = 'Player';
-                        if (typeof multiplayerManager !== 'undefined' && multiplayerManager.players) {
-                            const playerData = multiplayerManager.players.find(p => p.id === playerId);
-                            if (playerData && playerData.name) {
-                                playerName = playerData.name;
-                            }
-                        }
-
-                        ctx.fillStyle = '#ffffff';
-                        ctx.font = 'bold 12px Orbitron';
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'bottom';
-                        ctx.fillText(playerName, shadowInstance.x, shadowInstance.y - shadowInstance.size - 5);
-                    }
-                });
-            }
-        } else if (this.isHost()) {
-            // HOST: Render remote player instances directly
-            if (this.remotePlayerInstances && this.remotePlayerInstances.size > 0) {
-                this.remotePlayerInstances.forEach((playerInstance, playerId) => {
-                    if (playerInstance && !playerInstance.dead && playerInstance.alive) {
-                        playerInstance.render(ctx);
-
-                        // Render player name above player
-                        let playerName = 'Player';
-                        if (typeof multiplayerManager !== 'undefined' && multiplayerManager.players) {
-                            const playerData = multiplayerManager.players.find(p => p.id === playerId);
-                            if (playerData && playerData.name) {
-                                playerName = playerData.name;
-                            }
-                        }
-
-                        ctx.fillStyle = '#ffffff';
-                        ctx.font = 'bold 12px Orbitron';
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'bottom';
-                        ctx.fillText(playerName, playerInstance.x, playerInstance.y - playerInstance.size - 5);
-                    }
-                });
-            }
-        } else if (!this.multiplayerEnabled) {
+        const renderFn = () => {
+            if (this.isMultiplayerClient()) {
+                if (this.remotePlayerShadowInstances && this.remotePlayerShadowInstances.size > 0) {
+                    this.remotePlayerShadowInstances.forEach((shadowInstance, playerId) => {
+                        this.renderRemotePlayerInstance(ctx, shadowInstance, playerId);
+                    });
+                }
+            } else if (this.isHost()) {
+                if (this.remotePlayerInstances && this.remotePlayerInstances.size > 0) {
+                    this.remotePlayerInstances.forEach((playerInstance, playerId) => {
+                        this.renderRemotePlayerInstance(ctx, playerInstance, playerId);
+                    });
+                }
+            } else if (!this.multiplayerEnabled) {
             if (!this.remotePlayers || this.remotePlayers.length === 0) return;
 
             // Create cached whirlwind gradient if needed
@@ -6704,8 +7489,10 @@ const Game = {
                 // ctx.textAlign = 'center';
                 // ctx.fillText(remotePlayer.name || 'Player', remotePlayer.x, barY - 5);
             });
-        }
-    }
+            }
+        };
+        this.trackRenderSection('remotePlayers', renderFn);
+    },
 };
 
 if (typeof window !== 'undefined') {

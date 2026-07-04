@@ -97,6 +97,9 @@ class BossFortress extends BossBase {
 
         this.knockbackContextCooldown = 0;
         this.knockbackProximityDelay = 0;
+        this.shieldClosed = false;
+        this.trenchRun = null;
+        this.destroyedCoverIds = [];
 
         this.weakPoints.length = 0;
         const weakSpacing = this.width * 0.22;
@@ -173,6 +176,8 @@ class BossFortress extends BossBase {
         this.maybeInjectContextualKnockback(player);
         this.updatePhaseController(deltaTime, player);
         this.updateCurrentState(deltaTime, player);
+        this.updateFortressShield();
+        this.updateTrenchRun(deltaTime);
         this.updateArcVolley(deltaTime, player);
         this.updateTurretBurst(deltaTime, player);
         this.updateTurrets(deltaTime, player);
@@ -297,6 +302,17 @@ class BossFortress extends BossBase {
             return;
         }
 
+        if (this.state === 'trenchRun') {
+            if (!this.stateFired) {
+                this.triggerTrenchRun(this.stateData || {});
+                this.stateFired = true;
+            }
+            if (this.stateTimer >= this.stateDuration) {
+                this.advancePatternQueue();
+            }
+            return;
+        }
+
     }
 
     enqueuePhasePatterns(phase, player) {
@@ -330,6 +346,11 @@ class BossFortress extends BossBase {
         const turretPayload = this.buildTurretPayload(2);
         this.queueTelegraph('turretBurst', this.config.turretBurst.telegraphDuration, turretPayload);
         this.queueAttack('turretBurst', this.config.turretBurst.attackDuration, turretPayload);
+        const trenchPayload = this.buildTrenchRunPayload(player);
+        if (trenchPayload) {
+            this.queueTelegraph('trenchRun', 0.9, trenchPayload);
+            this.queueAttack('trenchRun', 0.35, trenchPayload);
+        }
 
         const useKnockback = this.shouldTriggerKnockback(player);
         if (useKnockback) {
@@ -350,6 +371,11 @@ class BossFortress extends BossBase {
         const turretPayload = this.buildTurretPayload(3, { staggered: true });
         this.queueTelegraph('turretBurst', this.config.turretBurst.telegraphDuration * 0.9, turretPayload);
         this.queueAttack('turretBurst', this.config.turretBurst.attackDuration, turretPayload);
+        const trenchPayload = this.buildTrenchRunPayload(player);
+        if (trenchPayload) {
+            this.queueTelegraph('trenchRun', 0.75, trenchPayload);
+            this.queueAttack('trenchRun', 0.35, trenchPayload);
+        }
 
         const useKnockback = this.shouldTriggerKnockback(player);
         if (useKnockback) {
@@ -391,6 +417,18 @@ class BossFortress extends BossBase {
             duration: this.config.knockbackPulse.duration,
             force: extra.empowered ? this.config.knockbackPulse.force * 1.15 : this.config.knockbackPulse.force,
             damageMultiplier: extra.empowered ? this.config.knockbackPulse.damageMultiplier * 1.15 : this.config.knockbackPulse.damageMultiplier
+        };
+    }
+
+    buildTrenchRunPayload(player) {
+        const cover = this.pickTargetCover(player);
+        if (!cover) return null;
+        return {
+            coverId: this.getCoverId(cover),
+            x: cover.x,
+            y: cover.y,
+            radius: Math.max(45, cover.radius || 60),
+            obstacleIndexes: (cover.points || []).map(point => point.obstacleIndex).filter(index => index !== undefined)
         };
     }
 
@@ -486,6 +524,15 @@ class BossFortress extends BossBase {
                 turret.charge = Math.max(turret.charge, 0.4);
             });
         }
+        if (type === 'trenchRun' && data) {
+            this.trenchRun = {
+                ...data,
+                elapsed: 0,
+                duration,
+                armed: false,
+                impacted: false
+            };
+        }
     }
 
     clearTelegraph() {
@@ -522,6 +569,23 @@ class BossFortress extends BossBase {
         this.gateTelegraph.timer += deltaTime;
         if (this.gateTelegraph.timer >= this.gateTelegraph.duration) {
             this.gateTelegraph.active = false;
+        }
+    }
+
+    updateFortressShield() {
+        this.shieldClosed = this.state === 'turretBurst' ||
+            this.state === 'trenchRun' ||
+            (this.telegraph && (this.telegraph.type === 'turretBurst' || this.telegraph.type === 'trenchRun'));
+        this.weakPoints.forEach(wp => {
+            wp.visible = !this.shieldClosed;
+        });
+    }
+
+    updateTrenchRun(deltaTime) {
+        if (!this.trenchRun) return;
+        this.trenchRun.elapsed += deltaTime;
+        if (this.trenchRun.elapsed >= this.trenchRun.duration + 0.45 && this.state !== 'trenchRun' && (!this.telegraph || this.telegraph.type !== 'trenchRun')) {
+            this.trenchRun = null;
         }
     }
 
@@ -658,6 +722,133 @@ class BossFortress extends BossBase {
                 elapsed: 0
             });
         });
+    }
+
+    triggerTrenchRun(config) {
+        if (!config) return;
+        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+        this.trenchRun = {
+            ...config,
+            elapsed: this.trenchRun && this.trenchRun.elapsed ? this.trenchRun.elapsed : 0,
+            duration: 0.45,
+            armed: true,
+            impacted: true
+        };
+        if (!isClient) {
+            this.destroyFortressCover(config);
+            this.createShockwave(config.x, config.y, Math.max(90, config.radius || 80), 0.45, this.damage * 0.85);
+        }
+        if (typeof Game !== 'undefined') {
+            Game.triggerScreenShake(7, 0.35, 'boss');
+        }
+    }
+
+    pickTargetCover(player) {
+        const covers = this.getBossArenaAnchors('fortressCover')
+            .filter(anchor => !this.destroyedCoverIds.includes(this.getCoverId(anchor)));
+        if (!covers.length) return null;
+        if (!player) return covers[0];
+        return covers
+            .slice()
+            .sort((a, b) => Math.hypot(a.x - player.x, a.y - player.y) - Math.hypot(b.x - player.x, b.y - player.y))[0];
+    }
+
+    getCoverId(cover) {
+        if (!cover) return 'cover-unknown';
+        const primary = cover.points && cover.points[0] ? cover.points[0].obstacleIndex : `${Math.round(cover.x)}-${Math.round(cover.y)}`;
+        return `fortressCover-${primary}`;
+    }
+
+    destroyFortressCover(config) {
+        const context = this.getCurrentBossLayout();
+        if (!context || !context.layout || !Array.isArray(context.layout.obstacles)) return;
+        if (config.coverId && !this.destroyedCoverIds.includes(config.coverId)) {
+            this.destroyedCoverIds.push(config.coverId);
+        }
+        const indexes = Array.isArray(config.obstacleIndexes) ? config.obstacleIndexes : [];
+        indexes.forEach(index => {
+            const obstacle = context.layout.obstacles[index];
+            if (!obstacle || obstacle.motif !== 'fortressCover') return;
+            this.clearObstacleFromLayout(context.layout, obstacle);
+            obstacle.blocksMovement = false;
+            obstacle.blocksProjectiles = false;
+            obstacle.destroyed = true;
+        });
+        this.eraseDestroyedCoverFromCache(context.room, indexes.map(index => context.layout.obstacles[index]).filter(Boolean));
+        const cache = this.getLayoutAnchorCache(context.layout);
+        if (cache) {
+            cache.obstacleCount = -1;
+        }
+    }
+
+    syncDestroyedCoverToLayout() {
+        if (!Array.isArray(this.destroyedCoverIds) || this.destroyedCoverIds.length === 0) return;
+        const covers = this.getBossArenaAnchors('fortressCover');
+        covers.forEach(cover => {
+            const coverId = this.getCoverId(cover);
+            if (!this.destroyedCoverIds.includes(coverId)) return;
+            this.destroyFortressCover({
+                coverId,
+                x: cover.x,
+                y: cover.y,
+                radius: Math.max(45, cover.radius || 60),
+                obstacleIndexes: (cover.points || []).map(point => point.obstacleIndex).filter(index => index !== undefined)
+            });
+        });
+    }
+
+    clearObstacleFromLayout(layout, obstacle) {
+        if (!layout || !Array.isArray(layout.grid) || !obstacle) return;
+        const cellSize = layout.cellSize || 60;
+        const minCol = Math.max(0, Math.floor(((obstacle.x || 0) - (obstacle.radius || 0)) / cellSize) - 1);
+        const maxCol = Math.min(layout.cols - 1, Math.ceil(((obstacle.x || 0) + (obstacle.width || obstacle.radius || 0)) / cellSize) + 1);
+        const minRow = Math.max(0, Math.floor(((obstacle.y || 0) - (obstacle.radius || 0)) / cellSize) - 1);
+        const maxRow = Math.min(layout.rows - 1, Math.ceil(((obstacle.y || 0) + (obstacle.height || obstacle.radius || 0)) / cellSize) + 1);
+        for (let row = minRow; row <= maxRow; row++) {
+            for (let col = minCol; col <= maxCol; col++) {
+                const cx = col * cellSize + cellSize / 2;
+                const cy = row * cellSize + cellSize / 2;
+                let inside = false;
+                if (obstacle.shape === 'circle') {
+                    inside = Math.hypot(cx - obstacle.x, cy - obstacle.y) <= (obstacle.radius || cellSize);
+                } else if (obstacle.shape === 'diamond') {
+                    inside = Math.abs(cx - obstacle.x) + Math.abs(cy - obstacle.y) <= (obstacle.radius || cellSize);
+                } else {
+                    inside = cx >= obstacle.x && cx <= obstacle.x + (obstacle.width || cellSize) &&
+                        cy >= obstacle.y && cy <= obstacle.y + (obstacle.height || cellSize);
+                }
+                if (inside) {
+                    layout.grid[row * layout.cols + col] = 0;
+                }
+            }
+        }
+    }
+
+    eraseDestroyedCoverFromCache(room, obstacles) {
+        if (!room || !room.renderCache || !room.renderCache.staticSceneCanvas || !Array.isArray(obstacles) || !obstacles.length) {
+            if (room) room.renderCache = null;
+            return;
+        }
+        const ctx = room.renderCache.staticSceneCanvas.getContext('2d');
+        if (!ctx) {
+            room.renderCache = null;
+            return;
+        }
+        const scale = room.renderCache.scale || 1;
+        ctx.save();
+        ctx.scale(scale, scale);
+        ctx.globalCompositeOperation = 'destination-out';
+        obstacles.forEach(obstacle => {
+            if (obstacle.shape === 'circle' || obstacle.shape === 'diamond') {
+                const radius = (obstacle.radius || 60) + 12;
+                ctx.beginPath();
+                ctx.arc(obstacle.x, obstacle.y, radius, 0, Math.PI * 2);
+                ctx.fill();
+            } else {
+                ctx.fillRect((obstacle.x || 0) - 8, (obstacle.y || 0) - 8, (obstacle.width || 60) + 16, (obstacle.height || 60) + 16);
+            }
+        });
+        ctx.restore();
     }
 
     triggerKnockbackPulse(config) {
@@ -902,12 +1093,15 @@ class BossFortress extends BossBase {
         this.activeKnockbackPulse = null;
         this.pendingWave = null;
         this.gateTelegraph.active = false;
+        this.shieldClosed = false;
+        this.trenchRun = null;
         this.phaseCycleCounters[newPhase] = 0;
         this.minionWaveCooldown = Math.min(this.minionWaveCooldown, this.config.minions.cooldown[newPhase] || this.minionWaveCooldown);
     }
 
     render(ctx) {
         if (!this.alive) return;
+        this.renderTrenchRunTelegraph(ctx);
 
         ctx.save();
         ctx.translate(this.x, this.y);
@@ -1038,12 +1232,67 @@ class BossFortress extends BossBase {
         ctx.restore();
 
         this.renderTelegraphs(ctx);
+        this.renderShieldState(ctx);
         this.renderWeakPoints(ctx);
         this.renderHazards(ctx);
         this.renderHealthBar(ctx);
 
         // Draw status effect indicators
         this.renderStatusEffects(ctx);
+    }
+
+    renderTrenchRunTelegraph(ctx) {
+        const marker = this.trenchRun || (this.telegraph && this.telegraph.type === 'trenchRun' ? this.telegraph.data : null);
+        if (!marker || !Number.isFinite(marker.x) || !Number.isFinite(marker.y)) return;
+        const elapsed = marker.elapsed !== undefined ? marker.elapsed : (this.telegraph ? this.telegraph.timer : 0);
+        const duration = marker.duration || (this.telegraph ? this.telegraph.duration : 1);
+        const progress = Math.min(1, elapsed / Math.max(0.01, duration));
+        const impacted = !!marker.impacted;
+        ctx.save();
+        ctx.globalAlpha = impacted ? 0.72 : 0.28 + progress * 0.32;
+        ctx.strokeStyle = impacted ? '#ffffff' : '#ff2d2d';
+        ctx.lineWidth = impacted ? 7 : 4;
+        ctx.setLineDash(impacted ? [] : [18, 10]);
+        ctx.beginPath();
+        ctx.moveTo(this.x - this.width * 0.35, this.y - this.height * 0.12);
+        ctx.lineTo(marker.x, marker.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.globalAlpha = impacted ? 0.78 : 0.45 + Math.sin(progress * Math.PI * 12) * 0.2;
+        ctx.strokeStyle = impacted ? '#ffdf7a' : '#ff2d2d';
+        ctx.lineWidth = impacted ? 8 : 5;
+        ctx.beginPath();
+        ctx.arc(marker.x, marker.y, (marker.radius || 70) * (impacted ? 1.12 : 1.2 - progress * 0.28), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = impacted ? 0.35 : 0.22;
+        ctx.fillStyle = impacted ? '#ffb347' : '#ff2d2d';
+        ctx.beginPath();
+        ctx.arc(marker.x, marker.y, marker.radius || 70, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = impacted ? 0.8 : 0.55;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 3;
+        const cross = (marker.radius || 70) * (0.55 + progress * 0.2);
+        ctx.beginPath();
+        ctx.moveTo(marker.x - cross, marker.y);
+        ctx.lineTo(marker.x + cross, marker.y);
+        ctx.moveTo(marker.x, marker.y - cross);
+        ctx.lineTo(marker.x, marker.y + cross);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    renderShieldState(ctx) {
+        if (!this.shieldClosed) return;
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        const pulse = (Math.sin(Date.now() / 120) + 1) / 2;
+        ctx.globalAlpha = 0.28 + pulse * 0.16;
+        ctx.strokeStyle = '#6df5ff';
+        ctx.lineWidth = 6;
+        ctx.strokeRect(-this.width * 0.34, -this.height * 0.08, this.width * 0.68, this.height * 0.32);
+        ctx.restore();
     }
 
     drawNeonRect(ctx, x, y, width, height, fill, stroke, lineWidth = 3, glow = 10) {
@@ -1230,6 +1479,21 @@ class BossFortress extends BossBase {
                 ctx.fillRect(0, -6, length, 12);
                 ctx.restore();
             });
+        } else if (this.telegraph.type === 'minionWave') {
+            ctx.save();
+            const gateX = this.x;
+            const gateY = this.y + this.height * 0.28;
+            const pulse = 0.5 + Math.sin(this.telegraph.timer * Math.PI * 8) * 0.5;
+            ctx.globalAlpha = 0.32 + progress * 0.42;
+            ctx.fillStyle = '#41ffd7';
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.ellipse(gateX, gateY, this.width * (0.18 + progress * 0.12), this.height * 0.16, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 0.55 + pulse * 0.25;
+            ctx.stroke();
+            ctx.restore();
         }
     }
 
@@ -1252,6 +1516,9 @@ class BossFortress extends BossBase {
             phaseCycleCounters: this.phaseCycleCounters,
             minionWaveCooldown: this.minionWaveCooldown,
             knockbackContextCooldown: this.knockbackContextCooldown,
+            shieldClosed: this.shieldClosed,
+            trenchRun: this.trenchRun,
+            destroyedCoverIds: this.destroyedCoverIds,
             activeWave: this.activeMinionWave ? this.activeMinionWave.id : null,
             pendingWave: this.pendingWave ? {
                 timer: this.pendingWave.timer,
@@ -1288,6 +1555,15 @@ class BossFortress extends BossBase {
         if (state.phaseCycleCounters !== undefined) this.phaseCycleCounters = { ...state.phaseCycleCounters };
         if (state.minionWaveCooldown !== undefined) this.minionWaveCooldown = state.minionWaveCooldown;
         if (state.knockbackContextCooldown !== undefined) this.knockbackContextCooldown = state.knockbackContextCooldown;
+        if (state.shieldClosed !== undefined) this.shieldClosed = state.shieldClosed;
+        if (state.trenchRun !== undefined) this.trenchRun = state.trenchRun;
+        if (Array.isArray(state.destroyedCoverIds)) {
+            const previousCount = this.destroyedCoverIds.length;
+            this.destroyedCoverIds = state.destroyedCoverIds.slice();
+            if (this.destroyedCoverIds.length !== previousCount) {
+                this.syncDestroyedCoverToLayout();
+            }
+        }
         if (state.activeWave !== undefined) this.activeMinionWave = state.activeWave ? { id: state.activeWave } : null;
         if (state.pendingWave !== undefined && state.pendingWave) {
             this.pendingWave = {

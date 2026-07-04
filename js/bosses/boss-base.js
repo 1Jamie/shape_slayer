@@ -22,7 +22,7 @@ class BossBase extends EnemyBase {
         this.introComplete = false;
         this.introTime = 0;
         
-        // Scale boss stats (12x HP, 2x size, 1.5x damage)
+        // Placeholder defaults — applyBossScaling() overwrites maxHp/damage at spawn.
         this.maxHp = this.maxHp * 12;
         this.hp = this.maxHp;
         this.size = this.size * 2;
@@ -31,6 +31,23 @@ class BossBase extends EnemyBase {
         
         // Boss-specific color (can be overridden by subclasses)
         this.color = '#ff0000'; // Bright red for bosses
+
+        // Running peak hit damage — used to normalize boss hit screen shake over the fight
+        this.peakHitDamage = 0;
+        this._lastHitShakeTime = 0;
+    }
+
+    getNavigationRadius() {
+        return (this.size || 40) * 1.12 + 16;
+    }
+
+    getPathfindingRadius() {
+        const navRadius = this.getNavigationRadius();
+        const layout = typeof currentRoom !== 'undefined' && currentRoom && currentRoom.layout
+            ? currentRoom.layout
+            : null;
+        const cellPad = layout ? Math.max(8, layout.cellSize * 0.14) : 10;
+        return navRadius + cellPad;
     }
     
     isValidAggroTarget(target) {
@@ -73,6 +90,214 @@ class BossBase extends EnemyBase {
         }
         
         return targetPlayer;
+    }
+
+    moveTowardPoint(targetX, targetY, speedMultiplier = 1, deltaTime = 0, smoothing = 0.35) {
+        const dx = targetX - this.x;
+        const dy = targetY - this.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance <= 0) return;
+        this.applySmoothedDirectionalMovement(dx, dy, this.moveSpeed * speedMultiplier, deltaTime, smoothing);
+    }
+
+    clampToRoom(x, y) {
+        const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : 2400;
+        const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : 1350;
+        return {
+            x: Math.max(this.size, Math.min(roomWidth - this.size, x)),
+            y: Math.max(this.size, Math.min(roomHeight - this.size, y))
+        };
+    }
+
+    findSafeBossPosition(x, y) {
+        const clamped = this.clampToRoom(x, y);
+        if (typeof currentRoom === 'undefined' || !currentRoom || !currentRoom.layout || typeof RoomLayoutGenerator === 'undefined') {
+            return clamped;
+        }
+
+        if (RoomLayoutGenerator.isPointWalkable(currentRoom.layout, clamped.x, clamped.y, this.getNavigationRadius())) {
+            return clamped;
+        }
+
+        const safePoint = RoomLayoutGenerator.findSafeSpawnPoint(currentRoom.layout, {
+            radius: this.getNavigationRadius(),
+            margin: Math.max(100, this.size),
+            minDistanceFrom: currentRoom.layout.spawnZone
+                ? [{ x: currentRoom.layout.spawnZone.x, y: currentRoom.layout.spawnZone.y, distance: 240 }]
+                : [],
+            maxAttempts: 160
+        });
+
+        return safePoint || {
+            x: this.lastSafeX || clamped.x,
+            y: this.lastSafeY || clamped.y
+        };
+    }
+
+    teleportToSafePosition(x, y) {
+        const safe = this.findSafeBossPosition(x, y);
+        this.x = safe.x;
+        this.y = safe.y;
+        this.lastSafeX = safe.x;
+        this.lastSafeY = safe.y;
+    }
+
+    getCurrentBossLayout() {
+        const room = typeof currentRoom !== 'undefined' ? currentRoom : null;
+        const layout = room && room.layout ? room.layout : null;
+        if (!room || !layout) return null;
+        return {
+            room,
+            layout,
+            biomeId: layout.biomeId || room.biomeId || null,
+            centerX: layout.width ? layout.width / 2 : (room.width || 0) / 2,
+            centerY: layout.height ? layout.height / 2 : (room.height || 0) / 2
+        };
+    }
+
+    getLayoutAnchorCache(layout) {
+        if (!layout) return null;
+        if (!layout.__bossAnchorCache || layout.__bossAnchorCache.hash !== layout.hash || layout.__bossAnchorCache.obstacleCount !== (layout.obstacles || []).length) {
+            layout.__bossAnchorCache = {
+                hash: layout.hash || null,
+                obstacleCount: (layout.obstacles || []).length,
+                motifPoints: Object.create(null),
+                arenaAnchors: Object.create(null)
+            };
+        }
+        return layout.__bossAnchorCache;
+    }
+
+    getObstacleAnchorPoint(obstacle, index = 0) {
+        if (!obstacle) return null;
+        let x = obstacle.x || 0;
+        let y = obstacle.y || 0;
+        if (obstacle.shape === 'rect') {
+            x += (obstacle.width || 0) / 2;
+            y += (obstacle.height || 0) / 2;
+        }
+        const radius = obstacle.radius || Math.max(obstacle.width || 0, obstacle.height || 0) / 2 || 0;
+        return {
+            x,
+            y,
+            radius,
+            shape: obstacle.shape || 'point',
+            motif: obstacle.motif || null,
+            structure: obstacle.structure || null,
+            preset: obstacle.preset || null,
+            destructible: !!obstacle.destructible,
+            obstacleIndex: index,
+            obstacle
+        };
+    }
+
+    getLayoutMotifPoints(motif) {
+        const context = this.getCurrentBossLayout();
+        if (!context || !motif) return [];
+        const cache = this.getLayoutAnchorCache(context.layout);
+        if (!cache) return [];
+        if (cache.motifPoints[motif]) return cache.motifPoints[motif];
+
+        const points = (context.layout.obstacles || [])
+            .map((obstacle, index) => {
+                if (!obstacle || obstacle.destroyed || obstacle.motif !== motif) return null;
+                return this.getObstacleAnchorPoint(obstacle, index);
+            })
+            .filter(Boolean);
+        cache.motifPoints[motif] = points;
+        return points;
+    }
+
+    coalesceAnchorPoints(points, radius = 180) {
+        if (!Array.isArray(points) || points.length === 0) return [];
+        const clusters = [];
+        points.forEach(point => {
+            let match = null;
+            for (let i = 0; i < clusters.length; i++) {
+                const cluster = clusters[i];
+                if (Math.hypot(point.x - cluster.x, point.y - cluster.y) <= radius) {
+                    match = cluster;
+                    break;
+                }
+            }
+            if (!match) {
+                clusters.push({
+                    x: point.x,
+                    y: point.y,
+                    radius: point.radius || 0,
+                    points: [point],
+                    motif: point.motif,
+                    structure: point.structure,
+                    destructible: !!point.destructible
+                });
+                return;
+            }
+            match.points.push(point);
+            const count = match.points.length;
+            match.x += (point.x - match.x) / count;
+            match.y += (point.y - match.y) / count;
+            match.radius = Math.max(match.radius || 0, point.radius || 0);
+            match.destructible = match.destructible || !!point.destructible;
+        });
+        return clusters;
+    }
+
+    getBossArenaAnchors(type) {
+        const context = this.getCurrentBossLayout();
+        if (!context || !type) return [];
+        const cache = this.getLayoutAnchorCache(context.layout);
+        if (!cache) return [];
+        if (cache.arenaAnchors[type]) return cache.arenaAnchors[type];
+
+        const anchorConfig = {
+            swarmNest: { motifs: ['swarmNest'], coalesceRadius: 190 },
+            prismAnchor: { motifs: ['prismAnchor'], coalesceRadius: 190 },
+            prismShard: { motifs: ['prismShard'], coalesceRadius: 150 },
+            fortressCover: { motifs: ['fortressCover'], coalesceRadius: 170 },
+            fortressWall: { motifs: ['fortressWall'], coalesceRadius: 90 },
+            fractalIsland: { motifs: ['fractalIsland', 'outerFractalIsland'], coalesceRadius: 170 },
+            fractalFragment: { motifs: ['fractalFragment'], coalesceRadius: 140 },
+            vortexAnchor: { motifs: ['vortexAnchor'], coalesceRadius: 150 }
+        };
+        const config = anchorConfig[type] || { motifs: [type], coalesceRadius: 160 };
+        const points = config.motifs.flatMap(motif => this.getLayoutMotifPoints(motif));
+        const anchors = this.coalesceAnchorPoints(points, config.coalesceRadius);
+        cache.arenaAnchors[type] = anchors;
+        return anchors;
+    }
+
+    resolveAnchorToWalkable(anchor, radius = 24, preferredFrom = null) {
+        const context = this.getCurrentBossLayout();
+        const layout = context && context.layout ? context.layout : null;
+        if (!anchor || !layout || typeof RoomLayoutGenerator === 'undefined') return anchor;
+        if (RoomLayoutGenerator.isPointWalkable(layout, anchor.x, anchor.y, radius)) {
+            return { ...anchor, walkableX: anchor.x, walkableY: anchor.y };
+        }
+
+        const cellSize = layout.cellSize || 60;
+        const awayAngle = preferredFrom
+            ? Math.atan2(anchor.y - preferredFrom.y, anchor.x - preferredFrom.x)
+            : Math.atan2(anchor.y - (layout.height || 0) / 2, anchor.x - (layout.width || 0) / 2);
+        const samples = 16;
+        const maxRings = 5;
+        for (let ring = 1; ring <= maxRings; ring++) {
+            const distance = Math.max(cellSize * 0.7, (anchor.radius || cellSize) * 0.8) + ring * cellSize * 0.45;
+            for (let i = 0; i < samples; i++) {
+                const offset = i === 0 ? 0 : ((i % 2 === 0 ? 1 : -1) * Math.ceil(i / 2) * (Math.PI * 2 / samples));
+                const angle = awayAngle + offset;
+                const x = Math.max(radius, Math.min((layout.width || 2400) - radius, anchor.x + Math.cos(angle) * distance));
+                const y = Math.max(radius, Math.min((layout.height || 1350) - radius, anchor.y + Math.sin(angle) * distance));
+                if (RoomLayoutGenerator.isPointWalkable(layout, x, y, radius)) {
+                    return { ...anchor, walkableX: x, walkableY: y };
+                }
+            }
+        }
+        const fallback = this.findSafeBossPosition(anchor.x, anchor.y);
+        return { ...anchor, walkableX: fallback.x, walkableY: fallback.y };
+    }
+
+    getWalkableArenaAnchors(type, radius = 24, preferredFrom = null) {
+        return this.getBossArenaAnchors(type).map(anchor => this.resolveAnchorToWalkable(anchor, radius, preferredFrom));
     }
     
     // Check and transition phases based on HP thresholds
@@ -140,6 +365,10 @@ class BossBase extends EnemyBase {
             }
         }
         return null;
+    }
+
+    getDamageCollisionBodies() {
+        return [{ x: this.x, y: this.y, radius: this.size }];
     }
     
     // Add a weak point relative to boss center
@@ -363,6 +592,49 @@ class BossBase extends EnemyBase {
         });
     }
     
+    shouldTriggerLocalBossHitShake(attackerId = null) {
+        if (typeof Game === 'undefined' || typeof Game.getLocalPlayerId !== 'function') {
+            return true;
+        }
+        const localPlayerId = Game.getLocalPlayerId();
+        return !attackerId || attackerId === localPlayerId;
+    }
+
+    // Scale screen shake from damage relative to the biggest hit landed so far this fight.
+    triggerBossHitScreenShake(finalDamage, options = {}) {
+        if (typeof Game === 'undefined' || typeof Game.triggerScreenShake !== 'function') return;
+        if (!Number.isFinite(finalDamage) || finalDamage <= 0) return;
+
+        const isWeakPoint = !!options.weakPoint;
+        const now = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+        if (this._lastHitShakeTime && now - this._lastHitShakeTime < 0.045) return;
+        this._lastHitShakeTime = now;
+
+        // Seed with a modest floor so early hits don't immediately feel like max shake.
+        const seedPeak = Math.max(1, (this.maxHp || 1) * 0.012);
+        if (!this.peakHitDamage || this.peakHitDamage < seedPeak) {
+            this.peakHitDamage = seedPeak;
+        }
+
+        if (finalDamage >= this.peakHitDamage * 0.98) {
+            this.peakHitDamage = Math.max(this.peakHitDamage, finalDamage);
+        }
+
+        const referencePeak = this.peakHitDamage * 1.25;
+        const ratio = Math.min(finalDamage / referencePeak, 1);
+        const curved = Math.pow(ratio, 1.55);
+
+        const minIntensity = 0.1;
+        const maxIntensity = isWeakPoint ? 1.15 : 0.95;
+        const intensity = minIntensity + (maxIntensity - minIntensity) * curved;
+
+        const minDuration = 0.07;
+        const maxDuration = 0.16;
+        const duration = minDuration + (maxDuration - minDuration) * Math.pow(ratio, 1.2);
+
+        Game.triggerScreenShake(intensity, duration, 'boss');
+    }
+
     // Override takeDamage to check for weak point hits first
     takeDamage(damage, hitX = null, hitY = null, hitRadius = 0, attackerId = null) {
         // Check for weak point hit if position provided
@@ -371,8 +643,9 @@ class BossBase extends EnemyBase {
             weakPointHit = this.checkWeakPointHit(hitX, hitY, hitRadius);
         }
         
-        // Apply 3x damage multiplier if weak point hit
-        const finalDamage = weakPointHit ? damage * 3 : damage;
+        // Apply weak point damage multiplier if weak point hit
+        const weakPointMultiplier = this.weakPointDamageMultiplier || 3;
+        const finalDamage = weakPointHit ? damage * weakPointMultiplier : damage;
         
         this.hp -= finalDamage;
         
@@ -386,6 +659,10 @@ class BossBase extends EnemyBase {
             this.addThreat(Game.getLocalPlayerId(), finalDamage);
         }
         
+        if (this.shouldTriggerLocalBossHitShake(attackerId)) {
+            this.triggerBossHitScreenShake(finalDamage, { weakPoint: !!weakPointHit });
+        }
+
         // Visual feedback for weak point hits
         if (weakPointHit) {
             // Extra particle effect for weak point hit
@@ -393,9 +670,6 @@ class BossBase extends EnemyBase {
                 const wpX = this.x + weakPointHit.offsetX;
                 const wpY = this.y + weakPointHit.offsetY;
                 createParticleBurst(wpX, wpY, '#00ffff', 15);
-            }
-            if (typeof Game !== 'undefined') {
-                Game.triggerScreenShake(3, 0.15, 'boss');
             }
         }
         

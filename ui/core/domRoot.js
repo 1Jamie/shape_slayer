@@ -14,10 +14,7 @@
 			pointerEvents: 'none', // UI components will re-enable on their own containers
 			display: 'block',
 			zIndex: '1000',
-			userSelect: 'none',
-			webkitUserSelect: 'none',
-			mozUserSelect: 'none',
-			msUserSelect: 'none'
+			userSelect: 'none'
 		});
 		
 		// Prevent context menu and text selection on the entire UI root
@@ -36,7 +33,7 @@
 		// Prevent text selection via mouse drag
 		root.addEventListener('selectstart', (e) => {
 			const target = e.target;
-			if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+			if (typeof isFormFieldTarget === 'function' && isFormFieldTarget(target)) {
 				return; // Allow selection in input fields
 			}
 			e.preventDefault();

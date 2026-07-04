@@ -315,6 +315,9 @@ class BeamHazard extends EnvironmentalHazard {
         this.originOffsetY = options.originOffsetY || 0;
         this.lengthGrowthSpeed = options.lengthGrowthSpeed || 0;
         this.maxLength = options.maxLength || this.length;
+        this.color = options.color || '#ff8c00';
+        this.coreColor = options.coreColor || '#ffe9a6';
+        this.haloColor = options.haloColor || '#ffffff';
     }
 
     update(deltaTime, context = {}) {
@@ -397,15 +400,15 @@ class BeamHazard extends EnvironmentalHazard {
         const innerAlpha = 0.85 * (1 - lifeProgress * 0.3);
 
         ctx.globalAlpha = outerAlpha;
-        ctx.fillStyle = '#ff8c00';
+        ctx.fillStyle = this.color;
         ctx.fillRect(0, -this.width / 2, this.length, this.width);
 
         ctx.globalAlpha = innerAlpha;
-        ctx.fillStyle = '#ffe9a6';
+        ctx.fillStyle = this.coreColor;
         ctx.fillRect(0, -this.width * 0.3, this.length, this.width * 0.6);
 
         ctx.globalAlpha = Math.min(1, innerAlpha + 0.2);
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle = this.haloColor;
         ctx.fillRect(0, -this.width * 0.15, this.length, this.width * 0.3);
 
         ctx.restore();
@@ -430,7 +433,10 @@ class BeamHazard extends EnvironmentalHazard {
             originOffsetX: this.originOffsetX,
             originOffsetY: this.originOffsetY,
             lengthGrowthSpeed: this.lengthGrowthSpeed,
-            maxLength: this.maxLength
+            maxLength: this.maxLength,
+            color: this.color,
+            coreColor: this.coreColor,
+            haloColor: this.haloColor
         };
     }
 
@@ -450,7 +456,10 @@ class BeamHazard extends EnvironmentalHazard {
             originOffsetX: state.originOffsetX,
             originOffsetY: state.originOffsetY,
             lengthGrowthSpeed: state.lengthGrowthSpeed,
-            maxLength: state.maxLength
+            maxLength: state.maxLength,
+            color: state.color,
+            coreColor: state.coreColor,
+            haloColor: state.haloColor
         });
         hazard.tickAccumulator = state.tickAccumulator || 0;
         hazard.pendingTicks = state.pendingTicks || 0;

@@ -98,6 +98,9 @@ const LOBBY_MAX_AGE = parseInt(process.env.LOBBY_MAX_AGE) || (60 * 60 * 1000); /
 // How often to check for old lobbies to cleanup (milliseconds)
 const LOBBY_CLEANUP_INTERVAL = parseInt(process.env.LOBBY_CLEANUP_INTERVAL) || (5 * 60 * 1000); // 5 minutes
 
+// Grace period before removing a disconnected player from a lobby (milliseconds)
+const DISCONNECT_GRACE_MS = parseInt(process.env.DISCONNECT_GRACE_MS) || 15000;
+
 // ----------------------------------------------------------------------------
 // LOAD BALANCING CONFIGURATION (for 'multi' and 'slave' modes)
 // ----------------------------------------------------------------------------
@@ -171,7 +174,8 @@ const config = {
         maxPlayers: MAX_PLAYERS_PER_LOBBY,
         codeLength: LOBBY_CODE_LENGTH,
         maxAge: LOBBY_MAX_AGE,
-        cleanupInterval: LOBBY_CLEANUP_INTERVAL
+        cleanupInterval: LOBBY_CLEANUP_INTERVAL,
+        disconnectGraceMs: DISCONNECT_GRACE_MS
     },
     
     // Logging configuration

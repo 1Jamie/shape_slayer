@@ -34,9 +34,6 @@
 
 		container.style.pointerEvents = 'none';
 		container.style.userSelect = 'none';
-		container.style.webkitUserSelect = 'none';
-		container.style.mozUserSelect = 'none';
-		container.style.msUserSelect = 'none';
 		container.style.zIndex = '2000';
 
 		// Prevent right-click context menu
@@ -129,26 +126,41 @@
 		// XP bar
 		const xpBar = document.createElement('div');
 		xpBar.id = 'dom-xp-bar';
-		xpBar.style.height = '10px';
+		xpBar.style.height = '14px';
 		xpBar.style.background = 'rgba(255,255,255,0.08)';
 		xpBar.style.border = '1px solid rgba(150,150,255,0.3)';
 		xpBar.style.borderRadius = '6px';
 		xpBar.style.overflow = 'hidden';
 		xpBar.style.maxWidth = '420px';
 		xpBar.style.marginTop = '8px';
+		xpBar.style.position = 'relative';
 
 		// Mobile: scale down XP bar for top-left positioning
 		if (isMobileInit) {
 			xpBar.style.maxWidth = '200px'; // Compact for top-left
 			xpBar.style.width = '200px'; // Force width
-			xpBar.style.height = '8px';
+			xpBar.style.height = '12px';
 			xpBar.style.marginTop = '4px';
 		}
 		xpBarFill = document.createElement('div');
+		xpBarFill.id = 'dom-xp-bar-fill';
 		xpBarFill.style.height = '100%';
 		xpBarFill.style.width = '0%';
 		xpBarFill.style.background = '#3498db';
 		xpBar.appendChild(xpBarFill);
+		const xpBarText = document.createElement('div');
+		xpBarText.id = 'dom-xp-bar-text';
+		xpBarText.style.position = 'absolute';
+		xpBarText.style.left = '50%';
+		xpBarText.style.top = '50%';
+		xpBarText.style.transform = 'translate(-50%, -50%)';
+		xpBarText.style.color = '#ffffff';
+		xpBarText.style.fontSize = '10px';
+		xpBarText.style.fontWeight = 'bold';
+		xpBarText.style.pointerEvents = 'none';
+		xpBarText.style.textShadow = '0 0 3px rgba(0,0,0,0.8)';
+		xpBarText.style.whiteSpace = 'nowrap';
+		xpBar.appendChild(xpBarText);
 
 		// Cooldowns - different layout for mobile vs desktop
 		const cdContainer = document.createElement('div');
@@ -311,7 +323,7 @@
 			if (xpBar) {
 				xpBar.style.maxWidth = '200px';
 				xpBar.style.width = '200px';
-				xpBar.style.height = '8px';
+				xpBar.style.height = '12px';
 				xpBar.style.marginTop = '4px';
 			}
 		} else {
@@ -337,7 +349,7 @@
 			if (xpBar) {
 				xpBar.style.maxWidth = '420px';
 				xpBar.style.width = '';
-				xpBar.style.height = '10px';
+				xpBar.style.height = '14px';
 				xpBar.style.marginTop = '8px';
 			}
 		}
@@ -392,6 +404,13 @@
 		const xpToNext = Math.max(1, player.xpToNext || 100);
 		const xpPct = Math.max(0, Math.min(100, (xp / xpToNext) * 100));
 		xpBarFill.style.width = xpPct + '%';
+
+		const xpBarText = document.getElementById('dom-xp-bar-text');
+		if (xpBarText) {
+			const level = Math.max(1, player.level || 1);
+			xpBarText.textContent = `Level ${level} - ${Math.floor(xp)}/${xpToNext} XP`;
+			xpBarText.style.fontSize = isMobile ? '8px' : '10px';
+		}
 
 		// Desktop cooldown bars (event-driven preferred, fallback to raw fields)
 		// Mobile: hide cooldowns (they're built into touch controls)

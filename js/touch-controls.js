@@ -1,6 +1,6 @@
 // Touch controls system - Virtual joysticks and touch input handling
 
-// UI accent colour — matches the game's global blue theme used across all HUD elements
+// UI accent colour - matches the game's global blue theme used across all HUD elements
 const UI_ACCENT = { r: 120, g: 160, b: 255 };
 
 function _accentRgb(_playerClass) {
@@ -51,7 +51,7 @@ class VirtualJoystick {
         this.angle = 0;
         this.magnitude = 0;
 
-        // Exponential snapback — target ~80 ms to settle
+        // Exponential snapback - target ~80 ms to settle
         this._snapDecay = 18; // units: 1/second
         this._lastInteractionAt = _now();
     }
@@ -282,7 +282,7 @@ class VirtualJoystick {
         ctx.shadowColor = this.active ? _rgba(accent, 0.58 + activePulse * 0.18) : 'rgba(0, 0, 0, 0.28)';
         ctx.shadowBlur = this.active ? 12 + activePulse * 5 : 5;
 
-        // Knob fill — radial shading gives the nub a pressed-glass feel.
+        // Knob fill - radial shading gives the nub a pressed-glass feel.
         const knobGrad = ctx.createRadialGradient(
             kx - innerRadius * 0.35, ky - innerRadius * 0.4, 0,
             kx, ky, innerRadius
@@ -644,7 +644,7 @@ class TouchButton {
 
             // Fit label within button width; leave 12 px gutter (6 each side)
             const maxLabelWidth = this.width - 12;
-            let fontSize = 10; // start conservative — Orbitron has a tall cap-height
+            let fontSize = 10; // start conservative - Orbitron has a tall cap-height
             ctx.font = `bold ${fontSize}px Orbitron, monospace`;
             // grow up rather than shrink down to avoid the while-loop sizing past the real limit
             while (fontSize < 13 && ctx.measureText(this.label).width < maxLabelWidth) {
@@ -659,7 +659,7 @@ class TouchButton {
 
             // Cooldown active: large timer centred, small label above (both use cy as anchor)
             if (!isReady && cooldownPct > 0) {
-                // Small label sits 8 px above centre — consistent gap regardless of fontSize
+                // Small label sits 8 px above centre - consistent gap regardless of fontSize
                 ctx.font = `bold 8px Orbitron, monospace`;
                 ctx.fillStyle = 'rgba(200, 180, 180, 0.55)';
                 ctx.shadowBlur = 0;

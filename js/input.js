@@ -79,6 +79,9 @@ const Input = {
     _inputSourceSwitchDelayMs: 250,
     _hadOnScreenTouchControls: false,
     _touchControlsHiddenForGamepad: false,
+    _lifecycleHandlersInstalled: false,
+    _gamepadActivationFrames: 0,
+    _gamepadActivationFramesRequired: 4,
 
     // Last aim angle (for maintaining direction when joystick is released on mobile)
     lastAimAngle: 0,
@@ -117,36 +120,29 @@ const Input = {
         return this.classInputConfig[classType][ability] || 'button';
     },
 
-    // Device detection - check user agent for mobile/tablet
+    getDeviceProfile() {
+        if (typeof DeviceDetection !== 'undefined' && DeviceDetection.getProfile) {
+            return DeviceDetection.getProfile();
+        }
+        return {
+            formFactor: 'unknown',
+            os: 'unknown',
+            isMobile: false,
+            isPhone: false,
+            isTablet: false,
+            isDesktop: true,
+            confidence: 'low',
+            reason: 'device-detection-unavailable',
+            capabilities: {}
+        };
+    },
+
+    // Device detection - delegates to layered DeviceDetection module.
     isMobileDevice() {
-        // Primary detection: User Agent patterns
-        const ua = navigator.userAgent || '';
-        const platform = navigator.platform || '';
-
-        // Android mobile (must have "Mobile" in UA to exclude desktop Android)
-        const isAndroidMobile = /Android.*Mobile/i.test(ua);
-
-        // iOS mobile devices (iPhone, iPod)
-        const isIOSMobile = /iPhone|iPod/i.test(ua);
-
-        // Platform check as secondary validation
-        const isMobilePlatform = /iPhone|iPod|Android/i.test(platform);
-
-        // Mobile browser indicators
-        const isMobileBrowser = /Mobile|Android|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
-
-        // Combine checks: must match user agent pattern AND platform (or mobile browser indicator)
-        let isMobile = (isAndroidMobile || isIOSMobile || (isMobileBrowser && isMobilePlatform));
-
-        // iPad / Tablet / Touch Screen detection:
-        // iPads requesting desktop sites will report as Macintosh but have touch capabilities
-        const isIPadOS = /Macintosh/i.test(ua) && navigator.maxTouchPoints > 0;
-        const isTablet = /iPad|PlayBook|Silk/i.test(ua) || isIPadOS;
-
-        // Touch support detection (as a generic fallback for non-desktop platforms)
-        const hasTouchSupport = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-
-        return isMobile || isTablet || (hasTouchSupport && !/Windows|Macintosh|Linux/i.test(platform));
+        if (typeof DeviceDetection !== 'undefined' && DeviceDetection.isMobileDevice) {
+            return DeviceDetection.isMobileDevice();
+        }
+        return false;
     },
 
     // Check if a gamepad is the active input device
@@ -186,14 +182,21 @@ const Input = {
                 orientation: window.innerWidth > window.innerHeight ? 'landscape' : 'portrait'
             }
             : {};
+        const device = this.getDeviceProfile();
         return {
             controlMode: this.controlMode,
             activeInputSource: this._activeInputSource,
             mobileUi: this.isMobileUiMode(),
             gamepad: this.isGamepadMode(),
             gamepadFamily: this._gamepadFamily,
+            deviceFormFactor: device.formFactor,
+            deviceOs: device.os,
+            deviceConfidence: device.confidence,
+            deviceReason: device.reason,
+            touchPrimary: device.capabilities && device.capabilities.touchPrimary,
             fullscreen: !!(typeof document !== 'undefined' && (document.fullscreenElement || document.webkitFullscreenElement ||
-                document.mozFullScreenElement || document.msFullscreenElement)),
+                document.mozFullScreenElement)) ||
+                !!(typeof Game !== 'undefined' && Game.pseudoFullscreenActive),
             mobileZoom: typeof Game !== 'undefined' && Game.mobileZoom ? Game.mobileZoom : 1,
             viewport
         };
@@ -454,6 +457,118 @@ const Input = {
         return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
     },
 
+    // Map KeyboardEvent.code/key pairs to canonical key names used by gameplay.
+    _keysFromEvent(e) {
+        const keys = [];
+        const code = e.code || '';
+        const key = (e.key || '').toLowerCase();
+
+        const add = (name) => {
+            if (name && !keys.includes(name)) keys.push(name);
+        };
+
+        if (code === 'KeyW' || key === 'w') add('w');
+        if (code === 'KeyS' || key === 's') add('s');
+        if (code === 'KeyA' || key === 'a') add('a');
+        if (code === 'KeyD' || key === 'd') add('d');
+        if (code === 'ArrowUp' || key === 'arrowup') add('arrowup');
+        if (code === 'ArrowDown' || key === 'arrowdown') add('arrowdown');
+        if (code === 'ArrowLeft' || key === 'arrowleft') add('arrowleft');
+        if (code === 'ArrowRight' || key === 'arrowright') add('arrowright');
+
+        if (code === 'Space' || key === ' ') add(' ');
+        if (code === 'ShiftLeft' || code === 'ShiftRight' || key === 'shift') add('shift');
+        if (code === 'KeyG' || key === 'g') add('g');
+        if (code === 'KeyM' || key === 'm') add('m');
+        if (code === 'Tab' || key === 'tab') add('tab');
+        if (code === 'BracketLeft' || key === '[') add('[');
+        if (code === 'BracketRight' || key === ']') add(']');
+        if (code === 'KeyI' || key === 'i') add('i');
+        if (code === 'Escape' || key === 'escape') add('escape');
+
+        if (keys.length === 0 && key && key.length === 1) add(key);
+
+        return keys;
+    },
+
+    _applyKeyEvent(e, pressed) {
+        const names = this._keysFromEvent(e);
+        for (const name of names) {
+            this.keys[name] = pressed;
+        }
+    },
+
+    _resetKeyboardState(reason = 'manual') {
+        this.keys = {};
+        this._gamepadStartPrev = false;
+        this._gamepadSelectPrev = false;
+        this._recordInputEvent('inputReset', { reason, target: 'keyboard' });
+    },
+
+    _resetPointerState(reason = 'manual') {
+        this.mouseLeft = false;
+        this.mouseRight = false;
+        this._recordInputEvent('inputReset', { reason, target: 'pointer' });
+    },
+
+    _resetTouchState(reason = 'manual') {
+        for (const joystick of Object.values(this.touchJoysticks)) {
+            if (joystick && joystick.touchId !== null) {
+                joystick.endTouch(joystick.touchId);
+            }
+        }
+        for (const button of Object.values(this.touchButtons)) {
+            if (button && button.touchId !== null) {
+                button.endTouch(button.touchId);
+            }
+        }
+        this.activeTouches = {};
+        this.touchActive = false;
+        this._recordInputEvent('inputReset', { reason, target: 'touch' });
+    },
+
+    _resetInputOnContextLoss(reason) {
+        this._resetKeyboardState(reason);
+        this._resetPointerState(reason);
+        if (this.isTouchMode()) {
+            this._resetTouchState(reason);
+        }
+    },
+
+    _installLifecycleHandlers(canvas) {
+        if (typeof window === 'undefined' || this._lifecycleHandlersInstalled) return;
+        this._lifecycleHandlersInstalled = true;
+
+        window.addEventListener('blur', () => {
+            this._resetInputOnContextLoss('blur');
+        });
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                this._resetInputOnContextLoss('visibility-hidden');
+            }
+        });
+
+        window.addEventListener('mouseup', (e) => {
+            if (e.button === 0) this.mouseLeft = false;
+            if (e.button === 2) this.mouseRight = false;
+        });
+
+        if (canvas) {
+            canvas.setAttribute('tabindex', '-1');
+            const focusCanvas = () => {
+                if (typeof canvas.focus !== 'function' || document.activeElement === canvas) return;
+                try {
+                    canvas.focus({ preventScroll: true });
+                } catch (_) {
+                    canvas.focus();
+                }
+            };
+            canvas.addEventListener('pointerdown', focusCanvas);
+            canvas.addEventListener('mousedown', focusCanvas);
+        }
+    },
+
     _emitInputSourceChange() {
         if (typeof window === 'undefined') return;
         const detail = {
@@ -562,18 +677,33 @@ const Input = {
         }
 
         this.applyControlMode(this.controlMode, canvas);
+        this._installLifecycleHandlers(canvas);
 
-        // Keyboard events
-        document.addEventListener('keydown', (e) => {
+        if (typeof window !== 'undefined') {
+            const recheckDeviceProfile = () => {
+                if (typeof DeviceDetection !== 'undefined' && DeviceDetection.invalidateCache) {
+                    DeviceDetection.invalidateCache();
+                }
+                if (this.controlMode === 'auto') {
+                    this._syncUiModeClass();
+                    this._applyControlSurface(this._gamepadCanvas);
+                }
+            };
+            window.addEventListener('resize', recheckDeviceProfile);
+            window.addEventListener('orientationchange', recheckDeviceProfile);
+        }
+
+        // Keyboard events — window-level so we receive keys regardless of focused DOM element.
+        const onKeyDown = (e) => {
             // Don't intercept keys if user is typing in an input field
             const target = e.target;
-            if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
-                this.keys[e.key.toLowerCase()] = true;
+            if (typeof isFormFieldTarget === 'function' && isFormFieldTarget(target)) {
+                this._applyKeyEvent(e, true);
                 return; // Don't process game shortcuts when typing
             }
 
             this._activateNonGamepadInput('keyboardMouse', canvas);
-            this.keys[e.key.toLowerCase()] = true;
+            this._applyKeyEvent(e, true);
 
             // Prevent default Tab behavior (focus shifting) when used for character sheet
             if (e.key === 'Tab') {
@@ -631,11 +761,20 @@ const Input = {
                 }
             }
 
-        });
+            // Prevent arrow keys from scrolling the page when cycling ground loot
+            if (typeof Game !== 'undefined' && Game.state === 'PLAYING' &&
+                (e.code === 'ArrowLeft' || e.code === 'ArrowRight' || e.code === 'ArrowUp' || e.code === 'ArrowDown')) {
+                e.preventDefault();
+            }
 
-        document.addEventListener('keyup', (e) => {
-            this.keys[e.key.toLowerCase()] = false;
-        });
+        };
+
+        const onKeyUp = (e) => {
+            this._applyKeyEvent(e, false);
+        };
+
+        window.addEventListener('keydown', onKeyDown);
+        window.addEventListener('keyup', onKeyUp);
 
         // Mouse position
         canvas.addEventListener('mousemove', (e) => {
@@ -767,6 +906,17 @@ const Input = {
         return axisMoved || buttonPressed;
     },
 
+    _findGamepadWithInput() {
+        if (!navigator.getGamepads) return null;
+        const gamepads = navigator.getGamepads();
+        for (const gamepad of gamepads) {
+            if (gamepad && gamepad.connected && this._hasGamepadInput(gamepad)) {
+                return gamepad;
+            }
+        }
+        return null;
+    },
+
     _activateGamepad(gamepad, canvas = this._gamepadCanvas, activateInput = false) {
         if (!gamepad || !gamepad.connected) return false;
         if (this._gamepadIndex !== null && this._gamepadIndex !== gamepad.index) return false;
@@ -788,7 +938,7 @@ const Input = {
         for (const gamepad of gamepads) {
             if (requireInput && !this._hasGamepadInput(gamepad)) continue;
 
-            if (this._activateGamepad(gamepad, canvas, activateInput || requireInput)) {
+            if (this._activateGamepad(gamepad, canvas, activateInput)) {
                 console.log(`[INPUT] Gamepad detected: "${gamepad.id}" (index ${gamepad.index})`);
                 return true;
             }
@@ -835,7 +985,7 @@ const Input = {
 
         const dz = this._gamepadDeadzone;
 
-        // Radial deadzone helper — returns { x, y, mag } all in 0-1 range
+        // Radial deadzone helper - returns { x, y, mag } all in 0-1 range
         const applyDeadzone = (rawX, rawY) => {
             const mag = Math.sqrt(rawX * rawX + rawY * rawY);
             if (mag < dz) return { x: 0, y: 0, mag: 0 };
@@ -964,6 +1114,25 @@ const Input = {
 
 
     // Initialize touch control UI elements
+    getSafeAreaInsets() {
+        if (typeof document === 'undefined') {
+            return { top: 0, right: 0, bottom: 0, left: 0 };
+        }
+        if (!this._safeAreaProbe) {
+            const probe = document.createElement('div');
+            probe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);';
+            document.body.appendChild(probe);
+            this._safeAreaProbe = probe;
+        }
+        const style = getComputedStyle(this._safeAreaProbe);
+        return {
+            top: parseFloat(style.paddingTop) || 0,
+            right: parseFloat(style.paddingRight) || 0,
+            bottom: parseFloat(style.paddingBottom) || 0,
+            left: parseFloat(style.paddingLeft) || 0
+        };
+    },
+
     initTouchControls(canvas) {
         this._hadOnScreenTouchControls = true;
         this._touchControlsHiddenForGamepad = false;
@@ -1003,6 +1172,18 @@ const Input = {
         // Check if mobile
         const isMobile = this.isMobileUiMode();
         
+        // Offset controls away from notches/home indicators on mobile
+        let safeAreaOffsetY = 0;
+        let safeAreaOffsetX = 0;
+        if (isMobile && typeof canvas.getBoundingClientRect === 'function') {
+            const displayRect = canvas.getBoundingClientRect();
+            const scaleX = displayRect.width > 0 ? width / displayRect.width : 1;
+            const scaleY = displayRect.height > 0 ? height / displayRect.height : 1;
+            const safe = this.getSafeAreaInsets();
+            safeAreaOffsetY = safe.bottom * scaleY;
+            safeAreaOffsetX = safe.left * scaleX;
+        }
+        
         // Note: Controls are rendered in screen space (canvas coordinates), not world space
         // Zoom affects world view, not screen space, so controls don't need zoom adjustment
 
@@ -1024,14 +1205,14 @@ const Input = {
         // Use a smaller fixed offset from bottom - prioritize percentage over safe margin
         // This ensures controls are positioned lower on the screen
         const mobileBottomOffset = Math.max(height * 0.20, 100); // At least 20% from bottom, minimum 100px
-        const rightY = isMobile
+        const rightY = (isMobile
             ? height - mobileBottomOffset // Mobile: fixed offset from bottom
-            : height - Math.max(140, height * 0.18); // Desktop: ~18% from bottom
+            : height - Math.max(140, height * 0.18)) - safeAreaOffsetY; // Desktop: ~18% from bottom
         
         // Debug: Log control positioning to verify changes
         if (isMobile) {
             const percentFromBottom = ((height - rightY) / height * 100).toFixed(1);
-            console.log(`[TOUCH CONTROLS] Mobile positioning: height=${height}, rightY=${rightY.toFixed(0)}, ${percentFromBottom}% from bottom, mobileBottomOffset=${mobileBottomOffset.toFixed(0)}`);
+            console.log(`[TOUCH CONTROLS] Mobile positioning: height=${height}, rightY=${rightY.toFixed(0)}, ${percentFromBottom}% from bottom, mobileBottomOffset=${mobileBottomOffset.toFixed(0)}, safeAreaOffsetY=${safeAreaOffsetY.toFixed(0)}`);
         }
 
         // Basic attack joystick (CENTRAL - primary action, main right thumb position)
@@ -1041,7 +1222,7 @@ const Input = {
 
         // LEFT SIDE - Movement joystick (left thumb zone)
         // Position: Aligned with center of right cluster (centerY) for consistent thumb height
-        const leftX = Math.max(100, width * 0.08); // ~8% from left edge, min 100px
+        const leftX = Math.max(100, width * 0.08) + safeAreaOffsetX; // ~8% from left edge, min 100px
         // On mobile, align with right cluster center; on desktop, use original positioning
         const leftY = isMobile
             ? centerY // Mobile: same height as right cluster center
@@ -1126,7 +1307,11 @@ const Input = {
     // Handle touch start
     handleTouchStart(e, canvas) {
         if (!this.isTouchMode()) return;
-        if (this.isGamepadMode() && !this._activateNonGamepadInput('touch', canvas)) return;
+        if (!this.isGamepadMode()) {
+            this._activateNonGamepadInput('touch', canvas);
+        } else if (!this._activateNonGamepadInput('touch', canvas)) {
+            return;
+        }
 
         // Check if event was already handled by UI (pause button, interaction button, etc.)
         // UI handlers will call stopPropagation if they handle the touch
@@ -1621,10 +1806,16 @@ const Input = {
     // Update touch controls (call each frame)
     update(deltaTime) {
         if (this._gamepadIndex === null || !this.isGamepadMode()) {
-            this._scanConnectedGamepads(this._gamepadCanvas, {
-                requireInput: true,
-                activateInput: true
-            });
+            const gamepad = this._findGamepadWithInput();
+            if (gamepad) {
+                this._gamepadActivationFrames++;
+                if (this._gamepadActivationFrames >= this._gamepadActivationFramesRequired) {
+                    this._activateGamepad(gamepad, this._gamepadCanvas, true);
+                    this._gamepadActivationFrames = 0;
+                }
+            } else {
+                this._gamepadActivationFrames = 0;
+            }
         }
 
         if (!this.isTouchMode()) return;
@@ -1635,7 +1826,7 @@ const Input = {
             this._updateGamepad();
         }
 
-        // Update joystick snap-back animations (skip for gamepad — we set values directly)
+        // Update joystick snap-back animations (skip for gamepad - we set values directly)
         if (!this.isGamepadMode()) {
             for (const joystick of Object.values(this.touchJoysticks)) {
                 if (joystick) {
@@ -1742,6 +1933,7 @@ const Input = {
             return false;
         } else {
             // Keyboard/mouse
+            if (!this._hasWindowFocus()) return false;
             if (ability === 'basicAttack') return this.mouseLeft;
             if (ability === 'heavyAttack') return this.mouseRight;
             if (ability === 'specialAbility') return this.getKeyState(' ');
@@ -1763,6 +1955,7 @@ const Input = {
             return false;
         } else {
             // Keyboard/mouse - need to track previous state (handled in player.js)
+            if (!this._hasWindowFocus()) return false;
             if (ability === 'basicAttack') return this.mouseLeft;
             if (ability === 'heavyAttack') return this.mouseRight;
             if (ability === 'specialAbility') return this.getKeyState(' ');
@@ -1846,13 +2039,19 @@ const Input = {
         }
     },
 
+    _hasWindowFocus() {
+        return typeof document === 'undefined' || document.hasFocus();
+    },
+
     // Check if a key is pressed
     isKeyPressed(key) {
+        if (!this._hasWindowFocus()) return false;
         return this.keys[key.toLowerCase()] === true;
     },
 
     // Get key state
     getKeyState(key) {
+        if (!this._hasWindowFocus()) return false;
         return this.keys[key.toLowerCase()] || false;
     },
 
@@ -2071,6 +2270,10 @@ const Input = {
 
 if (typeof window !== 'undefined') {
     window.Input = Input;
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { Input };
 }
 
 

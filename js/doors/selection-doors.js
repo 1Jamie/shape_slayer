@@ -25,12 +25,29 @@
 		};
 	}
 
+	function getSafePoint(x, y, radius) {
+		if (typeof currentRoom === 'undefined' || !currentRoom || !currentRoom.layout || typeof RoomLayoutGenerator === 'undefined') {
+			return { x, y };
+		}
+		if (RoomLayoutGenerator.isPointWalkable(currentRoom.layout, x, y, radius || 35)) {
+			return { x, y };
+		}
+		const point = RoomLayoutGenerator.findSafeSpawnPoint(currentRoom.layout, {
+			radius: radius || 35,
+			margin: 120,
+			minDistanceFrom: [{ x: currentRoom.layout.spawnZone.x, y: currentRoom.layout.spawnZone.y, distance: 160 }],
+			maxAttempts: 120
+		});
+		return point || { x: currentRoom.width / 2, y: currentRoom.height / 2 };
+	}
+
 	// Spawn reward when room is cleared
 	window.spawnRoomReward = function spawnRoomReward() {
 		const roomWidth = (currentRoom && currentRoom.width) ? currentRoom.width : 2400;
 		const roomHeight = (currentRoom && currentRoom.height) ? currentRoom.height : 1350;
-		const centerX = roomWidth / 2;
-		const centerY = roomHeight / 2 - 200; // Move reward up 200px to separate from door selections
+		const rewardPoint = getSafePoint(roomWidth / 2, roomHeight / 2 - 200, 35); // Move reward up to separate from door selections
+		const centerX = rewardPoint.x;
+		const centerY = rewardPoint.y;
 
 		if (window.isFirstRoom) {
 			// Room 1: Generate a random reward using CardPacks.generateRoomClearReward (only in card mode)
@@ -97,10 +114,11 @@
 		const packY = roomHeight / 2 + 100; // Below center (where reward was)
 
 		options.forEach((opt, index) => {
+			const packPoint = getSafePoint(startX + (index * packSpacing), packY, 60);
 			const pack = {
 				id: `pack_${Date.now()}_${index}`,
-				x: startX + (index * packSpacing),
-				y: packY,
+				x: packPoint.x,
+				y: packPoint.y,
 				width: 140,
 				height: 180,
 				option: opt,

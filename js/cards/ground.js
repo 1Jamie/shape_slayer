@@ -16,9 +16,25 @@ window.CardGround = {
 	selection: { index: 0, list: [] },
 	dropAt(x, y, card) {
 		if (!card) return;
+		let dropX = x;
+		let dropY = y;
+		if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.layout && typeof RoomLayoutGenerator !== 'undefined' &&
+			!RoomLayoutGenerator.isPointWalkable(currentRoom.layout, dropX, dropY, 25)) {
+			const safePoint = RoomLayoutGenerator.findSafeSpawnPoint(currentRoom.layout, {
+				radius: 25,
+				margin: 80,
+				minDistanceFrom: [{ x: currentRoom.layout.spawnZone.x, y: currentRoom.layout.spawnZone.y, distance: 160 }],
+				maxAttempts: 100
+			});
+			if (safePoint) {
+				dropX = safePoint.x;
+				dropY = safePoint.y;
+			}
+		}
 		const item = {
 			id: 'card_' + Date.now() + '_' + Math.floor(Math.random() * 1e6),
-			x, y,
+			x: dropX,
+			y: dropY,
 			size: 20,
 			card
 		};

@@ -106,6 +106,62 @@
 	function init() {
 		create();
 		window.showToast = show;
+		window.showConfirm = function confirmDialog(message) {
+			return new Promise((resolve) => {
+				const root = window.UIRoot && window.UIRoot.ensure ? window.UIRoot.ensure() : document.body;
+				const overlay = document.createElement('div');
+				overlay.className = 'ui-layer ui-layer--modal';
+				overlay.style.pointerEvents = 'auto';
+				overlay.style.zIndex = '10001';
+
+				const panel = document.createElement('div');
+				panel.className = 'modal';
+				panel.style.maxWidth = 'min(420px, 92vw)';
+				panel.style.padding = '20px';
+				panel.style.textAlign = 'center';
+
+				const text = document.createElement('p');
+				text.style.marginBottom = '18px';
+				text.style.lineHeight = '1.4';
+				text.textContent = message;
+
+				const actions = document.createElement('div');
+				actions.style.display = 'flex';
+				actions.style.gap = '10px';
+				actions.style.justifyContent = 'center';
+
+				const cancelBtn = document.createElement('button');
+				cancelBtn.className = 'btn';
+				cancelBtn.textContent = 'Cancel';
+
+				const confirmBtn = document.createElement('button');
+				confirmBtn.className = 'btn';
+				confirmBtn.textContent = 'Confirm';
+				confirmBtn.style.background = 'rgba(200, 50, 50, 0.9)';
+
+				const cleanup = (result) => {
+					overlay.remove();
+					resolve(result);
+				};
+
+				cancelBtn.addEventListener('click', () => cleanup(false));
+				confirmBtn.addEventListener('click', () => cleanup(true));
+				overlay.addEventListener('keydown', (e) => {
+					if (e.key === 'Escape') {
+						e.preventDefault();
+						cleanup(false);
+					}
+				});
+
+				actions.appendChild(cancelBtn);
+				actions.appendChild(confirmBtn);
+				panel.appendChild(text);
+				panel.appendChild(actions);
+				overlay.appendChild(panel);
+				root.appendChild(overlay);
+				confirmBtn.focus();
+			});
+		};
 	}
 
 	if (document.readyState === 'loading') {

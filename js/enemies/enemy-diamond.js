@@ -49,32 +49,13 @@ class DiamondEnemy extends EnemyBase {
     constructor(x, y, inheritedTarget = null) {
         super(x, y, inheritedTarget);
 
-        // Get current room number for scaling
-        const roomNumber = typeof Game !== 'undefined' ? (Game.roomNumber || 1) : 1;
-
-        // Calculate speed multiplier based on room progression
-        // Base: +5% (1.05)
-        // After room 15: +10% more (total 1.15)
-        // After room 20: +5% more (total 1.20)
-        let speedMultiplier = 1.05; // Base 5% increase
-        if (roomNumber > 15) {
-            speedMultiplier = 1.15; // 15% total after room 15
-        }
-        if (roomNumber > 20) {
-            speedMultiplier = 1.20; // 20% total after room 20
-        }
-
-        // Calculate attack range multiplier (only after room 20)
-        const attackRangeMultiplier = roomNumber > 20 ? 1.10 : 1.0;
-
-        // Stats (from config)
         this.size = DIAMOND_CONFIG.size;
         this.maxHp = DIAMOND_CONFIG.maxHp;
         this.hp = DIAMOND_CONFIG.maxHp;
         this.damage = DIAMOND_CONFIG.damage;
         this.damageScalingMultiplier = DIAMOND_CONFIG.damageScalingMultiplier;
-        this.moveSpeed = DIAMOND_CONFIG.moveSpeed * speedMultiplier;
-        this.baseMoveSpeed = DIAMOND_CONFIG.moveSpeed * speedMultiplier; // Store for stun system
+        this.moveSpeed = DIAMOND_CONFIG.moveSpeed;
+        this.baseMoveSpeed = DIAMOND_CONFIG.moveSpeed;
 
         // Properties
         this.color = '#00ffff'; // Cyan
@@ -88,10 +69,10 @@ class DiamondEnemy extends EnemyBase {
         this.attackCooldownTime = DIAMOND_CONFIG.attackCooldown;
         this.telegraphDuration = DIAMOND_CONFIG.telegraphDuration;
         // Increase dash duration proportionally with attack range to ensure dash can reach from increased range
-        this.dashDuration = DIAMOND_CONFIG.dashDuration * attackRangeMultiplier;
+        this.dashDuration = DIAMOND_CONFIG.dashDuration;
         this.telegraphElapsed = 0;
         this.dashElapsed = 0;
-        this.attackRange = DIAMOND_CONFIG.attackRange * attackRangeMultiplier;
+        this.attackRange = DIAMOND_CONFIG.attackRange;
         this.dashSpeed = DIAMOND_CONFIG.dashSpeed;
         this.circleAngle = 0; // Angle for circling movement
         this.weaveTimer = Math.random() * Math.PI * 2; // Random starting phase for weaving
@@ -260,11 +241,15 @@ class DiamondEnemy extends EnemyBase {
                         this.lockedDashDirX = this.lockedDashDirX || 1;
                         this.lockedDashDirY = this.lockedDashDirY || 0;
                     }
-                    this.state = 'dash';
-                    this.dashElapsed = 0;
-                    this.telegraphElapsed = 0;
-                    this.dashHasHit = false;
-                    this.attackBranch = 'dash';
+                    if (this.isDashPathClear(targetX, targetY)) {
+                        this.state = 'dash';
+                        this.dashElapsed = 0;
+                        this.telegraphElapsed = 0;
+                        this.dashHasHit = false;
+                        this.attackBranch = 'dash';
+                    } else {
+                        this.repositionForBlockedAttack(targetX, targetY, deltaTime, dodgeSpeedMultiplier);
+                    }
                 } else {
                     const branch = this.selectDashBranch(targetPlayer, distance);
                     this.attackBranch = branch;
@@ -282,6 +267,11 @@ class DiamondEnemy extends EnemyBase {
 
                     if (branch === 'backstab' && targetPlayer) {
                         this.prepareBackstabAngle(targetPlayer);
+                    }
+
+                    if (!this.isCurrentDashPathClear(targetPlayer, targetX, targetY)) {
+                        this.repositionForBlockedAttack(targetX, targetY, deltaTime, dodgeSpeedMultiplier);
+                        return;
                     }
 
                     const telegraphProfile = branch === 'feint'
@@ -330,9 +320,10 @@ class DiamondEnemy extends EnemyBase {
                     this.backstabAngle = null; // Clear after use
                 }
 
-                // Calculate desired orbit position
-                const desiredX = targetX + Math.cos(angle) * orbitDistance;
-                const desiredY = targetY + Math.sin(angle) * orbitDistance;
+                // Calculate desired orbit position, choosing an alternate angle if scenery blocks it.
+                const orbitPoint = this.findReachableOrbitPoint(targetX, targetY, angle, orbitDistance);
+                const desiredX = orbitPoint.x;
+                const desiredY = orbitPoint.y;
 
                 // Move toward the orbit position
                 const toOrbitX = desiredX - this.x;
@@ -423,6 +414,12 @@ class DiamondEnemy extends EnemyBase {
 
             if (this.telegraphElapsed >= requiredDuration) {
                 if (this.activeTelegraph) this.endTelegraph();
+
+                if (!this.isCurrentDashPathClear(targetPlayer, targetX, targetY)) {
+                    this.pendingShot = null;
+                    this.repositionForBlockedAttack(targetX, targetY, deltaTime, dodgeSpeedMultiplier);
+                    return;
+                }
 
                 if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
                     AudioManager.sounds.enemyDash();
@@ -565,8 +562,16 @@ class DiamondEnemy extends EnemyBase {
                 }
             }
 
-            this.x = newX;
-            this.y = newY;
+            const moved = this.tryMoveBy(newX - this.x, newY - this.y);
+            if (!moved) {
+                this.state = 'cooldown';
+                this.attackCooldown = this.attackCooldownTime;
+                this.telegraphElapsed = 0;
+                this.dashElapsed = this.dashDuration;
+                this.enterRecoveryWindow(this.attackCooldownTime * 0.45, 'wallImpact', {
+                    modifier: 1.15
+                });
+            }
 
             // Update rotation to face dash direction
             this.rotation = Math.atan2(dashDirY, dashDirX);
@@ -921,6 +926,70 @@ class DiamondEnemy extends EnemyBase {
         if ((roll -= feintWeight) <= 0) return 'feint';
         if ((roll -= backstabWeight) <= 0) return 'backstab';
         return 'dash';
+    }
+
+    isDashPathClear(targetX, targetY) {
+        if (typeof currentRoom === 'undefined' || !currentRoom || !currentRoom.layout || typeof RoomLayoutGenerator === 'undefined') {
+            return true;
+        }
+        return RoomLayoutGenerator.isProjectilePathClear(
+            currentRoom.layout,
+            { x: this.x, y: this.y },
+            { x: targetX, y: targetY },
+            this.size || 20
+        );
+    }
+
+    isCurrentDashPathClear(targetPlayer, fallbackX, fallbackY) {
+        if (this.attackBranch === 'feint') return true;
+        if (this.attackBranch === 'backstab' && targetPlayer && targetPlayer.rotation !== undefined) {
+            const behindAngle = targetPlayer.rotation + Math.PI;
+            const offsetRadius = Math.min(140, Math.max(45, this.attackRange * 0.6));
+            const targetX = targetPlayer.x + Math.cos(behindAngle) * offsetRadius;
+            const targetY = targetPlayer.y + Math.sin(behindAngle) * offsetRadius;
+            return this.isDashPathClear(targetX, targetY);
+        }
+        return this.isDashPathClear(fallbackX, fallbackY);
+    }
+
+    findReachableOrbitPoint(targetX, targetY, preferredAngle, orbitDistance) {
+        if (typeof currentRoom === 'undefined' || !currentRoom || !currentRoom.layout || typeof RoomLayoutGenerator === 'undefined') {
+            return {
+                x: targetX + Math.cos(preferredAngle) * orbitDistance,
+                y: targetY + Math.sin(preferredAngle) * orbitDistance
+            };
+        }
+
+        const offsets = [0, Math.PI / 8, -Math.PI / 8, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2, Math.PI * 0.75, -Math.PI * 0.75, Math.PI];
+        for (let i = 0; i < offsets.length; i++) {
+            const angle = preferredAngle + offsets[i];
+            const x = targetX + Math.cos(angle) * orbitDistance;
+            const y = targetY + Math.sin(angle) * orbitDistance;
+            if (
+                RoomLayoutGenerator.isPointWalkable(currentRoom.layout, x, y, this.size || 20) &&
+                RoomLayoutGenerator.hasPathBetween(currentRoom.layout, { x: this.x, y: this.y }, { x, y })
+            ) {
+                return { x, y, angle };
+            }
+        }
+
+        return { x: this.x, y: this.y, angle: preferredAngle };
+    }
+
+    repositionForBlockedAttack(targetX, targetY, deltaTime, speedMultiplier = 1) {
+        const reposition = this.getLineOfSightRepositionDirection(targetX, targetY);
+        this.applySmoothedDirectionalMovement(
+            reposition.x,
+            reposition.y,
+            this.moveSpeed * 0.9 * speedMultiplier,
+            deltaTime,
+            0.35,
+            false
+        );
+        this.attackCooldown = Math.max(this.attackCooldown, this.attackCooldownTime * 0.25);
+        this.state = 'circle';
+        this.telegraphElapsed = 0;
+        this.comboDashReady = false;
     }
 
     prepareBackstabAngle(targetPlayer) {

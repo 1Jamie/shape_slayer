@@ -42,6 +42,15 @@ class BossFractalCore extends BossBase {
         this.dashTelegraphTimer = null;
         this.blastTelegraphTimer = null;
         this.burstTelegraphTimer = null;
+        this.plannedDashTarget = null;
+        this.recursiveEchoes = [];
+        this.temporalTrail = [];
+        this.temporalTrailTimer = 0;
+        this.temporalTrailInterval = 0.08;
+        this.temporalTrailMax = 28;
+        this.rewindState = null;
+        this.rewindCooldown = 7.0;
+        this.fragmentStormZoneTimer = 0;
         
         // 4 weak points at concave indentations
         const angleStep = Math.PI * 2 / 8; // 8 sides of octagon
@@ -79,10 +88,19 @@ class BossFractalCore extends BossBase {
         this.fragmentDashTimer += deltaTime;
         this.stateTimer += deltaTime;
         this.fragmentOrbitAngle += deltaTime * 2.2; // Increased by 10% from 2.0
+        this.rewindCooldown = Math.max(0, this.rewindCooldown - deltaTime);
+        this.fragmentStormZoneTimer = Math.max(0, this.fragmentStormZoneTimer - deltaTime);
+        this.recordTemporalTrail(deltaTime);
+        this.updateRecursiveEchoes(deltaTime);
         
         // Update weak point visibility (only when fragments separated)
         this.weakPoints.forEach(wp => wp.visible = this.fragmented);
         
+        if (this.updateTemporalRewind(deltaTime)) {
+            this.keepInBounds();
+            return;
+        }
+
         if (this.phase === 1) {
             this.updatePhase1(deltaTime, player);
         } else if (this.phase === 2) {
@@ -92,7 +110,7 @@ class BossFractalCore extends BossBase {
         }
         
         // Update fragment positions if fragmented
-        if (this.fragmented) {
+        if (this.fragmented && !(this.phase === 3 && this.stateTimer % 3.0 < 1.5)) {
             this.updateFragments(deltaTime);
         }
         
@@ -102,8 +120,9 @@ class BossFractalCore extends BossBase {
             if (this.teleportTimer >= 0.3 && this.teleportIndex < this.teleportPositions.length) {
                 const pos = this.teleportPositions[this.teleportIndex];
                 this.createDamageZone(pos.x, pos.y, 50, 0.8, this.damage * 0.8);
-                this.x = Math.max(50, Math.min(750, pos.x));
-                this.y = Math.max(50, Math.min(550, pos.y));
+                const start = { x: this.x, y: this.y };
+                this.teleportToSafePosition(pos.x, pos.y);
+                this.queueRecursiveEcho(start, { x: this.x, y: this.y }, 1.0 + this.teleportIndex * 0.18, 'chain');
                 this.teleportIndex++;
                 this.teleportTimer = 0;
                 
@@ -134,10 +153,7 @@ class BossFractalCore extends BossBase {
         if (this.state === 'chase') {
             const dx = player.x - this.x;
             const dy = player.y - this.y;
-            if (distance > 0) {
-                this.x += (dx / distance) * this.moveSpeed * deltaTime * 0.5; // Increased from 0.4
-                this.y += (dy / distance) * this.moveSpeed * deltaTime * 0.5;
-            }
+        this.moveTowardPoint(player.x, player.y, 0.5, deltaTime, 0.35);
             
             // Fractal Burst when player too close with telegraph
             if (this.burstCooldown <= 0 && distance < 100) {
@@ -176,6 +192,7 @@ class BossFractalCore extends BossBase {
                     this.telegraphActive = true;
                     this.telegraphTimer = 0;
                     this.telegraphType = 'dash';
+                    this.plannedDashTarget = this.selectFractalNodeTarget(220);
                 }
                 this.dashTelegraphTimer -= deltaTime;
                 if (this.dashTelegraphTimer <= 0) {
@@ -246,6 +263,7 @@ class BossFractalCore extends BossBase {
                 this.telegraphActive = true;
                 this.telegraphTimer = 0;
                 this.telegraphType = 'chain';
+                this.preparePhaseChainRoute();
             }
             this.dashTelegraphTimer -= deltaTime;
             if (this.dashTelegraphTimer <= 0) {
@@ -291,10 +309,7 @@ class BossFractalCore extends BossBase {
         // Chase player
         const dx = player.x - this.x;
         const dy = player.y - this.y;
-        if (distance > 0) {
-            this.x += (dx / distance) * this.moveSpeed * deltaTime * 0.6; // Increased from 0.5
-            this.y += (dy / distance) * this.moveSpeed * deltaTime * 0.6;
-        }
+        this.moveTowardPoint(player.x, player.y, 0.6, deltaTime, 0.35);
         
         // Make fragments dash toward player periodically
         if (this.fragmented && this.fragmentDashTimer >= 1.2) {
@@ -305,15 +320,18 @@ class BossFractalCore extends BossBase {
     
     updatePhase3(deltaTime, player) {
         this.fragmentCount = 8;
+        if (this.rewindCooldown <= 0 && !this.rewindState && this.temporalTrail.length >= 8) {
+            this.startTemporalRewind();
+            this.rewindCooldown = 9.0;
+            return;
+        }
         
         // Chaos mode: constant splitting/reforming
         if (this.stateTimer % 3.0 < 1.5) {
             // Fragment mode
             if (!this.fragmented) {
                 this.fragmented = true;
-            } else {
-                // Super fragment storm (fragments chase player)
-                this.superFragmentStorm(player, deltaTime);
+                this.updateFragments(0);
             }
         } else {
                 // Solid mode
@@ -362,10 +380,7 @@ class BossFractalCore extends BossBase {
         const dx = player.x - this.x;
         const dy = player.y - this.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
-        if (distance > 0) {
-            this.x += (dx / distance) * this.moveSpeed * deltaTime * 0.8; // Increased from 0.7
-            this.y += (dy / distance) * this.moveSpeed * deltaTime * 0.8;
-        }
+        this.moveTowardPoint(player.x, player.y, 0.8, deltaTime, 0.35);
         
         // Fragments actively chase player in Phase 3
         if (this.fragmented) {
@@ -387,10 +402,9 @@ class BossFractalCore extends BossBase {
     
     phaseDash() {
         // Teleport short distance
-        const angle = Math.random() * Math.PI * 2;
-        const distance = 150 + Math.random() * 100;
-        const newX = this.x + Math.cos(angle) * distance;
-        const newY = this.y + Math.sin(angle) * distance;
+        const target = this.plannedDashTarget || this.selectFractalNodeTarget(250);
+        const newX = target.x;
+        const newY = target.y;
         
         // Spawn projectiles at origin
         if (typeof Game !== 'undefined') {
@@ -413,8 +427,10 @@ class BossFractalCore extends BossBase {
         }
         
         // Teleport
-        this.x = Math.max(50, Math.min(750, newX));
-        this.y = Math.max(50, Math.min(550, newY));
+        const start = { x: this.x, y: this.y };
+        this.teleportToSafePosition(newX, newY);
+        this.queueRecursiveEcho(start, { x: this.x, y: this.y }, 1.2, 'dash');
+        this.plannedDashTarget = null;
         
         // Screen shake
         if (typeof Game !== 'undefined') {
@@ -427,15 +443,159 @@ class BossFractalCore extends BossBase {
         this.teleportActive = true;
         this.teleportIndex = 0;
         this.teleportTimer = 0;
+        if (!Array.isArray(this.teleportPositions) || this.teleportPositions.length < 3) {
+            this.preparePhaseChainRoute();
+        }
+    }
+
+    preparePhaseChainRoute() {
+        const nodes = this.getWalkableArenaAnchors('fractalIsland', this.size * 0.45, { x: this.x, y: this.y });
+        if (nodes && nodes.length >= 3) {
+            this.teleportPositions = nodes
+                .slice()
+                .sort((a, b) => Math.hypot(a.x - this.x, a.y - this.y) - Math.hypot(b.x - this.x, b.y - this.y))
+                .slice(0, 5)
+                .sort((a, b) => Math.atan2(a.y - this.y, a.x - this.x) - Math.atan2(b.y - this.y, b.x - this.x))
+                .slice(0, 3)
+                .map(anchor => ({
+                    x: anchor.walkableX !== undefined ? anchor.walkableX : anchor.x,
+                    y: anchor.walkableY !== undefined ? anchor.walkableY : anchor.y
+                }));
+            return;
+        }
         this.teleportPositions = [];
-        
         for (let i = 0; i < 3; i++) {
-            const angle = Math.random() * Math.PI * 2;
-            const distance = 120;
+            const angle = (Math.PI * 2 / 3) * i + this.stateTimer;
+            const distance = 140;
             this.teleportPositions.push({
-                x: Math.max(50, Math.min(750, this.x + Math.cos(angle) * distance)),
-                y: Math.max(50, Math.min(550, this.y + Math.sin(angle) * distance))
+                x: this.x + Math.cos(angle) * distance,
+                y: this.y + Math.sin(angle) * distance
             });
+        }
+    }
+
+    selectFractalNodeTarget(fallbackDistance) {
+        const nodes = this.getWalkableArenaAnchors('fractalIsland', this.size * 0.45, { x: this.x, y: this.y });
+        if (nodes && nodes.length) {
+            const candidates = nodes
+                .slice()
+                .sort((a, b) => Math.abs(Math.hypot(a.x - this.x, a.y - this.y) - fallbackDistance) -
+                    Math.abs(Math.hypot(b.x - this.x, b.y - this.y) - fallbackDistance));
+            return {
+                x: candidates[0].walkableX !== undefined ? candidates[0].walkableX : candidates[0].x,
+                y: candidates[0].walkableY !== undefined ? candidates[0].walkableY : candidates[0].y
+            };
+        }
+        const angle = Math.random() * Math.PI * 2;
+        const distance = fallbackDistance || 180;
+        const target = {
+            x: this.x + Math.cos(angle) * distance,
+            y: this.y + Math.sin(angle) * distance
+        };
+        const safe = this.findSafeBossPosition(target.x, target.y);
+        return { x: safe.x, y: safe.y };
+    }
+
+    recordTemporalTrail(deltaTime) {
+        if (this.rewindState) return;
+        this.temporalTrailTimer += deltaTime;
+        if (this.temporalTrailTimer < this.temporalTrailInterval) return;
+        this.temporalTrailTimer = 0;
+        const last = this.temporalTrail[this.temporalTrail.length - 1];
+        if (last && Math.hypot(last.x - this.x, last.y - this.y) < 8) return;
+        this.temporalTrail.push({ x: this.x, y: this.y });
+        while (this.temporalTrail.length > this.temporalTrailMax) {
+            this.temporalTrail.shift();
+        }
+    }
+
+    startTemporalRewind() {
+        this.rewindState = {
+            points: this.temporalTrail.slice().reverse(),
+            index: 0,
+            phase: 'windup',
+            elapsed: 0,
+            windup: 0.72,
+            timer: 0,
+            stepInterval: 0.045
+        };
+        this.telegraphActive = true;
+        this.telegraphType = 'rewind';
+        this.telegraphTimer = 0;
+        if (typeof createParticleBurst !== 'undefined') {
+            createParticleBurst(this.x, this.y, '#ffffff', 14);
+            createParticleBurst(this.x, this.y, this.color, 18);
+        }
+        if (typeof Game !== 'undefined') {
+            Game.triggerScreenShake(4, 0.25, 'boss');
+        }
+    }
+
+    updateTemporalRewind(deltaTime) {
+        if (!this.rewindState) return false;
+        const state = this.rewindState;
+        state.elapsed += deltaTime;
+        this.telegraphTimer += deltaTime;
+        if (state.phase === 'windup') {
+            if (state.elapsed < state.windup) return true;
+            state.phase = 'active';
+            state.timer = 0;
+            if (typeof Game !== 'undefined') {
+                Game.triggerScreenShake(5, 0.22, 'boss');
+            }
+        }
+        state.timer += deltaTime;
+        while (state.index < state.points.length && state.timer >= state.stepInterval) {
+            const point = state.points[state.index];
+            this.teleportToSafePosition(point.x, point.y);
+            if (state.index % 4 === 0) {
+                this.createDamageZone(point.x, point.y, 38, 0.35, this.damage * 0.45);
+            }
+            state.index++;
+            state.timer -= state.stepInterval;
+        }
+        if (state.index >= state.points.length) {
+            this.rewindState = null;
+            this.telegraphActive = false;
+            this.telegraphType = '';
+            this.temporalTrail = [];
+        }
+        return true;
+    }
+
+    queueRecursiveEcho(start, end, delay, type) {
+        if (this.phase < 3 || !start || !end) return;
+        this.recursiveEchoes.push({
+            start: { x: start.x, y: start.y },
+            end: { x: end.x, y: end.y },
+            delay,
+            elapsed: 0,
+            type: type || 'dash',
+            fired: false
+        });
+        if (this.recursiveEchoes.length > 4) {
+            this.recursiveEchoes.shift();
+        }
+    }
+
+    updateRecursiveEchoes(deltaTime) {
+        this.recursiveEchoes.forEach(echo => {
+            echo.elapsed += deltaTime;
+            if (!echo.fired && echo.elapsed >= echo.delay) {
+                echo.fired = true;
+                this.createEchoDamageLine(echo);
+            }
+        });
+        this.recursiveEchoes = this.recursiveEchoes.filter(echo => echo.elapsed < echo.delay + 0.6);
+    }
+
+    createEchoDamageLine(echo) {
+        const steps = 5;
+        for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
+            const x = echo.start.x + (echo.end.x - echo.start.x) * t;
+            const y = echo.start.y + (echo.end.y - echo.start.y) * t;
+            this.createDamageZone(x, y, 28, 0.45, this.damage * 0.4);
         }
     }
     
@@ -489,6 +649,7 @@ class BossFractalCore extends BossBase {
     superFragmentStorm(player, deltaTime) {
         // Fragments aggressively chase player (more intense in Phase 3)
         if (this.fragments.length > 0) {
+            const emitTrailZones = this.fragmentStormZoneTimer <= 0;
             this.fragments.forEach((frag, i) => {
                 const dx = player.x - frag.x;
                 const dy = player.y - frag.y;
@@ -499,10 +660,14 @@ class BossFractalCore extends BossBase {
                     frag.x += (dx / dist) * chaseSpeed * deltaTime;
                     frag.y += (dy / dist) * chaseSpeed * deltaTime;
                     
-                    // Create collision zone (longer duration for visibility)
-                    this.createDamageZone(frag.x, frag.y, 35, 0.3, this.damage * 0.5); // Increased from 0.1 to 0.3
+                    if (emitTrailZones) {
+                        this.createDamageZone(frag.x, frag.y, 35, 0.34, this.damage * 0.5);
+                    }
                 }
             });
+            if (emitTrailZones) {
+                this.fragmentStormZoneTimer = this.phase === 3 ? 0.14 : 0.18;
+            }
         }
     }
     
@@ -596,6 +761,8 @@ class BossFractalCore extends BossBase {
     
     render(ctx) {
         if (!this.alive) return;
+        this.renderTemporalTrail(ctx);
+        this.renderRecursiveEchoes(ctx);
         
         // Determine color based on telegraph state
         let renderColor = this.color;
@@ -720,13 +887,10 @@ class BossFractalCore extends BossBase {
                 });
             } else {
                 // Show single dash destination (circular area)
-                const angle = Math.random() * Math.PI * 2;
-                const distance = 150 + Math.random() * 100;
-                const targetX = Math.max(50, Math.min(750, this.x + Math.cos(angle) * distance));
-                const targetY = Math.max(50, Math.min(550, this.y + Math.sin(angle) * distance));
+                const target = this.plannedDashTarget || { x: this.x, y: this.y };
                 
                 ctx.beginPath();
-                ctx.arc(targetX, targetY, this.size * 0.8, 0, Math.PI * 2);
+                ctx.arc(target.x, target.y, this.size * 0.8, 0, Math.PI * 2);
                 ctx.stroke();
             }
             ctx.setLineDash([]);
@@ -790,7 +954,88 @@ class BossFractalCore extends BossBase {
             ctx.arc(this.x, this.y, currentRadius * 0.6, 0, Math.PI * 2);
             ctx.stroke();
             ctx.restore();
+        } else if (this.telegraphType === 'rewind') {
+            this.renderTemporalTrail(ctx, true);
         }
+    }
+
+    renderTemporalTrail(ctx, urgent = false) {
+        if (!this.temporalTrail || this.temporalTrail.length < 2) return;
+        ctx.save();
+        const windup = this.rewindState && this.rewindState.phase === 'windup';
+        ctx.strokeStyle = urgent || windup ? '#ffffff' : '#c56bff';
+        ctx.lineWidth = urgent || windup ? 6 : 3;
+        ctx.globalAlpha = urgent || windup ? 0.55 + Math.sin(this.telegraphTimer * 18) * 0.15 : 0.24;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        if (windup) ctx.setLineDash([16, 10]);
+        ctx.beginPath();
+        ctx.moveTo(this.temporalTrail[0].x, this.temporalTrail[0].y);
+        for (let i = 1; i < this.temporalTrail.length; i++) {
+            ctx.lineTo(this.temporalTrail[i].x, this.temporalTrail[i].y);
+        }
+        ctx.stroke();
+        if (windup) ctx.setLineDash([]);
+        ctx.restore();
+    }
+
+    renderRecursiveEchoes(ctx) {
+        if (!this.recursiveEchoes || this.recursiveEchoes.length === 0) return;
+        ctx.save();
+        this.recursiveEchoes.forEach(echo => {
+            const progress = Math.min(1, echo.elapsed / Math.max(0.01, echo.delay));
+            ctx.globalAlpha = echo.fired ? 0.22 : 0.25 + progress * 0.35;
+            ctx.strokeStyle = echo.fired ? '#ff66ff' : '#ffffff';
+            ctx.lineWidth = echo.fired ? 7 : 3;
+            ctx.setLineDash(echo.fired ? [] : [8, 8]);
+            ctx.beginPath();
+            ctx.moveTo(echo.start.x, echo.start.y);
+            ctx.lineTo(echo.end.x, echo.end.y);
+            ctx.stroke();
+        });
+        ctx.setLineDash([]);
+        ctx.restore();
+    }
+
+    serialize() {
+        const baseState = super.serialize();
+        return {
+            ...baseState,
+            fragmented: this.fragmented,
+            fragmentCount: this.fragmentCount,
+            fragments: this.fragments,
+            teleportActive: this.teleportActive,
+            teleportTimer: this.teleportTimer,
+            teleportPositions: this.teleportPositions,
+            teleportIndex: this.teleportIndex,
+            plannedDashTarget: this.plannedDashTarget,
+            recursiveEchoes: this.recursiveEchoes,
+            temporalTrail: this.temporalTrail,
+            rewindState: this.rewindState,
+            rewindCooldown: this.rewindCooldown,
+            telegraphActive: this.telegraphActive,
+            telegraphType: this.telegraphType,
+            telegraphTimer: this.telegraphTimer
+        };
+    }
+
+    applyState(state) {
+        super.applyState(state);
+        if (state.fragmented !== undefined) this.fragmented = state.fragmented;
+        if (state.fragmentCount !== undefined) this.fragmentCount = state.fragmentCount;
+        if (Array.isArray(state.fragments)) this.fragments = state.fragments;
+        if (state.teleportActive !== undefined) this.teleportActive = state.teleportActive;
+        if (state.teleportTimer !== undefined) this.teleportTimer = state.teleportTimer;
+        if (Array.isArray(state.teleportPositions)) this.teleportPositions = state.teleportPositions;
+        if (state.teleportIndex !== undefined) this.teleportIndex = state.teleportIndex;
+        if (state.plannedDashTarget !== undefined) this.plannedDashTarget = state.plannedDashTarget;
+        if (Array.isArray(state.recursiveEchoes)) this.recursiveEchoes = state.recursiveEchoes;
+        if (Array.isArray(state.temporalTrail)) this.temporalTrail = state.temporalTrail;
+        if (state.rewindState !== undefined) this.rewindState = state.rewindState;
+        if (state.rewindCooldown !== undefined) this.rewindCooldown = state.rewindCooldown;
+        if (state.telegraphActive !== undefined) this.telegraphActive = state.telegraphActive;
+        if (state.telegraphType !== undefined) this.telegraphType = state.telegraphType;
+        if (state.telegraphTimer !== undefined) this.telegraphTimer = state.telegraphTimer;
     }
 }
 

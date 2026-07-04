@@ -1,11 +1,27 @@
 // Multiplayer server configuration
 // This file is always loaded (small footprint) so the multiplayer module can access it
 
+function resolveMultiplayerServerUrl() {
+    if (typeof window !== 'undefined') {
+        if (typeof window.MULTIPLAYER_SERVER_URL === 'string' && window.MULTIPLAYER_SERVER_URL.trim()) {
+            return window.MULTIPLAYER_SERVER_URL.trim();
+        }
+
+        const host = window.location.hostname;
+        if (host === 'localhost' || host === '127.0.0.1') {
+            return 'ws://localhost:4000';
+        }
+
+        if (window.location.protocol === 'https:') {
+            return `wss://${host}`;
+        }
+    }
+
+    return 'wss://shape-slayer.gpe.pet';
+}
+
 const MultiplayerConfig = {
-    // CHANGE THIS to point to your multiplayer server
-    // For local testing: 'ws://localhost:4000'
-    // For production: 'wss://yourdomain.com' or 'ws://your-server-ip:4000'
-    SERVER_URL: 'wss://shape-slayer.gpe.pet',
+    SERVER_URL: resolveMultiplayerServerUrl(),
 
     // Connection settings
     RECONNECT_ATTEMPTS: 3,
@@ -41,4 +57,3 @@ const MultiplayerConfig = {
     MAX_EXTRAPOLATION_DISTANCE: 50, // Max pixels to extrapolate from last known position
     POSITION_HISTORY_SIZE: 3 // Number of recent positions to track for velocity calculation
 };
-

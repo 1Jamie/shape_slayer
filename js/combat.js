@@ -8,6 +8,76 @@ function checkCircleCollision(x1, y1, r1, x2, y2, r2) {
     return distance < r1 + r2;
 }
 
+function getEnemyCollisionBodies(enemy) {
+    if (enemy && typeof enemy.getDamageCollisionBodies === 'function') {
+        return enemy.getDamageCollisionBodies();
+    }
+    if (!enemy) return [];
+    return [{ x: enemy.x, y: enemy.y, radius: enemy.size }];
+}
+
+function checkEnemyCircleCollision(attackX, attackY, attackRadius, enemy) {
+    const bodies = getEnemyCollisionBodies(enemy);
+    for (let i = 0; i < bodies.length; i++) {
+        const body = bodies[i];
+        if (checkCircleCollision(attackX, attackY, attackRadius, body.x, body.y, body.radius)) {
+            return { hit: true, hitX: body.x, hitY: body.y, radius: body.radius, part: body.part };
+        }
+    }
+    return { hit: false, hitX: enemy.x, hitY: enemy.y, radius: enemy.size };
+}
+
+function resolveEnemyAttackHit(attackX, attackY, attackRadius, enemy) {
+    const bodyHit = checkEnemyCircleCollision(attackX, attackY, attackRadius, enemy);
+    let hitWeakPoint = false;
+
+    if (enemy.isBoss && typeof enemy.checkWeakPointHit === 'function') {
+        hitWeakPoint = !!enemy.checkWeakPointHit(attackX, attackY, attackRadius);
+    }
+
+    if (!bodyHit.hit && hitWeakPoint && enemy.weakPoints && enemy.weakPoints.length > 0) {
+        const wp = enemy.weakPoints[0];
+        return {
+            hit: true,
+            hitWeakPoint: true,
+            hitX: enemy.x + (wp.offsetX || 0),
+            hitY: enemy.y + (wp.offsetY || 0),
+            radius: wp.hitRadius || wp.radius || 8,
+            part: 'core'
+        };
+    }
+
+    return {
+        hit: bodyHit.hit,
+        hitWeakPoint,
+        hitX: bodyHit.hitX,
+        hitY: bodyHit.hitY,
+        radius: bodyHit.radius,
+        part: bodyHit.part
+    };
+}
+
+function getEnemyBeamHit(enemy, origin, dirX, dirY, beamRange, beamWidth) {
+    const bodies = getEnemyCollisionBodies(enemy);
+    let best = null;
+    for (let i = 0; i < bodies.length; i++) {
+        const body = bodies[i];
+        const dx = body.x - origin.x;
+        const dy = body.y - origin.y;
+        const projection = dx * dirX + dy * dirY;
+        if (projection < 0 || projection > beamRange) continue;
+        const perpX = dx - projection * dirX;
+        const perpY = dy - projection * dirY;
+        const perpDist = Math.sqrt(perpX * perpX + perpY * perpY);
+        if (perpDist <= beamWidth / 2 + body.radius) {
+            if (!best || projection < best.distance) {
+                best = { distance: projection, hitX: body.x, hitY: body.y };
+            }
+        }
+    }
+    return best;
+}
+
 // Resolve positional overlap between an enemy and a player by pushing the enemy out
 function resolveEnemyPlayerOverlap(enemy, player, extraBuffer = 0) {
     if (!enemy || !player) return;
@@ -137,20 +207,217 @@ function calculateDamage(baseDamage, gearMultiplier = 1, defense = 0, critMultip
     return mitigatedDamage * critMultiplier;
 }
 
-// Apply lifesteal healing to player (host/solo only)
-function applyLifesteal(player, damageDealt) {
-    // Only apply on host/solo (not clients)
+// Lifesteal tuning — cleave/multi-hitbox attacks previously procced once per hitbox.
+const LIFESTEAL_CONFIG = {
+    // Flat cap: high lifesteal % must not raise the heal ceiling.
+    baseCapPercentMaxHpPerSec: 0.010,
+    capScalePerLifestealPoint: 0,
+    absoluteCapPercentMaxHpPerSec: 0.012,
+    bossHealMultiplier: 0.30,
+    // Stacked affixes above soft cap lose efficiency (11% gear → ~7.1% effective).
+    statSoftCap: 0.05,
+    excessStatEfficiency: 0.35,
+    sourceMultipliers: {
+        melee: 1.0,
+        hammer: 1.0,
+        hammerHeal: 1.0,
+        shout: 0.50,
+        whirlwind: 0.15,
+        beam: 0.30,
+        chain: 0.40,
+        aoe: 0.25,
+        projectile: 0.85,
+        ability: 0.70,
+        lifeOnCrit: 0.80
+    }
+};
+
+const FORTIFY_CONFIG = {
+    maxShieldPercentMaxHp: 0.10,
+    maxGainPercentMaxHpPerSec: 0.012,
+    bossGainMultiplier: 0.40
+};
+
+function getLifestealEnemyKey(enemy) {
+    if (!enemy) return null;
+    return enemy.enemyId || enemy.id || enemy.bossName || `${Math.round(enemy.x)}:${Math.round(enemy.y)}`;
+}
+
+function getEffectiveLifestealRate(player) {
+    const raw = Math.max(0, player.lifesteal || 0);
+    const softCap = LIFESTEAL_CONFIG.statSoftCap;
+    const excessEff = LIFESTEAL_CONFIG.excessStatEfficiency;
+    if (raw <= softCap) return raw;
+    return softCap + (raw - softCap) * excessEff;
+}
+
+function getLifestealHealCapPerSec(player) {
+    if (!player || !player.maxHp) return 0;
+    const capRate = Math.min(
+        LIFESTEAL_CONFIG.baseCapPercentMaxHpPerSec,
+        LIFESTEAL_CONFIG.absoluteCapPercentMaxHpPerSec
+    );
+    return player.maxHp * capRate;
+}
+
+function getSustainSourceMultiplier(source) {
+    if (!source) return 1;
+    const mult = LIFESTEAL_CONFIG.sourceMultipliers[source];
+    return mult != null ? mult : 1;
+}
+
+function applyBossSustainPenalty(healAmount, enemy, respectBossPenalty) {
+    if (respectBossPenalty !== false && enemy && enemy.isBoss) {
+        return healAmount * LIFESTEAL_CONFIG.bossHealMultiplier;
+    }
+    return healAmount;
+}
+
+function beginLifestealAttackSwing(player) {
+    if (!player) return;
+    player._lifestealSwingId = (player._lifestealSwingId || 0) + 1;
+}
+
+const MELEE_SWING_SUSTAIN_SOURCES = new Set(['melee', 'hammer', 'shout', 'hammerHeal']);
+
+function registerSustainProc(player, options = {}) {
+    const enemy = options.enemy;
+    if (!enemy) return false;
+
+    const enemyKey = getLifestealEnemyKey(enemy);
+    if (!enemyKey) return false;
+
+    let procKey = null;
+    const source = options.source || 'melee';
+
+    if (options.pulseKey != null) {
+        procKey = `pulse:${options.pulseKey}:${enemyKey}`;
+    } else if (options.batchId != null) {
+        procKey = `batch:${options.batchId}:${enemyKey}`;
+    } else if (MELEE_SWING_SUSTAIN_SOURCES.has(source)) {
+        procKey = `swing:${player._lifestealSwingId || 0}:${enemyKey}`;
+    }
+
+    if (!procKey) return false;
+
+    if (!player._sustainProcs) player._sustainProcs = {};
+    if (player._sustainProcs[procKey]) return true;
+    player._sustainProcs[procKey] = true;
+    if (Object.keys(player._sustainProcs).length > 128) {
+        player._sustainProcs = { [procKey]: true };
+    }
+    return false;
+}
+
+function applySustainHeal(player, healAmount, options = {}) {
     const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
-    if (isClient) return;
-    
-    // Check if player has lifesteal
-    if (!player || !player.lifesteal || player.lifesteal <= 0) return;
-    
-    // Calculate heal amount
-    const healAmount = damageDealt * player.lifesteal;
-    
-    // Apply healing (clamped to maxHp)
+    if (isClient) return 0;
+    if (!player || !Number.isFinite(healAmount) || healAmount <= 0) return 0;
+
+    const enemy = options.enemy || null;
+    if (registerSustainProc(player, options)) return 0;
+
+    healAmount = applyBossSustainPenalty(healAmount, enemy, options.respectBossPenalty);
+
+    const now = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+    if (!player._lifestealHealBudget) {
+        player._lifestealHealBudget = { windowStart: now, healed: 0 };
+    }
+    const budget = player._lifestealHealBudget;
+    if (now - budget.windowStart >= 1.0) {
+        budget.windowStart = now;
+        budget.healed = 0;
+    }
+    const remaining = Math.max(0, getLifestealHealCapPerSec(player) - budget.healed);
+    healAmount = Math.min(healAmount, remaining);
+    if (healAmount <= 0) return 0;
+
+    budget.healed += healAmount;
     player.hp = Math.min(player.hp + healAmount, player.maxHp);
+
+    if (options.showHealNumber && typeof createHealNumber !== 'undefined') {
+        createHealNumber(player.x, player.y, healAmount);
+    }
+
+    return healAmount;
+}
+
+function applyLifesteal(player, damageDealt, options = {}) {
+    if (!player || !player.lifesteal || player.lifesteal <= 0) return 0;
+    if (!Number.isFinite(damageDealt) || damageDealt <= 0) return 0;
+
+    const source = options.source || 'melee';
+    let healAmount = damageDealt * getEffectiveLifestealRate(player);
+    healAmount *= getSustainSourceMultiplier(source);
+
+    return applySustainHeal(player, healAmount, {
+        ...options,
+        source,
+        respectBossPenalty: true
+    });
+}
+
+function applyFortifyGain(player, damageDealt, options = {}) {
+    const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+    if (isClient) return 0;
+    if (!player || !player.fortifyPercent || player.fortifyPercent <= 0) return 0;
+    if (!Number.isFinite(damageDealt) || damageDealt <= 0 || !player.maxHp) return 0;
+
+    let gain = damageDealt * player.fortifyPercent;
+    if (options.enemy && options.enemy.isBoss) {
+        gain *= FORTIFY_CONFIG.bossGainMultiplier;
+    }
+
+    const now = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+    if (!player._fortifyGainBudget) {
+        player._fortifyGainBudget = { windowStart: now, gained: 0 };
+    }
+    const budget = player._fortifyGainBudget;
+    if (now - budget.windowStart >= 1.0) {
+        budget.windowStart = now;
+        budget.gained = 0;
+    }
+    const maxGainPerSec = player.maxHp * FORTIFY_CONFIG.maxGainPercentMaxHpPerSec;
+    const remaining = Math.max(0, maxGainPerSec - budget.gained);
+    gain = Math.min(gain, remaining);
+    if (gain <= 0) return 0;
+
+    budget.gained += gain;
+    const maxPool = player.maxHp * FORTIFY_CONFIG.maxShieldPercentMaxHp;
+    player.fortifyShield = Math.min(maxPool, (player.fortifyShield || 0) + gain);
+    player.fortifyShieldDecay = 0.1;
+    return gain;
+}
+
+function applyHammerHeal(player, damageDealt, options = {}) {
+    if (!player || player.playerClass !== 'pentagon') return 0;
+    if (!Number.isFinite(damageDealt) || damageDealt <= 0) return 0;
+    const baseHealPercent = typeof TANK_CONFIG !== 'undefined' ? TANK_CONFIG.hammerHealOnHit : 0.075;
+    const healPercent = baseHealPercent + (player.hammerHealBonus || 0);
+    return applySustainHeal(player, damageDealt * healPercent, {
+        ...options,
+        source: 'hammerHeal',
+        showHealNumber: true
+    });
+}
+
+function applyLifeOnCritHeal(player, damageDealt, lifeOnCritRate, options = {}) {
+    if (!player || !lifeOnCritRate || lifeOnCritRate <= 0) return 0;
+    if (!Number.isFinite(damageDealt) || damageDealt <= 0) return 0;
+    let healAmount = damageDealt * lifeOnCritRate;
+    healAmount *= getSustainSourceMultiplier('lifeOnCrit');
+    return applySustainHeal(player, healAmount, {
+        ...options,
+        source: 'lifeOnCrit',
+        respectBossPenalty: true
+    });
+}
+
+function getMeleeHitboxSustainSource(hitbox) {
+    if (!hitbox) return 'melee';
+    if (hitbox.type === 'hammer') return 'hammer';
+    if (hitbox.type === 'shout') return 'shout';
+    return 'melee';
 }
 
 // Apply legendary effects to an enemy (host/solo only)
@@ -196,13 +463,14 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
         enemies.forEach(enemy => {
             if (!enemy.alive || hitbox.hitEnemies.has(enemy)) return;
             
-            // Check body collision first
-            const bodyCollision = checkCircleCollision(hitbox.x, hitbox.y, hitbox.radius, enemy.x, enemy.y, enemy.size);
+            // Check body collision first (supports multi-part bosses and exposed weak points)
+            const bodyHit = resolveEnemyAttackHit(hitbox.x, hitbox.y, hitbox.radius, enemy);
+            const bodyCollision = bodyHit.hit;
             
             if (bodyCollision) {
                 // Check for weak point hit (for bosses only)
-                let hitWeakPoint = false;
-                if (enemy.isBoss && enemy.checkWeakPointHit) {
+                let hitWeakPoint = bodyHit.hitWeakPoint;
+                if (!hitWeakPoint && enemy.isBoss && enemy.checkWeakPointHit) {
                     const weakPoint = enemy.checkWeakPointHit(hitbox.x, hitbox.y, hitbox.radius);
                     hitWeakPoint = !!weakPoint;
                 }
@@ -383,10 +651,20 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                 }
                 
                 // Calculate actual damage dealt BEFORE applying damage (accounting for weak point multiplier)
-                let damageDealt = hitWeakPoint ? finalDamage * 3 : finalDamage;
+                const weakPointMultiplier = enemy.weakPointDamageMultiplier || 3;
+                let damageDealt = hitWeakPoint ? finalDamage * weakPointMultiplier : finalDamage;
                 // Don't cap by enemy.hp on clients since they don't have authoritative HP
                 if (!isClient) {
                     damageDealt = Math.min(damageDealt, enemy.hp);
+                }
+
+                // Multiplayer clients apply boss hit shake locally (host applies via takeDamage).
+                if (isClient && enemy.isBoss && typeof enemy.triggerBossHitScreenShake === 'function') {
+                    const localId = typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
+                    const attackerId = playerId || localId;
+                    if (!attackerId || attackerId === localId) {
+                        enemy.triggerBossHitScreenShake(damageDealt, { weakPoint: hitWeakPoint });
+                    }
                 }
                 
                 if (!isClient) {
@@ -447,14 +725,11 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                     }
                     
                     // Precision card bonuses: lifeOnCrit healing (Purple/Orange) - applied after damage dealt
-                    if (isCrit && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
+                    if (isCrit && !isClient && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
                         const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
                         const condEffects = CardEffects.getConditionalEffects(handCards);
                         if (condEffects.precision && condEffects.precision.lifeOnCrit && condEffects.precision.lifeOnCrit > 0) {
-                            // Heal on crit based on damage dealt
-                            const healAmount = damageDealt * condEffects.precision.lifeOnCrit;
-                            player.hp = Math.min(player.hp + healAmount, player.maxHp);
-                            // Visual feedback
+                            applyLifeOnCritHeal(player, damageDealt, condEffects.precision.lifeOnCrit, { enemy });
                             if (typeof createParticleBurst !== 'undefined') {
                                 createParticleBurst(player.x, player.y, '#00ff00', 8);
                             }
@@ -519,17 +794,9 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                     const stunDuration = 0.65;
                     enemy.applyStun(stunDuration);
                     
-                    // Tank heal on hit (host/solo only)
+                    // Tank heal on hit (host/solo only) — shares sustain cap with lifesteal
                     if (!isClient && player.playerClass === 'pentagon') {
-                        const baseHealPercent = typeof TANK_CONFIG !== 'undefined' ? TANK_CONFIG.hammerHealOnHit : 0.075;
-                        const healPercent = baseHealPercent + (player.hammerHealBonus || 0); // Apply affix bonus
-                        const healAmount = damageDealt * healPercent;
-                        player.hp = Math.min(player.hp + healAmount, player.maxHp);
-                        
-                        // Visual feedback for heal
-                        if (typeof createHealNumber !== 'undefined') {
-                            createHealNumber(player.x, player.y, healAmount);
-                        }
+                        applyHammerHeal(player, damageDealt, { enemy });
                     }
                 }
                 
@@ -575,17 +842,17 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                     }
                 }
                 
-                // Apply lifesteal if player has it (host/solo only for consistency)
-                if (!isClient && player.lifesteal && player.lifesteal > 0) {
-                    const healAmount = damageDealt * player.lifesteal;
-                    player.hp = Math.min(player.hp + healAmount, player.maxHp);
+                // Apply lifesteal once per enemy per melee swing (host/solo only)
+                if (!isClient) {
+                    applyLifesteal(player, damageDealt, {
+                        enemy,
+                        source: getMeleeHitboxSustainSource(hitbox)
+                    });
                 }
                 
-                // Fortify: Convert damage to shield (host/solo only)
-                if (!isClient && player.fortifyPercent && player.fortifyPercent > 0) {
-                    const shieldGain = damageDealt * player.fortifyPercent;
-                    player.fortifyShield = (player.fortifyShield || 0) + shieldGain;
-                    player.fortifyShieldDecay = 0.1; // Reset decay timer
+                // Fortify: Convert damage to shield (host/solo only, capped)
+                if (!isClient) {
+                    applyFortifyGain(player, damageDealt, { enemy });
                 }
                 
                 // Card Momentum: Gain stack on kill (host/solo only)
@@ -681,9 +948,9 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                 // Create damage number (host only - clients receive via damage_number event)
                 if (!isClient && typeof createDamageNumber !== 'undefined') {
                     const isCrit = hitbox.displayCrit || false;
-                    // Position damage number at weak point if hit, otherwise at enemy center
-                    let damageX = enemy.x;
-                    let damageY = enemy.y;
+                    // Position damage number at weak point if hit, otherwise at the struck body
+                    let damageX = bodyHit.hitX;
+                    let damageY = bodyHit.hitY;
                     if (hitWeakPoint && enemy.weakPoints && enemy.weakPoints.length > 0) {
                         // Use first hit weak point position
                         damageX = enemy.x + enemy.weakPoints[0].offsetX;
@@ -799,6 +1066,13 @@ function checkEnemiesVsPlayer(player, enemies) {
                                                          p.x, p.y, playerRadius);
             
             if (hasProjectedHit) {
+                const contactDamageMultiplier = typeof enemy.getContactDamageMultiplier === 'function'
+                    ? enemy.getContactDamageMultiplier(p)
+                    : (enemy.contactDamageMultiplier !== undefined ? enemy.contactDamageMultiplier : 1);
+                if (contactDamageMultiplier <= 0) {
+                    return;
+                }
+
                 // Check if player is dodging/invulnerable - if so, count as successful dodge
                 if (p.invulnerable || p.isDodging) {
                     // Track successful dodge (attack would have hit, but player dodged it)
@@ -844,12 +1118,12 @@ function checkEnemiesVsPlayer(player, enemies) {
                     // Distinguish between local and remote players
                     if (id === localPlayerId) {
                         // Local player: call takeDamage directly (pass enemy for thorns)
-                        p.takeDamage(enemy.damage, enemy);
+                        p.takeDamage(enemy.damage * contactDamageMultiplier, enemy);
                     } else {
                         // Remote player: use damageRemotePlayer to track on host
                         // HP syncs to clients via game_state, not individual damage events
                         if (typeof Game !== 'undefined' && Game.damageRemotePlayer) {
-                            Game.damageRemotePlayer(id, enemy.damage);
+                            Game.damageRemotePlayer(id, enemy.damage * contactDamageMultiplier);
                         }
                     }
                     
@@ -1114,7 +1388,7 @@ function chainLightningAttack(player, sourceEnemy, effect, damage) {
             
             // Apply lifesteal
             if (player) {
-                applyLifesteal(player, damageDealt);
+                applyLifesteal(player, damageDealt, { enemy: nearestEnemy, source: 'chain' });
             }
             
             // Create visual arc
@@ -1169,10 +1443,12 @@ function chainLightningCard(player, sourceEnemy, chainCount, damage, enemies, ra
             nearestEnemy.takeDamage(chainDamage, attackerId);
             hitEnemies.add(nearestEnemy);
             
-            // Lifesteal on chain if available
+            // Lifesteal on chain if available (uses player's lifesteal stat via card bonus)
             if (!isClient && lifeOnChain && lifeOnChain > 0 && player) {
-                const healAmount = damageDealt * lifeOnChain;
-                player.hp = Math.min(player.hp + healAmount, player.maxHp);
+                const savedLifesteal = player.lifesteal;
+                player.lifesteal = lifeOnChain;
+                applyLifesteal(player, damageDealt, { enemy: nearestEnemy, source: 'chain' });
+                player.lifesteal = savedLifesteal;
             }
             
             // Track stats (host/solo only)
@@ -1259,7 +1535,7 @@ function chainLightningAffix(player, sourceEnemy, chainCount, damage, enemies) {
             
             // Apply lifesteal
             if (player) {
-                applyLifesteal(player, damageDealt);
+                applyLifesteal(player, damageDealt, { enemy: nearestEnemy, source: 'chain' });
             }
             
             // Create visual arc
@@ -1323,7 +1599,7 @@ function createExplosion(x, y, radius, damage, player, enemies) {
             
             // Apply lifesteal
             if (player) {
-                applyLifesteal(player, damageDealt);
+                applyLifesteal(player, damageDealt, { enemy, source: 'aoe' });
             }
             
             // Damage number

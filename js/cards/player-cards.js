@@ -238,11 +238,11 @@ window.PLAYER_CARDS = [
 		nonStacking: false,
 		maxCopies: 4,
 		qualityBands: {
-			white: { value: 0.03, description: '3% lifesteal', flavorText: 'Sustaining flow' },
-			green: { value: 0.05, description: '5% lifesteal', flavorText: 'Vital drain' },
-			blue: { value: 0.07, description: '7% lifesteal', flavorText: 'Life force' },
-			purple: { value: 0.09, description: '9% lifesteal; heal burst at 100% HP (10%)', flavorText: 'Overflowing vitality', bonus: { overhealBurst: 0.10 } },
-			orange: { value: 0.12, description: '12% lifesteal; burst 20% and damage boost at full', flavorText: 'Immortal geometry.', bonus: { overhealBurst: 0.20, damageBoostOnFull: 0.10, duration: 5 } }
+			white: { value: 0.02, description: '2% lifesteal', flavorText: 'Sustaining flow' },
+			green: { value: 0.035, description: '3.5% lifesteal', flavorText: 'Vital drain' },
+			blue: { value: 0.05, description: '5% lifesteal', flavorText: 'Life force' },
+			purple: { value: 0.065, description: '6.5% lifesteal; heal burst at 100% HP (10%)', flavorText: 'Overflowing vitality', bonus: { overhealBurst: 0.10 } },
+			orange: { value: 0.085, description: '8.5% lifesteal; burst 20% and damage boost at full', flavorText: 'Immortal geometry.', bonus: { overhealBurst: 0.20, damageBoostOnFull: 0.10, duration: 5 } }
 		}
 	},
 	// Fortify Aura

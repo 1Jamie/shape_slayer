@@ -2,7 +2,7 @@
 // Update this file when releasing new versions
 
 const GameVersion = {
-  VERSION: '0.6.1',
+  VERSION: '0.7.0',
 
   UPDATE_MESSAGES: {
     '0.2.1': 'Initial early access release! Please report any bugs you find at https://github.com/1jamie/shape_slayer/issues',
@@ -326,13 +326,13 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 
 **📈 Expected Result**
 • Room 23 damage numbers now look like "strong wizard" instead of "orbital laser".
-• TTK curve from 0.5.1 stays intact—just without players melting the universe.
+• TTK curve from 0.5.1 stays intact-just without players melting the universe.
 • Can always easily find the door now.
 • Legendary gear now stays in its own lane and does have a double identity crisis.
 • Dashes feel elastic and dramatic without needing a goth teen sponsorship from hot topic.
 • Swarm King's final phase is now a dramatic duel instead of a networking stress test disguised as a boss fight; your router can keep its dignity. 
 
-*TL;DR:* Damage numbers are back on a leash. You can still break the game—just not by accident. You're welcome.*
+*TL;DR:* Damage numbers are back on a leash. You can still break the game-just not by accident. You're welcome.*
 `,
     '0.5.3': `**TELEM UPDATE** (11/11/2025)
 *"Well you see... I found 'The boss feels spicy' doesnt really help me with balancing"*
@@ -348,11 +348,11 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
     '0.5.3.1': `**🔴 CIRCLE OF TRUST ISSUES - AND SOME MUSIC!** (11/12/2025)
 *"Remember those red circles you mercy-farmed in Room 1? They compared notes, formed a study group, and now you're the pop quiz."*
 
-• **Honor Society Enrollment (All Enemies):** IQ got scaled harder than exponential growth. Feints, combo detection, surround formations, wall checks, pattern recognition—all unlocked earlier. Room 4 stopped being recess and turned into Euclid’s nightmare.
+• **Honor Society Enrollment (All Enemies):** IQ got scaled harder than exponential growth. Feints, combo detection, surround formations, wall checks, pattern recognition-all unlocked earlier. Room 4 stopped being recess and turned into Euclid’s nightmare.
 • **Predictive Brainstem (All Melee):** Every triangle and circle tracks your dodge cadence like it’s a metronome, solves for your future vector, and only retreats when the inequality says “certain death.” Translation: fewer whiffs, more proofs, basically Spock with a spreadsheet.
 • **Threat Board & Timing Tutors (Roster-Wide):** Each enemy now keeps a threat ledger pettier than your algebra teacher. Low HP, cooldowns burning, button mashing? Congratulations, you just became priority variable x.
 • **Simultaneous Swarming (Circle Squad):** Up to five circles now lunge in phase, wave attacks externalize across whoever’s ready, and idle units rotate in like we’re running polar coordinates on your face. Your single-file duels were deprecated.
-• **Orbital Offense (Circles):** Predictive positioning, lateral spread, flanking bias, wall awareness—the red bois stole your playbook, highlighted the margins, and drew diagrams.
+• **Orbital Offense (Circles):** Predictive positioning, lateral spread, flanking bias, wall awareness-the red bois stole your playbook, highlighted the margins, and drew diagrams.
 • **Sharpshooter Shapes (Triangle & Octagon):** Ranged enemies try to predict your velocity, iterates through the intercept math to do said predcitive aiming, and upgrade accuracy from 30° cones to sniper-grade radians, this way they can hit you more consistently and actually require awareness. Keep circle-strafing; they already integrated the curve.
 • **Diamond Dash Etiquette (Diamond):** Telegraph vectors lock on immediately, follow-ups take a dramatic quarter-second pause, dash paths stay linear. If you still catch a rhombus to the face, consider reading the signage.
 • **Visual Aid, Now With Shade (All Enemies):** Telegraphs pulse harder, lunge trails linger longer, recovery states glow neon. You demanded readability; they added captions that say “incoming pain.”
@@ -360,14 +360,14 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 **🔥 Geometry With Feelings (AI Overhaul):**
 • **Telegraph Overlord:** The entire warning system got ripped out, given its own command center, and wired back in with synced lights, timers, audio hooks, and “please stop looping that alarm” safeguards. Every shape now speaks the same telegraph language, and the queue keeps backup warnings ready like a Stage Manager from Broadway.
 • **Recovery PTA:** Every swing now schedules a recovery window with vulnerability tags, so you know exactly when to go full anime protagonist. These windows replicate to clients, because lag is already scary without surprise invulnerability.
-• **Motion Blur Without the Blur:** Movement is lerped, eased, and smoothed so enemies glide like smug Roombas instead of jittering like dial-up modems. We juiced the smoothing factors so the shapes still sprint like they stole your lunch money—just prettier.
+• **Motion Blur Without the Blur:** Movement is lerped, eased, and smoothed so enemies glide like smug Roombas instead of jittering like dial-up modems. We juiced the smoothing factors so the shapes still sprint like they stole your lunch money-just prettier.
 • **Retreat Thermostat:** Backsteps run on a personal heat meter plus a short cooldown. Spam it and the odds nosedive, so you get tactical give-and-take instead of panic moonwalks. Yes, the Rectangle finally caught the memo.
 • **Squad Cohesion, Not Stampedes:** Retreat decisions are moderated by a global coordinator that notices when three shapes try to nope out simultaneously. Small skirmish? Expect bravery. Eight-enemy dogpile? Expect staggered “nope nope nope” choreography worthy of a synchronized swimming medal.
 • **Local Crowd Control:** Retreat distance, hesitation, and probability all scale with how many friends are within yelling distance. You can isolate stragglers again; you just can’t expect the whole team to face-tank you in a conga line.
 • **LAN Party Gossip:** Telegraphs, recovery windows, and retreat states are serialized and broadcast across multiplayer so remote clients see every flinch, fake-out, and panic step in real time. Your co-op buddy can finally call out “it’s a feint” without lying.
 • **Sidestep Probability Theory:** Projectile-dodge chance now scales with intelligence, so the gifted shapes roll higher on their “nope” checks. No, you can’t sue us for intellectual discrimination.
 • **Status Spice:** Bleed and guard break now stick to players properly, feeding right into that smug threat table so the AI knows exactly which spicy garnish to sprinkle on your next mistake.
-• **Spawn Dietician:** Early rooms cut the enemy carb count so you fight smarter shapes instead of bigger piles. Later rooms still bring the buffet—just with added protein in the form of better brains.
+• **Spawn Dietician:** Early rooms cut the enemy carb count so you fight smarter shapes instead of bigger piles. Later rooms still bring the buffet-just with added protein in the form of better brains.
 
 *"What about that existential silence whenever you weren't actively vaporizing something? I duct-taped a boombox to the engine. Is the playlist amazing? Absolutely not. Got better royalty-free bangers? Slide them my way before I start humming MIDI elevator loops."*
 **🎧 Audio Mood Swings (Now with Actual Noise):**
@@ -377,14 +377,14 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 
 **Other Changes (Because Apparently AI Overhauls and Audio Mood Swings Weren’t Enough):**
 • **Multiplayer Tweaks:** Lobby slots now remember your player ID, so reconnecting you get to still be you! No more you with zero gear and negative vibes. They’re loyal to you, so no accidental Order 66 mid-fight. That and you can actually get into the next room since there is a bump on a log with you now.
-• **Menu Overhaul:** Old UI got yeeted into a black hole. New UI actually works on mobile without requiring a ritual sacrifice to join a lobby—looking at you, Diablo II lobby circa 2000.
+• **Menu Overhaul:** Old UI got yeeted into a black hole. New UI actually works on mobile without requiring a ritual sacrifice to join a lobby-looking at you, Diablo II lobby circa 2000.
 • **Telemetry Fix:** Damage numbers and affixes now report in. Balancing graphs look less like missing-data art installations and more like something your spreadsheet professor would grade.
 • **Sequential Cooldowns:** Multi-charge abilities (dodge, heavy attacks, specials) now refill one at a time instead of sprinting back together, so timing matters and UI bars stay honest.
 • **Blue Diamond Boundaries:** Those azure stabbers finally learned Euclidean personal space. Less accidental spooning, more intentional skewering with protractor-level precision.
 • **Flinch Etiquette:** Melee creeps roll a d20 before panic jogging. Sometimes they stand their ground, sometimes they scurry. Either way, the comedy is now RNG-driven like your favorite Critical Role fail.
 • **Bosses Finally Read the Threat Table:** Big bads stopped orbiting the host like it’s homecoming. Tanks tank, glass cannons sweat, everyone’s doing wind sprints like the gym class you tried to skip.
 • **Clone & Decoy Witness Protection:** Rogue shadow clones and Mage blink decoys now count as legit disposable interns: health bars, damage reactions, everything except dental insurance. 
-• **Illusion Damage Control:** Enemy hits and projectiles run through the same math on illusions as real players. No more immortal cardboard cutouts or threat-table singularities—just geometry earning minimum wage.
+• **Illusion Damage Control:** Enemy hits and projectiles run through the same math on illusions as real players. No more immortal cardboard cutouts or threat-table singularities-just geometry earning minimum wage.
 • **Client Level-Ups Actually Level:** Remote players finally receive actual stat bumps instead of placebo sparkles. Yes, Karen, your HP now scales even when you’re not the host. Try not to sprain your newfound survivability.
 
 *TL;DR:* Circles evolved from cannon fodder to coordinated chaos, ranged kids min-maxed trigonometry, retreat spam got sent to detention, the telegraph PTA installed synchronized warning lights, and spawn counts went keto. Bring AoE, bring timing, bring snacks for the wipe-fest`,
@@ -397,7 +397,7 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 • **30+ Cards:** Precision (crit chance), Bulwark (defense), Velocity (speed), Fury (crit damage), Momentum (snowball damage), Execute (instant kill below threshold), Fractal Conduit (chain lightning), Phoenix Down (one-time revive), plus class-specific ability mutators
   *"Yes, infinite blink is possible. No, we won't nerf it. (Maybe.)"*
 • **Mastery System:** Cards level 0-5 with shards (new currency). M5 unlocks special bonuses. Grind for it. We know you will.
-• **Packs:** Standard, Elite, Treasure, Challenge, Boss. Ethical loot boxes—free and you can't pay real money. Revolutionary.
+• **Packs:** Standard, Elite, Treasure, Challenge, Boss. Ethical loot boxes-free and you can't pay real money. Revolutionary.
 • **Shards:** Earn by killing things, spend on unlocks and upgrades. Achievement milestones also unlock cards if you're into that whole "earning things" philosophy.
 
 **😈 Room Modifiers (Risk/Reward Chaos):**
@@ -469,6 +469,102 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 
 *TL;DR:* Mobile works again, Regen Matrix no longer makes you God, Damage Aura is fair now and doesnt feel useless, enemies multiply faster, bosses are infinite, and time is now actually time. Touch grass? No, touch screen.*
 `,
+    '0.7.0': `**🗺️ UPDATE 0.7.0: THE "TOUCH GRASS PROCEDURALLY" UPDATE** (07/03/2026)
+*"Rooms used to be rectangles. Enemies walked through walls like Force ghosts. Scaling math lived in twelve files with twelve conflicting opinions. Vortex's entire personality was 'spinny, hurts.' None of that is true anymore. I did not sleep. Ask me how I know."*
+
+---
+
+## **🗺️ PART 1: ROADS, NOT ROOMS**
+*"Turns out an empty rectangle with a boss in it is called 'a placeholder,' not 'level design.' Whoops. Guess I owe you actual level design now."*
+
+• **Archetypes:** Rooms now roll road, gauntlet, maze, arena, crossroads, or "wilds," which is a real archetype and not just me running out of names by Tuesday.
+• **Actual Roads:** Enemies spawn in pockets along a real main road with offshoots and detours now, instead of getting airdropped into the room like confetti at a party nobody invited them to.
+• **Entrance Variants:** Rooms open left-right, top-bottom, or diagonal. A hallway that's wider than it is long was always weird. I noticed. Eventually.
+• **Biome Dressing:** Hive trails, crystal causeways, stone roads, recursive traces, spiral wakes. Every biome got its own IKEA catalog and its own assembly instructions nobody reads.
+• **Boss Arenas:** Bosses get custom-built arenas now instead of squatting in whatever biome leftovers were lying around.
+  *"They have landlords now. I take arena upkeep very seriously." (though they are all WIP and will be getting improved and built out over time)*
+
+---
+
+## **🧭 PART 2: ENEMIES LEARN TO WALK**
+*"They used to phase through walls like polite ghosts. Now they navigate like people who pay rent, occasionally very badly."*
+
+• Enemies steer around obstacles locally before falling back to real pathfinding when things get concave and ugly.
+  *"No more triangles teleport-cheesing through gaps built for something half their size. I checked. I'm unreasonably proud of this."*
+• Get stuck enough times and an enemy will actually retreat to its last safe spot instead of vibrating against a wall forever like a Roomba having a breakdown.
+• Bosses got wider clearance math so they stop hugging scenery mid-attack like it owes them rent money.
+
+---
+
+## **⚖️ PART 3: THE GREAT MATH CONSOLIDATION**
+*"I found the same HP growth constant defined in three different files with three different values. I don't remember which one was 'correct.' I am not okay. The code, however, is now fine."*
+
+• One universal scaling system now runs every enemy, boss, and room number instead of a dozen copy-pasted formulas hiding wherever they felt like living.
+• **Sign Error, Avenged:** Enemy attack cooldowns were secretly getting SLOWER the deeper you went. For months. Enemies were, technically, getting lazier as the run went on. That bug has been fired without severance.
+• Gear mode and Card mode now get their own separate multiplayer scaling tables, because your suffering deserves to be bespoke.
+
+---
+
+## **👹 PART 4: BOSSES GOT PERSONALITY TRANSPLANTS**
+*"I meant to touch up the bosses a little. Vortex walked out with 14 attack types and a state machine longer than some entire enemy files. Scope creep says hello."*
+
+• **Vortex, Completely Rewritten:** Inhale, Burst, Blades, Spiral, Lance, Needles, Pulsar, Cage, Net, Scenery, Wells, and a Finale that ends in a rotating corridor of angular regret.
+  *"It used to be a spinny thing that hurt you. Now it's a spinny thing that hurts you with narrative structure. Progress."*
+• **Swarm King:** New phase 3 pheromone dash-and-web sequence. I wrote actual polyline arc-length math for a bug's dating trail. This is where the CS degree went.
+• **Twin Prism:** Real windup telegraphs before the laser grid now, instead of vibes-based murder.
+  *"You'll still get hit. It's just your fault now, which is somehow worse."*
+• **Fortress & Fractal Core:** Finally use the arena I built them, instead of standing in the middle of it like it's a waiting room.
+• **Multi-Part Hit Detection:** Damage numbers land where you actually hit the boss now, not its spiritual center of mass.
+
+---
+
+## **🩸 PART 5: LIFESTEAL GETS A BUDGET**
+*"Unlimited free healing off every overlapping hitbox of a cleave attack was, according to math, 'too strong.' I capped it. Reluctantly. Very reluctantly."*
+
+• Lifesteal now caps around 1% of your max HP per second, flat. Stack it all you want — you're a vampire with a spending limit now, not a god.
+• Past 5% lifesteal, the extra starts losing efficiency. 11% gear lifesteal now behaves like about 7.1%. Diminishing returns: not a bug, fiscal responsibility.
+• Whirlwinding a boss to full HP in one spin was extremely fun for you and extremely bad for game balance. Boss healing is dialed way down now.
+• Cleaves, whirlwinds, and shout hitboxes proc lifesteal ONCE per enemy per swing now, not once per overlapping hitbox like I was secretly running a healing pyramid scheme.
+• **NEW — Fortify:** Some sustain now builds a temporary shield instead of straight HP. It decays, it's capped, it's basically sustain with training wheels on.
+
+---
+
+## **🚀 PART 6: YOUR COMPUTER CAN RELAX**
+*"I built a system that watches your frame rate and quietly panics on your behalf, like a very attentive nurse who's seen this before."*
+
+• **Adaptive Quality:** Three tiers (Normal / Medium / Heavy) dial back vignette, scenery lights, and gear ring detail before your FPS faceplants into the carpet.
+• **Gear Sprite Caching:** I was redrawing the same legendary sword sprite 60 times a second like it might change its mind about being legendary. It never did. I stopped.
+• **Culling:** Loot, cards, and items now only render when you can actually see them. Groundbreaking. Truly. I know.
+• **NEW — Run Profiler:** Full run-length performance receipts — worst rooms, worst phases, exportable JSON. When Room 27 chugs, I'll know exactly why instead of shrugging at the ceiling.
+• **Accumulator Truncation:** Alt-tabbing back into the game no longer triggers five seconds of fast-forwarded chaos trying to "catch up." It just resumes. Like a normal, well-adjusted application.
+
+---
+
+## **🎮 PART 7: I REMEMBERED PHONES AND CONTROLLERS EXIST**
+*"Turns out real device detection beats 'always return false, force desktop mode.' Groundbreaking research from my own past self."*
+
+• Full gamepad support: PlayStation/Xbox/Nintendo/Steam glyphs, deadzones, and menus you can actually navigate without reaching for a mouse mid-couch-co-op.
+  *"Press Start. I mean it this time. It does something."*
+• iPads pretending to be Macs fooled exactly nobody this time.
+
+---
+
+## **🌐 PART 8: EVERYTHING ELSE**
+*"The stuff that didn't earn its own dramatic section header but still matters."*
+
+• **Multiplayer Room Sync:** The host generates the layout, clients get the exact same walls and hazards. Your walls and their walls used to be suggestions. Now they're facts.
+• **Server Hardening:** Closed a path-traversal door I didn't realize was wide open this whole time. Oops. You're welcome. Mostly the second one.
+
+---
+
+## **🎯 FINAL WORDS**
+
+*TL;DR:* Rooms have roads now. Enemies can walk around furniture without having an episode. The scaling math finally agrees with itself. Vortex is a nightmare with a flowchart. Lifesteal has a budget and a new shield-shaped friend. Your framerate has a safety net and a profiler taking notes. Controllers and phones both work like it's a real feature, not an apology. Multiplayer rooms actually match now. The server stopped handing out random files to strangers. There's an ending now planned and will be added over time.
+
+*P.S. - If a boss clips through a wall or an enemy just stares lovingly at a corner forever, that's not a bug, that's Tuesday. Report it anyway.*
+
+*P.P.S. - Yes, Vortex might be a bit much now. No, I'm not nerfing it before you've all had a proper chance to suffer.*
+`,
   },
 
   // Update type labels - can be: 'major', 'feature', 'minor', 'hotfix', 'bugfix', 'refactor', 'rebalance'
@@ -485,7 +581,8 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
     '0.5.3': ['minor'],
     '0.5.3.1': ['minor', 'feature', 'rebalance'],
     '0.6.0': ['major', 'feature', 'visuals'],
-    '0.6.1': ['minor', 'feature', 'hotfix']
+    '0.6.1': ['minor', 'feature', 'hotfix'],
+    '0.7.0': ['major', 'feature', 'rebalance']
   }
 };
 

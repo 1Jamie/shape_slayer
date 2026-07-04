@@ -37,7 +37,7 @@ const AFFIX_POOL = {
     // ADVANCED TIER
     critChance: { min: 0.05, max: 0.15, slot: ['weapon', 'accessory'], weight: 1.0, tier: 'advanced' },
     critDamage: { min: 0.15, max: 0.45, slot: ['weapon'], weight: 1.0, tier: 'advanced' },
-    lifesteal: { min: 0.03, max: 0.1, slot: ['weapon', 'armor'], weight: 1.0, tier: 'advanced' },
+    lifesteal: { min: 0.02, max: 0.07, slot: ['weapon', 'armor'], weight: 1.0, tier: 'advanced' },
     cooldownReduction: { min: 0.08, max: 0.15, slot: ['accessory', 'armor'], weight: 1.0, tier: 'advanced' }, // Reduced from 0.2 max
     areaOfEffect: { min: 0.12, max: 0.28, slot: ['weapon'], weight: 1.0, tier: 'advanced' },
     
@@ -234,7 +234,7 @@ const ARMOR_TYPES = {
 
 // Legendary effect definitions (orange tier only)
 const LEGENDARY_EFFECTS = {
-    vampiric: { lifesteal: 0.08, description: '8% Lifesteal' },
+    vampiric: { lifesteal: 0.06, description: '6% Lifesteal' },
     incendiary: { burnDuration: 3, burnDPS: 0.3, description: 'Burns enemies for 3s' },
     freezing: { slowChance: 0.20, slowAmount: 0.5, slowDuration: 2, description: '20% chance to slow' },
     thorns: { reflectPercent: 0.25, description: 'Reflects 25% damage' },
@@ -618,7 +618,8 @@ function generateGear(x, y, roomNumberOrTier = 1, enemyDifficulty = 'basic') {
         name: name,
         roomNumber: roomNumber,  // Store room number for display
         scaling: scaling,         // Store scaling multiplier
-        pulse: 0 // For pulsing animation
+        pulse: 0, // For pulsing animation
+        phaseOffset: Math.random() * Math.PI * 2
     };
 }
 
@@ -690,168 +691,382 @@ const TIER_GLOW = {
     orange: 25
 };
 
-// Render ground loot
-function renderGroundLoot(ctx) {
-    groundLoot.forEach(gear => {
-        // Update pulse animation (slow and smooth)
-        gear.pulse = (gear.pulse || 0) + 0.05; // Slower pulse
-        const pulseSize = 2 + Math.sin(gear.pulse) * 2;
-        const time = Date.now() * 0.0003; // Match player animation speed
-        
-        // Validate gear properties
-        if (!gear.tier) gear.tier = 'gray';
-        if (!gear.stats) gear.stats = {};
-        
-        const tierOpacity = TIER_OPACITY[gear.tier] || 0.5;
-        const tierGlow = TIER_GLOW[gear.tier] || 0;
-        
-        ctx.save();
-        
-        // Apply tier-based glow
-        if (tierGlow > 0) {
-            ctx.shadowBlur = tierGlow;
-            ctx.shadowColor = gear.color || '#999999';
+const GEAR_BASE_SIZE = 15;
+const GEAR_SPRITE_CACHE_MAX = 128;
+const gearSpriteCache = new Map();
+const gearSpriteCacheOrder = [];
+
+function isGroundGearVisible(gear, margin) {
+    if (typeof Game === 'undefined' || !Game.camera || !Game.config) {
+        return true;
+    }
+    const zoom = Game.baseZoom || 1;
+    const halfWidth = (Game.config.width / 2) / zoom + margin;
+    const halfHeight = (Game.config.height / 2) / zoom + margin;
+    return (
+        gear.x >= Game.camera.x - halfWidth &&
+        gear.x <= Game.camera.x + halfWidth &&
+        gear.y >= Game.camera.y - halfHeight &&
+        gear.y <= Game.camera.y + halfHeight
+    );
+}
+
+function ensureGearDropMetadata(gear) {
+    if (!gear) return gear;
+    if (gear.pulse == null) gear.pulse = 0;
+    if (gear.phaseOffset == null) {
+        if (gear.id) {
+            let hash = 0;
+            for (let i = 0; i < gear.id.length; i++) {
+                hash = ((hash << 5) - hash + gear.id.charCodeAt(i)) | 0;
+            }
+            gear.phaseOffset = (Math.abs(hash) % 628) / 100;
+        } else {
+            gear.phaseOffset = Math.random() * Math.PI * 2;
         }
-        
-        // Extra glow for legendary items
-        if (gear.legendaryEffect) {
-            ctx.shadowBlur = 30;
-            ctx.shadowColor = '#ffaa00';
-            
-            // Draw pulsing legendary aura
-            const legendaryPulse = Math.sin(gear.pulse * 0.5) * 0.5 + 0.5;
-            ctx.fillStyle = `rgba(255, 170, 0, ${0.3 * legendaryPulse})`;
-            ctx.beginPath();
-            ctx.arc(gear.x, gear.y, gear.size + pulseSize + 15, 0, Math.PI * 2);
-            ctx.fill();
-        } else if (gear.tier === 'orange' && gear.classModifier) {
-            ctx.shadowBlur = 22;
-            ctx.shadowColor = '#55ccff';
-            
-            const modifierPulse = Math.sin(gear.pulse * 0.45) * 0.5 + 0.5;
-            ctx.fillStyle = `rgba(85, 204, 255, ${0.22 * modifierPulse})`;
-            ctx.beginPath();
-            ctx.arc(gear.x, gear.y, gear.size + pulseSize + 12, 0, Math.PI * 2);
-            ctx.fill();
+    }
+    if (!gear.size) gear.size = GEAR_BASE_SIZE;
+    return gear;
+}
+
+function buildGearSpriteCacheKey(gear) {
+    const affixTypes = (gear.affixes || []).map(a => a.type);
+    return [
+        gear.tier || 'gray',
+        gear.slot || '',
+        gear.weaponType || '',
+        gear.armorType || '',
+        [...affixTypes].sort().join(','),
+        gear.legendaryEffect ? 'L' : '',
+        gear.classModifier ? 'C' : ''
+    ].join('_');
+}
+
+function touchGearSpriteCacheKey(key) {
+    const idx = gearSpriteCacheOrder.indexOf(key);
+    if (idx >= 0) gearSpriteCacheOrder.splice(idx, 1);
+    gearSpriteCacheOrder.push(key);
+    while (gearSpriteCacheOrder.length > GEAR_SPRITE_CACHE_MAX) {
+        const evict = gearSpriteCacheOrder.shift();
+        gearSpriteCache.delete(evict);
+    }
+}
+
+function drawGroundAffixRingPath(ctx, centerX, centerY, ringRadius, affixes, tierOpacity, numPoints, time) {
+    let baseR = 0, baseG = 0, baseB = 0;
+    let colorCount = 0;
+    affixes.forEach(affix => {
+        const affixConfig = AFFIX_VISUAL_MAP[affix.type];
+        if (affixConfig) {
+            baseR += affixConfig.color.r;
+            baseG += affixConfig.color.g;
+            baseB += affixConfig.color.b;
+            colorCount++;
         }
-        
-        // Draw tier color base circle
-        ctx.fillStyle = gear.color || '#999999';
-        ctx.globalAlpha = tierOpacity;
+    });
+    if (colorCount > 0) {
+        baseR = Math.floor(baseR / colorCount);
+        baseG = Math.floor(baseG / colorCount);
+        baseB = Math.floor(baseB / colorCount);
+    } else {
+        baseR = 150; baseG = 150; baseB = 150;
+    }
+
+    const animTime = typeof time === 'number' ? time : 0;
+
+    ctx.beginPath();
+    for (let i = 0; i <= numPoints; i++) {
+        const angle = (i / numPoints) * Math.PI * 2;
+        let waveOffset = 0;
+        const affixesToShow = Math.min(2, affixes.length);
+        for (let a = 0; a < affixesToShow; a++) {
+            const affix = affixes[a];
+            const affixConfig = AFFIX_VISUAL_MAP[affix.type];
+            if (affixConfig) {
+                const freq = 2 + a;
+                const smoothPhase = animTime * (0.5 + a * 0.2);
+                const normalizedAngle = ((angle * freq + smoothPhase) % (Math.PI * 2)) / (Math.PI * 2);
+                const waveValue = normalizedAngle < 0.5 ? (normalizedAngle * 4 - 1) : (3 - normalizedAngle * 4);
+                waveOffset += waveValue * 4;
+            }
+        }
+        const radius = ringRadius + waveOffset;
+        const px = centerX + Math.cos(angle) * radius;
+        const py = centerY + Math.sin(angle) * radius;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = `rgba(${baseR}, ${baseG}, ${baseB}, ${tierOpacity * 0.8})`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    return { baseR, baseG, baseB };
+}
+
+function drawGroundSlotGlyph(ctx, centerX, centerY, slot, size) {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.beginPath();
+    if (slot === 'weapon') {
+        ctx.moveTo(centerX, centerY - size * 0.35);
+        ctx.lineTo(centerX + size * 0.3, centerY + size * 0.25);
+        ctx.lineTo(centerX - size * 0.3, centerY + size * 0.25);
+        ctx.closePath();
+    } else if (slot === 'armor') {
+        ctx.rect(centerX - size * 0.25, centerY - size * 0.25, size * 0.5, size * 0.5);
+    } else {
+        ctx.arc(centerX, centerY, size * 0.18, 0, Math.PI * 2);
+    }
+    ctx.fill();
+}
+
+function bakeGearSprite(gear) {
+    const tier = gear.tier || 'gray';
+    const tierOpacity = TIER_OPACITY[tier] || 0.5;
+    const baseSize = gear.size || GEAR_BASE_SIZE;
+    const ringRadius = baseSize + 10;
+    const padding = 40;
+    const diameter = (ringRadius + 20) * 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = diameter + padding * 2;
+    canvas.height = diameter + padding * 2;
+    const ctx = canvas.getContext('2d');
+    const center = canvas.width / 2;
+
+    ctx.fillStyle = gear.color || '#999999';
+    ctx.globalAlpha = tierOpacity;
+    ctx.beginPath();
+    ctx.arc(center, center, baseSize, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1.0;
+
+    ctx.strokeStyle = gear.color || '#999999';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    if (gear.weaponType && WEAPON_TYPES[gear.weaponType]) {
+        ctx.strokeStyle = WEAPON_TYPES[gear.weaponType].color;
+        ctx.lineWidth = 3;
+        ctx.setLineDash([5, 3]);
         ctx.beginPath();
-        ctx.arc(gear.x, gear.y, gear.size + pulseSize, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalAlpha = 1.0;
-        
-        // Draw tier outline
-        ctx.strokeStyle = gear.color || '#999999';
-        ctx.lineWidth = 2;
+        ctx.arc(center, center, baseSize + 5, 0, Math.PI * 2);
         ctx.stroke();
-        
-        ctx.shadowBlur = 0;
-        
-        // Draw wave-deformed ring showing affixes
-        if (gear.affixes && gear.affixes.length > 0) {
-            const ringRadius = gear.size + pulseSize + 10;
-            const numPoints = 32;
-            
-            // Calculate blended color once
-            let baseR = 0, baseG = 0, baseB = 0;
-            let colorCount = 0;
-            
-            gear.affixes.forEach(affix => {
-                const affixConfig = AFFIX_VISUAL_MAP[affix.type];
-                if (affixConfig) {
-                    baseR += affixConfig.color.r;
-                    baseG += affixConfig.color.g;
-                    baseB += affixConfig.color.b;
-                    colorCount++;
-                }
-            });
-            
-            // Average the colors
-            if (colorCount > 0) {
-                baseR = Math.floor(baseR / colorCount);
-                baseG = Math.floor(baseG / colorCount);
-                baseB = Math.floor(baseB / colorCount);
-            } else {
-                baseR = 150; baseG = 150; baseB = 150;
-            }
-            
-            ctx.beginPath();
-            for (let i = 0; i <= numPoints; i++) {
-                const angle = (i / numPoints) * Math.PI * 2;
-                
-                // Simple wave combination - limit to first 2 for clarity
-                let waveOffset = 0;
-                const affixesToShow = Math.min(2, gear.affixes.length);
-                
-                for (let a = 0; a < affixesToShow; a++) {
-                    const affix = gear.affixes[a];
-                    const affixConfig = AFFIX_VISUAL_MAP[affix.type];
-                    if (affixConfig) {
-                        // Use cleaner wave pattern - limited frequency (2-3 only)
-                        const freq = 2 + a;
-                        // Slow, smooth phase animation
-                        const smoothPhase = time * (0.5 + a * 0.2);
-                        const normalizedAngle = ((angle * freq + smoothPhase) % (Math.PI * 2)) / (Math.PI * 2);
-                        // Triangle wave for smooth transitions
-                        const waveValue = normalizedAngle < 0.5 ? (normalizedAngle * 4 - 1) : (3 - normalizedAngle * 4);
-                        waveOffset += waveValue * 4;
-                    }
-                }
-                
-                const radius = ringRadius + waveOffset;
-                const px = gear.x + Math.cos(angle) * radius;
-                const py = gear.y + Math.sin(angle) * radius;
-                
-                if (i === 0) ctx.moveTo(px, py);
-                else ctx.lineTo(px, py);
-            }
-            ctx.closePath();
-            
-            ctx.strokeStyle = `rgba(${baseR}, ${baseG}, ${baseB}, ${tierOpacity * 0.8})`;
-            ctx.lineWidth = 2;
-            ctx.stroke();
+        ctx.setLineDash([]);
+    } else if (gear.armorType && ARMOR_TYPES[gear.armorType]) {
+        ctx.strokeStyle = ARMOR_TYPES[gear.armorType].color;
+        ctx.lineWidth = 3;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.arc(center, center, baseSize + 5, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    drawGroundSlotGlyph(ctx, center, center, gear.slot, baseSize);
+
+    let ringCanvas = null;
+    if (gear.affixes && gear.affixes.length > 0) {
+        ringCanvas = document.createElement('canvas');
+        ringCanvas.width = canvas.width;
+        ringCanvas.height = canvas.height;
+        const ringCtx = ringCanvas.getContext('2d');
+        drawGroundAffixRingPath(ringCtx, center, center, ringRadius, gear.affixes, tierOpacity, 32);
+    }
+
+    let legendaryFrames = null;
+    if (gear.legendaryEffect) {
+        legendaryFrames = [];
+        for (let f = 0; f < 4; f++) {
+            const frameCanvas = document.createElement('canvas');
+            frameCanvas.width = canvas.width;
+            frameCanvas.height = canvas.height;
+            const fCtx = frameCanvas.getContext('2d');
+            const pulse = f / 4;
+            const legendaryPulse = Math.sin(pulse * Math.PI * 2) * 0.5 + 0.5;
+            fCtx.fillStyle = `rgba(255, 170, 0, ${0.3 * legendaryPulse})`;
+            fCtx.beginPath();
+            fCtx.arc(center, center, baseSize + 15, 0, Math.PI * 2);
+            fCtx.fill();
+            legendaryFrames.push(frameCanvas);
         }
-        
-        // Draw type indicator border for weapons and armor
-        if (gear.weaponType && WEAPON_TYPES[gear.weaponType]) {
-            const typeColor = WEAPON_TYPES[gear.weaponType].color;
-            ctx.strokeStyle = typeColor;
-            ctx.lineWidth = 3;
-            ctx.setLineDash([5, 3]);
-            ctx.beginPath();
-            ctx.arc(gear.x, gear.y, gear.size + pulseSize + 5, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.setLineDash([]);
+    } else if (gear.tier === 'orange' && gear.classModifier) {
+        legendaryFrames = [];
+        for (let f = 0; f < 4; f++) {
+            const frameCanvas = document.createElement('canvas');
+            frameCanvas.width = canvas.width;
+            frameCanvas.height = canvas.height;
+            const fCtx = frameCanvas.getContext('2d');
+            const pulse = f / 4;
+            const modifierPulse = Math.sin(pulse * Math.PI * 2) * 0.5 + 0.5;
+            fCtx.fillStyle = `rgba(85, 204, 255, ${0.22 * modifierPulse})`;
+            fCtx.beginPath();
+            fCtx.arc(center, center, baseSize + 12, 0, Math.PI * 2);
+            fCtx.fill();
+            legendaryFrames.push(frameCanvas);
         }
-        
-        if (gear.armorType && ARMOR_TYPES[gear.armorType]) {
-            const typeColor = ARMOR_TYPES[gear.armorType].color;
-            ctx.strokeStyle = typeColor;
-            ctx.lineWidth = 3;
-            ctx.setLineDash([3, 3]); // Different pattern for armor
-            ctx.beginPath();
-            ctx.arc(gear.x, gear.y, gear.size + pulseSize + 5, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.setLineDash([]);
-        }
-        
+    }
+
+    return {
+        baseCanvas: canvas,
+        ringCanvas,
+        legendaryFrames,
+        baseSize,
+        centerOffset: canvas.width / 2
+    };
+}
+
+function getCachedGearSprite(gear) {
+    const key = buildGearSpriteCacheKey(gear);
+    if (gearSpriteCache.has(key)) {
+        touchGearSpriteCacheKey(key);
+        return gearSpriteCache.get(key);
+    }
+    const sprite = bakeGearSprite(gear);
+    gearSpriteCache.set(key, sprite);
+    touchGearSpriteCacheKey(key);
+    return sprite;
+}
+
+function updateGroundLoot(deltaTime) {
+    if (typeof groundLoot === 'undefined' || !Array.isArray(groundLoot)) return;
+    const pulseRate = 0.05 * (deltaTime || 1) * 60;
+    groundLoot.forEach(gear => {
+        if (!isGroundGearVisible(gear, 50)) return;
+        gear.pulse = (gear.pulse || 0) + pulseRate;
+    });
+}
+
+function renderGroundLootUncached(ctx, gear) {
+    const pulseSize = 2 + Math.sin(gear.pulse || 0) * 2;
+    const time = Date.now() * 0.0003;
+
+    if (!gear.tier) gear.tier = 'gray';
+    if (!gear.stats) gear.stats = {};
+
+    const tierOpacity = TIER_OPACITY[gear.tier] || 0.5;
+    const tierGlow = TIER_GLOW[gear.tier] || 0;
+
+    ctx.save();
+
+    if (tierGlow > 0) {
+        ctx.shadowBlur = tierGlow;
+        ctx.shadowColor = gear.color || '#999999';
+    }
+
+    if (gear.legendaryEffect) {
+        ctx.shadowBlur = 30;
+        ctx.shadowColor = '#ffaa00';
+        const legendaryPulse = Math.sin((gear.pulse || 0) * 0.5) * 0.5 + 0.5;
+        ctx.fillStyle = `rgba(255, 170, 0, ${0.3 * legendaryPulse})`;
+        ctx.beginPath();
+        ctx.arc(gear.x, gear.y, gear.size + pulseSize + 15, 0, Math.PI * 2);
+        ctx.fill();
+    } else if (gear.tier === 'orange' && gear.classModifier) {
+        ctx.shadowBlur = 22;
+        ctx.shadowColor = '#55ccff';
+        const modifierPulse = Math.sin((gear.pulse || 0) * 0.45) * 0.5 + 0.5;
+        ctx.fillStyle = `rgba(85, 204, 255, ${0.22 * modifierPulse})`;
+        ctx.beginPath();
+        ctx.arc(gear.x, gear.y, gear.size + pulseSize + 12, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    ctx.fillStyle = gear.color || '#999999';
+    ctx.globalAlpha = tierOpacity;
+    ctx.beginPath();
+    ctx.arc(gear.x, gear.y, gear.size + pulseSize, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1.0;
+
+    ctx.strokeStyle = gear.color || '#999999';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    if (gear.affixes && gear.affixes.length > 0) {
+        const ringRadius = gear.size + pulseSize + 10;
+        ctx.save();
+        ctx.translate(gear.x, gear.y);
+        ctx.rotate(time * 0.5 + (gear.phaseOffset || 0));
+        drawGroundAffixRingPath(ctx, 0, 0, ringRadius, gear.affixes, tierOpacity, 32, time);
         ctx.restore();
-        
-        // Draw tier name above gear
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 10px Orbitron';
-        ctx.textAlign = 'center';
-        ctx.fillText(gear.tier.toUpperCase(), gear.x, gear.y - gear.size - 15);
-        
-        // Draw slot name and type
-        ctx.font = 'bold 8px Orbitron';
-        let slotText = gear.slot;
-        if (gear.weaponType) slotText += ` (${WEAPON_TYPES[gear.weaponType].name})`;
-        if (gear.armorType) slotText += ` (${ARMOR_TYPES[gear.armorType].name})`;
-        ctx.fillText(slotText, gear.x, gear.y - gear.size - 5);
+    }
+
+    if (gear.weaponType && WEAPON_TYPES[gear.weaponType]) {
+        ctx.strokeStyle = WEAPON_TYPES[gear.weaponType].color;
+        ctx.lineWidth = 3;
+        ctx.setLineDash([5, 3]);
+        ctx.beginPath();
+        ctx.arc(gear.x, gear.y, gear.size + pulseSize + 5, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    if (gear.armorType && ARMOR_TYPES[gear.armorType]) {
+        ctx.strokeStyle = ARMOR_TYPES[gear.armorType].color;
+        ctx.lineWidth = 3;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.arc(gear.x, gear.y, gear.size + pulseSize + 5, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    drawGroundSlotGlyph(ctx, gear.x, gear.y, gear.slot, gear.size);
+
+    ctx.restore();
+}
+
+function renderGroundLootCached(ctx, gear) {
+    const sprite = getCachedGearSprite(gear);
+    const pulseSize = 2 + Math.sin(gear.pulse || 0) * 2;
+    const baseSize = sprite.baseSize || GEAR_BASE_SIZE;
+    const scale = (baseSize + pulseSize) / baseSize;
+    const time = Date.now() * 0.0003;
+    const offset = sprite.centerOffset;
+
+    ctx.save();
+    ctx.translate(gear.x, gear.y);
+    ctx.scale(scale, scale);
+
+    if (sprite.legendaryFrames && sprite.legendaryFrames.length > 0) {
+        const frameIdx = Math.floor((gear.pulse || 0) * 0.5) % sprite.legendaryFrames.length;
+        ctx.drawImage(sprite.legendaryFrames[frameIdx], -offset, -offset);
+    }
+
+    ctx.drawImage(sprite.baseCanvas, -offset, -offset);
+
+    if (gear.affixes && gear.affixes.length > 0) {
+        const tierOpacity = TIER_OPACITY[gear.tier] || 0.5;
+        const ringRadius = baseSize + 10;
+        const animatedRing = typeof Game === 'undefined' || !Game.renderQuality || Game.renderQuality.groundLootAnimatedRing !== false;
+        ctx.save();
+        if (animatedRing) {
+            ctx.rotate(time * 0.5 + (gear.phaseOffset || 0));
+        }
+        drawGroundAffixRingPath(ctx, 0, 0, ringRadius, gear.affixes, tierOpacity, 32, time);
+        ctx.restore();
+    }
+
+    ctx.restore();
+}
+
+function renderGroundLootItem(ctx, gear) {
+    ensureGearDropMetadata(gear);
+    const useCache = typeof DebugFlags === 'undefined' || DebugFlags.USE_CACHING !== false;
+    if (useCache) {
+        renderGroundLootCached(ctx, gear);
+    } else {
+        renderGroundLootUncached(ctx, gear);
+    }
+}
+
+// Render ground loot (optional culled list)
+function renderGroundLoot(ctx, visibleLoot) {
+    const items = visibleLoot || groundLoot;
+    if (!items || !Array.isArray(items)) return;
+
+    items.forEach(gear => {
+        renderGroundLootItem(ctx, gear);
     });
 }
 

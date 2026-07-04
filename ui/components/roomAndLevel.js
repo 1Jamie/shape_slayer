@@ -1,74 +1,70 @@
 (function () {
-	let roomEl, levelEl, layer;
+	let layer, messageEl;
 
 	function create() {
 		const root = window.UIRoot && window.UIRoot.ensure ? window.UIRoot.ensure() : document.body;
 		layer = document.createElement('div');
-		layer.className = 'ui-layer';
+		layer.className = 'ui-layer level-up-overlay';
 		layer.style.pointerEvents = 'none';
 		layer.style.userSelect = 'none';
-		layer.style.webkitUserSelect = 'none';
-		layer.style.mozUserSelect = 'none';
-		layer.style.msUserSelect = 'none';
-		layer.style.position = 'absolute';
+		layer.style.position = 'fixed';
 		layer.style.left = '0';
 		layer.style.right = '0';
-		// Mobile: adjust positioning
-		const isMobileInit = typeof window.Input !== 'undefined' && window.Input.isMobileUiMode && window.Input.isMobileUiMode();
-		layer.style.top = isMobileInit ? '8px' : '12px';
-		layer.style.display = 'flex';
-		layer.style.justifyContent = 'space-between';
-		layer.style.padding = isMobileInit ? '0 12px' : '0 20px';
-		
-		// Prevent right-click context menu
-		layer.addEventListener('contextmenu', (e) => {
-			e.preventDefault();
-			e.stopPropagation();
-			return false;
-		});
-		roomEl = document.createElement('div');
-		roomEl.style.color = '#fff';
-		roomEl.style.fontWeight = '700';
-		roomEl.style.fontSize = isMobileInit ? '14px' : '16px';
-		levelEl = document.createElement('div');
-		levelEl.style.color = '#ffea8a';
-		levelEl.style.fontWeight = '700';
-		levelEl.style.fontSize = isMobileInit ? '14px' : '16px';
-		layer.appendChild(roomEl);
-		layer.appendChild(levelEl);
+		layer.style.top = '0';
+		layer.style.bottom = '0';
+		layer.style.display = 'none';
+		layer.style.alignItems = 'flex-start';
+		layer.style.justifyContent = 'center';
+		layer.style.zIndex = '5000';
+
+		messageEl = document.createElement('div');
+		messageEl.style.color = '#00ffff';
+		messageEl.style.fontWeight = '900';
+		messageEl.style.fontFamily = "'Orbitron', sans-serif";
+		messageEl.style.textAlign = 'center';
+		messageEl.style.textShadow = '0 0 40px #00ffff, 2px 2px 4px rgba(0,0,0,0.9), -2px 0 #000, 2px 0 #000, 0 -2px #000, 0 2px #000';
+		messageEl.textContent = 'LEVEL UP!';
+		layer.appendChild(messageEl);
 		root.appendChild(layer);
 	}
 
 	function tick() {
-		if (!window.Game) {
-			layer.style.display = 'none';
-		} else {
-			const isMobile = typeof window.Input !== 'undefined' && window.Input.isMobileUiMode && window.Input.isMobileUiMode();
-			layer.style.display = 'flex';
-			layer.style.top = isMobile ? '8px' : '12px';
-			layer.style.padding = isMobile ? '0 12px' : '0 20px';
-			roomEl.style.fontSize = isMobile ? '14px' : '16px';
-			levelEl.style.fontSize = isMobile ? '14px' : '16px';
-			const room = Game.roomNumber || 1;
-			roomEl.textContent = `Room ${room}`;
-			const player = Game.player;
-			// Heuristic: show banner when level increases; keep it for 2s
-			const now = Date.now();
-			if (!tick._until) tick._until = 0;
-			if (player && typeof player.level === 'number') {
-				if (tick._lastLevel === undefined) tick._lastLevel = player.level;
-				if (player.level > tick._lastLevel) {
-					tick._until = now + 2000;
-					tick._lastLevel = player.level;
-				}
-			}
-			levelEl.textContent = now < tick._until ? 'LEVEL UP!' : '';
+		if (!layer) {
+			requestAnimationFrame(tick);
+			return;
 		}
+
+		const show = window.USE_DOM_UI &&
+			window.Game &&
+			Game.levelUpMessageActive &&
+			Game.state === 'PLAYING';
+
+		if (!show) {
+			layer.style.display = 'none';
+			layer.style.opacity = '0';
+		} else {
+			const progress = Math.max(0, Math.min(1, Game.levelUpMessageTime / 2.0));
+			const alpha = Math.min(1.0, progress * 2.0);
+
+			const isMobile = typeof window.Input !== 'undefined' && window.Input.isMobileUiMode && window.Input.isMobileUiMode();
+			messageEl.style.fontSize = isMobile ? '48px' : '96px';
+			layer.style.paddingTop = isMobile ? '18%' : '22%';
+			layer.style.display = 'flex';
+			layer.style.opacity = String(alpha);
+		}
+
 		requestAnimationFrame(tick);
+	}
+
+	function showLevelUpMessage() {
+		if (typeof Game === 'undefined') return;
+		Game.levelUpMessageActive = true;
+		Game.levelUpMessageTime = 2.0;
 	}
 
 	function init() {
 		create();
+		window.showLevelUpMessage = showLevelUpMessage;
 		tick();
 	}
 
@@ -78,5 +74,3 @@
 		init();
 	}
 })();
-
-

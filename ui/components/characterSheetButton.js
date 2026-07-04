@@ -26,9 +26,6 @@
         btn.style.right = '100px'; // Further left from the pause button (which is at right: 12px)
         btn.style.pointerEvents = 'auto';
         btn.style.userSelect = 'none';
-        btn.style.webkitUserSelect = 'none';
-        btn.style.mozUserSelect = 'none';
-        btn.style.msUserSelect = 'none';
         btn.style.zIndex = '1001';
         btn.style.minWidth = '60px';
         btn.style.display = 'none';

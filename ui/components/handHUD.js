@@ -7,9 +7,6 @@
 		layer.className = 'ui-layer';
 		layer.style.pointerEvents = 'none';
 		layer.style.userSelect = 'none';
-		layer.style.webkitUserSelect = 'none';
-		layer.style.mozUserSelect = 'none';
-		layer.style.msUserSelect = 'none';
 		layer.style.position = 'absolute';
 		layer.style.right = '12px';
 		layer.style.top = '90px';

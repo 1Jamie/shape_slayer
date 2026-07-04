@@ -46,9 +46,6 @@
 		layer.id = 'shard-display';
 		layer.style.pointerEvents = 'none';
 		layer.style.userSelect = 'none';
-		layer.style.webkitUserSelect = 'none';
-		layer.style.mozUserSelect = 'none';
-		layer.style.msUserSelect = 'none';
 		layer.style.position = 'fixed';
 
 		// Mobile: center at top, desktop: top-left

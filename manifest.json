@@ -1,0 +1,10 @@
+{
+  "name": "Shape Slayer",
+  "short_name": "Shape Slayer",
+  "description": "A skill-based 2D top-down ARPG",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#1a1a2e",
+  "orientation": "any"
+}

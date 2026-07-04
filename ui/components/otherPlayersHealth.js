@@ -359,9 +359,6 @@
 		container.style.bottom = isMobileInit ? '280px' : '180px'; // Above local HUD
 		container.style.pointerEvents = 'none';
 		container.style.userSelect = 'none';
-		container.style.webkitUserSelect = 'none';
-		container.style.mozUserSelect = 'none';
-		container.style.msUserSelect = 'none';
 		container.style.zIndex = '1999'; // Just below local HUD (2000)
 		container.style.display = 'none';
 

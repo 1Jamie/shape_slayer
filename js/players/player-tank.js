@@ -360,6 +360,9 @@ class Tank extends PlayerBase {
     
     // Override createHeavyAttack for shout
     createHeavyAttack() {
+        if (typeof beginLifestealAttackSwing === 'function') {
+            beginLifestealAttackSwing(this);
+        }
         this.createShout();
         
         this.isAttacking = true;
@@ -640,80 +643,67 @@ class Tank extends PlayerBase {
                     const playerDirY = Math.sin(this.shieldDirection);
                     
                     Game.enemies.forEach(enemy => {
-                        if (enemy.alive) {
-                            // Calculate relative position to player
-                            const dx = enemy.x - this.x;
-                            const dy = enemy.y - this.y;
+                        if (!enemy.alive) return;
+
+                        const bodies = typeof getEnemyCollisionBodies === 'function'
+                            ? getEnemyCollisionBodies(enemy)
+                            : [{ x: enemy.x, y: enemy.y, radius: enemy.size }];
+                        for (let b = 0; b < bodies.length; b++) {
+                            const body = bodies[b];
+                            const dx = body.x - this.x;
+                            const dy = body.y - this.y;
                             const distance = Math.sqrt(dx * dx + dy * dy);
-                            
-                            // Check if enemy is in front of player
+                            if (distance <= 0) continue;
+
                             const relX = dx / distance;
                             const relY = dy / distance;
                             const dot = relX * playerDirX + relY * playerDirY;
-                            
-                            if (dot > 0) {
-                                // Enemy is in front, check if at wave front
-                                const perpendicularX = -playerDirY;
-                                const perpendicularY = playerDirX;
-                                const lateralDist = Math.abs(dx * perpendicularX + dy * perpendicularY);
-                                
-                                // Check if enemy is at the current wave front (± a small margin for hit detection)
-                                const forwardDistance = distance * dot;
-                                const shieldStart = shieldVisualStart;
-                                const waveFrontPosition = shieldStart + currentWaveDistance;
-                                const waveFrontTolerance = 15; // Small margin for hit detection
-                                
-                                // Check if enemy is within tolerance of the wave front
-                                const distanceFromWaveFront = Math.abs(forwardDistance - waveFrontPosition);
-                                if (forwardDistance >= shieldStart && 
-                                    distanceFromWaveFront <= enemy.size + waveFrontTolerance &&
-                                    lateralDist < waveWidth / 2 + enemy.size) {
-                                    
-                                    // Deal damage and apply knockback when hit by wave
-                                    if (!this.shieldWaveHitEnemies.has(enemy)) {
-                                        const damageDealt = Math.min(waveDamage, enemy.hp);
-                                        
-                                        // Get player ID for damage attribution
-                                        const attackerId = this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null);
-                                        
-                                        enemy.takeDamage(waveDamage, attackerId);
-                                        this.shieldWaveHitEnemies.add(enemy);
-                                        
-                                        // Track stats (host/solo only)
-                                        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
-                                        if (!isClient) {
-                                            // Track lifetime damage stat
-                                            if (typeof window.trackLifetimeStat === 'function') {
-                                                window.trackLifetimeStat('totalDamageDealt', damageDealt);
-                                            }
-                                            
-                                            if (typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
-                                                const stats = Game.getPlayerStats(attackerId);
-                                                if (stats) {
-                                                    stats.addStat('damageDealt', damageDealt);
-                                                }
-                                                
-                                                // Track kill if enemy died
-                                                if (enemy.hp <= 0) {
-                                                    const killStats = Game.getPlayerStats(attackerId);
-                                                    if (killStats) {
-                                                        killStats.addStat('kills', 1);
-                                                    }
-                                                }
+                            if (dot <= 0) continue;
+
+                            const perpendicularX = -playerDirY;
+                            const perpendicularY = playerDirX;
+                            const lateralDist = Math.abs(dx * perpendicularX + dy * perpendicularY);
+                            const forwardDistance = distance * dot;
+                            const shieldStart = shieldVisualStart;
+                            const waveFrontPosition = shieldStart + currentWaveDistance;
+                            const waveFrontTolerance = 15;
+                            const distanceFromWaveFront = Math.abs(forwardDistance - waveFrontPosition);
+                            if (forwardDistance < shieldStart
+                                || distanceFromWaveFront > body.radius + waveFrontTolerance
+                                || lateralDist >= waveWidth / 2 + body.radius) {
+                                continue;
+                            }
+
+                            if (!this.shieldWaveHitEnemies.has(enemy)) {
+                                const damageDealt = Math.min(waveDamage, enemy.hp);
+                                const attackerId = this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null);
+                                enemy.takeDamage(waveDamage, attackerId);
+                                this.shieldWaveHitEnemies.add(enemy);
+                                const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+                                if (!isClient) {
+                                    if (typeof window.trackLifetimeStat === 'function') {
+                                        window.trackLifetimeStat('totalDamageDealt', damageDealt);
+                                    }
+                                    if (typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
+                                        const stats = Game.getPlayerStats(attackerId);
+                                        if (stats) {
+                                            stats.addStat('damageDealt', damageDealt);
+                                        }
+                                        if (enemy.hp <= 0) {
+                                            const killStats = Game.getPlayerStats(attackerId);
+                                            if (killStats) {
+                                                killStats.addStat('kills', 1);
                                             }
                                         }
-                                        
-                                        // Create damage number for special ability
-                                        if (typeof createDamageNumber !== 'undefined') {
-                                            createDamageNumber(enemy.x, enemy.y, damageDealt, true);
-                                        }
-                                        
-                                        // Apply knockback (wave pushes enemies forward)
-                                        const knockbackForce = TANK_CONFIG.shieldWaveKnockback;
-                                        enemy.applyKnockback(playerDirX * knockbackForce, playerDirY * knockbackForce);
                                     }
                                 }
+                                if (typeof createDamageNumber !== 'undefined') {
+                                    createDamageNumber(body.x, body.y, damageDealt, true);
+                                }
+                                const knockbackForce = TANK_CONFIG.shieldWaveKnockback;
+                                enemy.applyKnockback(playerDirX * knockbackForce, playerDirY * knockbackForce);
                             }
+                            break;
                         }
                     });
                 }
@@ -737,7 +727,10 @@ class Tank extends PlayerBase {
                 hitbox.trail.forEach((trailPoint, index) => {
                     const trailAge = hitbox.elapsed - trailPoint.time;
                     const trailMaxAge = 0.25;
-                    const alpha = 1 - (trailAge / trailMaxAge); // Fade from 1 to 0
+                    const degraded = typeof Game !== 'undefined' && Game.renderQuality &&
+                        Game.renderQuality.gearRingPoints === 32;
+                    if (degraded && index % 2 === 1) return;
+                    const alpha = 1 - (trailAge / trailMaxAge);
                     
                     ctx.fillStyle = `rgba(139, 90, 43, ${alpha * 0.3})`; // Brown with fading opacity
                     ctx.beginPath();
@@ -821,7 +814,9 @@ class Tank extends PlayerBase {
             const waveWidth = 150; // Width of the wave
             
             // Draw wave segments as they progress
-            const numSegments = 20; // How many segments to draw
+            const degraded = typeof Game !== 'undefined' && Game.renderQuality &&
+                Game.renderQuality.gearRingPoints <= 32;
+            const numSegments = degraded ? 12 : 20;
             const segmentLength = waveMaxDistance / numSegments;
             
             for (let i = 0; i < numSegments; i++) {

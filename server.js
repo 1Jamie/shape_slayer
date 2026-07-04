@@ -18,29 +18,72 @@ function getLocalIP() {
 
 const PORT = 3000;
 const IP = getLocalIP();
+const ROOT_DIR = path.resolve(__dirname);
+
+const ALLOWED_ROOT_FILES = new Set(['index.html', 'privacy.html', 'manifest.json']);
+const ALLOWED_DIRECTORIES = new Set(['css', 'js', 'ui', 'audio']);
 
 // MIME types
 const mimeTypes = {
     '.html': 'text/html',
     '.css': 'text/css',
     '.js': 'application/javascript',
-    '.json': 'application/json'
+    '.json': 'application/json',
+    '.map': 'application/json',
+    '.mp3': 'audio/mpeg',
+    '.ogg': 'audio/ogg',
+    '.wav': 'audio/wav',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.svg': 'image/svg+xml',
+    '.ico': 'image/x-icon'
 };
+
+function resolveGameFilePath(urlPath) {
+    const pathname = new URL(urlPath, 'http://localhost').pathname;
+    if (pathname.includes('\0')) {
+        return null;
+    }
+
+    const relativePath = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
+    if (!relativePath) {
+        return null;
+    }
+
+    const segments = relativePath.split('/');
+    if (segments.some((segment) => !segment || segment === '..' || segment.startsWith('.'))) {
+        return null;
+    }
+
+    const [rootSegment] = segments;
+    const isAllowed = ALLOWED_ROOT_FILES.has(relativePath)
+        || ALLOWED_DIRECTORIES.has(rootSegment);
+    if (!isAllowed) {
+        return null;
+    }
+
+    const resolvedPath = path.resolve(ROOT_DIR, relativePath);
+    if (resolvedPath !== ROOT_DIR && !resolvedPath.startsWith(ROOT_DIR + path.sep)) {
+        return null;
+    }
+
+    return resolvedPath;
+}
 
 const server = http.createServer((req, res) => {
     console.log(`${req.method} ${req.url}`);
 
-    // Parse the URL
-    let filePath = '.' + req.url;
-    if (filePath === './') {
-        filePath = './index.html';
+    const filePath = resolveGameFilePath(req.url);
+    if (!filePath) {
+        res.writeHead(403);
+        res.end('Forbidden');
+        return;
     }
 
-    // Get the file extension
     const extname = path.extname(filePath).toLowerCase();
     const contentType = mimeTypes[extname] || 'application/octet-stream';
 
-    // Read the file
     fs.readFile(filePath, (err, content) => {
         if (err) {
             if (err.code === 'ENOENT') {
@@ -65,5 +108,3 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log(`  Network:  http://${IP}:${PORT}`);
     console.log(`========================================\n`);
 });
-
-

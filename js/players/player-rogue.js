@@ -315,7 +315,8 @@ class Rogue extends PlayerBase {
         // Base projectile (always fires)
         const baseProjectile = {
             ...baseKnife,
-            damage: this.damage * (hasVolley ? volleyDamageMultiplier : 1.0)
+            damage: this.damage * (hasVolley ? volleyDamageMultiplier : 1.0),
+            lifestealBatchId: this._lifestealSwingId || 0
         };
         
         // Apply Volley pierce/chain bonuses to base if active
@@ -342,7 +343,8 @@ class Rogue extends PlayerBase {
                     ...baseKnife,
                     vx: Math.cos(multishotAngle) * ROGUE_CONFIG.knifeSpeed * (this.projectileSpeedMultiplier || 1.0),
                     vy: Math.sin(multishotAngle) * ROGUE_CONFIG.knifeSpeed * (this.projectileSpeedMultiplier || 1.0),
-                    damage: this.damage * (hasVolley ? volleyDamageMultiplier : 0.5) // Volley reduction or 50% for multishot
+                    damage: this.damage * (hasVolley ? volleyDamageMultiplier : 0.5), // Volley reduction or 50% for multishot
+                    lifestealBatchId: this._lifestealSwingId || 0
                 };
                 
                 // Apply Volley pierce/chain bonuses to extra projectiles if active
@@ -364,6 +366,9 @@ class Rogue extends PlayerBase {
     
     // Override createHeavyAttack for fan of knives
     createHeavyAttack() {
+        if (typeof beginLifestealAttackSwing === 'function') {
+            beginLifestealAttackSwing(this);
+        }
         this.createFanOfKnives();
         
         this.isAttacking = true;
@@ -426,7 +431,8 @@ class Rogue extends PlayerBase {
                     color: this.color,
                     playerX: this.x, // Store for backstab detection
                     playerY: this.y,
-                    playerClass: this.playerClass
+                    playerClass: this.playerClass,
+                    lifestealBatchId: this._lifestealSwingId || 0
                 });
             }
         }
@@ -726,11 +732,14 @@ class Rogue extends PlayerBase {
             
             Game.enemies.forEach(enemy => {
                 if (enemy.alive && !this.dodgeHitEnemies.has(enemy)) {
-                    const dx = enemy.x - this.x;
-                    const dy = enemy.y - this.y;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    const dodgeHit = typeof checkEnemyCircleCollision === 'function'
+                        ? checkEnemyCircleCollision(this.x, this.y, this.size, enemy)
+                        : null;
+                    const distance = dodgeHit
+                        ? (dodgeHit.hit ? 0 : Infinity)
+                        : Math.sqrt((enemy.x - this.x) ** 2 + (enemy.y - this.y) ** 2);
                     
-                    if (distance < this.size + enemy.size) {
+                    if (dodgeHit ? dodgeHit.hit : distance < this.size + enemy.size) {
                         // Check for crit
                         const isCrit = Math.random() < this.critChance;
                         const critMultiplier = isCrit ? (2.0 * (this.critDamageMultiplier || 1.0)) : 1.0;
@@ -764,7 +773,7 @@ class Rogue extends PlayerBase {
                         
                         // Apply lifesteal
                         if (typeof applyLifesteal !== 'undefined') {
-                            applyLifesteal(this, damageDealt);
+                            applyLifesteal(this, damageDealt, { enemy, source: 'ability' });
                         }
                         
                         // Apply legendary effects

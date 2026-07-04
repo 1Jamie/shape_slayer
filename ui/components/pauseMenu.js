@@ -348,7 +348,7 @@
 		document.addEventListener('keydown', (e) => {
 			// Don't intercept if user is typing in an input field
 			const target = e.target;
-			if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+			if (typeof isFormFieldTarget === 'function' && isFormFieldTarget(target)) {
 				return;
 			}
 

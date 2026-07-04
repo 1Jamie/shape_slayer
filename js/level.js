@@ -8,6 +8,24 @@ class Room {
         // New larger room size: 2400x1350 (87.5% larger than original 1280x720)
         this.width = 2400;
         this.height = 1350;
+        this.seed = null;
+        this.biomeId = null;
+        this.bossTheme = null;
+        this.layoutVersion = null;
+        this.layoutHash = null;
+        this.layout = null;
+        this.walkableGrid = null;
+        this.obstacles = [];
+        this.spawnZones = [];
+        this.exitZones = [];
+        this.visualMotifs = [];
+        this.paths = [];
+        this.landmarks = [];
+        this.encounterZones = [];
+        this.decorationSeed = null;
+        this.decorationProfile = null;
+        this.archetype = null;
+        this.entranceVariant = null;
         this.enemies = [];
         this.loot = [];
         this.cleared = false;
@@ -33,80 +51,47 @@ function initializeRoom(roomNumber = 1) {
     return currentRoom;
 }
 
+function applyGeneratedLayoutToRoom(room, roomType) {
+    if (!room || typeof RoomLayoutGenerator === 'undefined' || !RoomLayoutGenerator) {
+        return room;
+    }
+
+    const gameMode = (typeof Game !== 'undefined' && Game.gameMode) ? Game.gameMode : 'cards';
+    const plan = RoomLayoutGenerator.buildRoomPlan(room.number, gameMode, roomType || room.type, {
+        nextRoomModifiers: (typeof Game !== 'undefined' && Game.nextRoomModifiers) ? Game.nextRoomModifiers : null
+    });
+    const seed = `${gameMode}:${room.number}:${plan.roomType}:${plan.biomeId}:v${plan.layoutVersion}`;
+    const layout = RoomLayoutGenerator.generateRoomLayout(plan, seed);
+
+    room.seed = layout.seed;
+    room.biomeId = layout.biomeId;
+    room.bossTheme = layout.bossTheme;
+    room.layoutVersion = layout.layoutVersion;
+    room.layoutHash = layout.hash;
+    room.layout = layout;
+    room.width = layout.width;
+    room.height = layout.height;
+    room.walkableGrid = layout.grid;
+    room.obstacles = layout.obstacles || [];
+    room.spawnZones = [layout.spawnZone];
+    room.exitZones = [layout.exitZone];
+    room.visualMotifs = layout.visualMotifs || [];
+    room.paths = layout.paths || [];
+    room.landmarks = layout.landmarks || [];
+    room.encounterZones = layout.encounterZones || [];
+    room.decorationSeed = layout.decorationSeed || null;
+    room.decorationProfile = layout.decorationProfile || null;
+    room.archetype = layout.archetype || null;
+    room.entranceVariant = layout.entranceVariant || null;
+
+    return room;
+}
+
 // Get multiplayer scaling multipliers based on player count
 // Returns { enemyCount, enemyHP, enemyDamage, bossHP, bossDamage }
 function getMultiplayerScaling() {
-    // Default values for solo play
-    const defaultScaling = {
-        enemyCount: 1.0,
-        enemyHP: 1.0,
-        enemyDamage: 1.0,
-        bossHP: 1.0,
-        bossDamage: 1.0
-    };
-
-    // Check if multiplayer is enabled
-    if (!Game.multiplayerEnabled || typeof multiplayerManager === 'undefined' || !multiplayerManager) {
-        return defaultScaling;
-    }
-
-    // Get player count from lobby
-    const playerCount = multiplayerManager.players ? multiplayerManager.players.length : 1;
-
-    // Solo play - no scaling
-    if (playerCount <= 1) {
-        return defaultScaling;
-    }
-
-    // Multiplayer scaling based on player count
-    // Designed with 1:1.1 difficulty curve (slightly harder per player than solo)
-    switch (playerCount) {
-        case 2:
-            return {
-                enemyCount: 1.5,    // +50% enemies
-                enemyHP: 1.35,      // +35% HP
-                enemyDamage: 1.04,  // +4% damage
-                bossHP: 1.40,       // +40% boss HP
-                bossDamage: 1.10    // +10% boss damage
-            };
-
-        case 3:
-            return {
-                enemyCount: 2.0,    // +100% enemies (2x)
-                enemyHP: 1.40,      // +40% HP
-                enemyDamage: 1.04,  // +4% damage
-                bossHP: 1.80,       // +80% boss HP
-                bossDamage: 1.15    // +15% boss damage
-            };
-
-        case 4:
-            return {
-                enemyCount: 2.5,    // +150% enemies (2.5x)
-                enemyHP: 1.5,       // +50% HP
-                enemyDamage: 1.04,  // +4% damage
-                bossHP: 2.20,       // +120% boss HP
-                bossDamage: 1.18    // +18% boss damage
-            };
-
-        default:
-            // For more than 4 players (future-proofing), use 4-player scaling
-            return {
-                enemyCount: 2.5,
-                enemyHP: 2.0,
-                enemyDamage: 1.15,
-                bossHP: 2.20,
-                bossDamage: 1.18
-            };
-    }
+    return CombatScaling.getMultiplayerScaling();
 }
-
-// Enemy stat growth per room (compounded)
-const ENEMY_HP_GROWTH_PER_ROOM = 0.10;       // 10% per room (increased from 8%)
-const ENEMY_DAMAGE_GROWTH_PER_ROOM = 0.15;   // 15% per room (increased from 13%)
-
-// Boss stat growth per boss room (compounded)
-const BOSS_HP_GROWTH_PER_ROOM = 0.09;        // 9% per room (reduced from 12% to match new balance)
-const BOSS_DAMAGE_GROWTH_PER_ROOM = 0.14;    // 14% per room
 
 // Generate room with enemies
 function generateRoom(roomNumber) {
@@ -115,6 +100,7 @@ function generateRoom(roomNumber) {
     // Check for Boss Rush FIRST (skip to boss room) - modifier override takes priority
     if (typeof Game !== 'undefined' && Game.bossRushTargetRoom && roomNumber === Game.bossRushTargetRoom) {
         room.type = 'boss';
+        applyGeneratedLayoutToRoom(room, room.type);
         const boss = generateBoss(roomNumber);
         room.enemies.push(boss);
         Game.bossRushTargetRoom = null;
@@ -197,6 +183,7 @@ function generateRoom(roomNumber) {
     }
 
     room.type = roomType;
+    applyGeneratedLayoutToRoom(room, roomType);
 
     // Handle boss room generation (if room type is boss from either modifier or default)
     if (roomType === 'boss') {
@@ -219,69 +206,13 @@ function generateRoom(roomNumber) {
         return room;
     }
 
-    // Get multiplayer scaling multipliers
-    const mpScaling = getMultiplayerScaling();
-
-    // IMPROVED SCALING: Cap enemy count at room 18, then scale stats more aggressively
-    // This prevents performance issues and visual clutter while maintaining difficulty
-    const ENEMY_COUNT_CAP_ROOM = 18;
-    const CAPPED_ROOM_ENEMY_COUNT = 26; // Slightly lower cap to lean on smarter AI
-
-    let baseEnemyCount;
-
-    if (roomNumber <= ENEMY_COUNT_CAP_ROOM) {
-        // Phase 1: Normal scaling (Rooms 1-18)
-        baseEnemyCount = 6 + Math.floor(roomNumber * 1.05);
-    } else {
-        // Phase 2: Continued scaling (Rooms 19+)
-        // Start from cap and add ~1 enemy per room
-        baseEnemyCount = CAPPED_ROOM_ENEMY_COUNT + Math.floor((roomNumber - ENEMY_COUNT_CAP_ROOM) * 1.0);
-    }
-
-    // Apply room type modifiers to enemy count
-    let enemyCountMod = 1.0;
-    if (roomType === 'challenge') {
-        enemyCountMod = 1.12; // +12% enemy count
-    } else if (roomType === 'truncation') {
-        enemyCountMod = 0.80; // -20% enemy count
-    } else if (roomType === 'bonus_slot') {
-        enemyCountMod = 1.0; // Normal count but harder enemies
-    }
-
-    baseEnemyCount = Math.floor(baseEnemyCount * enemyCountMod);
-
-    const roomIndex = Math.max(0, roomNumber - 1);
-    let enemyHpScale = Math.pow(1 + ENEMY_HP_GROWTH_PER_ROOM, roomIndex);
-    let enemyDamageScale = Math.pow(1 + ENEMY_DAMAGE_GROWTH_PER_ROOM, roomIndex);
-
-    // Apply room type difficulty modifiers
-    if (roomType === 'elite') {
-        enemyHpScale *= 1.15; // +15% HP
-        enemyDamageScale *= 1.15; // +15% damage
-    } else if (roomType === 'challenge') {
-        enemyHpScale *= 1.30; // +30% HP
-        enemyDamageScale *= 1.30; // +30% damage
-    } else if (roomType === 'truncation') {
-        enemyHpScale *= 0.50; // -50% HP
-    } else if (roomType === 'rest') {
-        enemyHpScale *= 0.80; // -20% HP
-        enemyDamageScale *= 0.80; // -20% damage
-    } else if (roomType === 'purification') {
-        enemyHpScale *= 1.25; // +25% HP
-        enemyDamageScale *= 1.25; // +25% damage
-    } else if (roomType === 'bonus_slot') {
-        enemyHpScale *= 1.50; // +50% HP
-        enemyDamageScale *= 1.50; // +50% damage
-    }
-
-    // Apply next-room enemy modifiers from room modifier cards (one-time)
+    // Parse next-room enemy modifiers from card effects (before clearing)
     let enemyHpMod = 1.0;
     let enemySpeedMod = 1.0;
     let explosionChance = 0;
     let shieldChance = 0;
     let doubleEnemies = false;
 
-    // Check consolidated modifiers first, then legacy support
     if (typeof Game !== 'undefined' && Game.nextRoomModifiers) {
         const mods = Game.nextRoomModifiers;
         if (Number.isFinite(mods.hpPct) && mods.hpPct !== 0) {
@@ -296,11 +227,9 @@ function generateRoom(roomNumber) {
 
         console.log('[Room Generation] Applying modifiers - explosionChance:', explosionChance, 'shieldChance:', shieldChance, 'hpPct:', mods.hpPct, 'speedPct:', mods.speedPct);
 
-        // Clear modifiers after use
         Game.nextRoomModifiers = null;
     }
 
-    // Legacy support for existing code
     if (typeof Game !== 'undefined' && Game.nextRoomEnemyMod) {
         if (Number.isFinite(Game.nextRoomEnemyMod.hpPct) && Game.nextRoomEnemyMod.hpPct !== 0) {
             enemyHpMod *= (1 + Game.nextRoomEnemyMod.hpPct);
@@ -308,111 +237,186 @@ function generateRoom(roomNumber) {
         if (Number.isFinite(Game.nextRoomEnemyMod.speedPct) && Game.nextRoomEnemyMod.speedPct !== 0) {
             enemySpeedMod *= (1 + Game.nextRoomEnemyMod.speedPct);
         }
-        // Clear so it only applies to this room
         Game.nextRoomEnemyMod = null;
     }
 
-    // Apply double enemies modifier
-    if (doubleEnemies) {
-        baseEnemyCount *= 2;
-    }
+    const gameMode = (typeof Game !== 'undefined' && Game.gameMode) ? Game.gameMode : 'cards';
+    const scalingCtx = CombatScaling.createContext({
+        roomNumber,
+        roomType,
+        gameMode,
+        enemyHpMod,
+        enemySpeedMod,
+        doubleEnemies
+    });
+    const scalingFactors = CombatScaling.computeScalingFactors(scalingCtx);
+    scalingCtx._factors = scalingFactors;
 
-    const enemyCount = Math.floor(baseEnemyCount * mpScaling.enemyCount);
+    const mpScaling = getMultiplayerScaling();
+    const enemyCount = scalingFactors.enemyCount;
 
-    // Debug logging
-    if (mpScaling.enemyCount > 1.0 || roomNumber > ENEMY_COUNT_CAP_ROOM) {
-        console.log(`[Room ${roomNumber}] Count: ${baseEnemyCount} → ${enemyCount} enemies (${mpScaling.enemyCount}x), HP Scale: ${enemyHpScale.toFixed(2)}x, Damage Scale: ${enemyDamageScale.toFixed(2)}x, MP HP: ${mpScaling.enemyHP}x, MP Damage: ${mpScaling.enemyDamage}x`);
+    if (mpScaling.enemyCount > 1.0 || roomNumber > CombatScaling.ENEMY_COUNT_CAP_ROOM) {
+        console.log(`[Room ${roomNumber}] Count: ${enemyCount} enemies (${mpScaling.enemyCount}x MP), HP Scale: ${scalingFactors ? scalingFactors.roomHp.toFixed(2) : '?'}x, Damage Scale: ${scalingFactors ? scalingFactors.roomDamage.toFixed(2) : '?'}x, MP HP: ${mpScaling.enemyHP}x, MP Damage: ${mpScaling.enemyDamage}x`);
     }
 
     // Spawn enemies with buffer from player spawn area
-    const minDistance = 200; // Increased from 150 to 200 for better safety buffer
     const margin = 50;
 
     // Define spawn safety zone (left side where player enters at room center vertically)
-    const spawnZoneX = 50;
-    const spawnZoneY = room.height / 2; // Center vertically (675 for 1350 height)
-    const spawnZoneRadius = 300; // No enemies within 300px of spawn point
+    const spawnZone = room.layout && room.layout.spawnZone ? room.layout.spawnZone : { x: 50, y: room.height / 2, radius: 300 };
+    const spawnZoneX = spawnZone.x;
+    const spawnZoneY = spawnZone.y;
+    const spawnZoneRadius = spawnZone.radius || 300;
 
-    // Calculate number of groups based on enemy count (1 group per 3-4 enemies)
-    // This ensures we get multiple groups that are relatively balanced
-    const avgEnemiesPerGroup = 3.5;
-    const numGroups = Math.max(1, Math.ceil(enemyCount / avgEnemiesPerGroup));
-    const enemyGroups = [];
+    const useRouteSpawn = roomType === 'normal' &&
+        room.layout &&
+        typeof RoomLayoutGenerator !== 'undefined' &&
+        typeof RoomLayoutGenerator.buildRouteSpawnGroups === 'function';
 
-    // Distribute enemies evenly across groups
-    const baseGroupSize = Math.floor(enemyCount / numGroups);
-    const remainder = enemyCount % numGroups;
-    const groupSizes = [];
+    const spawnProtectionDistance = (useRouteSpawn &&
+        typeof RoomLayoutGenerator.getPlayerSpawnProtectionDistance === 'function')
+        ? RoomLayoutGenerator.getPlayerSpawnProtectionDistance(room.layout)
+        : spawnZoneRadius + 420;
 
-    for (let g = 0; g < numGroups; g++) {
-        // First 'remainder' groups get an extra enemy to distribute evenly
-        const size = g < remainder ? baseGroupSize + 1 : baseGroupSize;
-        groupSizes.push(size);
+    let enemyGroups = [];
+    let groupSizes = [];
+    let mainRoad = null;
+
+    if (useRouteSpawn) {
+        mainRoad = RoomLayoutGenerator.getMainRoadPath(room.layout);
+        const routeGroups = RoomLayoutGenerator.buildRouteSpawnGroups(room.layout, enemyCount, {
+            minDistFromSpawn: spawnProtectionDistance,
+            minGroupSeparation: 220
+        });
+        if (routeGroups && routeGroups.length) {
+            enemyGroups = routeGroups;
+            groupSizes = routeGroups.map(group => group.size);
+            console.log(`[Room ${roomNumber}] Route spawn: ${enemyCount} enemies in ${routeGroups.length} pockets (${routeGroups.filter(g => g.isOffshoot).length} offshoots)`);
+        }
     }
 
-    console.log(`[Room ${roomNumber}] Spawning ${enemyCount} enemies in ${numGroups} groups:`, groupSizes);
+    if (!enemyGroups.length) {
+        const avgEnemiesPerGroup = 3.5;
+        const numGroups = Math.max(1, Math.ceil(enemyCount / avgEnemiesPerGroup));
+        const baseGroupSize = Math.floor(enemyCount / numGroups);
+        const remainder = enemyCount % numGroups;
 
-    // Generate group center positions
-    for (let g = 0; g < numGroups; g++) {
-        let groupX, groupY;
-        let attempts = 0;
-        let validPosition = false;
-
-        while (!validPosition && attempts < 100) {
-            groupX = random(margin + 200, room.width - margin - 200);
-            groupY = random(margin + 200, room.height - margin - 200);
-
-            // Check distance from spawn zone
-            const dx = groupX - spawnZoneX;
-            const dy = groupY - spawnZoneY;
-            const distFromSpawn = Math.sqrt(dx * dx + dy * dy);
-
-            // Ensure group center is far from spawn and other groups
-            let farFromOtherGroups = true;
-            for (let other of enemyGroups) {
-                const odx = groupX - other.x;
-                const ody = groupY - other.y;
-                const dist = Math.sqrt(odx * odx + ody * ody);
-                if (dist < 300) { // Groups at least 300px apart
-                    farFromOtherGroups = false;
-                    break;
-                }
-            }
-
-            if (distFromSpawn >= spawnZoneRadius + 200 && farFromOtherGroups) {
-                validPosition = true;
-            }
-            attempts++;
+        for (let g = 0; g < numGroups; g++) {
+            groupSizes.push(g < remainder ? baseGroupSize + 1 : baseGroupSize);
         }
 
-        enemyGroups.push({ x: groupX, y: groupY });
-    }
+        console.log(`[Room ${roomNumber}] Spawning ${enemyCount} enemies in ${numGroups} groups:`, groupSizes);
 
-    // Spawn enemies in groups with even distribution
-    let enemyIndex = 0;
-    for (let groupIndex = 0; groupIndex < numGroups; groupIndex++) {
-        const groupSize = groupSizes[groupIndex];
-        const group = enemyGroups[groupIndex];
-
-        for (let i = 0; i < groupSize; i++) {
-            let x, y;
+        for (let g = 0; g < numGroups; g++) {
+            let groupX, groupY;
             let attempts = 0;
             let validPosition = false;
 
+            const minDistanceFrom = [
+                { x: spawnZoneX, y: spawnZoneY, distance: spawnProtectionDistance },
+                ...enemyGroups.map(other => ({ x: other.x, y: other.y, distance: 300 }))
+            ];
+
+            if (room.layout && typeof RoomLayoutGenerator !== 'undefined') {
+                const point = RoomLayoutGenerator.findSafeSpawnPoint(room.layout, {
+                    radius: 80,
+                    margin: margin + 200,
+                    minDistanceFrom,
+                    maxAttempts: 160
+                });
+                if (point) {
+                    groupX = point.x;
+                    groupY = point.y;
+                    validPosition = true;
+                }
+            }
+
             while (!validPosition && attempts < 100) {
-                // Spawn within 100px radius of group center
+                groupX = random(margin + 200, room.width - margin - 200);
+                groupY = random(margin + 200, room.height - margin - 200);
+
+                const dx = groupX - spawnZoneX;
+                const dy = groupY - spawnZoneY;
+                const distFromSpawn = Math.sqrt(dx * dx + dy * dy);
+
+                let farFromOtherGroups = true;
+                for (let other of enemyGroups) {
+                    const odx = groupX - other.x;
+                    const ody = groupY - other.y;
+                    if (Math.sqrt(odx * odx + ody * ody) < 300) {
+                        farFromOtherGroups = false;
+                        break;
+                    }
+                }
+
+                const walkable = !room.layout || typeof RoomLayoutGenerator === 'undefined' ||
+                    RoomLayoutGenerator.isPointWalkable(room.layout, groupX, groupY, 80);
+                if (distFromSpawn >= spawnProtectionDistance && farFromOtherGroups && walkable) {
+                    validPosition = true;
+                }
+                attempts++;
+            }
+
+            enemyGroups.push({ x: groupX, y: groupY, spreadAlongPath: false });
+        }
+    }
+
+    // Spawn enemies in groups distributed along the route (or legacy arena clusters)
+    let enemyIndex = 0;
+    for (let groupIndex = 0; groupIndex < enemyGroups.length; groupIndex++) {
+        const group = enemyGroups[groupIndex];
+        const groupSize = group.size != null ? group.size : groupSizes[groupIndex];
+
+        for (let i = 0; i < groupSize; i++) {
+            let x, y;
+            let validPosition = false;
+
+            if (useRouteSpawn && mainRoad && typeof RoomLayoutGenerator.scatterEnemyInGroup === 'function') {
+                const point = RoomLayoutGenerator.scatterEnemyInGroup(
+                    room.layout,
+                    group,
+                    i,
+                    groupSize,
+                    mainRoad,
+                    { margin }
+                );
+                x = point.x;
+                y = point.y;
+                validPosition = RoomLayoutGenerator.isPointWalkable(room.layout, x, y, 30) &&
+                    !(typeof RoomLayoutGenerator.isInsidePlayerSpawnProtection === 'function' &&
+                        RoomLayoutGenerator.isInsidePlayerSpawnProtection(room.layout, x, y, 0));
+            }
+
+            let attempts = 0;
+            while (!validPosition && attempts < 100) {
                 const angle = Math.random() * Math.PI * 2;
                 const distance = Math.random() * 100;
                 x = group.x + Math.cos(angle) * distance;
                 y = group.y + Math.sin(angle) * distance;
 
-                // Clamp to room bounds
                 x = Math.max(margin, Math.min(room.width - margin, x));
                 y = Math.max(margin, Math.min(room.height - margin, y));
 
-                // Position is valid if within bounds
-                validPosition = true;
+                const walkable = !room.layout || typeof RoomLayoutGenerator === 'undefined' ||
+                    RoomLayoutGenerator.isPointWalkable(room.layout, x, y, 30);
+                const inSpawnSafe = room.layout &&
+                    typeof RoomLayoutGenerator.isInsidePlayerSpawnProtection === 'function' &&
+                    RoomLayoutGenerator.isInsidePlayerSpawnProtection(room.layout, x, y, 0);
+                validPosition = walkable && !inSpawnSafe;
                 attempts++;
+            }
+
+            if (!validPosition && room.layout && typeof RoomLayoutGenerator !== 'undefined') {
+                const point = RoomLayoutGenerator.findSafeSpawnPoint(room.layout, {
+                    radius: 30,
+                    margin,
+                    minDistanceFrom: [{ x: spawnZoneX, y: spawnZoneY, distance: spawnProtectionDistance }],
+                    maxAttempts: 120
+                });
+                if (point) {
+                    x = point.x;
+                    y = point.y;
+                }
             }
 
             // Choose enemy type based on room number, but elite/challenge rooms override restrictions
@@ -489,24 +493,18 @@ function generateRoom(roomNumber) {
             }
             if (shieldChance > 0 && Math.random() < shieldChance) {
                 enemy.hasShield = true;
-                // Shield health is based on enemy max HP (50% of max HP)
-                enemy.maxShieldHealth = Math.floor(enemy.maxHp * 0.5);
-                enemy.shieldHealth = enemy.maxShieldHealth;
-                // Purple+ shields reflect projectiles (elite/challenge rooms or high quality modifier)
                 enemy.shieldReflects = (roomType === 'elite' || roomType === 'challenge' || shieldChance >= 0.4);
             }
 
-            // Scale enemy stats (room progression + multiplayer scaling)
-            enemy.maxHp = Math.floor(enemy.maxHp * enemyHpScale * mpScaling.enemyHP * enemyHpMod);
-            enemy.hp = enemy.maxHp;
-            enemy.damage = enemy.damage * enemyDamageScale * mpScaling.enemyDamage;
-            if (typeof enemy.damageScalingMultiplier === 'number') {
-                enemy.damage *= enemy.damageScalingMultiplier;
-            }
-            enemy.xpValue = Math.floor(enemy.xpValue * enemyHpScale);
-            // Tag room-wide speed multiplier for AI that consults it (optional)
-            if (Number.isFinite(enemySpeedMod) && enemySpeedMod !== 1.0) {
-                enemy.globalSpeedMultiplier = (enemy.globalSpeedMultiplier || 1.0) * enemySpeedMod;
+            CombatScaling.applyEnemyScaling(
+                enemy,
+                CombatScaling.getEnemyProfileIdForInstance(enemy),
+                scalingCtx
+            );
+
+            if (enemy.hasShield) {
+                enemy.maxShieldHealth = Math.floor(enemy.maxHp * 0.5);
+                enemy.shieldHealth = enemy.maxShieldHealth;
             }
 
             // Set initial state to standby (will activate when player gets close)
@@ -562,6 +560,22 @@ function generateRoom(roomNumber) {
             let bossX, bossY;
             let attempts = 0;
             let validPosition = false;
+            if (room.layout && typeof RoomLayoutGenerator !== 'undefined') {
+                const point = RoomLayoutGenerator.findSafeSpawnPoint(room.layout, {
+                    radius: 120,
+                    margin: bossMargin,
+                    minDistanceFrom: [
+                        { x: spawnZoneX, y: spawnZoneY, distance: spawnZoneRadius + 200 },
+                        ...spawnedBossPositions.map(pos => ({ x: pos.x, y: pos.y, distance: minBossDistance }))
+                    ],
+                    maxAttempts: 160
+                });
+                if (point) {
+                    bossX = point.x;
+                    bossY = point.y;
+                    validPosition = true;
+                }
+            }
             
             while (!validPosition && attempts < 100) {
                 bossX = random(bossMargin, room.width - bossMargin);
@@ -584,8 +598,11 @@ function generateRoom(roomNumber) {
                     }
                 }
                 
-                // Ensure boss is far from spawn zone and other bosses
-                if (distFromSpawn >= spawnZoneRadius + 200 && farFromOtherBosses) {
+                const walkable = !room.layout || typeof RoomLayoutGenerator === 'undefined' ||
+                    RoomLayoutGenerator.isPointWalkable(room.layout, bossX, bossY, 120);
+
+                // Ensure boss is far from spawn zone, other bosses, and static scenery
+                if (distFromSpawn >= spawnZoneRadius + 200 && farFromOtherBosses && walkable) {
                     validPosition = true;
                 }
                 attempts++;
@@ -922,6 +939,17 @@ function getDoorPosition() {
     // Use current room dimensions if available, otherwise use default
     const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : 2400;
     const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : 1350;
+    const exitZone = (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.layout && currentRoom.layout.exitZone)
+        ? currentRoom.layout.exitZone
+        : null;
+    if (exitZone) {
+        return {
+            x: exitZone.x - 25,
+            y: exitZone.y - 50,
+            width: 50,
+            height: 100
+        };
+    }
     return {
         x: roomWidth - 100,
         y: roomHeight / 2 - 50,
@@ -1055,20 +1083,15 @@ function generateBoss(roomNumber) {
         boss.introComplete = true;
     }
 
-    // Apply room scaling and multiplayer scaling to boss stats
-    // Increased scaling to match faster progression
-    if (boss) {
-        const roomIndex = Math.max(0, roomNumber - 1);
-        const bossHpScale = Math.pow(1 + BOSS_HP_GROWTH_PER_ROOM, roomIndex);
-        const bossDamageScale = Math.pow(1 + BOSS_DAMAGE_GROWTH_PER_ROOM, roomIndex);
-        const baseHP = boss.maxHp * bossHpScale;
-        boss.maxHp = Math.floor(baseHP * mpScaling.bossHP);
-        boss.hp = boss.maxHp;
-        boss.damage = boss.damage * bossDamageScale * mpScaling.bossDamage;
+    if (boss && typeof BossScaling !== 'undefined' && BossScaling.applyBossScaling) {
+        const stats = BossScaling.applyBossScaling(boss, roomNumber, {
+            gameMode,
+            mpScaling,
+            isEliteSpawn: false
+        });
 
-        // Debug logging for boss scaling
-        if (mpScaling.bossHP > 1.0) {
-            console.log(`[Multiplayer] Boss ${boss.bossName || 'Unknown'} room ${roomNumber} scaling: HP: ${Math.floor(baseHP)} → ${boss.maxHp} (${mpScaling.bossHP}x), Damage Scale: ${bossDamageScale.toFixed(2)}x, MP Damage: ${mpScaling.bossDamage}x`);
+        if (mpScaling.bossHP > 1.0 && stats) {
+            console.log(`[Multiplayer] Boss ${boss.bossName || 'Unknown'} room ${roomNumber}: HP ${stats.maxHp} (${mpScaling.bossHP}x MP), damage ${stats.damage.toFixed(1)}`);
         }
     }
 
@@ -1099,93 +1122,21 @@ function spawnBossAsElite(x, y, roomNumber) {
     // Skip intro animation - set introComplete immediately
     boss.introComplete = true;
     
-    // Apply room scaling and multiplayer scaling to boss stats
-    const roomIndex = Math.max(0, roomNumber - 1);
-    const bossHpScale = Math.pow(1 + BOSS_HP_GROWTH_PER_ROOM, roomIndex);
-    const bossDamageScale = Math.pow(1 + BOSS_DAMAGE_GROWTH_PER_ROOM, roomIndex);
-    const baseHP = boss.maxHp * bossHpScale;
-    boss.maxHp = Math.floor(baseHP * mpScaling.bossHP);
-    boss.hp = boss.maxHp;
-    boss.damage = boss.damage * bossDamageScale * mpScaling.bossDamage;
-    
-    // Don't play boss spawn sound for elite spawns (they're mixed with normal enemies)
-    
+    if (typeof BossScaling !== 'undefined' && BossScaling.applyBossScaling) {
+        const gameMode = (typeof Game !== 'undefined' && Game.gameMode) ? Game.gameMode : 'cards';
+        BossScaling.applyBossScaling(boss, roomNumber, {
+            gameMode,
+            mpScaling,
+            isEliteSpawn: true
+        });
+    }
+
     return boss;
 }
 
-// Helper function to scale minion stats based on current room progression
-// This ensures minions spawned during combat (by octagons, bosses, etc.) get proper scaling
+// Delegate to combat-scaling.js (single minion scaling entry point)
 function scaleMinionStats(minion, healthMultiplier, damageMultiplier, xpMultiplier = null) {
-    // Get current room number
-    const roomNumber = typeof Game !== 'undefined' ? (Game.roomNumber || 1) :
-        (typeof currentRoom !== 'undefined' && currentRoom ? currentRoom.number : 1);
-
-    // Get multiplayer scaling multipliers
-    const mpScaling = getMultiplayerScaling();
-
-    // Calculate room-based scaling (same as normal enemies)
-    const roomIndex = Math.max(0, roomNumber - 1);
-    const enemyHpScale = Math.pow(1 + ENEMY_HP_GROWTH_PER_ROOM, roomIndex);
-    const enemyDamageScale = Math.pow(1 + ENEMY_DAMAGE_GROWTH_PER_ROOM, roomIndex);
-
-    // Apply scaling: base stats * room scaling * multiplayer scaling * minion multiplier
-    minion.maxHp = Math.floor(minion.maxHp * enemyHpScale * mpScaling.enemyHP * healthMultiplier);
-    minion.hp = minion.maxHp;
-    minion.damage = minion.damage * enemyDamageScale * mpScaling.enemyDamage * damageMultiplier;
-
-    // Apply XP multiplier if provided
-    if (xpMultiplier !== null) {
-        minion.xpValue = Math.floor(minion.xpValue * enemyHpScale * xpMultiplier);
-    }
-
-    // Handle activation based on whether minion has an inherited target
-    // If minion has a currentTarget (inherited from parent), activate immediately
-    // If no target, check if we're in a boss room and assign one
-    const isBossRoom = (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'boss');
-
-    if (minion.currentTarget) {
-        // Has inherited target - activate immediately
-        if (minion.state === 'standby' || minion.state === undefined) {
-            minion.state = 'chase';
-        }
-        minion.activated = true; // Mark as activated so AI runs immediately
-    } else if (isBossRoom) {
-        // In boss rooms, assign a target immediately (range doesn't matter)
-        const allPlayers = minion.getAllAlivePlayers();
-        if (allPlayers.length > 0) {
-            const alivePlayers = allPlayers.filter(p => p.player && p.player.alive !== false);
-            if (alivePlayers.length > 0) {
-                // Pick a random alive player as target
-                const randomIndex = Math.floor(Math.random() * alivePlayers.length);
-                minion.currentTarget = alivePlayers[randomIndex].id;
-                if (minion.state === 'standby' || minion.state === undefined) {
-                    minion.state = 'chase';
-                }
-                minion.activated = true;
-            } else {
-                // No alive players, keep in standby
-                if (minion.state === undefined) {
-                    minion.state = 'standby';
-                }
-                minion.activated = false;
-            }
-        } else {
-            // No players, keep in standby
-            if (minion.state === undefined) {
-                minion.state = 'standby';
-            }
-            minion.activated = false;
-        }
-    } else {
-        // No inherited target and not in boss room - keep in standby, will activate via checkDetection() when player gets close
-        // This handles the edge case where elite spawns minions before acquiring a target
-        if (minion.state === undefined) {
-            minion.state = 'standby';
-        }
-        minion.activated = false; // Will be set to true by checkDetection() when player is nearby
-    }
-
-    return minion;
+    return CombatScaling.scaleMinionStats(minion, healthMultiplier, damageMultiplier, xpMultiplier);
 }
 
 // Placeholder boss class for testing (will be replaced by actual boss implementations)

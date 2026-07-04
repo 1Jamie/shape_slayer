@@ -70,9 +70,10 @@ function getCachedCardGlow(color, size) {
 	return canvas;
 }
 
-window.renderGroundCards = function renderGroundCards(ctx) {
-	if (!Array.isArray(window.groundCards)) return;
-	window.groundCards.forEach(card => {
+window.renderGroundCards = function renderGroundCards(ctx, visibleCards) {
+	const cards = visibleCards || window.groundCards;
+	if (!Array.isArray(cards)) return;
+	cards.forEach(card => {
 		card.pulse = (card.pulse || 0) + 0.06;
 		const pulseSize = 2 + Math.sin(card.pulse) * 2;
 		const glowColor = bandColor(card._resolvedQuality || 'white');

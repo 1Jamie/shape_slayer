@@ -13,9 +13,6 @@
 		btn.style.right = '12px';
 		btn.style.pointerEvents = 'auto';
 		btn.style.userSelect = 'none';
-		btn.style.webkitUserSelect = 'none';
-		btn.style.mozUserSelect = 'none';
-		btn.style.msUserSelect = 'none';
 		btn.style.zIndex = '1001';
 		
 		// Prevent right-click context menu on pause button

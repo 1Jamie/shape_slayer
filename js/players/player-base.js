@@ -30,6 +30,8 @@ class PlayerBase {
         // Position
         this.x = x;
         this.y = y;
+        this.lastSafeX = x;
+        this.lastSafeY = y;
         this.vx = 0;
         this.vy = 0;
 
@@ -88,6 +90,7 @@ class PlayerBase {
         this.dashAnimLastPos = { x: this.x, y: this.y };
         this.dashTrail = [];
         this.dashTrailLifetime = 0.25;
+        this._maintainDashTrail = false;
         this.dashAnimCurveAmount = 0;
         this.dashAnimStretch = 1;
         this.dashAnimSqueeze = 1;
@@ -197,6 +200,9 @@ class PlayerBase {
         this.pullForceVx = 0;
         this.pullForceVy = 0;
         this.pullDecay = 0.85; // Per second decay rate
+        this.pullForceDampFrames = 0;
+        this.pullForceDampFactor = 0.85;
+        this.pullForceDampThreshold = 0.1;
 
         // Damage knockback system (receiving knockback from enemies)
         this.damageKnockbackVx = 0;
@@ -237,6 +243,45 @@ class PlayerBase {
         this.defenseMultiplier = 1.0;
         this.healthMultiplier = 1.0;
         this.updateEffectiveStats();
+    }
+
+    resolveWorldCollision(previousX = this.lastSafeX, previousY = this.lastSafeY) {
+        if (typeof currentRoom !== 'undefined' && currentRoom) {
+            this.x = clamp(this.x, this.size, currentRoom.width - this.size);
+            this.y = clamp(this.y, this.size, currentRoom.height - this.size);
+            if (currentRoom.layout && typeof RoomLayoutGenerator !== 'undefined') {
+                if (RoomLayoutGenerator.isPointWalkable(currentRoom.layout, this.x, this.y, this.size)) {
+                    this.lastSafeX = this.x;
+                    this.lastSafeY = this.y;
+                    return false;
+                }
+
+                const resolved = RoomLayoutGenerator.resolveCircleCollision(
+                    currentRoom.layout,
+                    this.x,
+                    this.y,
+                    this.size,
+                    previousX,
+                    previousY
+                );
+                this.x = resolved.x;
+                this.y = resolved.y;
+                if (this.thrustActive && resolved.collided) {
+                    this.thrustActive = false;
+                    this.thrustElapsed = 0;
+                }
+                return resolved.collided;
+            }
+
+            this.lastSafeX = this.x;
+            this.lastSafeY = this.y;
+            return false;
+        } else if (typeof Game !== 'undefined') {
+            // Fallback to canvas bounds if room not available
+            this.x = clamp(this.x, this.size, Game.canvas.width - this.size);
+            this.y = clamp(this.y, this.size, Game.canvas.height - this.size);
+        }
+        return false;
     }
 
 
@@ -337,6 +382,9 @@ class PlayerBase {
         // Process pull forces (apply before normal movement)
         this.processPullForces(deltaTime);
 
+        const previousX = this.x;
+        const previousY = this.y;
+
         // Update position (skip during special movement handled by subclass)
         if (!this.isInSpecialMovement()) {
             this.x += this.vx * deltaTime;
@@ -346,15 +394,8 @@ class PlayerBase {
         // Note: Mage blink knockback moved to player-mage.js updateClassAbilities()
         // Note: Rogue dodge collision damage moved to player-rogue.js updateClassAbilities()
 
-        // Keep player within room bounds (not canvas bounds)
-        if (typeof currentRoom !== 'undefined' && currentRoom) {
-            this.x = clamp(this.x, this.size, currentRoom.width - this.size);
-            this.y = clamp(this.y, this.size, currentRoom.height - this.size);
-        } else if (typeof Game !== 'undefined') {
-            // Fallback to canvas bounds if room not available
-            this.x = clamp(this.x, this.size, Game.canvas.width - this.size);
-            this.y = clamp(this.y, this.size, Game.canvas.height - this.size);
-        }
+        // Keep player within room bounds and generated scenery.
+        this.resolveWorldCollision(previousX, previousY);
 
         // Calculate rotation to face aim direction (mouse or joystick)
         if (input.getAimDirection) {
@@ -379,8 +420,14 @@ class PlayerBase {
         // Handle special abilities (calls subclass override)
         this.handleSpecialAbility(input);
 
+        const beforeClassAbilityX = this.x;
+        const beforeClassAbilityY = this.y;
+
         // Update class-specific abilities (called by subclass)
         this.updateClassAbilities(deltaTime, input);
+
+        // Class-specific movement such as Warrior thrust runs after normal movement.
+        this.resolveWorldCollision(beforeClassAbilityX, beforeClassAbilityY);
 
         // Update attack cooldown
         if (this.attackCooldown > 0) {
@@ -628,6 +675,9 @@ class PlayerBase {
         }
 
         if (shouldAttack) {
+            if (typeof beginLifestealAttackSwing === 'function') {
+                beginLifestealAttackSwing(this);
+            }
             this.executeAttack(input);
         }
     }
@@ -1061,7 +1111,7 @@ class PlayerBase {
 
         this.dashAnimCurveAmount *= Math.pow(0.5, deltaTime * 6);
 
-        if (this.dashTrail.length > 0) {
+        if (this._maintainDashTrail && this.dashTrail.length > 0) {
             this.dashTrail = this.dashTrail.filter(point => {
                 point.age += deltaTime;
                 return point.age < this.dashTrailLifetime;
@@ -1123,16 +1173,18 @@ class PlayerBase {
         }
 
         const pointStrength = Math.min(Math.sqrt(distSq), this.dodgeSpeedBoost * 0.016);
-        this.dashTrail.push({
-            x,
-            y,
-            dirX: newHX,
-            dirY: newHY,
-            age: 0,
-            strength: pointStrength
-        });
-        if (this.dashTrail.length > this.dashAnimPathMaxPoints) {
-            this.dashTrail.shift();
+        if (this._maintainDashTrail) {
+            this.dashTrail.push({
+                x,
+                y,
+                dirX: newHX,
+                dirY: newHY,
+                age: 0,
+                strength: pointStrength
+            });
+            if (this.dashTrail.length > this.dashAnimPathMaxPoints) {
+                this.dashTrail.shift();
+            }
         }
     }
 
@@ -2515,6 +2567,24 @@ class PlayerBase {
         }
     }
 
+    smoothDampPullForce(frames = 4, factor = 0.85) {
+        this.pullForceDampFrames = Math.max(this.pullForceDampFrames || 0, frames);
+        this.pullForceDampFactor = factor;
+        this.pullForceDampThreshold = 0.1;
+    }
+
+    snapDampPullForce(maxVelocity = 45, frames = 4, factor = 0.4, threshold = 0.5) {
+        const currentSpeed = Math.sqrt((this.pullForceVx || 0) * (this.pullForceVx || 0) + (this.pullForceVy || 0) * (this.pullForceVy || 0));
+        if (currentSpeed > maxVelocity && currentSpeed > 0) {
+            const scale = maxVelocity / currentSpeed;
+            this.pullForceVx *= scale;
+            this.pullForceVy *= scale;
+        }
+        this.pullForceDampFrames = Math.max(this.pullForceDampFrames || 0, frames);
+        this.pullForceDampFactor = factor;
+        this.pullForceDampThreshold = threshold;
+    }
+
     // Process pull forces each frame (similar to knockback)
     processPullForces(deltaTime) {
         if (this.pullForceVx !== 0 || this.pullForceVy !== 0) {
@@ -2525,9 +2595,19 @@ class PlayerBase {
             this.pullForceVx *= Math.pow(this.pullDecay, deltaTime);
             this.pullForceVy *= Math.pow(this.pullDecay, deltaTime);
 
+            if (this.pullForceDampFrames > 0) {
+                this.pullForceVx *= this.pullForceDampFactor;
+                this.pullForceVy *= this.pullForceDampFactor;
+                this.pullForceDampFrames--;
+            }
+
             // Stop if very small
-            if (Math.abs(this.pullForceVx) < 0.1) this.pullForceVx = 0;
-            if (Math.abs(this.pullForceVy) < 0.1) this.pullForceVy = 0;
+            const stopThreshold = this.pullForceDampFrames > 0 ? (this.pullForceDampThreshold || 0.5) : 0.1;
+            if (Math.abs(this.pullForceVx) < stopThreshold) this.pullForceVx = 0;
+            if (Math.abs(this.pullForceVy) < stopThreshold) this.pullForceVy = 0;
+            if (this.pullForceVx === 0 && this.pullForceVy === 0) {
+                this.pullForceDampFrames = 0;
+            }
         }
     }
 
@@ -2624,15 +2704,25 @@ class PlayerBase {
     }
 
     static getBaseShapeVertices(shape, size) {
+        if (!this._baseShapeVertexCache) {
+            this._baseShapeVertexCache = new Map();
+        }
+        const cacheKey = `${shape || 'square'}:${size}`;
+        if (this._baseShapeVertexCache.has(cacheKey)) {
+            return this._baseShapeVertexCache.get(cacheKey);
+        }
+
+        let vertices;
         switch (shape) {
             case 'triangle':
-                return [
+                vertices = [
                     { x: size, y: 0 },
                     { x: -size * 0.5, y: -size * 0.8660254038 },
                     { x: -size * 0.5, y: size * 0.8660254038 }
                 ];
+                break;
             case 'hexagon': {
-                const vertices = [];
+                vertices = [];
                 for (let i = 0; i < 6; i++) {
                     const angle = (Math.PI / 3) * i;
                     vertices.push({
@@ -2640,11 +2730,11 @@ class PlayerBase {
                         y: Math.sin(angle) * size
                     });
                 }
-                return vertices;
+                break;
             }
             case 'pentagon': {
                 const rotationOffset = 18 * Math.PI / 180;
-                const vertices = [];
+                vertices = [];
                 for (let i = 0; i < 5; i++) {
                     const angle = (Math.PI * 2 / 5) * i - Math.PI / 2 + rotationOffset;
                     vertices.push({
@@ -2652,16 +2742,18 @@ class PlayerBase {
                         y: Math.sin(angle) * size
                     });
                 }
-                return vertices;
+                break;
             }
             default:
-                return [
+                vertices = [
                     { x: -size * 0.8, y: -size * 0.8 },
                     { x: size * 0.8, y: -size * 0.8 },
                     { x: size * 0.8, y: size * 0.8 },
                     { x: -size * 0.8, y: size * 0.8 }
                 ];
         }
+        this._baseShapeVertexCache.set(cacheKey, vertices);
+        return vertices;
     }
 
     // Wave pattern generation functions - all designed to loop seamlessly at 2π
@@ -3312,6 +3404,208 @@ class PlayerBase {
         this.weaponVisual = this.calculateGearPieceVisual(this.weapon);
         this.armorVisual = this.calculateGearPieceVisual(this.armor);
         this.accessoryVisual = this.calculateGearPieceVisual(this.accessory);
+        this.gearVisualsVersion = (this.gearVisualsVersion || 0) + 1;
+        this._gearRingCacheVersion = this.gearVisualsVersion;
+        const numPoints = this._getGearRingPointCount();
+        if (numPoints > 0) {
+            PlayerBase.getAngleLookup(numPoints);
+            this._rebuildGearRingCache();
+        } else {
+            this._gearRingSprites = null;
+        }
+    }
+
+    _collectSynergyGroups() {
+        const allSynergyGroups = {};
+        const gearPieces = [this.weaponVisual, this.armorVisual, this.accessoryVisual].filter(v => v);
+        gearPieces.forEach(visual => {
+            if (visual && visual.synergyGroups) {
+                Object.entries(visual.synergyGroups).forEach(([group, affixes]) => {
+                    if (!allSynergyGroups[group]) {
+                        allSynergyGroups[group] = [];
+                    }
+                    allSynergyGroups[group].push(...affixes);
+                });
+            }
+        });
+        return { allSynergyGroups, gearPieces };
+    }
+
+    _getGearRingPointCount() {
+        const defaultPoints = 64;
+        if (typeof Game !== 'undefined' && Game.renderQuality && typeof Game.renderQuality.gearRingPoints === 'number') {
+            return Game.renderQuality.gearRingPoints;
+        }
+        return defaultPoints;
+    }
+
+    static getAngleLookup(numPoints) {
+        if (!PlayerBase._angleLookupCache) {
+            PlayerBase._angleLookupCache = new Map();
+        }
+        if (PlayerBase._angleLookupCache.has(numPoints)) {
+            return PlayerBase._angleLookupCache.get(numPoints);
+        }
+        const cos = new Float32Array(numPoints + 1);
+        const sin = new Float32Array(numPoints + 1);
+        for (let i = 0; i <= numPoints; i++) {
+            const angle = (i / numPoints) * Math.PI * 2;
+            cos[i] = Math.cos(angle);
+            sin[i] = Math.sin(angle);
+        }
+        const lookup = { cos, sin };
+        PlayerBase._angleLookupCache.set(numPoints, lookup);
+        return lookup;
+    }
+
+    static bakeSynergyRingSprite(affixesInGroup, baseRadius, numPoints, strokeStyle, lineWidth) {
+        const padding = 24;
+        const maxWave = 12;
+        const diameter = (baseRadius + maxWave) * 2 + padding * 2;
+        const canvas = document.createElement('canvas');
+        canvas.width = diameter;
+        canvas.height = diameter;
+        const ctx = canvas.getContext('2d');
+        const center = diameter / 2;
+        const lookup = PlayerBase.getAngleLookup(numPoints);
+
+        ctx.beginPath();
+        for (let i = 0; i <= numPoints; i++) {
+            let totalOffset = 0;
+            affixesInGroup.forEach(affix => {
+                const wave = affix.wave;
+                const angle = (i / numPoints) * Math.PI * 2;
+                const waveValue = PlayerBase.getWaveValue(
+                    wave.waveType,
+                    angle,
+                    wave.frequency,
+                    wave.phase
+                );
+                totalOffset += waveValue * wave.amplitude * 6;
+            });
+            const radius = baseRadius + totalOffset;
+            const px = center + lookup.cos[i] * radius;
+            const py = center + lookup.sin[i] * radius;
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.strokeStyle = strokeStyle;
+        ctx.lineWidth = lineWidth;
+        ctx.stroke();
+        return { canvas, centerOffset: center };
+    }
+
+    _rebuildGearRingCache() {
+        const { allSynergyGroups, gearPieces } = this._collectSynergyGroups();
+        const synergyGroupNames = Object.keys(allSynergyGroups);
+        const numPoints = this._getGearRingPointCount();
+        this._gearRingSprites = [];
+
+        if (numPoints <= 0 || synergyGroupNames.length === 0) {
+            return;
+        }
+
+        synergyGroupNames.forEach((groupName, groupIndex) => {
+            const affixesInGroup = allSynergyGroups[groupName];
+            const baseRadius = this.size + 8 + (groupIndex * 8);
+
+            let avgR = 0, avgG = 0, avgB = 0;
+            affixesInGroup.forEach(affix => {
+                avgR += affix.color.r;
+                avgG += affix.color.g;
+                avgB += affix.color.b;
+            });
+            avgR = Math.floor(avgR / affixesInGroup.length);
+            avgG = Math.floor(avgG / affixesInGroup.length);
+            avgB = Math.floor(avgB / affixesInGroup.length);
+
+            const maxOpacity = Math.max(...gearPieces.map(v => v ? v.tierOpacity : 0.5));
+            const maxLayers = Math.max(...gearPieces.map(v => v ? v.tierLayers : 1));
+            const strokeStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${maxOpacity * 0.85})`;
+            const lineWidth = 2 + maxLayers * 0.5;
+
+            const baked = PlayerBase.bakeSynergyRingSprite(
+                affixesInGroup, baseRadius, numPoints, strokeStyle, lineWidth
+            );
+            this._gearRingSprites.push({
+                sprite: baked.canvas,
+                centerOffset: baked.centerOffset,
+                groupPhaseOffset: groupIndex * 0.4
+            });
+        });
+    }
+
+    _renderLiveSynergyRings(ctx, time, allSynergyGroups, gearPieces, numRings) {
+        if (numRings <= 0) return;
+
+        const synergyGroupNames = Object.keys(allSynergyGroups);
+        const numPoints = this._getGearRingPointCount();
+        if (numPoints <= 0) return;
+
+        const maxTierGlow = Math.max(...gearPieces.map(v => v ? v.tierGlow : 0));
+        if (maxTierGlow > 0) {
+            const maxTierColor = gearPieces.find(v => v && v.tierGlow === maxTierGlow)?.tierColor;
+            ctx.shadowBlur = maxTierGlow * 0.7;
+            ctx.shadowColor = maxTierColor || '#999999';
+        }
+
+        synergyGroupNames.forEach((groupName, groupIndex) => {
+            const affixesInGroup = allSynergyGroups[groupName];
+            const baseRadius = this.size + 8 + (groupIndex * 8);
+
+            let avgR = 0, avgG = 0, avgB = 0;
+            affixesInGroup.forEach(affix => {
+                avgR += affix.color.r;
+                avgG += affix.color.g;
+                avgB += affix.color.b;
+            });
+            avgR = Math.floor(avgR / affixesInGroup.length);
+            avgG = Math.floor(avgG / affixesInGroup.length);
+            avgB = Math.floor(avgB / affixesInGroup.length);
+
+            ctx.beginPath();
+            for (let i = 0; i <= numPoints; i++) {
+                const angle = (i / numPoints) * Math.PI * 2;
+                let totalOffset = 0;
+                affixesInGroup.forEach(affix => {
+                    const wave = affix.wave;
+                    const smoothPhase = wave.phase + (time * (0.5 + groupIndex * 0.15));
+                    const waveValue = PlayerBase.getWaveValue(
+                        wave.waveType,
+                        angle,
+                        wave.frequency,
+                        smoothPhase
+                    );
+                    totalOffset += waveValue * wave.amplitude * 6;
+                });
+                const radius = baseRadius + totalOffset;
+                const px = this.x + Math.cos(angle) * radius;
+                const py = this.y + Math.sin(angle) * radius;
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+
+            const maxOpacity = Math.max(...gearPieces.map(v => v ? v.tierOpacity : 0.5));
+            const maxLayers = Math.max(...gearPieces.map(v => v ? v.tierLayers : 1));
+            ctx.strokeStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${maxOpacity * 0.85})`;
+            ctx.lineWidth = 2 + maxLayers * 0.5;
+            ctx.stroke();
+        });
+
+        ctx.shadowBlur = 0;
+    }
+
+    _renderCachedGearRings(ctx, time) {
+        if (!this._gearRingSprites || this._gearRingSprites.length === 0) return;
+        this._gearRingSprites.forEach(entry => {
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.rotate(time * 0.5 + entry.groupPhaseOffset);
+            ctx.drawImage(entry.sprite, -entry.centerOffset, -entry.centerOffset);
+            ctx.restore();
+        });
     }
 
     render(ctx) {
@@ -3365,101 +3659,31 @@ class PlayerBase {
 
         const time = Date.now() * 0.0003;
 
-        // Collect all synergy groups from all equipped gear
-        const allSynergyGroups = {};
-        const gearPieces = [this.weaponVisual, this.armorVisual, this.accessoryVisual].filter(v => v);
-
-        gearPieces.forEach(visual => {
-            if (visual && visual.synergyGroups) {
-                Object.entries(visual.synergyGroups).forEach(([group, affixes]) => {
-                    if (!allSynergyGroups[group]) {
-                        allSynergyGroups[group] = [];
-                    }
-                    allSynergyGroups[group].push(...affixes);
-                });
-            }
-        });
-
-        // Render rings based on synergy groups
+        const { allSynergyGroups, gearPieces } = this._collectSynergyGroups();
         const synergyGroupNames = Object.keys(allSynergyGroups);
         const numRings = synergyGroupNames.length;
+        const ringPoints = this._getGearRingPointCount();
 
-        if (numRings > 0) {
-            // Apply glow based on highest tier
-            const maxTierGlow = Math.max(...gearPieces.map(v => v ? v.tierGlow : 0));
-            if (maxTierGlow > 0) {
-                const maxTierColor = gearPieces.find(v => v && v.tierGlow === maxTierGlow)?.tierColor;
-                ctx.shadowBlur = maxTierGlow * 0.7;
-                ctx.shadowColor = maxTierColor || '#999999';
+        if (this._gearVisualsVersion !== this._gearRingCacheVersion) {
+            this._rebuildGearRingCache();
+            this._gearRingCacheVersion = this._gearVisualsVersion;
+        }
+
+        const drawGearRings = () => {
+            if (numRings > 0 && ringPoints > 0) {
+                this._renderLiveSynergyRings(ctx, time, allSynergyGroups, gearPieces, numRings);
             }
+        };
 
-            // Render each synergy group as a ring
-            synergyGroupNames.forEach((groupName, groupIndex) => {
-                const affixesInGroup = allSynergyGroups[groupName];
-
-                // Calculate ring radius with proper spacing (8px between rings)
-                const baseRadius = this.size + 8 + (groupIndex * 8);
-                const numPoints = 64;
-
-                // Calculate average color for this synergy group
-                let avgR = 0, avgG = 0, avgB = 0;
-                affixesInGroup.forEach(affix => {
-                    avgR += affix.color.r;
-                    avgG += affix.color.g;
-                    avgB += affix.color.b;
-                });
-                avgR = Math.floor(avgR / affixesInGroup.length);
-                avgG = Math.floor(avgG / affixesInGroup.length);
-                avgB = Math.floor(avgB / affixesInGroup.length);
-
-                // Draw wave-deformed ring using constructive interference
-                ctx.beginPath();
-                for (let i = 0; i <= numPoints; i++) {
-                    const angle = (i / numPoints) * Math.PI * 2;
-
-                    // PROPER WAVE ADDITION: Sum all waves in this group
-                    let totalOffset = 0;
-                    affixesInGroup.forEach(affix => {
-                        const wave = affix.wave;
-                        const smoothPhase = wave.phase + (time * (0.5 + groupIndex * 0.15));
-
-                        const waveValue = PlayerBase.getWaveValue(
-                            wave.waveType,
-                            angle,
-                            wave.frequency,
-                            smoothPhase
-                        );
-
-                        // Add waves (constructive/destructive interference)
-                        totalOffset += waveValue * wave.amplitude * 6; // Reduced amplitude
-                    });
-
-                    const radius = baseRadius + totalOffset;
-                    const px = this.x + Math.cos(angle) * radius;
-                    const py = this.y + Math.sin(angle) * radius;
-
-                    if (i === 0) ctx.moveTo(px, py);
-                    else ctx.lineTo(px, py);
-                }
-                ctx.closePath();
-
-                // Get max tier opacity from this group's affixes
-                const maxOpacity = Math.max(...gearPieces.map(v => v ? v.tierOpacity : 0.5));
-                const maxLayers = Math.max(...gearPieces.map(v => v ? v.tierLayers : 1));
-
-                // Stroke the ring
-                ctx.strokeStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${maxOpacity * 0.85})`;
-                ctx.lineWidth = 2 + maxLayers * 0.5;
-                ctx.stroke();
-            });
-
-            ctx.shadowBlur = 0;
+        if (typeof Game !== 'undefined' && typeof Game.trackRenderSection === 'function') {
+            Game.trackRenderSection('gearRings', drawGearRings);
+        } else {
+            drawGearRings();
         }
 
         // Legendary effects rendering (independent of ring system)
         const hasLegendary = gearPieces.some(v => v && v.hasLegendary);
         if (hasLegendary) {
-            // Pulsing legendary aura
             const legendaryPulse = Math.sin(time * 3) * 0.5 + 0.5;
             const maxRadius = this.size + 8 + (numRings * 8);
             const legendaryRadius = maxRadius + 4 + legendaryPulse * 4;
@@ -3469,9 +3693,8 @@ class PlayerBase {
             ctx.arc(this.x, this.y, legendaryRadius, 0, Math.PI * 2);
             ctx.stroke();
 
-            // Sparkles
-            for (let i = 0; i < 4; i++) {
-                const sparkleAngle = time * 4 + (i * Math.PI * 0.5);
+            for (let i = 0; i < 2; i++) {
+                const sparkleAngle = time * 4 + (i * Math.PI);
                 const sparkleRadius = legendaryRadius + Math.sin(time * 5 + i) * 3;
                 const sx = this.x + Math.cos(sparkleAngle) * sparkleRadius;
                 const sy = this.y + Math.sin(sparkleAngle) * sparkleRadius;
@@ -3595,13 +3818,17 @@ class PlayerBase {
         const tailLockPortion = dashEffectActive ? Math.max(0, Math.min(0.8, 0.45 - travelPhase * 0.35)) : 0;
         const curveShear = this.dashAnimCurveAmount * 0.6;
 
-        const transformedVertices = [];
-        let deformedMin = Infinity;
-        let deformedMax = -Infinity;
-        baseVertices.forEach(v => {
-            const normalized = (v.x - minForward) / span;
-            let influence = dashEffectActive ? 0 : 1;
-            if (dashEffectActive) {
+        let transformedVertices = baseVertices;
+        let deformedMin = minForward;
+        let deformedMax = maxForward;
+
+        if (dashEffectActive) {
+            transformedVertices = [];
+            deformedMin = Infinity;
+            deformedMax = -Infinity;
+            baseVertices.forEach(v => {
+                const normalized = (v.x - minForward) / span;
+                let influence = 0;
                 if (normalized > tailLockPortion) {
                     influence = (normalized - tailLockPortion) / (1 - tailLockPortion);
                 } else {
@@ -3612,25 +3839,21 @@ class PlayerBase {
                     const frontEase = Math.pow(normalized, 1.4);
                     influence *= Math.max(0, 1 - frontEase * relaxPhase);
                 }
-            }
 
-            const stretchMultiplier = dashEffectActive
-                ? 1 + (this.dashAnimStretch - 1) * influence
-                : 1;
-            const squeezeMultiplier = dashEffectActive
-                ? 1 / (1 + 0.8 * (stretchMultiplier - 1))
-                : 1;
+                const stretchMultiplier = 1 + (this.dashAnimStretch - 1) * influence;
+                const squeezeMultiplier = 1 / (1 + 0.8 * (stretchMultiplier - 1));
 
-            const distanceFromRear = (v.x - minForward) * stretchMultiplier;
-            let newX = minForward + distanceFromRear;
-            let newY = v.y * squeezeMultiplier;
-            newX += curveShear * newY;
+                const distanceFromRear = (v.x - minForward) * stretchMultiplier;
+                let newX = minForward + distanceFromRear;
+                let newY = v.y * squeezeMultiplier;
+                newX += curveShear * newY;
 
-            if (newX < deformedMin) deformedMin = newX;
-            if (newX > deformedMax) deformedMax = newX;
+                if (newX < deformedMin) deformedMin = newX;
+                if (newX > deformedMax) deformedMax = newX;
 
-            transformedVertices.push({ x: newX, y: newY });
-        });
+                transformedVertices.push({ x: newX, y: newY });
+            });
+        }
 
         if (!isFinite(deformedMin)) deformedMin = minForward;
         if (!isFinite(deformedMax)) deformedMax = maxForward;
@@ -3807,7 +4030,6 @@ class PlayerBase {
 
     // Render item shield visual (glowing ring around player)
     renderItemShield(ctx) {
-        // Check if shield exists and has valid values
         const shieldHealth = this.shieldHealth || 0;
         const maxShieldHealth = this.maxShieldHealth || 0;
         if (shieldHealth <= 0 || maxShieldHealth <= 0) return;
@@ -3815,27 +4037,24 @@ class PlayerBase {
         ctx.save();
         ctx.translate(this.x, this.y);
 
-        // Shield is a glowing ring around the player
         const shieldRadius = this.size + 8;
-        const shieldAlpha = 0.6 + (shieldHealth / maxShieldHealth) * 0.4; // Fade as shield weakens
+        const shieldAlpha = 0.6 + (shieldHealth / maxShieldHealth) * 0.4;
 
-        // Outer glow
+        // Outer glow — live radial gradient (cached square sprite looked axis-aligned)
         const gradient = ctx.createRadialGradient(0, 0, shieldRadius - 5, 0, 0, shieldRadius + 10);
         gradient.addColorStop(0, `rgba(0, 200, 255, ${shieldAlpha * 0.3})`);
-        gradient.addColorStop(1, `rgba(0, 200, 255, 0)`);
+        gradient.addColorStop(1, 'rgba(0, 200, 255, 0)');
         ctx.fillStyle = gradient;
         ctx.beginPath();
         ctx.arc(0, 0, shieldRadius + 10, 0, Math.PI * 2);
         ctx.fill();
 
-        // Shield ring (cyan/blue)
         ctx.strokeStyle = `rgba(0, 200, 255, ${shieldAlpha})`;
         ctx.lineWidth = 3;
         ctx.beginPath();
         ctx.arc(0, 0, shieldRadius, 0, Math.PI * 2);
         ctx.stroke();
 
-        // Inner glow
         ctx.strokeStyle = `rgba(100, 255, 255, ${shieldAlpha * 0.5})`;
         ctx.lineWidth = 1;
         ctx.beginPath();

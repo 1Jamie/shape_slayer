@@ -785,6 +785,58 @@ const AudioManager = {
             AudioManager.playSweep(100, 300, 0.5, 'sawtooth', 0.3);
             setTimeout(() => AudioManager.playExplosion(1.2), 300);
         },
+
+        swarmPheromoneWindup() {
+            AudioManager.playSweep(160, 520, 0.58, 'triangle', 0.18);
+            setTimeout(() => AudioManager.playBeep(260, 0.04, 'square', 0.11), 80);
+            setTimeout(() => AudioManager.playBeep(340, 0.04, 'square', 0.12), 210);
+            setTimeout(() => AudioManager.playBeep(460, 0.05, 'square', 0.13), 360);
+        },
+
+        vortexInhale() {
+            AudioManager.playSweep(70, 180, 1.2, 'sawtooth', 0.28);
+            setTimeout(() => AudioManager.playBeep(110, 0.18, 'sine', 0.16), 450);
+        },
+
+        vortexPolarityBurst() {
+            AudioManager.playBeep(740, 0.05, 'square', 0.25);
+            AudioManager.playSweep(520, 120, 0.45, 'sine', 0.24);
+            setTimeout(() => AudioManager.playExplosion(0.7), 25);
+        },
+
+        vortexOrbitBlades() {
+            AudioManager.playSweep(260, 420, 0.32, 'triangle', 0.22);
+            setTimeout(() => AudioManager.playBeep(330, 0.08, 'triangle', 0.18), 110);
+            setTimeout(() => AudioManager.playBeep(390, 0.08, 'triangle', 0.18), 220);
+        },
+
+        vortexSpiralGate() {
+            AudioManager.playZap(0.07, 0.75, 0.16);
+        },
+
+        vortexWells() {
+            AudioManager.playSweep(140, 220, 0.7, 'sine', 0.18);
+        },
+
+        vortexEventHorizon() {
+            AudioManager.playSweep(45, 70, 0.5, 'sine', 0.16);
+            setTimeout(() => AudioManager.playSweep(80, 260, 0.8, 'sawtooth', 0.28), 500);
+        },
+
+        vortexFinaleStep() {
+            AudioManager.playImpact(0.6, 0.65);
+            AudioManager.playBeep(180, 0.05, 'sine', 0.16);
+        },
+
+        vortexOverload() {
+            AudioManager.playExplosion(1.0);
+            AudioManager.playSweep(90, 360, 0.55, 'sawtooth', 0.26);
+        },
+
+        vortexRecovery() {
+            AudioManager.playSweep(360, 180, 0.28, 'sine', 0.16);
+            setTimeout(() => AudioManager.playChime(620, 0.16, 0.16), 80);
+        },
         
         playerDeath() {
             AudioManager.playSweep(400, 100, 0.6, 'triangle', 0.3);

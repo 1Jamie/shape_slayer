@@ -1084,6 +1084,11 @@ function renderDoorDirectionArrow(ctx, player) {
 
     if (typeof Game === 'undefined' || Game.state !== 'PLAYING') return;
     if (typeof currentRoom === 'undefined' || !currentRoom || !currentRoom.doorOpen) return;
+    const hasActiveSelections = typeof window !== 'undefined' &&
+        Array.isArray(window.selectionDoors) &&
+        window.selectionDoors.length > 0 &&
+        window.selectionDoors.some(d => !d.selected && d.alpha > 0);
+    if (hasActiveSelections || Game.awaitingDoorSelection) return;
 
     const inMultiplayer = Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
 
@@ -1131,10 +1136,12 @@ function renderDoorDirectionArrow(ctx, player) {
     ctx.translate(arrowData.x, arrowData.y);
     ctx.rotate(arrowData.angle);
 
-    const arrowSize = 10;
-    ctx.fillStyle = '#ffffff';
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 2;
+    const arrowSize = 12;
+    ctx.fillStyle = '#ffcc33';
+    ctx.strokeStyle = '#4a2a00';
+    ctx.lineWidth = 2.5;
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = 'rgba(255, 190, 40, 0.85)';
 
     ctx.beginPath();
     ctx.moveTo(arrowSize, 0);
@@ -1143,6 +1150,12 @@ function renderDoorDirectionArrow(ctx, player) {
     ctx.closePath();
 
     ctx.stroke();
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fff3aa';
+    ctx.beginPath();
+    ctx.arc(-arrowSize * 0.05, 0, arrowSize * 0.22, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
@@ -1988,6 +2001,9 @@ function onPlayerLeft(data) {
 
 function onHostMigrated(data, wasHost, isHost) {
     if (isHost && !wasHost) {
+        if (typeof window.showToast === 'function') {
+            window.showToast('You are now the host', 2500);
+        }
         console.log('[Multiplayer] You are now the host');
         multiplayerError = 'You are now the host!';
         setTimeout(() => { multiplayerError = ''; }, 3000);

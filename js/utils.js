@@ -1,5 +1,12 @@
 // Utility functions
 
+// True when focus is on a form control that should receive keyboard input.
+function isFormFieldTarget(target) {
+    if (!target) return false;
+    const tag = target.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
+}
+
 // Calculate distance between two points
 function distance(x1, y1, x2, y2) {
     const dx = x2 - x1;

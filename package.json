@@ -7,7 +7,12 @@
     "start": "node server.js",
     "server": "node harness/index.js",
     "build:css": "sass css/ui/base.scss css/ui/base.css",
-    "watch:css": "sass --watch css/ui/base.scss css/ui/base.css"
+    "watch:css": "sass --watch css/ui/base.scss css/ui/base.css",
+    "balance:gear": "node tests/gear-mode-balance-sim.js",
+    "balance:full-run": "node tests/full-run-balance-sim.js",
+    "test:combat-scaling": "node --test tests/combat-scaling.test.js",
+    "test:device-detection": "node --test tests/device-detection.test.js",
+    "test:input-focus": "node --test tests/input-focus.test.js"
   },
   "keywords": [
     "game",

@@ -1,9 +1,5 @@
 // Warrior class (Square) - extends PlayerBase
 
-// ============================================================================
-// WARRIOR CONFIGURATION - Adjust these values for game balancing
-// ============================================================================
-
 const WARRIOR_CONFIG = {
     // Base Stats (from CLASS_DEFINITIONS)
     baseHp: 100,                   // Starting health points
@@ -59,6 +55,22 @@ const WARRIOR_CONFIG = {
         baseStats: "{baseDefense|percent} Base Defense, Balanced Stats"
     }
 };
+
+const warriorBlockBubbleCache = (() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    const grad = ctx.createRadialGradient(64, 64, 40, 64, 64, 64);
+    grad.addColorStop(0, 'rgba(100, 150, 255, 1)');
+    grad.addColorStop(0.5, 'rgba(150, 200, 255, 0.6)');
+    grad.addColorStop(1, 'rgba(200, 250, 255, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(64, 64, 64, 0, Math.PI * 2);
+    ctx.fill();
+    return canvas;
+})();
 
 class Warrior extends PlayerBase {
     constructor(x = 400, y = 300) {
@@ -296,16 +308,22 @@ class Warrior extends PlayerBase {
                     AudioManager.sounds.warriorWhirlwindHit();
                 }
 
+                this._whirlwindPulseIndex = (this._whirlwindPulseIndex || 0) + 1;
+                const whirlwindPulseKey = `${this._whirlwindSessionId}:${this._whirlwindPulseIndex}`;
+
                 const baseWhirlwindDamage = this.damage * WARRIOR_CONFIG.whirlwindDamage * this.whirlwindDamageMultiplier; // Apply class modifier
                 const whirlwindRadius = (this.size + WARRIOR_CONFIG.whirlwindRadius) * (this.whirlwindRadiusMultiplier || 1.0);
 
                 Game.enemies.forEach(enemy => {
                     if (enemy.alive) {
-                        const dx = enemy.x - this.x;
-                        const dy = enemy.y - this.y;
-                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        const whirlwindHit = typeof checkEnemyCircleCollision === 'function'
+                            ? checkEnemyCircleCollision(this.x, this.y, whirlwindRadius, enemy)
+                            : null;
+                        const distance = whirlwindHit
+                            ? (whirlwindHit.hit ? 0 : Infinity)
+                            : Math.sqrt((enemy.x - this.x) ** 2 + (enemy.y - this.y) ** 2);
 
-                        if (distance < whirlwindRadius) {
+                        if (whirlwindHit ? whirlwindHit.hit : distance < whirlwindRadius) {
                             // Check for crit
                             const isCrit = Math.random() < this.critChance;
                             const critMultiplier = isCrit ? (2.0 * (this.critDamageMultiplier || 1.0)) : 1.0;
@@ -346,6 +364,15 @@ class Warrior extends PlayerBase {
                             // Create damage number for special ability
                             if (typeof createDamageNumber !== 'undefined') {
                                 createDamageNumber(enemy.x, enemy.y, damageDealt, isCrit, false);
+                            }
+
+                            // Apply lifesteal once per enemy per whirlwind pulse
+                            if (!isClient && typeof applyLifesteal !== 'undefined') {
+                                applyLifesteal(this, damageDealt, {
+                                    enemy,
+                                    source: 'whirlwind',
+                                    pulseKey: whirlwindPulseKey
+                                });
                             }
                         }
                     }
@@ -389,130 +416,138 @@ class Warrior extends PlayerBase {
                 const effectiveThrustDistance = WARRIOR_CONFIG.thrustDistance + this.thrustDistanceBonus; // Include bonus
 
                 Game.enemies.forEach(enemy => {
-                    if (enemy.alive) {
-                        // Check if enemy is in the rush path
-                        const enemyDx = enemy.x - this.x;
-                        const enemyDy = enemy.y - this.y;
+                    if (!enemy.alive) return;
 
-                        // Project enemy position onto rush direction
+                    const bodies = typeof getEnemyCollisionBodies === 'function'
+                        ? getEnemyCollisionBodies(enemy)
+                        : [{ x: enemy.x, y: enemy.y, radius: enemy.size }];
+                    let bodyHit = false;
+                    let hitPerpX = 0;
+                    let hitPerpY = 0;
+                    let hitPerpDist = 1;
+                    for (let b = 0; b < bodies.length; b++) {
+                        const body = bodies[b];
+                        const enemyDx = body.x - this.x;
+                        const enemyDy = body.y - this.y;
                         const dot = enemyDx * thrustDirX + enemyDy * thrustDirY;
-                        const forwardDist = dot; // Distance along thrust direction
+                        const forwardDist = dot;
+                        if (forwardDist < -this.size - body.radius - 10 || forwardDist > effectiveThrustDistance + 10) {
+                            continue;
+                        }
+                        const perpX = enemyDx - thrustDirX * dot;
+                        const perpY = enemyDy - thrustDirY * dot;
+                        const perpDist = Math.sqrt(perpX * perpX + perpY * perpY);
+                        if (perpDist < this.size + body.radius + WARRIOR_CONFIG.thrustHitRadius) {
+                            bodyHit = true;
+                            hitPerpX = perpX;
+                            hitPerpY = perpY;
+                            hitPerpDist = perpDist;
+                            break;
+                        }
+                    }
+                    if (!bodyHit) return;
 
-                        // Check if enemy is along the thrust path (behind player, in the rushing area)
-                        // Use effective thrust distance (base + bonuses)
-                        if (forwardDist >= -this.size - enemy.size - 10 && forwardDist <= effectiveThrustDistance + 10) {
-                            // Calculate perpendicular distance from thrust line
-                            const perpX = enemyDx - thrustDirX * dot;
-                            const perpY = enemyDy - thrustDirY * dot;
-                            const perpDist = Math.sqrt(perpX * perpX + perpY * perpY);
+                    // Check for crit
+                    const isCrit = Math.random() < this.critChance;
+                    const critMultiplier = isCrit ? (2.0 * (this.critDamageMultiplier || 1.0)) : 1.0;
+                    let thrustDamage = baseThrustDamage * critMultiplier;
 
-                            // Check if enemy is within hit radius
-                            if (perpDist < this.size + enemy.size + WARRIOR_CONFIG.thrustHitRadius) {
-                                // Check for crit
-                                const isCrit = Math.random() < this.critChance;
-                                const critMultiplier = isCrit ? (2.0 * (this.critDamageMultiplier || 1.0)) : 1.0;
-                                let thrustDamage = baseThrustDamage * critMultiplier;
+                    // Track stats (host/solo only) - declare isClient before use
+                    const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
 
-                                // Track stats (host/solo only) - declare isClient before use
-                                const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+                    // Precision card bonuses: Apply vulnerability debuff on crit (Orange only)
+                    if (isCrit && !isClient && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
+                        const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
+                        const condEffects = CardEffects.getConditionalEffects(handCards);
+                        if (condEffects.precision && condEffects.precision.vulnOnCrit && typeof enemy.applyDebuff === 'function') {
+                            const vuln = condEffects.precision.vulnOnCrit;
+                            enemy.applyDebuff({
+                                type: 'vulnerability',
+                                multiplier: vuln.multiplier || 0.10,
+                                duration: vuln.duration || 3.0
+                            });
+                        }
+                    }
 
-                                // Precision card bonuses: Apply vulnerability debuff on crit (Orange only)
-                                if (isCrit && !isClient && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
-                                    const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
-                                    const condEffects = CardEffects.getConditionalEffects(handCards);
-                                    if (condEffects.precision && condEffects.precision.vulnOnCrit && typeof enemy.applyDebuff === 'function') {
-                                        const vuln = condEffects.precision.vulnOnCrit;
-                                        enemy.applyDebuff({
-                                            type: 'vulnerability',
-                                            multiplier: vuln.multiplier || 0.10,
-                                            duration: vuln.duration || 3.0
-                                        });
-                                    }
-                                }
+                    // Apply vulnerability debuff multiplier (Precision Orange bonus)
+                    if (enemy.vulnerable && enemy.vulnerabilityMultiplier && enemy.vulnerabilityMultiplier > 1.0) {
+                        thrustDamage *= enemy.vulnerabilityMultiplier;
+                    }
 
-                                // Apply vulnerability debuff multiplier (Precision Orange bonus)
-                                if (enemy.vulnerable && enemy.vulnerabilityMultiplier && enemy.vulnerabilityMultiplier > 1.0) {
-                                    thrustDamage *= enemy.vulnerabilityMultiplier;
-                                }
+                    // Calculate damage dealt BEFORE applying damage
+                    const damageDealt = Math.min(thrustDamage, enemy.hp);
 
-                                // Calculate damage dealt BEFORE applying damage
-                                const damageDealt = Math.min(thrustDamage, enemy.hp);
+                    // Get player ID for damage attribution
+                    const attackerId = this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null);
 
-                                // Get player ID for damage attribution
-                                const attackerId = this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null);
+                    enemy.takeDamage(thrustDamage, attackerId);
 
-                                enemy.takeDamage(thrustDamage, attackerId);
-
-                                // Precision card bonuses: lifeOnCrit healing (Purple/Orange) - applied after damage dealt
-                                if (isCrit && !isClient && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
-                                    const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
-                                    const condEffects = CardEffects.getConditionalEffects(handCards);
-                                    if (condEffects.precision && condEffects.precision.lifeOnCrit && condEffects.precision.lifeOnCrit > 0) {
-                                        // Heal on crit based on damage dealt
-                                        const healAmount = damageDealt * condEffects.precision.lifeOnCrit;
-                                        this.hp = Math.min(this.hp + healAmount, this.maxHp);
-                                        // Visual feedback
-                                        if (typeof createParticleBurst !== 'undefined') {
-                                            createParticleBurst(this.x, this.y, '#00ff00', 8);
-                                        }
-                                    }
-                                }
-
-                                // Track stats (host/solo only)
-                                if (!isClient) {
-                                    // Track lifetime damage stat
-                                    if (typeof window.trackLifetimeStat === 'function') {
-                                        window.trackLifetimeStat('totalDamageDealt', damageDealt);
-                                    }
-
-                                    if (typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
-                                        const stats = Game.getPlayerStats(attackerId);
-                                        if (stats) {
-                                            stats.addStat('damageDealt', damageDealt);
-                                        }
-
-                                        // Track kill if enemy died
-                                        if (enemy.hp <= 0) {
-                                            const killStats = Game.getPlayerStats(attackerId);
-                                            if (killStats) {
-                                                killStats.addStat('kills', 1);
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // Apply lifesteal
-                                if (typeof applyLifesteal !== 'undefined') {
-                                    applyLifesteal(this, damageDealt);
-                                }
-
-                                // Apply legendary effects
-                                if (typeof applyLegendaryEffects !== 'undefined') {
-                                    applyLegendaryEffects(this, enemy, damageDealt, attackerId);
-                                }
-                                // Chain lightning (only once per thrust)
-                                if (this.activeLegendaryEffects && !this.thrustHasChainedLegendary) {
-                                    this.activeLegendaryEffects.forEach(effect => {
-                                        if (effect.type === 'chain_lightning' && typeof chainLightningAttack !== 'undefined') {
-                                            chainLightningAttack(this, enemy, effect, thrustDamage);
-                                            this.thrustHasChainedLegendary = true;
-                                        }
-                                    });
-                                }
-
-                                // Create damage number for heavy attack
-                                if (typeof createDamageNumber !== 'undefined') {
-                                    createDamageNumber(enemy.x, enemy.y, damageDealt, isCrit, false);
-                                }
-
-                                // Push enemy to the side (perpendicular to thrust direction)
-                                const pushForce = WARRIOR_CONFIG.thrustKnockback;
-                                const perpXNorm = perpX / (perpDist + 0.001);
-                                const perpYNorm = perpY / (perpDist + 0.001);
-                                enemy.applyKnockback(perpXNorm * pushForce, perpYNorm * pushForce);
+                    // Precision card bonuses: lifeOnCrit healing (Purple/Orange) - applied after damage dealt
+                    if (isCrit && !isClient && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
+                        const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
+                        const condEffects = CardEffects.getConditionalEffects(handCards);
+                        if (condEffects.precision && condEffects.precision.lifeOnCrit && condEffects.precision.lifeOnCrit > 0) {
+                            if (typeof applyLifeOnCritHeal !== 'undefined') {
+                                applyLifeOnCritHeal(this, damageDealt, condEffects.precision.lifeOnCrit, { enemy });
+                            }
+                            if (typeof createParticleBurst !== 'undefined') {
+                                createParticleBurst(this.x, this.y, '#00ff00', 8);
                             }
                         }
                     }
+
+                    // Track stats (host/solo only)
+                    if (!isClient) {
+                        // Track lifetime damage stat
+                        if (typeof window.trackLifetimeStat === 'function') {
+                            window.trackLifetimeStat('totalDamageDealt', damageDealt);
+                        }
+
+                        if (typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
+                            const stats = Game.getPlayerStats(attackerId);
+                            if (stats) {
+                                stats.addStat('damageDealt', damageDealt);
+                            }
+
+                            // Track kill if enemy died
+                            if (enemy.hp <= 0) {
+                                const killStats = Game.getPlayerStats(attackerId);
+                                if (killStats) {
+                                    killStats.addStat('kills', 1);
+                                }
+                            }
+                        }
+                    }
+
+                    // Apply lifesteal
+                    if (typeof applyLifesteal !== 'undefined') {
+                        applyLifesteal(this, damageDealt, { enemy, source: 'melee' });
+                    }
+
+                    // Apply legendary effects
+                    if (typeof applyLegendaryEffects !== 'undefined') {
+                        applyLegendaryEffects(this, enemy, damageDealt, attackerId);
+                    }
+                    // Chain lightning (only once per thrust)
+                    if (this.activeLegendaryEffects && !this.thrustHasChainedLegendary) {
+                        this.activeLegendaryEffects.forEach(effect => {
+                            if (effect.type === 'chain_lightning' && typeof chainLightningAttack !== 'undefined') {
+                                chainLightningAttack(this, enemy, effect, thrustDamage);
+                                this.thrustHasChainedLegendary = true;
+                            }
+                        });
+                    }
+
+                    // Create damage number for heavy attack
+                    if (typeof createDamageNumber !== 'undefined') {
+                        createDamageNumber(enemy.x, enemy.y, damageDealt, isCrit, false);
+                    }
+
+                    // Push enemy to the side (perpendicular to thrust direction)
+                    const pushForce = WARRIOR_CONFIG.thrustKnockback;
+                    const perpXNorm = hitPerpX / (hitPerpDist + 0.001);
+                    const perpYNorm = hitPerpY / (hitPerpDist + 0.001);
+                    enemy.applyKnockback(perpXNorm * pushForce, perpYNorm * pushForce);
                 });
             }
 
@@ -582,6 +617,9 @@ class Warrior extends PlayerBase {
 
     // Override createHeavyAttack for forward thrust
     createHeavyAttack() {
+        if (typeof beginLifestealAttackSwing === 'function') {
+            beginLifestealAttackSwing(this);
+        }
         this.createForwardThrust();
 
         this.isAttacking = true;
@@ -680,6 +718,9 @@ class Warrior extends PlayerBase {
 
         this.whirlwindActive = true;
         this.whirlwindElapsed = 0;
+        this.whirlwindHitTimer = 0;
+        this._whirlwindSessionId = (this._whirlwindSessionId || 0) + 1;
+        this._whirlwindPulseIndex = 0;
         this.whirlwindStartTime = Date.now(); // Track start time for smooth visual rotation
         // Apply cooldown reduction
         const effectiveSpecialCooldown = this.specialCooldownTime * (1 - this.cooldownReduction);
@@ -758,21 +799,19 @@ class Warrior extends PlayerBase {
             const pulseAlpha = 0.3 + Math.sin(pulseTime) * 0.2;
             const bubbleRadius = this.size + 15 + Math.sin(pulseTime * 2) * 2;
 
-            // Draw outer glow with gradient
-            const gradient = ctx.createRadialGradient(
-                this.x, this.y, this.size,
-                this.x, this.y, bubbleRadius
+            ctx.save();
+            ctx.globalAlpha = pulseAlpha * activationProgress;
+            const drawSize = bubbleRadius * 2;
+            ctx.drawImage(
+                warriorBlockBubbleCache,
+                this.x - bubbleRadius,
+                this.y - bubbleRadius,
+                drawSize,
+                drawSize
             );
-            gradient.addColorStop(0, `rgba(100, 150, 255, ${pulseAlpha * activationProgress})`);
-            gradient.addColorStop(0.5, `rgba(150, 200, 255, ${pulseAlpha * 0.6 * activationProgress})`);
-            gradient.addColorStop(1, `rgba(200, 250, 255, 0)`);
+            ctx.globalAlpha = 1;
+            ctx.restore();
 
-            ctx.fillStyle = gradient;
-            ctx.beginPath();
-            ctx.arc(this.x, this.y, bubbleRadius, 0, Math.PI * 2);
-            ctx.fill();
-
-            // Draw border ring
             ctx.strokeStyle = `rgba(150, 200, 255, ${0.7 * activationProgress})`;
             ctx.lineWidth = 2;
             ctx.beginPath();
