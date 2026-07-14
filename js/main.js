@@ -4179,6 +4179,10 @@ const Game = {
         if (typeof initNexus !== 'undefined') {
             initNexus();
         }
+        // Sync unlock queue, but FeatureTutorials must not spotlight during resume lock
+        if (typeof FeatureTutorials !== 'undefined' && FeatureTutorials.onNexusEnter) {
+            FeatureTutorials.onNexusEnter();
+        }
         this.initializeNexusCamera();
         console.log('[RunSave] Exited to Nexus with active run checkpoint');
     },

@@ -82,9 +82,25 @@ const FeatureTutorials = {
         return this._sessionSuspended || this.isMultiplayerActive();
     },
 
+    /** Solo resume checkpoint owns the Nexus — only portal is usable. */
+    isBlockedByResumeCheckpoint() {
+        return typeof SaveSystem !== 'undefined'
+            && typeof SaveSystem.hasActiveRunCheckpoint === 'function'
+            && SaveSystem.hasActiveRunCheckpoint();
+    },
+
+    /** Clear any in-flight coach UI so resume-locked nexus stays portal-only. */
+    clearPresentation() {
+        this._armedAt = 0;
+        if (typeof CoachTransition !== 'undefined' && CoachTransition.clear) {
+            CoachTransition.clear();
+        }
+    },
+
     /** First-run coach still owns the nexus - wait until it finishes. */
     canPresent() {
         if (this.isSuspended()) return false;
+        if (this.isBlockedByResumeCheckpoint()) return false;
         if (typeof Game === 'undefined' || Game.state !== 'NEXUS') return false;
         if (typeof Onboarding !== 'undefined' && Onboarding.isComplete && !Onboarding.isComplete()) {
             return false;
@@ -194,6 +210,8 @@ const FeatureTutorials = {
 
     allowsInteraction(type, detail) {
         if (this.isSuspended()) return true;
+        // Resume lock wins — do not trap the player on a machine they cannot open
+        if (this.isBlockedByResumeCheckpoint()) return true;
         if (!this.isSpotlightActive()) return true;
         if (typeof Game === 'undefined' || Game.state !== 'NEXUS') return true;
 
@@ -269,6 +287,10 @@ const FeatureTutorials = {
      */
     prepareCurrentStep(options = {}) {
         if (!this.canPresent()) return;
+        if (this.isBlockedByResumeCheckpoint()) {
+            this.clearPresentation();
+            return;
+        }
         const id = this.getCurrentId();
         if (!id || typeof gearUpgradeStations === 'undefined') return;
         const station = gearUpgradeStations.find(s => s.key === id);
@@ -314,6 +336,10 @@ const FeatureTutorials = {
     /** Smooth handoff from another coach step (e.g. class upgrades → rarity). */
     continueFrom(fromRect) {
         this.syncFromProgress({ showToast: false });
+        if (this.isBlockedByResumeCheckpoint()) {
+            this.clearPresentation();
+            return false;
+        }
         if (!this.canPresent() || !this.getCurrentId()) return false;
         this.prepareCurrentStep({
             transitionFrom: fromRect || null,
@@ -363,6 +389,12 @@ const FeatureTutorials = {
         }
         this._sessionSuspended = false;
         this.syncFromProgress({ showToast: false });
+        // Keep unlock queue/toasts, but never spotlight machines during resume-only Nexus
+        if (this.isBlockedByResumeCheckpoint()) {
+            this.clearPresentation();
+            console.log('[FeatureTutorials] Deferred spotlight — active run checkpoint (resume/finish run first)');
+            return;
+        }
         if (this.canPresent() && this.getCurrentId()) {
             // Cold entry: stage near machine, soft camera pan from spawn
             this.prepareCurrentStep({ leavePlayer: false, snapCamera: false, transitionFrom: null });

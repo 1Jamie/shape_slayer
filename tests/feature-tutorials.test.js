@@ -415,3 +415,51 @@ describe('FeatureTutorials smooth handoff', () => {
         assert.equal(CoachTransition.isActive(), true);
     });
 });
+
+
+describe('FeatureTutorials resume checkpoint deferral', () => {
+    it('does not present spotlight on nexus enter while a run checkpoint is active', () => {
+        const sandbox = loadSandbox({
+            seedSave: {
+                privacyAcknowledged: true,
+                hasSeenLaunchModal: true,
+                highestRoomCleared: 5,
+                activeRunCheckpoint: {
+                    version: 1,
+                    roomNumber: 5,
+                    playerClass: 'square',
+                    player: { level: 2 }
+                },
+                onboarding: {
+                    complete: true,
+                    tutorialVersion: 1,
+                    selectClassDone: true,
+                    launchRunDone: true,
+                    classUpgradesDone: true,
+                    firstRunStarted: true
+                },
+                featureTutorials: {
+                    initialized: true,
+                    completed: {},
+                    toasted: { rarityChance: true },
+                    queue: ['rarityChance']
+                }
+            }
+        });
+        const { FeatureTutorials, CoachTransition, SaveSystem, Game } = sandbox;
+        Game.state = 'NEXUS';
+        assert.equal(SaveSystem.hasActiveRunCheckpoint(), true);
+        assert.equal(FeatureTutorials.isBlockedByResumeCheckpoint(), true);
+        assert.equal(FeatureTutorials.canPresent(), false);
+
+        FeatureTutorials.onNexusEnter();
+        assert.equal(FeatureTutorials.getCurrentId(), null);
+        assert.equal(FeatureTutorials.isSpotlightActive(), false);
+        assert.equal(CoachTransition.isActive(), false);
+        // Queue/unlock state is preserved for after the run ends
+        assert.deepEqual(SaveSystem.getFeatureTutorials().queue, ['rarityChance']);
+        // Portal must not be hard-gated by the coach
+        assert.equal(FeatureTutorials.allowsInteraction('portal'), true);
+        assert.equal(FeatureTutorials.allowsInteraction('gearUpgrade', 'rarityChance'), true);
+    });
+});
