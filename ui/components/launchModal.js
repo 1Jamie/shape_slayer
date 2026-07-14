@@ -1,5 +1,12 @@
 (function () {
-	let layer, modal;
+	let layer, modal, continueBtn;
+
+	function isOnboardingForced() {
+		return typeof Onboarding !== 'undefined'
+			&& Onboarding.getStep
+			&& Onboarding.getStep() === Onboarding.STEPS.CONTROLS
+			&& !Onboarding.isSuspended();
+	}
 
 	function createLaunchModal() {
 		const rootLayer = document.createElement('div');
@@ -24,21 +31,27 @@
 		const footer = document.createElement('div');
 		footer.className = 'modal__footer';
 
-		const close = document.createElement('button');
-		close.className = 'btn';
-		close.type = 'button';
-		close.textContent = 'Close';
-		close.addEventListener('click', () => {
-			if (Game) {
-				Game.launchModalVisible = false;
+		continueBtn = document.createElement('button');
+		continueBtn.className = 'btn btn--primary';
+		continueBtn.type = 'button';
+		continueBtn.textContent = 'Close';
+		continueBtn.setAttribute('data-onboarding-action', 'controls-continue');
+		continueBtn.addEventListener('click', () => {
+			const forced = isOnboardingForced();
+			if (typeof Onboarding !== 'undefined' && Onboarding.notifyControlsDone) {
+				Onboarding.notifyControlsDone();
+			} else {
+				if (Game) Game.launchModalVisible = false;
+				if (typeof SaveSystem !== 'undefined' && SaveSystem.setHasSeenLaunchModal) {
+					SaveSystem.setHasSeenLaunchModal(true);
+				}
 			}
-			// Mark launch modal as seen (only show on first run)
-			if (typeof SaveSystem !== 'undefined' && SaveSystem.setHasSeenLaunchModal) {
-				SaveSystem.setHasSeenLaunchModal(true);
+			if (!forced && Game) {
+				Game.launchModalVisible = false;
 			}
 			refresh();
 		});
-		footer.appendChild(close);
+		footer.appendChild(continueBtn);
 
 		panel.appendChild(header);
 		panel.appendChild(body);
@@ -177,6 +190,9 @@
 	function refresh() {
 		if (!layer) return;
 		layer.style.display = isVisible() ? 'flex' : 'none';
+		if (continueBtn) {
+			continueBtn.textContent = isOnboardingForced() ? 'Got it' : 'Close';
+		}
 	}
 
 	function tick() {
@@ -195,15 +211,3 @@
 		init();
 	}
 })();
-
-
-
-
-
-
-
-
-
-
-
-

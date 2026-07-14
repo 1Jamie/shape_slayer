@@ -14,25 +14,31 @@ const SaveSystem = {
                 pentagon: { damage: 0, defense: 0, speed: 0, cooldown: 0, health: 0, attackSpeed: 0 },
                 hexagon: { damage: 0, defense: 0, speed: 0, cooldown: 0, health: 0, attackSpeed: 0 }
             },
-            // Card system (defaults)
-            cardsUnlocked: [],
-            cardMastery: {},
-            deckConfig: {
-                cards: [],
-                size: 20
-            },
-            teamCardsUnlocked: [],
-            activeTeamCard: null,
             cardShards: 0,
-            deckUpgrades: {
-                handSize: 4,
-                startingCards: 3,
-                mulligans: 0,
-                reserveSlots: 0,
-                roomModifierCarrySlots: 3,
-                cardCombinationUnlocked: false
+            gearUpgrades: {
+                affixSlotsBasic: 0,
+                affixSlotsAdvanced: 0,
+                affixSlotsRare: 0,
+                rarityChanceGreen: 0,
+                rarityChanceBlue: 0,
+                rarityChancePurple: 0,
+                rarityChanceOrange: 0,
+                // Safe Room Systems (power)
+                safeHealBonus: 0,
+                safeLevelUpCount: 0,
+                safeLevelCapBonus: 0,
+                safeRerollCount: 0,
+                safeRarityUnlock: 0,
+                safeRarityUnlock2: 0,
+                // Safe Room Efficiency (discounts)
+                safeLevelUpDiscount: 0,
+                safeRarityDiscount: 0,
+                safeRerollDiscount: 0
             },
-            roomModifierCollection: [],
+            // Permanent unique bosses defeated (gate nexus machine unlocks)
+            bossesDefeated: {},
+            // Highest room number cleared across all runs (gate nexus machines)
+            highestRoomCleared: 0,
             lifetimeStats: {
                 totalRoomsCleared: 0,
                 totalDamageDealt: 0,
@@ -62,15 +68,32 @@ const SaveSystem = {
             hasSeenLaunchModal: false,
             privacyAcknowledged: false,
             telemetryOptIn: null,
+            // First-run nexus coach (forced once; tutorialVersion marks real completion)
+            onboarding: {
+                selectClassDone: false,
+                launchRunDone: false,
+                classUpgradesDone: false,
+                firstRunStarted: false,
+                complete: false,
+                suspendedForMp: false,
+                tutorialVersion: 0,
+                room0TutorialDone: false
+            },
+            // Nexus machine feature tutorials (FIFO queue, catalog presentation order)
+            featureTutorials: {
+                initialized: false,
+                completed: {},
+                toasted: {},
+                queue: []
+            },
             playerName: null, // Custom player display name for multiplayer
             // Index discoveries
             discoveries: {
                 affixes: [], // Array of affix type strings (e.g., 'movementSpeed', 'critChance')
-                cards: [], // Array of card IDs
-                utilityCards: [], // Array of utility card IDs (room modifiers, team cards)
-                items: [], // Array of item IDs
-                seenQualityBands: {} // Map: cardId -> array of quality strings seen (e.g., { 'precision_001': ['white', 'green', 'blue'] })
-            }
+                items: [] // Array of item IDs
+            },
+            // Solo-only mid-run Safe Room checkpoint (consumed atomically on resume)
+            activeRunCheckpoint: null
         };
     },
 
@@ -90,25 +113,14 @@ const SaveSystem = {
                         pentagon: { ...defaults.upgrades.pentagon, ...(parsed.upgrades?.pentagon || {}) },
                         hexagon: { ...defaults.upgrades.hexagon, ...(parsed.upgrades?.hexagon || {}) }
                     },
-                    // Card system merge
-                    cardsUnlocked: Array.isArray(parsed.cardsUnlocked) ? parsed.cardsUnlocked : defaults.cardsUnlocked,
-                    cardMastery: parsed.cardMastery || defaults.cardMastery,
-                    deckConfig: {
-                        cards: Array.isArray(parsed.deckConfig?.cards) ? parsed.deckConfig.cards : defaults.deckConfig.cards,
-                        size: Number.isFinite(parsed.deckConfig?.size) ? parsed.deckConfig.size : defaults.deckConfig.size
-                    },
-                    teamCardsUnlocked: Array.isArray(parsed.teamCardsUnlocked) ? parsed.teamCardsUnlocked : defaults.teamCardsUnlocked,
-                    activeTeamCard: parsed.activeTeamCard !== undefined ? parsed.activeTeamCard : defaults.activeTeamCard,
                     cardShards: Number.isFinite(parsed.cardShards) ? parsed.cardShards : defaults.cardShards,
-                    deckUpgrades: {
-                        handSize: Number.isFinite(parsed.deckUpgrades?.handSize) ? parsed.deckUpgrades.handSize : defaults.deckUpgrades.handSize,
-                        startingCards: Number.isFinite(parsed.deckUpgrades?.startingCards) ? parsed.deckUpgrades.startingCards : defaults.deckUpgrades.startingCards,
-                        mulligans: Number.isFinite(parsed.deckUpgrades?.mulligans) ? parsed.deckUpgrades.mulligans : defaults.deckUpgrades.mulligans,
-                        reserveSlots: Number.isFinite(parsed.deckUpgrades?.reserveSlots) ? parsed.deckUpgrades.reserveSlots : defaults.deckUpgrades.reserveSlots,
-                        roomModifierCarrySlots: Number.isFinite(parsed.deckUpgrades?.roomModifierCarrySlots) ? parsed.deckUpgrades.roomModifierCarrySlots : defaults.deckUpgrades.roomModifierCarrySlots,
-                        cardCombinationUnlocked: parsed.deckUpgrades?.cardCombinationUnlocked === true
-                    },
-                    roomModifierCollection: Array.isArray(parsed.roomModifierCollection) ? parsed.roomModifierCollection : defaults.roomModifierCollection,
+                    gearUpgrades: Object.assign({}, defaults.gearUpgrades, parsed.gearUpgrades || {}),
+                    bossesDefeated: (parsed.bossesDefeated && typeof parsed.bossesDefeated === 'object')
+                        ? Object.assign({}, parsed.bossesDefeated)
+                        : {},
+                    highestRoomCleared: Number.isFinite(parsed.highestRoomCleared)
+                        ? parsed.highestRoomCleared
+                        : defaults.highestRoomCleared,
                     lifetimeStats: parsed.lifetimeStats ? { ...defaults.lifetimeStats, ...parsed.lifetimeStats } : defaults.lifetimeStats,
                     migratedFromGear: parsed.migratedFromGear === true,
                     selectedClass: parsed.selectedClass || defaults.selectedClass,
@@ -122,14 +134,29 @@ const SaveSystem = {
                     hasSeenLaunchModal: parsed.hasSeenLaunchModal !== undefined ? parsed.hasSeenLaunchModal : defaults.hasSeenLaunchModal,
                     privacyAcknowledged: parsed.privacyAcknowledged !== undefined ? parsed.privacyAcknowledged : defaults.privacyAcknowledged,
                     telemetryOptIn: parsed.telemetryOptIn !== undefined ? parsed.telemetryOptIn : defaults.telemetryOptIn,
+                    onboarding: parsed.onboarding && typeof parsed.onboarding === 'object'
+                        ? Object.assign({}, defaults.onboarding, parsed.onboarding)
+                        : Object.assign({}, defaults.onboarding),
+                    featureTutorials: parsed.featureTutorials && typeof parsed.featureTutorials === 'object'
+                        ? Object.assign({}, defaults.featureTutorials, {
+                            completed: Object.assign({}, defaults.featureTutorials.completed, parsed.featureTutorials.completed || {}),
+                            toasted: Object.assign({}, defaults.featureTutorials.toasted, parsed.featureTutorials.toasted || {}),
+                            queue: Array.isArray(parsed.featureTutorials.queue) ? parsed.featureTutorials.queue.slice() : [],
+                            initialized: parsed.featureTutorials.initialized === true
+                        })
+                        : Object.assign({}, defaults.featureTutorials, {
+                            completed: {},
+                            toasted: {},
+                            queue: []
+                        }),
                     playerName: parsed.playerName !== undefined ? parsed.playerName : defaults.playerName,
                     discoveries: parsed.discoveries ? {
                         affixes: Array.isArray(parsed.discoveries.affixes) ? parsed.discoveries.affixes : defaults.discoveries.affixes,
-                        cards: Array.isArray(parsed.discoveries.cards) ? parsed.discoveries.cards : defaults.discoveries.cards,
-                        utilityCards: Array.isArray(parsed.discoveries.utilityCards) ? parsed.discoveries.utilityCards : defaults.discoveries.utilityCards,
-                        items: Array.isArray(parsed.discoveries.items) ? parsed.discoveries.items : defaults.discoveries.items,
-                        seenQualityBands: parsed.discoveries.seenQualityBands && typeof parsed.discoveries.seenQualityBands === 'object' ? parsed.discoveries.seenQualityBands : defaults.discoveries.seenQualityBands
-                    } : defaults.discoveries
+                        items: Array.isArray(parsed.discoveries.items) ? parsed.discoveries.items : defaults.discoveries.items
+                    } : defaults.discoveries,
+                    activeRunCheckpoint: (parsed.activeRunCheckpoint && typeof parsed.activeRunCheckpoint === 'object')
+                        ? parsed.activeRunCheckpoint
+                        : null
                 };
             }
         } catch (e) {
@@ -282,44 +309,7 @@ const SaveSystem = {
         return true;
     },
 
-    // ---- Card system helpers ----
-    getCardsUnlocked() {
-        const save = this.load();
-        return save.cardsUnlocked || [];
-    },
-    unlockCard(cardId) {
-        const save = this.load();
-        if (!Array.isArray(save.cardsUnlocked)) save.cardsUnlocked = [];
-        if (!save.cardsUnlocked.includes(cardId)) {
-            save.cardsUnlocked.push(cardId);
-            this.save(save);
-        }
-        return save.cardsUnlocked;
-    },
-    getCardMastery(cardId) {
-        const save = this.load();
-        return (save.cardMastery && Number.isFinite(save.cardMastery[cardId])) ? save.cardMastery[cardId] : 0;
-    },
-    setCardMastery(cardId, level) {
-        const save = this.load();
-        if (!save.cardMastery) save.cardMastery = {};
-        save.cardMastery[cardId] = Math.max(0, Math.min(5, Math.floor(level)));
-        this.save(save);
-        return save.cardMastery[cardId];
-    },
-    getDeckConfig() {
-        const save = this.load();
-        return save.deckConfig || { cards: [], size: 20 };
-    },
-    setDeckConfig(deckConfig) {
-        const save = this.load();
-        save.deckConfig = {
-            cards: Array.isArray(deckConfig.cards) ? deckConfig.cards.slice(0, deckConfig.size || 20) : [],
-            size: Number.isFinite(deckConfig.size) ? deckConfig.size : 20
-        };
-        this.save(save);
-        return save.deckConfig;
-    },
+    // ---- Shard currency helpers ----
     getCardShards() {
         const save = this.load();
         return Number.isFinite(save.cardShards) ? save.cardShards : 0;
@@ -331,16 +321,181 @@ const SaveSystem = {
         this.save(save);
         return save.cardShards;
     },
-    getDeckUpgrades() {
-        const save = this.load();
-        return save.deckUpgrades || { handSize: 4, startingCards: 3, mulligans: 0, reserveSlots: 0, roomModifierCarrySlots: 3, cardCombinationUnlocked: false };
+    getDefaultGearUpgrades() {
+        return Object.assign({}, this.getDefaultSave().gearUpgrades);
     },
-    setDeckUpgrade(key, value) {
+
+    getGearUpgrades() {
         const save = this.load();
-        save.deckUpgrades = save.deckUpgrades || { handSize: 4, startingCards: 3, mulligans: 0, reserveSlots: 0, roomModifierCarrySlots: 3, cardCombinationUnlocked: false };
-        save.deckUpgrades[key] = value;
+        return Object.assign(this.getDefaultGearUpgrades(), save.gearUpgrades || {});
+    },
+
+    setGearUpgrade(key, value) {
+        const save = this.load();
+        save.gearUpgrades = Object.assign(this.getDefaultGearUpgrades(), save.gearUpgrades || {});
+        save.gearUpgrades[key] = value;
         this.save(save);
-        return save.deckUpgrades;
+        return save.gearUpgrades;
+    },
+
+    /**
+     * Resolve safe-room machine caps/costs from gearUpgrades (or a raw upgrades blob).
+     * @param {object} [gearUpgrades] optional override (e.g. per-player MP meta)
+     */
+    getSafeRoomMeta(gearUpgrades) {
+        const u = gearUpgrades
+            ? Object.assign(this.getDefaultGearUpgrades(), gearUpgrades)
+            : this.getGearUpgrades();
+
+        const safeHealBonus = Math.max(0, Math.min(6, u.safeHealBonus || 0));
+        const safeLevelUpCount = Math.max(0, Math.min(3, u.safeLevelUpCount || 0));
+        const safeLevelCapBonus = Math.max(0, Math.min(3, u.safeLevelCapBonus || 0));
+        const safeRerollCount = Math.max(0, Math.min(2, u.safeRerollCount || 0));
+        const safeRarityUnlock = u.safeRarityUnlock ? 1 : 0;
+        const safeRarityUnlock2 = (safeRarityUnlock && u.safeRarityUnlock2) ? 1 : 0;
+
+        const rarityUnlockRank = safeRarityUnlock + safeRarityUnlock2;
+        const safeLevelUpDiscount = Math.max(0, Math.min(safeLevelUpCount, u.safeLevelUpDiscount || 0));
+        const safeRarityDiscount = Math.max(0, Math.min(rarityUnlockRank, u.safeRarityDiscount || 0));
+        const safeRerollDiscount = Math.max(0, Math.min(safeRerollCount, u.safeRerollDiscount || 0));
+
+        return {
+            safeHealBonus,
+            safeLevelUpCount,
+            safeLevelCapBonus,
+            safeRerollCount,
+            safeRarityUnlock,
+            safeRarityUnlock2,
+            safeLevelUpDiscount,
+            safeRarityDiscount,
+            safeRerollDiscount,
+            healBonusPct: 0.30 + 0.05 * safeHealBonus,
+            maxLevelUps: 3 + safeLevelUpCount,
+            levelCapBonus: safeLevelCapBonus,
+            maxRerolls: 3 + safeRerollCount,
+            rarityMaxSteps: rarityUnlockRank,
+            levelUpCostMul: 1 - 0.08 * safeLevelUpDiscount,
+            rarityCostMul: 1 - 0.08 * safeRarityDiscount,
+            rerollCostMul: 1 - 0.10 * safeRerollDiscount
+        };
+    },
+
+    /** Slim blob of safe-room upgrade keys for MP join sync. */
+    getSafeRoomUpgradeBlob() {
+        const u = this.getGearUpgrades();
+        return {
+            safeHealBonus: u.safeHealBonus || 0,
+            safeLevelUpCount: u.safeLevelUpCount || 0,
+            safeLevelCapBonus: u.safeLevelCapBonus || 0,
+            safeRerollCount: u.safeRerollCount || 0,
+            safeRarityUnlock: u.safeRarityUnlock || 0,
+            safeRarityUnlock2: u.safeRarityUnlock2 || 0,
+            safeLevelUpDiscount: u.safeLevelUpDiscount || 0,
+            safeRarityDiscount: u.safeRarityDiscount || 0,
+            safeRerollDiscount: u.safeRerollDiscount || 0
+        };
+    },
+
+    /** Ordered boss progression used for nexus machine gates. */
+    getBossProgressionOrder() {
+        return ['Swarm King', 'Twin Prism', 'Fortress', 'Fractal Core', 'Vortex'];
+    },
+
+    getBossesDefeated() {
+        const save = this.load();
+        return (save.bossesDefeated && typeof save.bossesDefeated === 'object') ? save.bossesDefeated : {};
+    },
+
+    recordBossDefeated(bossName) {
+        if (!bossName) return this.getBossesDefeated();
+        const save = this.load();
+        save.bossesDefeated = save.bossesDefeated || {};
+        let newlyRecorded = false;
+        if (!save.bossesDefeated[bossName]) {
+            save.bossesDefeated[bossName] = true;
+            this.save(save);
+            newlyRecorded = true;
+            console.log(`[Save] Recorded boss defeat: ${bossName}`);
+        }
+        if (newlyRecorded && typeof FeatureTutorials !== 'undefined' && FeatureTutorials.syncFromProgress) {
+            FeatureTutorials.syncFromProgress({ showToast: true });
+        }
+        return save.bossesDefeated;
+    },
+
+    getHighestRoomCleared() {
+        const save = this.load();
+        return Number.isFinite(save.highestRoomCleared) ? save.highestRoomCleared : 0;
+    },
+
+    recordRoomCleared(roomNumber) {
+        const n = Number(roomNumber);
+        if (!Number.isFinite(n) || n <= 0) return this.getHighestRoomCleared();
+        const save = this.load();
+        const prev = Number.isFinite(save.highestRoomCleared) ? save.highestRoomCleared : 0;
+        if (n > prev) {
+            save.highestRoomCleared = n;
+            this.save(save);
+            console.log(`[Save] Highest room cleared: ${n}`);
+            if (typeof FeatureTutorials !== 'undefined' && FeatureTutorials.syncFromProgress) {
+                FeatureTutorials.syncFromProgress({ showToast: true });
+            }
+        }
+        return save.highestRoomCleared || n;
+    },
+
+    hasClearedRoomRequirement(requiredRoom) {
+        const need = Number(requiredRoom);
+        if (!Number.isFinite(need) || need <= 0) return true;
+        return this.getHighestRoomCleared() >= need;
+    },
+
+    /**
+     * True if the required boss (or any later boss in progression) has been defeated.
+     * Later-boss fallback covers alternate schedules / skips without soft-locking gates.
+     */
+    hasDefeatedBossRequirement(requiredBossName) {
+        const order = this.getBossProgressionOrder();
+        const reqIdx = order.indexOf(requiredBossName);
+        const defeated = this.getBossesDefeated();
+        if (reqIdx < 0) return !!defeated[requiredBossName];
+        for (let i = reqIdx; i < order.length; i++) {
+            if (defeated[order[i]]) return true;
+        }
+        // Also: enough unique defeated bosses past this gate
+        const uniqueCount = Object.keys(defeated).filter(n => defeated[n]).length;
+        return uniqueCount > reqIdx;
+    },
+
+    /** Nexus machine gate info: { locked, requiredBoss, requiredRoom, unlockHint } */
+    getNexusMachineLock(machineKey) {
+        // Order (top→bottom): Rarity (room 5), Affixes (Swarm King), Systems (Twin Prism), Efficiency (Fortress)
+        const gates = {
+            rarityChance: { requiredRoom: 5, unlockHint: 'Clear Room 5' },
+            affixSlots: { requiredBoss: 'Swarm King' },
+            safeRoomSystems: { requiredBoss: 'Twin Prism', ordinal: '2nd' },
+            safeRoomEfficiency: { requiredBoss: 'Fortress', ordinal: '3rd' }
+        };
+        const gate = gates[machineKey];
+        if (!gate) return { locked: false, requiredBoss: null, requiredRoom: null, unlockHint: null };
+
+        if (gate.requiredRoom) {
+            const unlocked = this.hasClearedRoomRequirement(gate.requiredRoom);
+            return {
+                locked: !unlocked,
+                requiredBoss: null,
+                requiredRoom: gate.requiredRoom,
+                unlockHint: unlocked ? null : (gate.unlockHint || `Clear Room ${gate.requiredRoom}`)
+            };
+        }
+
+        const unlocked = this.hasDefeatedBossRequirement(gate.requiredBoss);
+        return {
+            locked: !unlocked,
+            requiredBoss: gate.requiredBoss,
+            requiredRoom: null,
+            unlockHint: unlocked ? null : `Defeat ${gate.requiredBoss}`
+        };
     },
 
     // Get last run version
@@ -361,7 +516,23 @@ const SaveSystem = {
     shouldShowUpdateModal() {
         if (typeof Game === 'undefined' || !Game.VERSION) return false;
         const lastVersion = this.getLastRunVersion();
+        // Brand-new saves have never seen a build - no patch notes on first play.
+        // Returning players only see notes when the stored version differs.
+        if (lastVersion == null || lastVersion === '') {
+            return false;
+        }
         return lastVersion !== Game.VERSION;
+    },
+
+    /** Quietly stamp current version for first-time players (no modal). */
+    stampCurrentVersionIfNew() {
+        if (typeof Game === 'undefined' || !Game.VERSION) return false;
+        const lastVersion = this.getLastRunVersion();
+        if (lastVersion == null || lastVersion === '') {
+            this.setLastRunVersion(Game.VERSION);
+            return true;
+        }
+        return false;
     },
 
     // Get has seen launch modal
@@ -376,6 +547,145 @@ const SaveSystem = {
         save.hasSeenLaunchModal = seen === true;
         this.save(save);
         return true;
+    },
+
+    getDefaultOnboarding() {
+        return {
+            selectClassDone: false,
+            launchRunDone: false,
+            classUpgradesDone: false,
+            firstRunStarted: false,
+            complete: false,
+            suspendedForMp: false,
+            tutorialVersion: 0,
+            room0TutorialDone: false
+        };
+    },
+
+    /** Bump when the nexus coach flow changes and everyone must re-run it. */
+    ONBOARDING_TUTORIAL_VERSION: 1,
+
+    getOnboarding() {
+        const save = this.load();
+        const defaults = this.getDefaultOnboarding();
+        let current;
+        if (!save.onboarding || typeof save.onboarding !== 'object') {
+            current = Object.assign({}, defaults);
+        } else {
+            current = Object.assign({}, defaults, save.onboarding);
+        }
+
+        const required = this.ONBOARDING_TUTORIAL_VERSION;
+        const finishedThisVersion = current.complete
+            && Number(current.tutorialVersion) >= required;
+
+        // Old "complete" / pre-feature auto-skips do not count - all saves run this tutorial once.
+        if (current.complete && !finishedThisVersion) {
+            current = Object.assign({}, defaults, { suspendedForMp: !!current.suspendedForMp });
+            save.onboarding = current;
+            this.save(save);
+            return current;
+        }
+
+        // Veterans who already finished first-run onboarding before Room 0 existed
+        // skip the combat tutorial (same grandfather pattern as FeatureTutorials).
+        // Detect missing key on the raw stored blob (load() always merges defaults).
+        if (finishedThisVersion && !this._rawOnboardingHasRoom0Flag()) {
+            current.room0TutorialDone = true;
+            save.onboarding = current;
+            this.save(save);
+        }
+
+        return current;
+    },
+
+    /** True when the persisted save JSON explicitly sets room0TutorialDone. */
+    _rawOnboardingHasRoom0Flag() {
+        try {
+            const raw = localStorage.getItem(this.STORAGE_KEY || 'shapeSlayerSave');
+            if (!raw) return false;
+            const parsed = JSON.parse(raw);
+            return !!(parsed && parsed.onboarding
+                && Object.prototype.hasOwnProperty.call(parsed.onboarding, 'room0TutorialDone'));
+        } catch (e) {
+            return false;
+        }
+    },
+
+    setOnboarding(patch) {
+        const save = this.load();
+        const defaults = this.getDefaultOnboarding();
+        let current;
+        if (!save.onboarding || typeof save.onboarding !== 'object') {
+            current = Object.assign({}, defaults);
+        } else {
+            current = Object.assign({}, defaults, save.onboarding);
+        }
+
+        // Same version gate as getOnboarding - don't merge onto stale complete:true
+        const required = this.ONBOARDING_TUTORIAL_VERSION;
+        const finishedThisVersion = current.complete
+            && Number(current.tutorialVersion) >= required;
+        if (current.complete && !finishedThisVersion) {
+            current = Object.assign({}, defaults, { suspendedForMp: !!current.suspendedForMp });
+        } else if (finishedThisVersion && !this._rawOnboardingHasRoom0Flag()
+            && !(patch && Object.prototype.hasOwnProperty.call(patch, 'room0TutorialDone'))) {
+            current.room0TutorialDone = true;
+        }
+
+        save.onboarding = Object.assign({}, current, patch || {});
+        this.save(save);
+        return save.onboarding;
+    },
+
+    getDefaultFeatureTutorials() {
+        return {
+            initialized: false,
+            completed: {},
+            toasted: {},
+            queue: []
+        };
+    },
+
+    getFeatureTutorials() {
+        const save = this.load();
+        const defaults = this.getDefaultFeatureTutorials();
+        if (!save.featureTutorials || typeof save.featureTutorials !== 'object') {
+            save.featureTutorials = Object.assign({}, defaults);
+            this.save(save);
+        }
+        return {
+            initialized: save.featureTutorials.initialized === true,
+            completed: Object.assign({}, save.featureTutorials.completed || {}),
+            toasted: Object.assign({}, save.featureTutorials.toasted || {}),
+            queue: Array.isArray(save.featureTutorials.queue) ? save.featureTutorials.queue.slice() : []
+        };
+    },
+
+    setFeatureTutorials(patch) {
+        const save = this.load();
+        const defaults = this.getDefaultFeatureTutorials();
+        const current = (save.featureTutorials && typeof save.featureTutorials === 'object')
+            ? {
+                initialized: save.featureTutorials.initialized === true,
+                completed: Object.assign({}, save.featureTutorials.completed || {}),
+                toasted: Object.assign({}, save.featureTutorials.toasted || {}),
+                queue: Array.isArray(save.featureTutorials.queue) ? save.featureTutorials.queue.slice() : []
+            }
+            : Object.assign({}, defaults);
+        const next = Object.assign({}, current, patch || {});
+        if (patch && patch.completed && typeof patch.completed === 'object') {
+            next.completed = Object.assign({}, current.completed, patch.completed);
+        }
+        if (patch && patch.toasted && typeof patch.toasted === 'object') {
+            next.toasted = Object.assign({}, current.toasted, patch.toasted);
+        }
+        if (patch && Array.isArray(patch.queue)) {
+            next.queue = patch.queue.slice();
+        }
+        save.featureTutorials = next;
+        this.save(save);
+        return next;
     },
 
     // Get audio volume
@@ -490,22 +800,13 @@ const SaveSystem = {
     getDiscoveries() {
         const save = this.load();
         if (!save.discoveries) {
-            save.discoveries = {
-                affixes: [],
-                cards: [],
-                utilityCards: [],
-                items: [],
-                seenQualityBands: {}
-            };
-        }
-        if (!save.discoveries.seenQualityBands) {
-            save.discoveries.seenQualityBands = {};
+            save.discoveries = { affixes: [], items: [] };
         }
         return save.discoveries;
     },
     discoverAffix(affixType) {
         const save = this.load();
-        if (!save.discoveries) save.discoveries = { affixes: [], cards: [], utilityCards: [], items: [], seenQualityBands: {} };
+        if (!save.discoveries) save.discoveries = { affixes: [], items: [] };
         if (!Array.isArray(save.discoveries.affixes)) save.discoveries.affixes = [];
         if (!save.discoveries.affixes.includes(affixType)) {
             save.discoveries.affixes.push(affixType);
@@ -513,29 +814,9 @@ const SaveSystem = {
         }
         return save.discoveries.affixes;
     },
-    discoverCard(cardId) {
-        const save = this.load();
-        if (!save.discoveries) save.discoveries = { affixes: [], cards: [], utilityCards: [], items: [], seenQualityBands: {} };
-        if (!Array.isArray(save.discoveries.cards)) save.discoveries.cards = [];
-        if (!save.discoveries.cards.includes(cardId)) {
-            save.discoveries.cards.push(cardId);
-            this.save(save);
-        }
-        return save.discoveries.cards;
-    },
-    discoverUtilityCard(cardId) {
-        const save = this.load();
-        if (!save.discoveries) save.discoveries = { affixes: [], cards: [], utilityCards: [], items: [], seenQualityBands: {} };
-        if (!Array.isArray(save.discoveries.utilityCards)) save.discoveries.utilityCards = [];
-        if (!save.discoveries.utilityCards.includes(cardId)) {
-            save.discoveries.utilityCards.push(cardId);
-            this.save(save);
-        }
-        return save.discoveries.utilityCards;
-    },
     discoverItem(itemId) {
         const save = this.load();
-        if (!save.discoveries) save.discoveries = { affixes: [], cards: [], utilityCards: [], items: [], seenQualityBands: {} };
+        if (!save.discoveries) save.discoveries = { affixes: [], items: [] };
         if (!Array.isArray(save.discoveries.items)) save.discoveries.items = [];
         if (!save.discoveries.items.includes(itemId)) {
             save.discoveries.items.push(itemId);
@@ -547,85 +828,54 @@ const SaveSystem = {
         const discoveries = this.getDiscoveries();
         return Array.isArray(discoveries.affixes) && discoveries.affixes.includes(affixType);
     },
-    hasDiscoveredCard(cardId) {
-        const discoveries = this.getDiscoveries();
-        return Array.isArray(discoveries.cards) && discoveries.cards.includes(cardId);
-    },
-    hasDiscoveredUtilityCard(cardId) {
-        const discoveries = this.getDiscoveries();
-        return Array.isArray(discoveries.utilityCards) && discoveries.utilityCards.includes(cardId);
-    },
     hasDiscoveredItem(itemId) {
         const discoveries = this.getDiscoveries();
         return Array.isArray(discoveries.items) && discoveries.items.includes(itemId);
     },
-    // Sync existing unlocked cards to discoveries (for migration/initialization)
-    syncExistingUnlocksToDiscoveries() {
-        const save = this.load();
-        if (!save.discoveries) save.discoveries = { affixes: [], cards: [], utilityCards: [], items: [], seenQualityBands: {} };
-        
-        let changed = false;
-        
-        // Sync regular unlocked cards
-        if (Array.isArray(save.cardsUnlocked)) {
-            save.cardsUnlocked.forEach(cardId => {
-                if (!Array.isArray(save.discoveries.cards)) save.discoveries.cards = [];
-                if (!save.discoveries.cards.includes(cardId)) {
-                    save.discoveries.cards.push(cardId);
-                    changed = true;
-                }
-            });
-        }
-        
-        // Sync team cards
-        if (Array.isArray(save.teamCardsUnlocked)) {
-            save.teamCardsUnlocked.forEach(cardId => {
-                if (!Array.isArray(save.discoveries.utilityCards)) save.discoveries.utilityCards = [];
-                if (!save.discoveries.utilityCards.includes(cardId)) {
-                    save.discoveries.utilityCards.push(cardId);
-                    changed = true;
-                }
-            });
-        }
-        
-        // Sync room modifier collection
-        if (Array.isArray(save.roomModifierCollection)) {
-            save.roomModifierCollection.forEach(card => {
-                const cardId = card.id || (typeof card === 'string' ? card : null);
-                if (cardId) {
-                    if (!Array.isArray(save.discoveries.utilityCards)) save.discoveries.utilityCards = [];
-                    if (!save.discoveries.utilityCards.includes(cardId)) {
-                        save.discoveries.utilityCards.push(cardId);
-                        changed = true;
-                    }
-                }
-            });
-        }
-        
-        if (changed) {
-            this.save(save);
-        }
-        
-        return save.discoveries;
+
+    hasActiveRunCheckpoint() {
+        return !!this.getActiveRunCheckpoint();
     },
-    // Track that a card quality band has been seen (upgraded to during a run)
-    seeCardQualityBand(cardId, quality) {
+
+    getActiveRunCheckpoint() {
         const save = this.load();
-        if (!save.discoveries) save.discoveries = { affixes: [], cards: [], utilityCards: [], items: [], seenQualityBands: {} };
-        if (!save.discoveries.seenQualityBands) save.discoveries.seenQualityBands = {};
-        if (!Array.isArray(save.discoveries.seenQualityBands[cardId])) {
-            save.discoveries.seenQualityBands[cardId] = [];
-        }
-        if (!save.discoveries.seenQualityBands[cardId].includes(quality)) {
-            save.discoveries.seenQualityBands[cardId].push(quality);
-            this.save(save);
-        }
-        return save.discoveries.seenQualityBands[cardId];
+        const cp = save.activeRunCheckpoint;
+        if (!cp || typeof cp !== 'object') return null;
+        return cp;
     },
-    // Check if a quality band has been seen for a card
-    hasSeenCardQualityBand(cardId, quality) {
-        const discoveries = this.getDiscoveries();
-        return Array.isArray(discoveries.seenQualityBands[cardId]) && discoveries.seenQualityBands[cardId].includes(quality);
+
+    setActiveRunCheckpoint(data) {
+        const save = this.load();
+        if (!data || typeof data !== 'object') {
+            save.activeRunCheckpoint = null;
+        } else {
+            save.activeRunCheckpoint = data;
+        }
+        this.save(save);
+        return save.activeRunCheckpoint;
+    },
+
+    clearActiveRunCheckpoint() {
+        const save = this.load();
+        if (save.activeRunCheckpoint == null) return false;
+        save.activeRunCheckpoint = null;
+        this.save(save);
+        return true;
+    },
+
+    /**
+     * Atomic consume: read checkpoint, clear + persist immediately, return blob.
+     * Second call returns null (resume lock).
+     */
+    consumeActiveRunCheckpoint() {
+        const save = this.load();
+        const cp = save.activeRunCheckpoint;
+        if (!cp || typeof cp !== 'object') {
+            return null;
+        }
+        save.activeRunCheckpoint = null;
+        this.save(save);
+        return cp;
     }
 };
 

@@ -668,7 +668,7 @@ const MusicManager = {
     getFallbackKey(type, roomNumber) {
         if (type === 'boss') {
             if (roomNumber < 10) return 'boss-pre-10';
-            const cycleIndex = Math.floor((roomNumber - 10) / 5);
+            const cycleIndex = Math.floor((roomNumber - 10) / 10);
             return `boss-${cycleIndex}`;
         }
         
@@ -676,7 +676,7 @@ const MusicManager = {
             return roomNumber <= 4 ? 'normal-opening' : 'normal-preboss';
         }
         
-        const cycleIndex = Math.floor((roomNumber - 10) / 5);
+        const cycleIndex = Math.floor((roomNumber - 10) / 10);
         return `normal-${cycleIndex}`;
     }
 };

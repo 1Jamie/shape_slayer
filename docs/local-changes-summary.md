@@ -1,23 +1,27 @@
 # Local Changes Summary
 
-> Updated: 2026-07-03 (evening pass)  
-> Branch: `main` (1 commit ahead of `origin/main`, nothing staged)  
-> Scope: unpushed commit `246e96d` + all unstaged/untracked working-tree changes
+> **Superseded for the Jul 14 WIP:** see [`gear-mode-safe-rooms-update.md`](./gear-mode-safe-rooms-update.md) for the current living summary (gear pivot, Safe Rooms, combat economy, onboarding/Room 0, voxel fracture, reconciled 50-room boss cadence).  
+> This file remains as the **2026-07-03 foundation** snapshot (procedural arenas, fortify, profiler, early boss nav).
+
+> Updated: 2026-07-03 (evening pass); banner refreshed 2026-07-14  
+> Branch: `main` (working tree uncommitted as of Jul 14 afternoon)  
+> Current tracked diff scale (Jul 14): ~58 paths · **+3,736 / −8,679** + 16 untracked modules/tests/docs
 
 ---
 
-## Git Status at a Glance
+## Git Status at a Glance (Jul 3 snapshot - historical)
 
 | Layer | Status |
 |-------|--------|
 | **Staged** | Nothing |
-| **Committed (unpushed)** | `246e96d` — *hold for changes* (47 files, +4440 / −1219) |
+| **Committed (unpushed)** | `246e96d` - *hold for changes* (47 files, +4440 / −1219) |
 | **Unstaged** | 47 modified files (+16,196 / −4,153 lines) |
 | **Untracked** | 19 files |
 | **Deleted (unstaged)** | `docs/lore-specification.md` |
 
-**Headline:** A major overhaul — procedural route-based combat arenas, unified combat scaling, full enemy/boss navigation, five reworked bosses, **sustain/lifesteal rebalance**, **fortify shields**, **run-length performance profiler**, **gear render optimization**, adaptive render quality, and expanded narrative docs. Core systems are wired; **66 of 67 automated tests pass** (sole failure is a missing Puppeteer dependency).
+**Jul 3 headline:** A major overhaul - procedural route-based combat arenas, unified combat scaling, full enemy/boss navigation, five reworked bosses, **sustain/lifesteal rebalance**, **fortify shields**, **run-length performance profiler**, **gear render optimization**, adaptive render quality, and expanded narrative docs.
 
+**Jul 14 add-on headline:** Card Mode excised; Gear Mode + Safe Rooms + mid-run credit economy + first-run onboarding/Room 0 + feature tutors + voxel fracture. Details in [`gear-mode-safe-rooms-update.md`](./gear-mode-safe-rooms-update.md).
 ---
 
 ## 1. Committed but Unpushed (`246e96d`)
@@ -48,7 +52,7 @@ Rooms are **generated combat arenas** with obstacles, semantic roads, landmarks,
 
 **Room archetypes:** `road`, `gauntlet`, `maze`, `arena`, `crossroads`, `wilds`, `boss`.
 
-**Entrance variants:** `leftRight`, `topBottom`, `diagonalTopLeft` — scales travel axis per variant.
+**Entrance variants:** `leftRight`, `topBottom`, `diagonalTopLeft` - scales travel axis per variant.
 
 **Semantic road system:**
 - Main road polyline with room-number-scaled travel length
@@ -67,7 +71,7 @@ Rooms are **generated combat arenas** with obstacles, semantic roads, landmarks,
 - Serialize/hydrate + hash for multiplayer sync
 - Decorations/fixtures regenerate deterministically from compact layout data (no serialization bloat)
 
-**Tests:** `room-layout-generator.test.js` — **24/24 pass** (doubled since earlier pass).
+**Tests:** `room-layout-generator.test.js` - **24/24 pass** (doubled since earlier pass).
 
 ### Biome Progression
 
@@ -84,16 +88,16 @@ Rooms are **generated combat arenas** with obstacles, semantic roads, landmarks,
 
 - Obstacle-aware movement: `tryMoveBy`, circle collision resolution
 - Grid pathfinding fallback with repath timers and unstuck retreat
-- `isNavigationPathPractical` — rejects bad paths
-- `getObstacleAwareHeading` — local steering + wall-follow
+- `isNavigationPathPractical` - rejects bad paths
+- `getObstacleAwareHeading` - local steering + wall-follow
 
 ### Boss Base (`boss-base.js`, ~1123 lines)
 
-- `getNavigationRadius()` / `getPathfindingRadius()` — wider clearance than trash
+- `getNavigationRadius()` / `getPathfindingRadius()` - wider clearance than trash
 - `findSafeBossPosition()`, `moveTowardPoint()`
 - Arena anchor cache for scenery-based attack positioning
 
-**Tests:** `navigation.test.js` — **5/5 pass** (added blocked-cell radius test).
+**Tests:** `navigation.test.js` - **5/5 pass** (added blocked-cell radius test).
 
 ---
 
@@ -106,23 +110,23 @@ Centralized in `js/combat-scaling.js` (~1077 lines).
 - Pre-boss buildup, difficulty presets, gear vs cards multiplayer tables
 - Boss scaling profiles; `boss-scaling.js` is a shim
 
-**Tests:** `combat-scaling.test.js` — **8/8 pass**.
+**Tests:** `combat-scaling.test.js` - **8/8 pass**.
 
 ---
 
-## 5. Sustain & Lifesteal Rework — **IMPLEMENTED**
+## 5. Sustain & Lifesteal Rework - **IMPLEMENTED**
 
 Previously blocked; now fully wired in `js/combat.js` (+380 lines in diff).
 
 ### Lifesteal (`LIFESTEAL_CONFIG`)
 - Per-second heal cap: ~1.0–1.2% max HP/sec (flat, not scaling with lifesteal %)
-- Soft cap at 5% lifesteal stat — excess at 35% efficiency (11% gear → ~7.1% effective)
+- Soft cap at 5% lifesteal stat - excess at 35% efficiency (11% gear → ~7.1% effective)
 - Boss heal multiplier: 30%
 - Source multipliers: melee 1.0, hammer 1.0, shout 0.5, whirlwind 0.15, beam 0.30, projectile 0.85, etc.
 - Per-swing proc dedup via `beginLifestealAttackSwing()` + `registerSustainProc()`
 - Projectile batch dedup for multishot
 
-### Fortify (`FORTIFY_CONFIG`) — **NEW**
+### Fortify (`FORTIFY_CONFIG`) - **NEW**
 - Damage dealt converts to temporary shield (fortify percent stat)
 - Max pool: 10% max HP; max gain: 1.2% max HP/sec
 - Boss gain multiplier: 40%
@@ -132,7 +136,7 @@ Previously blocked; now fully wired in `js/combat.js` (+380 lines in diff).
 - Affix lifesteal range: 2–7% (was 3–10%)
 - Legendary vampiric: 6% (was 8%)
 
-**Tests:** `lifesteal.test.js` — **9/9 pass** (added soft-cap and whirlwind reduction tests).
+**Tests:** `lifesteal.test.js` - **9/9 pass** (added soft-cap and whirlwind reduction tests).
 
 ---
 
@@ -150,7 +154,7 @@ Previously blocked; now fully wired in `js/combat.js` (+380 lines in diff).
 - Multi-part collision bodies, weak point hits, beam hit testing
 - `applyLifesteal`, `applyFortifyGain`, `applyHammerHeal`, `applyLifeOnCritHeal`
 
-**Tests:** `fortress-boss.test.js` — **2/2 pass**, `pheromone-arc.test.js` — **4/4 pass**.
+**Tests:** `fortress-boss.test.js` - **2/2 pass**, `pheromone-arc.test.js` - **4/4 pass**.
 
 ---
 
@@ -169,14 +173,14 @@ Three-tier frame budget governor (2-second rolling window):
 ### Gear Render Optimization (`gear.js`, +529 lines)
 
 - **Sprite baking cache** (128 entries): pre-rendered gear drops by tier/slot/affix key
-- **Camera culling**: `isGroundGearVisible()` — only draw in-view loot
-- `renderGroundLoot(ctx, visibleLoot)` — accepts pre-culled list
+- **Camera culling**: `isGroundGearVisible()` - only draw in-view loot
+- `renderGroundLoot(ctx, visibleLoot)` - accepts pre-culled list
 - Deterministic `phaseOffset` from gear ID for desynced pulse animation
 - Affix ring point count scales with quality tier
 
 ### Ground Loot/Cards/Items Culling
-- `renderGroundCards(ctx, visibleCards)` — optional visible subset
-- `renderGroundItems(ctx, visibleItems)` — same pattern
+- `renderGroundCards(ctx, visibleCards)` - optional visible subset
+- `renderGroundItems(ctx, visibleItems)` - same pattern
 - `buildFrameRenderLists()` in main.js builds per-frame visible lists
 
 ### Room Render Caches (`render.js`, +2289 lines)
@@ -190,13 +194,13 @@ Three-tier frame budget governor (2-second rolling window):
 - Chromatic trauma screen effect
 - Render sub-timings: groundLoot, gearRings, remotePlayers, worldGlow, worldBodies
 
-**Tests:** `gear-render-opt.test.js` — **2/2 pass** (cache key order-independence, legendary/class flags).
+**Tests:** `gear-render-opt.test.js` - **2/2 pass** (cache key order-independence, legendary/class flags).
 
 ---
 
-## 8. Run Performance Profiler — **NEW**
+## 8. Run Performance Profiler - **NEW**
 
-`js/run-profiler.js` (~549 lines) — samples across a full run for export and analysis.
+`js/run-profiler.js` (~549 lines) - samples across a full run for export and analysis.
 
 ### Features
 - Reservoir sampling for frame/process/update/render phase timings
@@ -215,7 +219,7 @@ Three-tier frame budget governor (2-second rolling window):
 - Captures profile on return to Nexus
 - Loaded in `index.html` before `debug.js`
 
-**Tests:** `run-profiler.test.js` — **2/2 pass**.
+**Tests:** `run-profiler.test.js` - **2/2 pass**.
 
 ### Debug Panel Additions (`debug.js`, +361 lines)
 - Run profiler start/stop/export buttons + status readout
@@ -286,7 +290,7 @@ test:device-detection → 8 tests
 | **Total** | **66** | **1** |
 
 ### Balance Simulations
-- `tests/lib/balance-runtime.js` — VM loader for live game scripts
+- `tests/lib/balance-runtime.js` - VM loader for live game scripts
 - `gear-mode-balance-sim.js`, `full-run-balance-sim.js`
 
 ---
@@ -298,7 +302,7 @@ test:device-detection → 8 tests
 - Route spawn groups, full enemy/boss navigation
 - All five bosses with expanded kits (Vortex rewritten)
 - Unified combat scaling
-- **Lifesteal sustain + fortify shields** — implemented and tested
+- **Lifesteal sustain + fortify shields** - implemented and tested
 - Adaptive render quality under load
 - Gear sprite cache + loot culling
 - Run-length performance profiler
@@ -307,10 +311,10 @@ test:device-detection → 8 tests
 - Gamepad + mobile UI (unpushed commit)
 
 ### Known Gaps
-1. **Nothing committed** for room/boss/scaling/sustain/perf work — all in working tree
-2. **Manual QA needed** — boss encounters, biome transitions, render perf under heavy loot, multiplayer sync
-3. **Narrative design ahead of code** — ending doc and card memory fragments are design-only
-4. **Puppeteer not installed** — damage-numbers browser test can't run locally
+1. **Nothing committed** for room/boss/scaling/sustain/perf work - all in working tree
+2. **Manual QA needed** - boss encounters, biome transitions, render perf under heavy loot, multiplayer sync
+3. **Narrative design ahead of code** - ending doc and card memory fragments are design-only
+4. **Puppeteer not installed** - damage-numbers browser test can't run locally
 
 ### Suggested Manual QA
 - [ ] Cards run: biomes at 12/22/32; route spawn pockets
@@ -321,7 +325,7 @@ test:device-detection → 8 tests
 - [ ] Fortify: shield buildup and decay under sustained damage
 - [ ] Performance: flood room with gear (debug cheat), confirm adaptive quality kicks in
 - [ ] Run profiler: full run → export JSON → inspect worst rooms/phases
-- [ ] Each boss in biome arena — especially Vortex phase 3
+- [ ] Each boss in biome arena - especially Vortex phase 3
 - [ ] Multiplayer: 2+ clients, room transition, identical layouts
 
 ---
@@ -337,7 +341,7 @@ test:device-detection → 8 tests
 ### New / Untracked (19)
 `docs/local-changes-summary.md`, `js/biomes.js`, `js/bosses/boss-scaling.js`, `js/bosses/pheromone-polyline.js`, `js/combat-scaling.js`, `js/device-detection.js`, `js/room-layout-generator.js`, `js/run-profiler.js`, `tests/combat-scaling.test.js`, `tests/device-detection.test.js`, `tests/fortress-boss.test.js`, `tests/full-run-balance-sim.js`, `tests/gear-mode-balance-sim.js`, `tests/gear-render-opt.test.js`, `tests/lib/balance-runtime.js`, `tests/lifesteal.test.js`, `tests/navigation.test.js`, `tests/pheromone-arc.test.js`, `tests/room-layout-generator.test.js`, `tests/run-profiler.test.js`
 
-### Already Committed, Unpushed (47 files — see §1)
+### Already Committed, Unpushed (47 files - see §1)
 Gamepad, touch controls, CSS, nexus, telemetry, metrics GUI, controller navigation.
 
 ---
@@ -367,4 +371,4 @@ Gamepad, touch controls, CSS, nexus, telemetry, metrics GUI, controller navigati
 
 ## Summary in One Paragraph
 
-Local work transforms Shape Slayer from flat arenas into **biome-themed procedural combat routes** with archetypes, entrance variants, obstacle collision, route-based enemy pockets, and full navigation for enemies and bosses. A **unified combat scaling system** drives difficulty; all five bosses have massively expanded kits (Vortex essentially rewritten). **Lifesteal sustain is rebalanced and implemented** — per-second caps, soft-cap diminishing returns, source multipliers, per-swing dedup — alongside a new **fortify shield** mechanic. **Performance work** adds adaptive three-tier render quality, gear sprite caching with camera culling, and a **run-length profiler** for identifying worst rooms and render phases. Multiplayer syncs room layouts host-to-client; the dev server is hardened against path traversal. An unpushed commit adds gamepad and mobile UI polish. **66 of 67 tests pass**; the sole failure is a Puppeteer dependency for browser integration tests. The game is feature-rich and dev-playable but entirely uncommitted — needs hands-on QA before release.
+Local work transforms Shape Slayer from flat arenas into **biome-themed procedural combat routes** with archetypes, entrance variants, obstacle collision, route-based enemy pockets, and full navigation for enemies and bosses. A **unified combat scaling system** drives difficulty; all five bosses have massively expanded kits (Vortex essentially rewritten). **Lifesteal sustain is rebalanced and implemented** - per-second caps, soft-cap diminishing returns, source multipliers, per-swing dedup - alongside a new **fortify shield** mechanic. **Performance work** adds adaptive three-tier render quality, gear sprite caching with camera culling, and a **run-length profiler** for identifying worst rooms and render phases. Multiplayer syncs room layouts host-to-client; the dev server is hardened against path traversal. An unpushed commit adds gamepad and mobile UI polish. **66 of 67 tests pass**; the sole failure is a Puppeteer dependency for browser integration tests. The game is feature-rich and dev-playable but entirely uncommitted - needs hands-on QA before release.

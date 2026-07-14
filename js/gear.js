@@ -83,14 +83,34 @@ const AFFIX_POOL = {
     beamPenetration: { min: 1, max: 2, slot: ['weapon', 'accessory'], weight: 0.4, tier: 'rare', class: 'hexagon' }
 };
 
-// Tiered affix slot allocation per gear tier
-const TIERED_AFFIX_SLOTS = {
-    gray: { basic: [0, 2], advanced: [0, 0], rare: [0, 0] },
-    green: { basic: [1, 2], advanced: [0, 1], rare: [0, 0] },
-    blue: { basic: [1, 2], advanced: [1, 2], rare: [0, 1] },
-    purple: { basic: [1, 2], advanced: [1, 2], rare: [1, 2] },
-    orange: { basic: [1, 2], advanced: [1, 2], rare: [1, 2] }
-};
+// Dynamic affix slot allocation based on gear upgrades
+function getTieredAffixSlots(gearTier, upgrades = {}) {
+    const basicLvl = upgrades.affixSlotsBasic || 0;
+    const advancedLvl = upgrades.affixSlotsAdvanced || 0;
+    const rareLvl = upgrades.affixSlotsRare || 0;
+
+    let basicCap = 1;
+    if (basicLvl >= 5) basicCap = 3;
+    else if (basicLvl >= 3) basicCap = 2;
+
+    let advancedCap = 0;
+    if (advancedLvl >= 4) advancedCap = 2;
+    else if (advancedLvl >= 2) advancedCap = 1;
+
+    let rareCap = 0;
+    if (rareLvl >= 5) rareCap = 2;
+    else if (rareLvl >= 3) rareCap = 1;
+
+    const config = {
+        gray:   { basic: [0, 0], advanced: [0, 0], rare: [0, 0] },
+        green:  { basic: [1, basicCap], advanced: [0, 0], rare: [0, 0] },
+        blue:   { basic: [1, basicCap], advanced: [1, Math.min(1, advancedCap)], rare: [0, 0] },
+        purple: { basic: [1, basicCap], advanced: [1, advancedCap], rare: [1, Math.min(1, rareCap)] },
+        orange: { basic: [1, basicCap], advanced: [1, advancedCap], rare: [1, rareCap] }
+    };
+
+    return config[gearTier] || config.gray;
+}
 
 // Class modifier pool with class-specific ability modifications
 const CLASS_MODIFIER_POOL = {
@@ -141,7 +161,8 @@ window.groundLoot = groundLoot;
 
 // Get gear scaling based on room number
 function getGearScaling(roomNumber) {
-    return 1 + (roomNumber * 0.04); // +4% per room (balanced for difficulty curve)
+    // +3.5%/room - stretched for the 50-room gear run (was +4% for a 30-room end)
+    return 1 + (roomNumber * 0.035);
 }
 
 // Flat stat ranges for weapons and armor
@@ -247,7 +268,10 @@ const LEGENDARY_EFFECTS = {
 
 // Generate affixes using tiered slot system
 function generateAffixes(gearTier, slot) {
-    const slotConfig = TIERED_AFFIX_SLOTS[gearTier];
+    const upgrades = (typeof SaveSystem !== 'undefined' && SaveSystem.getGearUpgrades)
+        ? SaveSystem.getGearUpgrades()
+        : {};
+    const slotConfig = getTieredAffixSlots(gearTier, upgrades);
     if (!slotConfig) return [];
     
     // Determine active classes for smart loot distribution
@@ -449,22 +473,26 @@ function calculateTierProbabilities(roomNumber, enemyDifficulty = 'basic') {
     // Gradual curve scaling factor (exponent creates acceleration)
     const scalingFactor = Math.pow(effectiveLevel, 1.2) / 150; // Reduced from /100, slower curve
     
-    // Base weights (room 1, basic enemy) - more conservative
+    const upgrades = (typeof SaveSystem !== 'undefined' && SaveSystem.getGearUpgrades)
+        ? SaveSystem.getGearUpgrades()
+        : { rarityChanceGreen: 0, rarityChanceBlue: 0, rarityChancePurple: 0, rarityChanceOrange: 0 };
+
+    // Base weights (room 1, basic enemy)
     const baseWeights = {
-        gray: 70,    // Increased gray chance early
-        green: 25,   // Reduced green
-        blue: 4,     // Much rarer blue early
-        purple: 0.8, // Very rare purple
-        orange: 0.2  // Extremely rare orange
+        gray: 75,
+        green: 23,
+        blue: 1.7,
+        purple: 0.25,
+        orange: 0.05
     };
     
     // Growth rates per tier (how much each tier grows with scaling) - slower progression
     const growthRates = {
-        gray: -2.5,   // Gray decreases slower
+        gray: -2.8,   // Gray decreases slower
         green: -1.0,  // Green decreases slower
-        blue: 0.6,    // Blue increases slower
-        purple: 1.2,  // Purple increases slower
-        orange: 1.5   // Orange increases slower
+        blue: 0.8,    // Blue increases
+        purple: 1.4,  // Purple increases
+        orange: 1.6   // Orange increases
     };
     
     // Calculate adjusted weights
@@ -473,16 +501,29 @@ function calculateTierProbabilities(roomNumber, enemyDifficulty = 'basic') {
         weights[tier] = Math.max(0.1, baseWeights[tier] + (scalingFactor * growthRates[tier]));
     }
     
-    // Bosses never drop gray (white) gear - redistribute probability to higher tiers
-    if (difficultyData.name === 'boss') {
-        weights.gray = 0;
-    }
-    
-    // Normalize to probabilities (sum to 1.0)
-    const totalWeight = Object.values(weights).reduce((sum, w) => sum + w, 0);
-    let probabilities = {};
+    // Convert to preliminary probabilities to apply relative multiplier upgrades safely
+    const preTotal = Object.values(weights).reduce((sum, w) => sum + w, 0);
+    let probs = {};
     for (let tier in weights) {
-        probabilities[tier] = weights[tier] / totalWeight;
+        probs[tier] = weights[tier] / preTotal;
+    }
+
+    // Apply independent upward multipliers (no sequence breaking early game)
+    probs.green  *= (1 + (upgrades.rarityChanceGreen || 0) * 0.10);
+    probs.blue   *= (1 + (upgrades.rarityChanceBlue || 0) * 0.08);
+    probs.purple *= (1 + (upgrades.rarityChancePurple || 0) * 0.06);
+    probs.orange *= (1 + (upgrades.rarityChanceOrange || 0) * 0.04);
+
+    // Normalize so it always equals 1.0 without dropping below zero
+    const minGray = difficultyData.name === 'boss' ? 0.0 : 0.05;
+    const totalHigherTiers = probs.green + probs.blue + probs.purple + probs.orange;
+    probs.gray = Math.max(minGray, 1.0 - totalHigherTiers);
+
+    // Final normalization
+    const newTotal = probs.gray + totalHigherTiers;
+    let probabilities = {};
+    for (let key in probs) {
+        probabilities[key] = probs[key] / newTotal;
     }
     
     return probabilities;
@@ -619,7 +660,14 @@ function generateGear(x, y, roomNumberOrTier = 1, enemyDifficulty = 'basic') {
         roomNumber: roomNumber,  // Store room number for display
         scaling: scaling,         // Store scaling multiplier
         pulse: 0, // For pulsing animation
-        phaseOffset: Math.random() * Math.PI * 2
+        phaseOffset: Math.random() * Math.PI * 2,
+        level: roomNumber,
+        upgradesApplied: 0,
+        originalTier: tier,
+        rarityStepsApplied: 0,
+        rarityUpgradedThisVisit: false,
+        rerollIndex: -1,
+        rerollCount: 0
     };
 }
 
@@ -1120,5 +1168,321 @@ function getGearStatsString(gear) {
     }
     
     return statsStr.join(', ');
+}
+
+// Rerolls a single affix of a gear piece, respecting class smart loot and upgrades scaling
+function rerollGearAffix(gear, index) {
+    const oldAffix = gear.affixes[index];
+    if (!oldAffix) return;
+
+    const slot = gear.slot;
+    const activeClasses = new Set();
+    if (typeof Game !== 'undefined') {
+        if (Game.player && Game.player.playerClass) {
+            activeClasses.add(Game.player.playerClass);
+        }
+        if (Game.players) {
+            Game.players.forEach(p => {
+                if (p && p.playerClass) activeClasses.add(p.playerClass);
+            });
+        }
+    }
+
+    // Get compatible affixes for this tier and slot
+    const compatible = [];
+    const tierAffixes = AFFIX_TIERS[oldAffix.tier] || [];
+
+    for (const affixType of tierAffixes) {
+        const affixData = AFFIX_POOL[affixType];
+        if (affixData && affixData.slot.includes(slot)) {
+            // Check class requirement
+            if (affixData.class && !activeClasses.has(affixData.class)) {
+                continue;
+            }
+            compatible.push({
+                type: affixType,
+                data: affixData
+            });
+        }
+    }
+
+    if (compatible.length > 0) {
+        // Roll random from compatible
+        const selected = compatible[Math.floor(Math.random() * compatible.length)];
+        let value = selected.data.min + Math.random() * (selected.data.max - selected.data.min);
+
+        // Round integer affixes
+        const integerAffixes = [
+            'dodgeCharges', 'maxHealth', 'pierce', 'chainLightning', 'multishot',
+            'beamCharges', 'beamPenetration', 'fanCount'
+        ];
+        if (integerAffixes.includes(selected.type)) {
+            value = Math.round(value);
+        }
+
+        // Apply upgraded level scaling if item has been upgraded
+        if (gear.upgradesApplied && gear.upgradesApplied > 0) {
+            value *= (1 + gear.upgradesApplied * 0.04);
+            if (integerAffixes.includes(selected.type)) {
+                value = Math.round(value);
+            }
+        }
+
+        gear.affixes[index] = {
+            type: selected.type,
+            value: value,
+            tier: oldAffix.tier
+        };
+
+        // Keep name identity on reroll (do not regenerate)
+    }
+}
+
+const GEAR_TIER_ORDER = ['gray', 'green', 'blue', 'purple', 'orange'];
+
+const RARITY_UPGRADE_BASE_COSTS = {
+    gray: 150,   // gray → green
+    green: 350,  // green → blue
+    blue: 800,   // blue → purple
+    purple: 2000 // purple → orange
+};
+
+function normalizeGearProgressFields(gear) {
+    if (!gear || typeof gear !== 'object') return gear;
+    if (gear.level == null || !Number.isFinite(gear.level)) {
+        gear.level = gear.roomNumber || 1;
+    }
+    if (gear.upgradesApplied == null || !Number.isFinite(gear.upgradesApplied)) {
+        gear.upgradesApplied = 0;
+    }
+    if (!gear.originalTier) {
+        gear.originalTier = gear.tier || 'gray';
+    }
+    if (gear.rarityStepsApplied == null || !Number.isFinite(gear.rarityStepsApplied)) {
+        gear.rarityStepsApplied = 0;
+    }
+    if (gear.rarityUpgradedThisVisit == null) {
+        gear.rarityUpgradedThisVisit = false;
+    }
+    if (gear.rerollIndex == null || !Number.isFinite(gear.rerollIndex)) {
+        gear.rerollIndex = -1;
+    }
+    if (gear.rerollCount == null || !Number.isFinite(gear.rerollCount)) {
+        gear.rerollCount = 0;
+    }
+    return gear;
+}
+
+function getNextGearTier(tier) {
+    const idx = GEAR_TIER_ORDER.indexOf(tier);
+    if (idx < 0 || idx >= GEAR_TIER_ORDER.length - 1) return null;
+    return GEAR_TIER_ORDER[idx + 1];
+}
+
+function getRarityUpgradeBaseCost(fromTier) {
+    return RARITY_UPGRADE_BASE_COSTS[fromTier] || null;
+}
+
+function getGearTypeMultiplier(gear) {
+    if (!gear) return 1;
+    if (gear.slot === 'weapon' && gear.weaponType && WEAPON_TYPES[gear.weaponType]) {
+        return WEAPON_TYPES[gear.weaponType].damageMultiplier || 1;
+    }
+    if (gear.slot === 'armor' && gear.armorType && ARMOR_TYPES[gear.armorType]) {
+        return ARMOR_TYPES[gear.armorType].defenseMultiplier || 1;
+    }
+    return 1;
+}
+
+function adaptPrimaryStatsToTier(gear, oldTier, newTier) {
+    if (!gear || !gear.stats) return;
+    const upgradeMul = Math.pow(1.04, gear.upgradesApplied || 0);
+    const scaling = gear.scaling || 1;
+    const typeMul = getGearTypeMultiplier(gear);
+
+    if (gear.slot === 'weapon' && gear.stats.damage != null) {
+        const oldR = FLAT_STAT_RANGES.weapon.damage[oldTier];
+        const newR = FLAT_STAT_RANGES.weapon.damage[newTier];
+        if (oldR && newR) {
+            const raw = gear.stats.damage / upgradeMul;
+            const base = raw / (scaling * typeMul);
+            const quality = Math.max(0, Math.min(1, (base - oldR.min) / Math.max(0.0001, oldR.max - oldR.min)));
+            const newBase = newR.min + quality * (newR.max - newR.min);
+            gear.stats.damage = newBase * scaling * typeMul * upgradeMul;
+        }
+    } else if (gear.slot === 'armor' && gear.stats.defense != null) {
+        const oldR = FLAT_STAT_RANGES.armor.defense[oldTier];
+        const newR = FLAT_STAT_RANGES.armor.defense[newTier];
+        if (oldR && newR) {
+            const raw = gear.stats.defense / upgradeMul;
+            const base = raw / (scaling * typeMul);
+            const quality = Math.max(0, Math.min(1, (base - oldR.min) / Math.max(0.0001, oldR.max - oldR.min)));
+            const newBase = newR.min + quality * (newR.max - newR.min);
+            gear.stats.defense = newBase * scaling * typeMul * upgradeMul;
+        }
+    } else if (gear.slot === 'accessory' && gear.stats.speed != null) {
+        const oldBonus = TIER_BONUSES[oldTier] || 0;
+        const newBonus = TIER_BONUSES[newTier] || 0;
+        const denom = oldBonus > 0 ? oldBonus : 0.05;
+        gear.stats.speed = gear.stats.speed * (newBonus > 0 ? newBonus : 0.05) / denom;
+    }
+}
+
+function rollSingleAffixForSlot(affixTier, slot, usedAffixTypes) {
+    const tierAffixes = AFFIX_TIERS[affixTier] || [];
+    const activeClasses = new Set();
+    if (typeof Game !== 'undefined') {
+        if (Game.player && Game.player.playerClass) activeClasses.add(Game.player.playerClass);
+        if (Game.players) {
+            Game.players.forEach(p => {
+                if (p && p.playerClass) activeClasses.add(p.playerClass);
+            });
+        }
+        if (Game.remotePlayerInstances) {
+            Game.remotePlayerInstances.forEach(p => {
+                if (p && p.playerClass) activeClasses.add(p.playerClass);
+            });
+        }
+    }
+
+    const compatible = [];
+    for (const affixType of tierAffixes) {
+        if (usedAffixTypes.has(affixType)) continue;
+        const affixData = AFFIX_POOL[affixType];
+        if (!affixData || !affixData.slot.includes(slot)) continue;
+        if (affixData.class && !activeClasses.has(affixData.class)) continue;
+        compatible.push({ type: affixType, data: affixData });
+    }
+    if (compatible.length === 0) return null;
+
+    const selected = compatible[Math.floor(Math.random() * compatible.length)];
+    let value = selected.data.min + Math.random() * (selected.data.max - selected.data.min);
+    const integerAffixes = [
+        'dodgeCharges', 'maxHealth', 'pierce', 'chainLightning', 'multishot',
+        'beamCharges', 'beamPenetration', 'fanCount'
+    ];
+    if (integerAffixes.includes(selected.type)) value = Math.round(value);
+
+    usedAffixTypes.add(selected.type);
+    return { type: selected.type, value, tier: affixTier };
+}
+
+function appendMissingAffixesForTier(gear, newTier) {
+    if (!gear) return;
+    gear.affixes = gear.affixes || [];
+    const upgrades = (typeof SaveSystem !== 'undefined' && SaveSystem.getGearUpgrades)
+        ? SaveSystem.getGearUpgrades()
+        : {};
+    const slotConfig = getTieredAffixSlots(newTier, upgrades);
+    if (!slotConfig) return;
+
+    const used = new Set(gear.affixes.map(a => a.type));
+    const counts = { basic: 0, advanced: 0, rare: 0 };
+    gear.affixes.forEach(a => {
+        if (counts[a.tier] != null) counts[a.tier]++;
+    });
+
+    ['basic', 'advanced', 'rare'].forEach(affixTier => {
+        const minNeeded = slotConfig[affixTier] ? slotConfig[affixTier][0] : 0;
+        let deficit = Math.max(0, minNeeded - counts[affixTier]);
+        while (deficit > 0) {
+            const rolled = rollSingleAffixForSlot(affixTier, gear.slot, used);
+            if (!rolled) break;
+            // Scale new affix if item already has level-ups
+            if (gear.upgradesApplied && gear.upgradesApplied > 0) {
+                rolled.value *= (1 + gear.upgradesApplied * 0.04);
+                const integerAffixes = [
+                    'dodgeCharges', 'maxHealth', 'pierce', 'chainLightning', 'multishot',
+                    'beamCharges', 'beamPenetration', 'fanCount'
+                ];
+                if (integerAffixes.includes(rolled.type)) rolled.value = Math.round(rolled.value);
+            }
+            gear.affixes.push(rolled);
+            counts[affixTier]++;
+            deficit--;
+        }
+    });
+}
+
+/**
+ * Adapt gear in-place to the next rarity tier.
+ * Preserves identity/affixes/level-ups; scales primaries; adds only missing affix slots.
+ */
+function raiseGearRarity(gear) {
+    if (!gear) return { ok: false, reason: 'no_gear' };
+    normalizeGearProgressFields(gear);
+
+    const oldTier = gear.tier;
+    const newTier = getNextGearTier(oldTier);
+    if (!newTier) return { ok: false, reason: 'max_tier' };
+
+    adaptPrimaryStatsToTier(gear, oldTier, newTier);
+
+    gear.tier = newTier;
+    gear.bonus = TIER_BONUSES[newTier];
+    gear.color = GEAR_TIERS[newTier];
+    if (!gear.originalTier) gear.originalTier = oldTier;
+
+    appendMissingAffixesForTier(gear, newTier);
+
+    gear.rarityStepsApplied = (gear.rarityStepsApplied || 0) + 1;
+    gear.rarityUpgradedThisVisit = true;
+
+    return { ok: true, from: oldTier, to: newTier };
+}
+
+function clearAllGearRarityVisitFlags() {
+    const clearGear = (gear) => {
+        if (gear) gear.rarityUpgradedThisVisit = false;
+    };
+    const clearPlayer = (player) => {
+        if (!player) return;
+        clearGear(player.weapon);
+        clearGear(player.armor);
+        clearGear(player.accessory);
+    };
+
+    if (typeof Game !== 'undefined') {
+        clearPlayer(Game.player);
+        if (Game.remotePlayerInstances) {
+            Game.remotePlayerInstances.forEach(clearPlayer);
+        }
+        if (Game.remotePlayerShadowInstances) {
+            Game.remotePlayerShadowInstances.forEach(clearPlayer);
+        }
+    }
+
+    if (typeof groundLoot !== 'undefined' && Array.isArray(groundLoot)) {
+        groundLoot.forEach(clearGear);
+    }
+    if (typeof window !== 'undefined' && Array.isArray(window.groundLoot)) {
+        window.groundLoot.forEach(clearGear);
+    }
+}
+
+// Expose globally
+if (typeof window !== 'undefined') {
+    window.rerollGearAffix = rerollGearAffix;
+    window.normalizeGearProgressFields = normalizeGearProgressFields;
+    window.raiseGearRarity = raiseGearRarity;
+    window.getNextGearTier = getNextGearTier;
+    window.getRarityUpgradeBaseCost = getRarityUpgradeBaseCost;
+    window.clearAllGearRarityVisitFlags = clearAllGearRarityVisitFlags;
+    window.GEAR_TIER_ORDER = GEAR_TIER_ORDER;
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        normalizeGearProgressFields,
+        raiseGearRarity,
+        getNextGearTier,
+        getRarityUpgradeBaseCost,
+        clearAllGearRarityVisitFlags,
+        GEAR_TIER_ORDER,
+        RARITY_UPGRADE_BASE_COSTS,
+        FLAT_STAT_RANGES,
+        TIER_BONUSES,
+        GEAR_TIERS
+    };
 }
 

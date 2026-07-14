@@ -48,10 +48,11 @@
     },
     {
       "id": "cycle-alpha",
-      "label": "Cycle A Rooms 11-14",
+      "label": "Cycle A (prism/fractal early)",
       "kind": "normal",
       "ranges": [
-        { "start": 11, "end": 14 }
+        { "start": 11, "end": 14 },
+        { "start": 31, "end": 34 }
       ],
       "tracks": [
         "chiptune-medium-boss-218095.mp3",
@@ -64,10 +65,11 @@
     },
     {
       "id": "cycle-beta",
-      "label": "Cycle B Rooms 16-19",
+      "label": "Cycle B (prism/fractal late)",
       "kind": "normal",
       "ranges": [
-        { "start": 16, "end": 19 }
+        { "start": 15, "end": 19 },
+        { "start": 35, "end": 39 }
       ],
       "tracks": [
         "chiptune-nu-metal-216243.mp3",
@@ -80,10 +82,11 @@
     },
     {
       "id": "cycle-gamma",
-      "label": "Cycle C Rooms 21-24",
+      "label": "Cycle C (fortress/vortex early)",
       "kind": "normal",
       "ranges": [
-        { "start": 21, "end": 24 }
+        { "start": 21, "end": 24 },
+        { "start": 41, "end": 44 }
       ],
       "tracks": [
         "digital-progress-370585.mp3",
@@ -96,10 +99,11 @@
     },
     {
       "id": "cycle-delta",
-      "label": "Cycle D Rooms 26-29",
+      "label": "Cycle D (fortress/vortex late)",
       "kind": "normal",
       "ranges": [
-        { "start": 26, "end": 29 }
+        { "start": 25, "end": 29 },
+        { "start": 45, "end": 49 }
       ],
       "tracks": [
         "against-villainous-robot-148967.mp3",
@@ -138,8 +142,8 @@
       }
     },
     {
-      "id": "boss-15",
-      "rooms": [15],
+      "id": "boss-20",
+      "rooms": [20],
       "name": "Twin Prism",
       "phases": {
         "1": {
@@ -163,8 +167,8 @@
       }
     },
     {
-      "id": "boss-20",
-      "rooms": [20],
+      "id": "boss-30",
+      "rooms": [30],
       "name": "Fortress",
       "phases": {
         "1": {
@@ -188,8 +192,8 @@
       }
     },
     {
-      "id": "boss-25",
-      "rooms": [25],
+      "id": "boss-40",
+      "rooms": [40],
       "name": "Fractal Core",
       "phases": {
         "1": {
@@ -213,8 +217,8 @@
       }
     },
     {
-      "id": "boss-30",
-      "rooms": [30],
+      "id": "boss-50",
+      "rooms": [50],
       "name": "Vortex",
       "phases": {
         "1": {
@@ -275,11 +279,10 @@
     ],
     "boss": [
       "boss-10",
-      "boss-15",
       "boss-20",
-      "boss-25",
-      "boss-30"
+      "boss-30",
+      "boss-40",
+      "boss-50"
     ]
   }
 }
-

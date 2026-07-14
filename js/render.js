@@ -466,10 +466,10 @@ function getBiomeForRoom(roomNumber) {
         return BiomeConfig.getBiomeForRoomNumber(roomNumber, gameMode);
     }
     if (roomNumber <= 10) return RENDER_FALLBACK_BIOMES.swarm;
-    if (roomNumber <= 15) return RENDER_FALLBACK_BIOMES.prism;
-    if (roomNumber <= 20) return RENDER_FALLBACK_BIOMES.fortress;
-    if (roomNumber <= 25) return RENDER_FALLBACK_BIOMES.fractal;
-    if (roomNumber <= 30) return RENDER_FALLBACK_BIOMES.vortex;
+    if (roomNumber <= 20) return RENDER_FALLBACK_BIOMES.prism;
+    if (roomNumber <= 30) return RENDER_FALLBACK_BIOMES.fortress;
+    if (roomNumber <= 40) return RENDER_FALLBACK_BIOMES.fractal;
+    if (roomNumber <= 50) return RENDER_FALLBACK_BIOMES.vortex;
     return RENDER_FALLBACK_BIOMES.endless;
 }
 
@@ -609,8 +609,7 @@ function getBiomeGridPattern(ctx, biome, isMask, isParallax) {
     return pattern;
 }
 
-// Helper to draw biome grid (can be used for main render and vignette mask)
-function drawBiomeGrid(ctx, roomNumber, isVignetteMask = false) {
+function drawBiomeGrid(ctx, roomNumber, isVignetteMask = false, forceNoCulling = false) {
     // Use room size (larger than canvas/viewport)
     const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : 2400;
     const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : 1350;
@@ -620,7 +619,7 @@ function drawBiomeGrid(ctx, roomNumber, isVignetteMask = false) {
     let viewX = 0, viewY = 0, viewW = roomWidth, viewH = roomHeight;
     let zoom = 1.0;
 
-    if (typeof Game !== 'undefined' && Game.camera && Game.config) {
+    if (!forceNoCulling && typeof Game !== 'undefined' && Game.camera && Game.config) {
         // Get camera position and zoom
         const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
         zoom = isMobile ? (Game.mobileZoom || 1.0) : (Game.baseZoom || 1.1);
@@ -839,6 +838,11 @@ function prepareRoomRenderData(room, roomNumber) {
         }
     }
 
+    if (typeof buildDebrisSceneryColliders === 'function') {
+        layout.cachedDebrisColliders = buildDebrisSceneryColliders(layout);
+        room.debrisSceneryColliders = layout.cachedDebrisColliders;
+    }
+
     layout.cachedSwarmHiveClusters = layout.biomeId === 'swarm' ? computeSwarmHiveClusters(layout) : [];
 
     const lightRadius = Math.max(80, layout.cellSize * 1.35);
@@ -886,9 +890,9 @@ function bakeRoomStaticSceneCache(room, roomNumber) {
     cacheCtx.save();
     cacheCtx.scale(cacheScale, cacheScale);
     cacheCtx.clearRect(0, 0, room.width || 2400, room.height || 1350);
-    if (typeof drawBiomeGrid === 'function') drawBiomeGrid(cacheCtx, roomNumber || room.number || 1, false);
+    if (typeof drawBiomeGrid === 'function') drawBiomeGrid(cacheCtx, roomNumber || room.number || 1, false, true);
     if (typeof renderRoomVisualMotifs === 'function') renderRoomVisualMotifs(cacheCtx, roomNumber || room.number || 1);
-    if (typeof renderRoomSemanticScenery === 'function') renderRoomSemanticScenery(cacheCtx, roomNumber || room.number || 1, { skipAmbientLife: true });
+    if (typeof renderRoomSemanticScenery === 'function') renderRoomSemanticScenery(cacheCtx, roomNumber || room.number || 1, { skipAmbientLife: true, skipDebrisInteractiveFixtures: true });
     if (typeof renderRoomBoundaries === 'function') renderRoomBoundaries(cacheCtx, roomNumber || room.number || 1);
     if (typeof renderRoomObstacles === 'function') renderRoomObstacles(cacheCtx, roomNumber || room.number || 1);
     cacheCtx.restore();
@@ -928,10 +932,10 @@ function renderRoomBackground(ctx, roomNumber) {
 
     drawBiomeGrid(ctx, roomNumber, false);
     renderRoomVisualMotifs(ctx, roomNumber);
-    renderRoomSemanticScenery(ctx, roomNumber);
+    renderRoomSemanticScenery(ctx, roomNumber, { skipDebrisInteractiveFixtures: true });
 
-    // Add subtle accent overlay for boss rooms
-    if (roomNumber % 5 === 0 && roomNumber >= 10) {
+    // Add subtle accent overlay for boss rooms (gear: every 10 from 10)
+    if (roomNumber % 10 === 0 && roomNumber >= 10) {
         const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : 2400;
         const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : 1350;
         const biome = getBiomeForRoom(roomNumber);
@@ -1030,6 +1034,20 @@ function renderRoomVisualMotifs(ctx, roomNumber) {
     ctx.restore();
 }
 
+function isDebrisInteractiveFixture(fixture) {
+    if (!fixture) return false;
+    const lampTypes = new Set(['streetLamp', 'prismLamp', 'runeLamp', 'voidLamp', 'riftLamp']);
+    return fixture.type === 'trailMarker'
+        || fixture.purpose === 'wayfinding'
+        || fixture.purpose === 'streetLight'
+        || lampTypes.has(fixture.type)
+        || fixture.type === 'bioLantern';
+}
+
+function renderDebrisInteractiveFixtures(ctx, roomNumber) {
+    renderRoomSemanticScenery(ctx, roomNumber, { debrisInteractiveOnly: true });
+}
+
 function renderRoomSemanticScenery(ctx, roomNumber, options = {}) {
     if (typeof currentRoom === 'undefined' || !currentRoom || !currentRoom.layout) return;
     const layout = currentRoom.layout;
@@ -1039,7 +1057,7 @@ function renderRoomSemanticScenery(ctx, roomNumber, options = {}) {
     const paths = Array.isArray(layout.paths) ? layout.paths : [];
     const landmarks = Array.isArray(layout.landmarks) ? layout.landmarks : [];
     const plazas = Array.isArray(layout.plazas) ? layout.plazas : [];
-    if (paths.length === 0 && landmarks.length === 0) return;
+    if (!options.debrisInteractiveOnly && paths.length === 0 && landmarks.length === 0) return;
 
     const biome = getBiomeForRoom(roomNumber);
     const hex = biome.accentColor.replace('#', '');
@@ -2391,29 +2409,41 @@ function renderRoomSemanticScenery(ctx, roomNumber, options = {}) {
     };
 
     ctx.save();
-    renderOuterAmbience();
-    plazas.forEach(drawPlaza);
-    paths.forEach(drawPath);
-    if (layout.biomeId !== 'swarm') {
-        landmarks.forEach(drawLandmarkFoundation);
-    }
-    landmarks.forEach(drawLandmark);
-    if (!options.skipAmbientLife) {
-        renderAmbientLife();
+    if (!options.debrisInteractiveOnly) {
+        renderOuterAmbience();
+        plazas.forEach(drawPlaza);
+        paths.forEach(drawPath);
+        if (layout.biomeId !== 'swarm') {
+            landmarks.forEach(drawLandmarkFoundation);
+        }
+        landmarks.forEach(drawLandmark);
+        if (!options.skipAmbientLife) {
+            renderAmbientLife();
+        }
     }
     const fixtures = Array.isArray(layout.cachedFixtures)
         ? layout.cachedFixtures
         : (typeof RoomLayoutGenerator !== 'undefined' && RoomLayoutGenerator.generateSceneryFixtures
             ? RoomLayoutGenerator.generateSceneryFixtures(layout, layout.biomeId === 'swarm' ? 18 : 32)
             : []);
-    fixtures.forEach(drawFixture);
+    const debrisInteractiveOnly = options.debrisInteractiveOnly === true;
+    const skipDebrisInteractive = options.skipDebrisInteractiveFixtures === true;
+    fixtures.forEach(fixture => {
+        if (!fixture) return;
+        const interactive = isDebrisInteractiveFixture(fixture);
+        if (debrisInteractiveOnly && !interactive) return;
+        if (!debrisInteractiveOnly && skipDebrisInteractive && interactive) return;
+        drawFixture(fixture);
+    });
 
-    const decorations = Array.isArray(layout.cachedDecorations)
-        ? layout.cachedDecorations
-        : (typeof RoomLayoutGenerator !== 'undefined' && RoomLayoutGenerator.generateDecorations
-            ? RoomLayoutGenerator.generateDecorations(layout, layout.biomeId === 'swarm' ? 28 : 70)
-            : []);
-    decorations.forEach(drawDecoration);
+    if (!options.debrisInteractiveOnly) {
+        const decorations = Array.isArray(layout.cachedDecorations)
+            ? layout.cachedDecorations
+            : (typeof RoomLayoutGenerator !== 'undefined' && RoomLayoutGenerator.generateDecorations
+                ? RoomLayoutGenerator.generateDecorations(layout, layout.biomeId === 'swarm' ? 28 : 70)
+                : []);
+        decorations.forEach(drawDecoration);
+    }
     ctx.restore();
 }
 
@@ -2657,43 +2687,10 @@ function renderRoomObstacles(ctx, roomNumber) {
 
     const drawSwarmHiveCluster = (cluster, layout) => {
         const radius = layout.cellSize * 0.53;
-        const xSpacing = Math.sqrt(3) * radius * 0.94;
-        const ySpacing = radius * 1.42;
-        let worldX = 0;
-        let worldY = 0;
-        let localX = 0;
-        let localY = 0;
-        let minCol = Infinity;
-        let minRow = Infinity;
-
-        cluster.forEach(cell => {
-            minCol = Math.min(minCol, cell.col);
-            minRow = Math.min(minRow, cell.row);
-            worldX += cell.col * layout.cellSize + layout.cellSize / 2;
-            worldY += cell.row * layout.cellSize + layout.cellSize / 2;
-        });
-
-        cluster.forEach(cell => {
-            const relCol = cell.col - minCol;
-            const relRow = cell.row - minRow;
-            const x = relCol * xSpacing + (relRow % 2) * xSpacing * 0.5;
-            const y = relRow * ySpacing;
-            localX += x;
-            localY += y;
-        });
-
-        const worldCenterX = worldX / cluster.length;
-        const worldCenterY = worldY / cluster.length;
-        const localCenterX = localX / cluster.length;
-        const localCenterY = localY / cluster.length;
         const cells = cluster.map(cell => {
-            const relCol = cell.col - minCol;
-            const relRow = cell.row - minRow;
-            const x = relCol * xSpacing + (relRow % 2) * xSpacing * 0.5;
-            const y = relRow * ySpacing;
             return {
-                x: worldCenterX + x - localCenterX,
-                y: worldCenterY + y - localCenterY
+                x: cell.col * layout.cellSize + layout.cellSize / 2,
+                y: cell.row * layout.cellSize + layout.cellSize / 2
             };
         });
 
@@ -2720,7 +2717,7 @@ function renderRoomObstacles(ctx, roomNumber) {
         });
         ctx.restore();
 
-        cells.forEach(cell => drawSwarmHiveCell(cell.x, cell.y, radius));
+        cells.forEach(cell => drawSwarmHiveCell(cell.x, cell.y, layout.cellSize * 0.58));
     };
 
     const getSwarmHiveClusters = (layout) => {

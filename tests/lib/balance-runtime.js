@@ -52,7 +52,7 @@ const ENEMY_DROP_CLASS_NAMES = {
 /** @deprecated Use BossScaling from boss-scaling.js - kept for test imports. */
 const GEAR_BOSS_CYCLE = ['swarmKing', 'twinPrism', 'fortress', 'fractalCore', 'vortex'];
 const GEAR_FIRST_BOSS_ROOM = 10;
-const GEAR_BOSS_ROOM_INTERVAL = 5;
+const GEAR_BOSS_ROOM_INTERVAL = 10;
 const CARD_BOSS_ROOMS = { 12: 'swarmKing', 22: 'fortress', 32: 'vortex' };
 const BOSS_DISPLAY_NAMES = {
     swarmKing: 'Swarm King',
@@ -64,7 +64,7 @@ const BOSS_DISPLAY_NAMES = {
 
 function isGearBossRoom(roomNumber) {
     return roomNumber >= GEAR_FIRST_BOSS_ROOM &&
-        roomNumber <= 30 &&
+        roomNumber <= 50 &&
         (roomNumber - GEAR_FIRST_BOSS_ROOM) % GEAR_BOSS_ROOM_INTERVAL === 0;
 }
 
@@ -186,7 +186,9 @@ function loadLevelModule(ctx) {
         ENEMY_DAMAGE_GROWTH_PER_ROOM: cs.ENEMY_DAMAGE_GROWTH_PER_ROOM,
         BOSS_HP_GROWTH_PER_ROOM: cs.BOSS_HP_GROWTH_PER_ROOM,
         BOSS_DAMAGE_GROWTH_PER_ROOM: cs.BOSS_DAMAGE_GROWTH_PER_ROOM,
-        ENEMY_COUNT_CAP_ROOM: cs.ENEMY_COUNT_CAP_ROOM
+        ENEMY_COUNT_CAP_ROOM: cs.ENEMY_COUNT_CAP_ROOM,
+        CAPPED_ROOM_ENEMY_COUNT: cs.CAPPED_ROOM_ENEMY_COUNT,
+        ENEMY_COUNT_POST_CAP_PER_ROOM: cs.ENEMY_COUNT_POST_CAP_PER_ROOM
     };
 
     ctx.getMultiplayerScaling = cs.getMultiplayerScaling.bind(cs);
@@ -263,7 +265,13 @@ function enemyCountForRoom(roomNumber, constants, combatScaling, options = {}) {
     if (roomNumber <= constants.ENEMY_COUNT_CAP_ROOM) {
         return 6 + Math.floor(roomNumber * 1.05);
     }
-    return 26 + Math.floor((roomNumber - constants.ENEMY_COUNT_CAP_ROOM) * 1.0);
+    const postCap = constants.ENEMY_COUNT_POST_CAP_PER_ROOM != null
+        ? constants.ENEMY_COUNT_POST_CAP_PER_ROOM
+        : 0.4;
+    const cappedBase = constants.CAPPED_ROOM_ENEMY_COUNT != null
+        ? constants.CAPPED_ROOM_ENEMY_COUNT
+        : 28;
+    return cappedBase + Math.floor((roomNumber - constants.ENEMY_COUNT_CAP_ROOM) * postCap);
 }
 
 function createBalanceRuntime(options = {}) {

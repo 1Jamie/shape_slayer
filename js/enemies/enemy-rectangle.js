@@ -66,7 +66,7 @@ class RectangleEnemy extends EnemyBase {
         this.shape = 'rectangle';
         this.xpValue = RECTANGLE_CONFIG.xpValue;
         this.lootChance = RECTANGLE_CONFIG.lootChance;
-        this.projectileDodgeEnabled = false;
+        this.projectileDodgeEnabled = true;
 
         // Attack system
         this.state = 'chase'; // 'chase', 'charge', 'slam', 'cooldown', 'defensive', 'fakeout'
@@ -188,6 +188,10 @@ class RectangleEnemy extends EnemyBase {
 
         // Get enemies array for AI behaviors
         const enemies = (typeof Game !== 'undefined' && Game.enemies) ? Game.enemies : [];
+        const projectileAvoidance = this.projectileDodgeEnabled ? this.getProjectileAvoidanceForce(deltaTime) : null;
+        const dodgeSpeedMultiplier = projectileAvoidance && projectileAvoidance.speedMultiplier
+            ? projectileAvoidance.speedMultiplier
+            : 1.0;
 
         // Defensive stance check (rooms 21+)
         if (this.roomNumber >= RECTANGLE_CONFIG.intelligenceThresholds.defensiveStance &&
@@ -324,10 +328,21 @@ class RectangleEnemy extends EnemyBase {
                     }
                 }
             } else {
-                // Slow chase toward player with separation
+                // Slow chase toward player with separation using intercept target
                 const separation = this.getSeparationForce(enemies, 45, 100);
-                const dirX = dx / distance;
-                const dirY = dy / distance;
+                const targetPlayer = (this.targetLock && this.targetLock.playerRef)
+                    ? this.targetLock.playerRef
+                    : (typeof Game !== 'undefined' && Game.player ? Game.player : null);
+                let dirX = dx / distance;
+                let dirY = dy / distance;
+                if (targetPlayer && targetPlayer.alive) {
+                    const interceptPos = this.getInterceptTarget(targetPlayer, 0.50);
+                    const iDx = interceptPos.x - this.x;
+                    const iDy = interceptPos.y - this.y;
+                    const iDist = Math.hypot(iDx, iDy) || 1;
+                    dirX = iDx / iDist;
+                    dirY = iDy / iDist;
+                }
 
                 let moveX = dirX;
                 let moveY = dirY;
@@ -349,8 +364,18 @@ class RectangleEnemy extends EnemyBase {
                     }
                 }
 
-                const offsetX = moveX * this.moveSpeed * deltaTime;
-                const offsetY = moveY * this.moveSpeed * deltaTime;
+                if (projectileAvoidance) {
+                    moveX += projectileAvoidance.x;
+                    moveY += projectileAvoidance.y;
+                    const len = Math.sqrt(moveX * moveX + moveY * moveY);
+                    if (len > 0.0001) {
+                        moveX /= len;
+                        moveY /= len;
+                    }
+                }
+
+                const offsetX = moveX * this.moveSpeed * dodgeSpeedMultiplier * deltaTime;
+                const offsetY = moveY * this.moveSpeed * dodgeSpeedMultiplier * deltaTime;
                 this.applySmoothedOffset(offsetX, offsetY);
 
                 if (moveX !== 0 || moveY !== 0) {
@@ -530,11 +555,8 @@ class RectangleEnemy extends EnemyBase {
         });
     }
 
-    render(ctx) {
-        // Draw rectangle shape
-        ctx.save();
-        ctx.translate(this.x, this.y);
 
+    render(ctx) {
         let drawColor = this.color;
         const telegraphData = this.activeTelegraph;
         let multiplier = this.sizeMultiplier;
@@ -547,13 +569,32 @@ class RectangleEnemy extends EnemyBase {
             drawColor = '#8b0000';
         }
 
-        ctx.fillStyle = drawColor;
-        ctx.beginPath();
-        ctx.rect(-this.width * multiplier * 0.8, -this.height * multiplier * 0.8,
-            this.width * multiplier * 1.6, this.height * multiplier * 1.6);
-        ctx.fill();
+        drawColor = this.getFlashDrawColor(drawColor);
 
-        ctx.restore();
+        // Voxel damage: draw body to offscreen canvas, punch destroyed cells out, blit back
+        const _w = this.width * multiplier;
+        const _h = this.height * multiplier;
+        const bodyDrawn = typeof renderVoxelDamage === 'function' && renderVoxelDamage(
+            ctx, this, drawColor,
+            (oCtx) => {
+                oCtx.beginPath();
+                oCtx.rect(-_w * 0.8, -_h * 0.8, _w * 1.6, _h * 1.6);
+                oCtx.fill();
+            }
+        );
+
+
+        if (!bodyDrawn) {
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.fillStyle = drawColor;
+            ctx.beginPath();
+            ctx.rect(-this.width * multiplier * 0.8, -this.height * multiplier * 0.8,
+                this.width * multiplier * 1.6, this.height * multiplier * 1.6);
+            ctx.fill();
+            ctx.restore();
+        }
+
 
         // Draw status effects (burn, freeze)
         if (typeof renderBurnEffect !== 'undefined') {

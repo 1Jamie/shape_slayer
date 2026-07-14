@@ -185,6 +185,17 @@ class Enemy extends EnemyBase {
     update(deltaTime) {
         if (!this.alive) return;
 
+        if (this.tutorialFrozen) {
+            this.vx = 0;
+            this.vy = 0;
+            this.moveSpeed = 0;
+            if (Number.isFinite(this._room0OriginX)) {
+                this.x = this._room0OriginX;
+                this.y = this._room0OriginY;
+            }
+            return;
+        }
+
         if (this.pheromoneControlled) {
             this.processStun(deltaTime);
             this.processSlow(deltaTime);
@@ -252,21 +263,24 @@ class Enemy extends EnemyBase {
         let targetX = target.x;
         let targetY = target.y;
 
-        // Use predictive positioning (always enabled from room 1, with lower weight)
-        if (this.usePredictivePositioning && targetPlayer && targetPlayer.alive) {
+        // Use predictive positioning (always enabled from room 1, with lower weight).
+        // Skip when locked on clone/decoy - those are stationary absolute aggro targets.
+        const lockedOnDecoyOrClone = this.targetLock && this.targetLockTimer > 0 &&
+            (this.targetLock.type === 'clone' || this.targetLock.type === 'decoy');
+        if (this.usePredictivePositioning && targetPlayer && targetPlayer.alive && !lockedOnDecoyOrClone) {
             // Store original target for validation
             const originalTargetX = targetX;
             const originalTargetY = targetY;
 
             // Blend between current position and predicted position based on intelligence
-            // Lower weight for base intelligence (0.3 max) vs advanced (0.6 max)
-            const predicted = this.getPredictedTargetPosition(targetPlayer);
-            const baseWeight = 0.3; // Base weight from room 1
-            const advancedWeight = 0.6; // Advanced weight (room 3+)
+            // Lower weight for base intelligence (0.2 max) vs advanced (0.4 max)
+            const baseWeight = 0.2; // Base weight from room 1
+            const advancedWeight = 0.4; // Advanced weight (room 3+)
             const weightScale = Math.min(1.0, (this.roomNumber - 1) / 2); // Scale from room 1 to 3
             const predictionWeight = (baseWeight + (advancedWeight - baseWeight) * weightScale) * this.intelligenceLevel;
-            targetX = targetX * (1 - predictionWeight) + predicted.x * predictionWeight;
-            targetY = targetY * (1 - predictionWeight) + predicted.y * predictionWeight;
+            const predicted = this.getInterceptTarget(targetPlayer, predictionWeight);
+            targetX = predicted.x;
+            targetY = predicted.y;
 
             // Use pattern-based prediction if available (rooms 6+)
             if (this.patternRecognitionEnabled && this.playerPatterns.movementHistory.length >= 3) {
@@ -800,46 +814,27 @@ class Enemy extends EnemyBase {
                     }
                 }
 
-                // Improved swarming: try to surround player from multiple angles (rooms 5+)
-                if (this.roomNumber >= BASIC_ENEMY_CONFIG.intelligenceThresholds.surroundFormation) {
-                    // Find nearby allies of same type
-                    const nearbyAllies = [];
-                    enemies.forEach(other => {
-                        if (other !== this && other.alive && other.shape === 'circle') {
-                            const otherDx = other.x - this.x;
-                            const otherDy = other.y - this.y;
-                            const otherDist = Math.sqrt(otherDx * otherDx + otherDy * otherDy);
-                            if (otherDist < BASIC_ENEMY_CONFIG.groupRadius) {
-                                nearbyAllies.push({ enemy: other, distance: otherDist });
-                            }
-                        }
-                    });
-
-                    if (nearbyAllies.length > 0) {
-                        // Calculate average angle of allies relative to player
-                        let avgAngle = 0;
-                        nearbyAllies.forEach(({ enemy: ally }) => {
-                            const allyDx = ally.x - targetX;
-                            const allyDy = ally.y - targetY;
-                            avgAngle += Math.atan2(allyDy, allyDx);
-                        });
-                        avgAngle /= nearbyAllies.length;
-
-                        // Try to position at different angle (90 degrees offset)
-                        const desiredAngle = avgAngle + Math.PI / 2;
-                        const desiredX = targetX + Math.cos(desiredAngle) * (this.attackRange * 0.8);
-                        const desiredY = targetY + Math.sin(desiredAngle) * (this.attackRange * 0.8);
+                // Improved swarming: try to surround player from multiple angles (rooms 5+) using fixed flank slots
+                if (this.roomNumber >= BASIC_ENEMY_CONFIG.intelligenceThresholds.surroundFormation && targetPlayer) {
+                    const inSurroundRange = currentDist <= this.optimalDistance * 1.5;
+                    const hasLOS = this.hasLineOfSightTo(targetPlayer.x, targetPlayer.y);
+                    
+                    if (inSurroundRange && hasLOS) {
+                        const flankSlot = this.getFlankSlot();
+                        const flankAngle = (flankSlot / 8) * Math.PI * 2;
+                        
+                        const desiredX = targetX + Math.cos(flankAngle) * (this.attackRange * 0.8);
+                        const desiredY = targetY + Math.sin(flankAngle) * (this.attackRange * 0.8);
 
                         const toDesiredX = desiredX - this.x;
                         const toDesiredY = desiredY - this.y;
                         const toDesiredDist = Math.sqrt(toDesiredX * toDesiredX + toDesiredY * toDesiredY);
 
-                        if (toDesiredDist > 10) {
-                            // Blend surround positioning into final movement
+                        if (toDesiredDist > 5) {
                             const surroundX = toDesiredX / toDesiredDist;
                             const surroundY = toDesiredY / toDesiredDist;
-                            finalMoveX = finalMoveX * 0.7 + surroundX * 0.3;
-                            finalMoveY = finalMoveY * 0.7 + surroundY * 0.3;
+                            finalMoveX = finalMoveX * 0.5 + surroundX * 0.5;
+                            finalMoveY = finalMoveY * 0.5 + surroundY * 0.5;
                             const finalDist = Math.sqrt(finalMoveX * finalMoveX + finalMoveY * finalMoveY);
                             if (finalDist > 0) {
                                 finalMoveX /= finalDist;
@@ -1278,10 +1273,25 @@ class Enemy extends EnemyBase {
             ctx.restore();
         }
 
-        ctx.fillStyle = drawColor;
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, drawSize, 0, Math.PI * 2);
-        ctx.fill();
+        drawColor = this.getFlashDrawColor(drawColor);
+
+        // Voxel damage: draw body to offscreen canvas, punch destroyed cells out, blit back
+        const _ds = drawSize;
+        const bodyDrawn = typeof renderVoxelDamage === 'function' && renderVoxelDamage(
+            ctx, this, drawColor,
+            (oCtx) => {
+                oCtx.beginPath();
+                oCtx.arc(0, 0, _ds, 0, Math.PI * 2);
+                oCtx.fill();
+            }
+        );
+
+        if (!bodyDrawn) {
+            ctx.fillStyle = drawColor;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, drawSize, 0, Math.PI * 2);
+            ctx.fill();
+        }
 
         // Draw status effects (burn, freeze)
         if (typeof renderBurnEffect !== 'undefined') {

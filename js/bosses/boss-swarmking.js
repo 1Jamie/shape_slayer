@@ -413,17 +413,24 @@ class BossSwarmKing extends BossBase {
                     this.phase3DashLastPosition = { x: this.x, y: this.y };
 
                     if (dist < 10 || dist > 2000 || this.phase3DashElapsed > 2.2 || this.phase3DashStuckTimer > 0.35) { // Arrived or failed safely
-                        this.x = this.dashTarget.x;
-                        this.y = this.dashTarget.y;
+                        const failed = this.phase3DashStuckTimer > 0.35 || this.phase3DashElapsed > 2.2;
+                        if (!failed) {
+                            this.x = this.dashTarget.x;
+                            this.y = this.dashTarget.y;
+                        } else {
+                            this.phase3DashPath = [];
+                        }
                         this.finishPhase3WebTrail({ x: this.x, y: this.y });
                         this.phase3DashStart = null;
                         this.phase3DashElapsed = 0;
                         this.phase3DashStuckTimer = 0;
                         this.phase3DashLastPosition = null;
 
-                        if (Array.isArray(this.phase3DashPath) && this.phase3DashPath.length > 0) {
+                        if (!failed && Array.isArray(this.phase3DashPath) && this.phase3DashPath.length > 0) {
                             this.phase3DashStart = { x: this.x, y: this.y };
-                            this.beginPhase3WebTrail(this.phase3DashStart);
+                            if (this.phase3DashVisitedPoints) {
+                                this.phase3DashVisitedPoints.push({ x: this.x, y: this.y });
+                            }
                             this.dashTarget = this.phase3DashPath.shift();
                             return;
                         }
@@ -452,13 +459,58 @@ class BossSwarmKing extends BossBase {
                         }
                     } else {
                         const moveDist = this.dashSpeed * deltaTime;
+                        let nextX = this.x;
+                        let nextY = this.y;
                         if (moveDist >= dist) {
-                            this.x = this.dashTarget.x;
-                            this.y = this.dashTarget.y;
+                            nextX = this.dashTarget.x;
+                            nextY = this.dashTarget.y;
                         } else {
-                            this.x += (dx / dist) * moveDist;
-                            this.y += (dy / dist) * moveDist;
+                            nextX += (dx / dist) * moveDist;
+                            nextY += (dy / dist) * moveDist;
                         }
+
+                        const layout = currentRoom && currentRoom.layout ? currentRoom.layout : null;
+                        const clearance = this.getPhase3DashClearanceRadius();
+                        if (layout) {
+                            const resolved = RoomLayoutGenerator.resolveCircleCollision(
+                                layout,
+                                nextX,
+                                nextY,
+                                clearance,
+                                this.x,
+                                this.y
+                            );
+                            if (resolved.collided) {
+                                this.x = resolved.x;
+                                this.y = resolved.y;
+                                this.phase3DashPath = [];
+                                this.isDashing = false;
+                                this.dashTarget = null;
+                                this.finishPhase3WebTrail({ x: this.x, y: this.y });
+
+                                if (typeof Game !== 'undefined') {
+                                    Game.triggerScreenShake(12, 0.35, 'boss');
+                                }
+                                if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.sounds.enemySlam) {
+                                    AudioManager.sounds.enemySlam();
+                                }
+
+                                this.dashCount++;
+                                if (this.dashCount >= this.maxDashes) {
+                                    if (!this.finalExplosionTriggered && !isClient) {
+                                        this.explosiveFinale();
+                                        this.finalExplosionTriggered = true;
+                                    }
+                                    this.phase3State = 'exhausted';
+                                    this.exhaustedTimer = 0;
+                                    this.dashCount = 0;
+                                }
+                                return;
+                            }
+                        }
+
+                        this.x = nextX;
+                        this.y = nextY;
                         this.updatePhase3WebTrail({ x: this.x, y: this.y });
                     }
                 } else {
@@ -515,72 +567,111 @@ class BossSwarmKing extends BossBase {
         this.keepInBounds();
     }
 
-    selectPhase3NestDashTarget(player) {
-        const anchors = this.getWalkableArenaAnchors('swarmNest', this.getPhase3DashClearanceRadius(), player || { x: this.x, y: this.y });
-        if (anchors && anchors.length >= 2) {
-            if (!Array.isArray(this.phase3WebAnchors) || this.phase3WebAnchors.length < 2) {
-                this.phase3WebAnchors = anchors
-                    .slice()
-                    .sort((a, b) => Math.atan2(a.y - this.y, a.x - this.x) - Math.atan2(b.y - this.y, b.x - this.x));
+    keepInBounds() {
+        if (this.phase3State === 'franticBarrage' && this.isDashing) {
+            if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.layout && typeof RoomLayoutGenerator !== 'undefined') {
+                const clearance = this.getPhase3DashClearanceRadius();
+                this.x = clamp(this.x, clearance, currentRoom.width - clearance);
+                this.y = clamp(this.y, clearance, currentRoom.height - clearance);
+                if (RoomLayoutGenerator.isPointWalkable(currentRoom.layout, this.x, this.y, clearance)) {
+                    this.lastSafeX = this.x;
+                    this.lastSafeY = this.y;
+                } else {
+                    const resolved = RoomLayoutGenerator.resolveCircleCollision(
+                        currentRoom.layout,
+                        this.x,
+                        this.y,
+                        clearance,
+                        this.lastSafeX || this.x,
+                        this.lastSafeY || this.y
+                    );
+                    this.x = resolved.x;
+                    this.y = resolved.y;
+                }
+                return;
             }
-            const target = this.selectAggressiveSwarmNest(this.phase3WebAnchors, player);
-            this.phase3WebIndex++;
-            return {
-                x: target.walkableX !== undefined ? target.walkableX : target.x,
-                y: target.walkableY !== undefined ? target.walkableY : target.y
-            };
         }
-        const fallbackAngle = Math.random() * Math.PI * 2;
-        const fallbackDistance = 260;
-        return this.findSafeBossPosition(
-            this.x + Math.cos(fallbackAngle) * fallbackDistance,
-            this.y + Math.sin(fallbackAngle) * fallbackDistance
-        );
+        super.keepInBounds();
     }
 
-    selectAggressiveSwarmNest(anchors, player) {
+    selectPhase3NestDashTarget(player) {
+        const hives = this.getBossArenaAnchors('swarmNest');
+        const layout = currentRoom && currentRoom.layout ? currentRoom.layout : null;
+        const clearance = this.getPhase3DashClearanceRadius();
         const targetPlayer = player || { x: this.x, y: this.y, vx: 0, vy: 0 };
-        const predicted = {
-            x: targetPlayer.x + (Number.isFinite(targetPlayer.vx) ? targetPlayer.vx * 0.28 : 0),
-            y: targetPlayer.y + (Number.isFinite(targetPlayer.vy) ? targetPlayer.vy * 0.28 : 0)
-        };
-        const bossToPlayerX = predicted.x - this.x;
-        const bossToPlayerY = predicted.y - this.y;
-        const bossToPlayerDist = Math.max(1, Math.hypot(bossToPlayerX, bossToPlayerY));
-        const playerDirX = bossToPlayerX / bossToPlayerDist;
-        const playerDirY = bossToPlayerY / bossToPlayerDist;
-        const recentOffset = this.phase3WebIndex % Math.max(1, anchors.length);
-
-        const scored = anchors
-            .map((anchor, index) => {
-                const x = anchor.walkableX !== undefined ? anchor.walkableX : anchor.x;
-                const y = anchor.walkableY !== undefined ? anchor.walkableY : anchor.y;
-                const distFromBoss = Math.hypot(x - this.x, y - this.y);
-                if (distFromBoss < this.size * 1.4) {
-                    return null;
+        const predictedX = targetPlayer.x + (Number.isFinite(targetPlayer.vx) ? targetPlayer.vx * 0.35 : 0);
+        const predictedY = targetPlayer.y + (Number.isFinite(targetPlayer.vy) ? targetPlayer.vy * 0.35 : 0);
+        
+        if (layout) {
+            let bestTarget = null;
+            let bestScore = -Infinity;
+            for (let i = 0; i < 32; i++) {
+                const angle = (i / 32) * Math.PI * 2;
+                const dist = 140 + Math.random() * 180;
+                const cx = predictedX + Math.cos(angle) * dist;
+                const cy = predictedY + Math.sin(angle) * dist;
+                
+                if (RoomLayoutGenerator.isPointWalkable(layout, cx, cy, clearance)) {
+                    let farFromHives = true;
+                    let minHiveDist = Infinity;
+                    for (let h = 0; h < hives.length; h++) {
+                        const distToHive = Math.hypot(cx - hives[h].x, cy - hives[h].y);
+                        if (distToHive < minHiveDist) minHiveDist = distToHive;
+                        if (distToHive < 120) {
+                            farFromHives = false;
+                            break;
+                        }
+                    }
+                    if (farFromHives) {
+                        const distToBoss = Math.hypot(cx - this.x, cy - this.y);
+                        if (distToBoss > this.size * 1.5) {
+                            const lineDist = this.distanceToSegment(predictedX, predictedY, this.x, this.y, cx, cy);
+                            const score = -lineDist * 2.0 + minHiveDist * 0.5;
+                            if (score > bestScore) {
+                                bestScore = score;
+                                bestTarget = { x: cx, y: cy };
+                            }
+                        }
+                    }
                 }
-                const linePressure = this.distanceToSegment(predicted.x, predicted.y, this.x, this.y, x, y);
-                const targetToPlayer = Math.hypot(x - predicted.x, y - predicted.y);
-                const projection = (x - this.x) * playerDirX + (y - this.y) * playerDirY;
-                const crossingPenalty = projection < bossToPlayerDist * 0.65
-                    ? (bossToPlayerDist * 0.65 - projection) * 0.9
-                    : Math.abs(projection - (bossToPlayerDist + 120)) * 0.18;
-                const repeatBias = index === recentOffset ? -45 : 0;
-                const score = linePressure * 2.4 + targetToPlayer * 0.22 + crossingPenalty + repeatBias;
-                return { anchor, score };
-            })
-            .filter(Boolean)
-            .sort((a, b) => a.score - b.score);
-
-        return scored.length ? scored[0].anchor : anchors[this.phase3WebIndex % anchors.length];
+            }
+            if (bestTarget) return bestTarget;
+        }
+        
+        const angleToPlayer = Math.atan2(predictedY - this.y, predictedX - this.x);
+        return this.findSafeBossPosition(
+            predictedX + Math.cos(angleToPlayer) * 120,
+            predictedY + Math.sin(angleToPlayer) * 120
+        );
     }
 
     preparePhase3NestDash(player) {
         const start = { x: this.x, y: this.y };
-        const finalTarget = this.selectPhase3NestDashTarget(player);
-        const route = this.buildCollisionAwarePheromoneRoute([start, finalTarget], this.getPhase3DashClearanceRadius())
-            .map(point => ({ x: point.x, y: point.y }));
-        const path = route.length >= 2 ? route.slice(1) : [finalTarget];
+        let finalTarget = null;
+        let route = null;
+        const clearance = this.getPhase3DashClearanceRadius();
+        
+        for (let attempt = 0; attempt < 10; attempt++) {
+            finalTarget = this.selectPhase3NestDashTarget(player);
+            const tempRoute = this.buildCollisionAwarePheromoneRoute([start, finalTarget], clearance)
+                .map(point => ({ x: point.x, y: point.y }));
+            
+            if (tempRoute && tempRoute.length >= 2) {
+                const lastPoint = tempRoute[tempRoute.length - 1];
+                const distToFinal = Math.hypot(lastPoint.x - finalTarget.x, lastPoint.y - finalTarget.y);
+                if (distToFinal < 40) {
+                    route = tempRoute;
+                    break;
+                }
+            }
+        }
+        
+        if (!route) {
+            finalTarget = player ? { x: player.x, y: player.y } : { x: this.x, y: this.y };
+            route = [start, finalTarget];
+        }
+
+        const path = route.slice(1);
         this.phase3DashStart = start;
         this.phase3DashFinalTarget = finalTarget;
         this.dashTarget = path.shift() || finalTarget;
@@ -596,6 +687,7 @@ class BossSwarmKing extends BossBase {
 
     beginPhase3WebTrail(start) {
         if (!start) return;
+        this.phase3DashVisitedPoints = [{ x: start.x, y: start.y }];
         const trail = {
             id: `swarmWeb-${this.pheromoneSequenceId++}`,
             points: [
@@ -633,18 +725,20 @@ class BossSwarmKing extends BossBase {
 
     updatePhase3WebTrail(pos) {
         const trail = this.activePhase3WebTrail;
-        if (!trail || !pos || !Array.isArray(trail.points) || trail.points.length < 2) return;
-        trail.points[1].x = pos.x;
-        trail.points[1].y = pos.y;
+        if (!trail || !pos || !Array.isArray(trail.points) || !Array.isArray(this.phase3DashVisitedPoints)) return;
+        const pts = this.phase3DashVisitedPoints.map(p => ({ x: p.x, y: p.y }));
+        pts.push({ x: pos.x, y: pos.y });
+        trail.points = pts;
     }
 
     finishPhase3WebTrail(end) {
         const trail = this.activePhase3WebTrail;
         if (!trail) return;
-        if (end && Array.isArray(trail.points) && trail.points.length >= 2) {
-            trail.points[1].x = end.x;
-            trail.points[1].y = end.y;
+        const pts = (this.phase3DashVisitedPoints || []).map(p => ({ x: p.x, y: p.y }));
+        if (end) {
+            pts.push({ x: end.x, y: end.y });
         }
+        trail.points = pts;
         trail.liveTrail = false;
         this.activePhase3WebTrail = null;
         if (end) {
@@ -1051,10 +1145,16 @@ class BossSwarmKing extends BossBase {
                 resolved.push(to);
                 continue;
             }
-            const path = RoomLayoutGenerator.findPath(layout, from, to, radius, {
+            let path = RoomLayoutGenerator.findPath(layout, from, to, radius, {
                 maxVisited: 900,
                 maxPathLength: 48
             });
+            if (!path || path.length < 2) {
+                path = RoomLayoutGenerator.findPath(layout, from, to, Math.max(12, radius * 0.6), {
+                    maxVisited: 900,
+                    maxPathLength: 48
+                });
+            }
             if (path && path.length >= 2) {
                 path.slice(1).forEach(point => resolved.push({ x: point.x, y: point.y }));
             } else {
@@ -1582,39 +1682,11 @@ class BossSwarmKing extends BossBase {
         return visiblePoints;
     }
 
-    render(ctx) {
-        if (!this.alive) return;
-
-        this.renderResinPuddles(ctx);
-        this.renderPheromoneTrails(ctx);
-
-        ctx.save();
-        ctx.translate(this.x, this.y);
-        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
-        const renderAngle = isClient && this.visualRotationAngle !== undefined
-            ? this.visualRotationAngle
-            : this.rotationAngle;
-        ctx.rotate(renderAngle);
-
-        // Draw star with inward-bending spikes
-        const exhaustedPulse = this.phase3State === 'exhausted'
-            ? (0.5 + Math.sin(this.exhaustedTimer * Math.PI * 7) * 0.5)
-            : 0;
-        ctx.fillStyle = exhaustedPulse > 0
-            ? `rgb(255, ${Math.floor(210 + exhaustedPulse * 45)}, ${Math.floor(60 + exhaustedPulse * 120)})`
-            : this.color;
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 3;
-
+    traceStarBodyPath(ctx, visualSize, spikeLength, innerRadius, spikeCount) {
         ctx.beginPath();
-        // Visual size should match hitbox size (no division)
-        const visualSize = this.size; // Match the collision hitbox size
-        const spikeLength = visualSize + (this.spikeExtension * this.maxSpikeExtension);
-        const innerRadius = visualSize * 0.4; // Concave inward
-
-        for (let i = 0; i < this.spikeCount; i++) {
-            const outerAngle = (Math.PI * 2 / this.spikeCount) * i;
-            const innerAngle = (Math.PI * 2 / this.spikeCount) * (i + 0.5);
+        for (let i = 0; i < spikeCount; i++) {
+            const outerAngle = (Math.PI * 2 / spikeCount) * i;
+            const innerAngle = (Math.PI * 2 / spikeCount) * (i + 0.5);
 
             const outerX = Math.cos(outerAngle) * spikeLength;
             const outerY = Math.sin(outerAngle) * spikeLength;
@@ -1629,11 +1701,44 @@ class BossSwarmKing extends BossBase {
             ctx.lineTo(innerX, innerY);
         }
         ctx.closePath();
+    }
+
+    render(ctx) {
+        if (!this.alive) return;
+
+        this.renderResinPuddles(ctx);
+        this.renderPheromoneTrails(ctx);
+
+        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+        const renderAngle = isClient && this.visualRotationAngle !== undefined
+            ? this.visualRotationAngle
+            : this.rotationAngle;
+
+        const exhaustedPulse = this.phase3State === 'exhausted'
+            ? (0.5 + Math.sin(this.exhaustedTimer * Math.PI * 7) * 0.5)
+            : 0;
+        let drawColor = exhaustedPulse > 0
+            ? `rgb(255, ${Math.floor(210 + exhaustedPulse * 45)}, ${Math.floor(60 + exhaustedPulse * 120)})`
+            : this.color;
+        drawColor = typeof this.getFlashDrawColor === 'function'
+            ? this.getFlashDrawColor(drawColor)
+            : drawColor;
+
+        const visualSize = this.size;
+        const spikeLength = visualSize + (this.spikeExtension * this.maxSpikeExtension);
+        const innerRadius = visualSize * 0.4;
+
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(renderAngle);
+        ctx.fillStyle = drawColor;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 3;
+        this.traceStarBodyPath(ctx, visualSize, spikeLength, innerRadius, this.spikeCount);
         ctx.fill();
         ctx.stroke();
 
         if (this.phase3State === 'exhausted') {
-            ctx.save();
             ctx.globalAlpha = 0.35 + exhaustedPulse * 0.45;
             ctx.strokeStyle = '#fff36b';
             ctx.lineWidth = 4;
@@ -1644,7 +1749,6 @@ class BossSwarmKing extends BossBase {
                 ctx.lineTo(Math.cos(angle + 0.08) * visualSize * 0.96, Math.sin(angle + 0.08) * visualSize * 0.96);
                 ctx.stroke();
             }
-            ctx.restore();
         }
 
         ctx.restore();

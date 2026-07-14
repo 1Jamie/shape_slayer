@@ -111,7 +111,11 @@
 		panel.style.display = 'block';
 		
 		// Update room number
-		roomNumberEl.textContent = `Room ${Game.roomNumber}`;
+		if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'safe') {
+			roomNumberEl.textContent = 'Safe Room';
+		} else {
+			roomNumberEl.textContent = `Room ${Game.roomNumber}`;
+		}
 		
 		// Update enemy count / door open status
 		const enemyCount = getEnemyCount();

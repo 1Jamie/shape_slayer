@@ -91,8 +91,8 @@ class NexusRoom {
             radius: 60
         };
 
-        // Portal mode state - defaults to 'gear'
-        this.portalMode = 'gear'; // Can be 'cards' or 'gear'
+        // Portal mode state - Gear only (Card Mode removed)
+        this.portalMode = 'gear';
 
         // Class selection area - left side of portal
         this.classArea = {
@@ -119,7 +119,7 @@ class NexusRoom {
         // Index machine - bottom center of nexus
         this.indexMachinePos = {
             x: 900, // Center of nexus horizontally
-            y: 1000, // Near bottom
+            y: 940, // Above bottom edge for default landscape viewports
             width: 120,
             height: 80
         };
@@ -149,44 +149,44 @@ const upgradeStations = [
     // Right column (left edge at x: 340, touching left column)
     { key: 'cooldown', name: 'Cooldown', icon: '⏱', x: 400, y: 450 },
     { key: 'health', name: 'Health', icon: '❤', x: 400, y: 600 },
-    { key: 'attackSpeed', name: 'Attack Speed', icon: '💨', x: 400, y: 750 }
+    { key: 'attackSpeed', name: 'Atk Speed', icon: '💨', x: 400, y: 750 }
 ];
 
-// Room modifier station - aligned with upgrade machines
-const roomModifierStation = {
-    key: 'roomModifiers',
-    name: 'Room Modifiers',
-    icon: '🎴',
-    x: 1450,
-    y: 450
-};
+// Gear upgrade stations (right side of portal)
+// Short nexus labels; modal titles use full names via machine key
+// Progression gates (top→bottom):
+// Rarity after Room 5, Affixes after Swarm King, Systems after Twin Prism, Efficiency after Fortress
+const gearUpgradeStations = [
+    { key: 'rarityChance', name: 'Rarity Chances', shortName: 'Rarity', icon: '🔮', x: 1450, y: 430, requiresRoom: 5 },
+    { key: 'affixSlots', name: 'Affix Capacity', shortName: 'Affixes', icon: '⚙', x: 1450, y: 545, requiresBoss: 'Swarm King' },
+    { key: 'safeRoomSystems', name: 'Safe Room Systems', shortName: 'Systems', icon: '🛠', x: 1450, y: 700, requiresBoss: 'Twin Prism' },
+    { key: 'safeRoomEfficiency', name: 'Safe Room Efficiency', shortName: 'Efficiency', icon: '💰', x: 1450, y: 825, requiresBoss: 'Fortress' }
+];
+window.gearUpgradeStations = gearUpgradeStations;
 
-// Deck builder station - aligned with upgrade machines
-const deckBuilderStation = {
-    key: 'deckBuilder',
-    name: 'Deck Builder',
-    icon: '🃏',
-    x: 1450,
-    y: 600
-};
+function isNexusResumeLocked() {
+    return typeof SaveSystem !== 'undefined'
+        && typeof SaveSystem.hasActiveRunCheckpoint === 'function'
+        && SaveSystem.hasActiveRunCheckpoint();
+}
 
-// Mastery system station - aligned with upgrade machines
-const masteryStation = {
-    key: 'mastery',
-    name: 'Mastery',
-    icon: '⭐',
-    x: 1450,
-    y: 750
-};
+const NEXUS_RESUME_LOCK_HINT = 'Resume/finish run';
 
-// Deck upgrades station - aligned with upgrade machines
-const deckUpgradeStation = {
-    key: 'deckUpgrades',
-    name: 'Deck Upgrades',
-    icon: '⬆',
-    x: 1450,
-    y: 300
-};
+function getGearStationLockState(station) {
+    if (!station) return { locked: false, unlockHint: null };
+    if (typeof SaveSystem !== 'undefined' && SaveSystem.getNexusMachineLock) {
+        return SaveSystem.getNexusMachineLock(station.key);
+    }
+    if (station.requiresBoss) {
+        return { locked: true, requiredBoss: station.requiresBoss, unlockHint: `Defeat ${station.requiresBoss}` };
+    }
+    if (station.requiresRoom) {
+        return { locked: true, requiredRoom: station.requiresRoom, unlockHint: `Clear Room ${station.requiresRoom}` };
+    }
+    return { locked: false, unlockHint: null };
+}
+window.getGearStationLockState = getGearStationLockState;
+window.isNexusResumeLocked = isNexusResumeLocked;
 
 // Class config mapping (maps class keys to their config objects)
 const CLASS_CONFIGS = {
@@ -515,9 +515,26 @@ function updateNexus(ctx, deltaTime) {
         Game.lastGKeyState = false;
     }
 
+    const nexusAllows = (type, detail) => {
+        if (typeof RunCheckpoint !== 'undefined' && RunCheckpoint.allowsNexusInteraction
+            && !RunCheckpoint.allowsNexusInteraction(type)) {
+            return false;
+        }
+        if (typeof Onboarding !== 'undefined' && Onboarding.allowsInteraction
+            && !Onboarding.allowsInteraction(type)) {
+            return false;
+        }
+        if (typeof FeatureTutorials !== 'undefined' && FeatureTutorials.allowsInteraction
+            && !FeatureTutorials.allowsInteraction(type, detail)) {
+            return false;
+        }
+        return true;
+    };
+
     if (shouldInteract) {
 
         // Check class station interactions
+        if (nexusAllows('class')) {
         classStations.forEach(station => {
             const dx = station.x - Game.player.x;
             const dy = station.y - Game.player.y;
@@ -542,6 +559,10 @@ function updateNexus(ctx, deltaTime) {
 
                 interactionHandled = true;
 
+                if (typeof Onboarding !== 'undefined' && Onboarding.notifyClassSelected) {
+                    Onboarding.notifyClassSelected();
+                }
+
                 // Multiplayer: Send class change to other players
                 if (Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
                     if (multiplayerManager.isHost) {
@@ -554,9 +575,11 @@ function updateNexus(ctx, deltaTime) {
                 }
             }
         });
+        }
 
         // Check upgrade station interactions
-        if (Game.selectedClass && !interactionHandled) {
+        if (Game.selectedClass && !interactionHandled
+            && nexusAllows('upgrade')) {
             upgradeStations.forEach(station => {
                 const dx = station.x - Game.player.x;
                 const dy = station.y - Game.player.y;
@@ -564,83 +587,35 @@ function updateNexus(ctx, deltaTime) {
 
                 if (distance < 50 && !interactionHandled) {
                     purchaseUpgrade(Game.selectedClass, station.key);
+                    if (typeof Onboarding !== 'undefined' && Onboarding.notifyClassUpgradeOpened) {
+                        Onboarding.notifyClassUpgradeOpened();
+                    }
                     interactionHandled = true;
                 }
             });
         }
 
-        // Check room modifier station interaction
-        if (!interactionHandled) {
-            const modDx = roomModifierStation.x - Game.player.x;
-            const modDy = roomModifierStation.y - Game.player.y;
-            const modDistance = Math.sqrt(modDx * modDx + modDy * modDy);
+        // Check gear upgrade station interactions
+        if (!interactionHandled && nexusAllows('gearUpgrade')) {
+            gearUpgradeStations.forEach(station => {
+                const lock = getGearStationLockState(station);
+                if (lock.locked) return;
+                if (!nexusAllows('gearUpgrade', station.key)) return;
+                const dx = station.x - Game.player.x;
+                const dy = station.y - Game.player.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
 
-            if (modDistance < 50) {
-                // Open room modifier selection UI
-                if (typeof Game !== 'undefined' && typeof SaveSystem !== 'undefined') {
-                    const save = SaveSystem.load();
-                    const collection = Array.isArray(save.roomModifierCollection) ? save.roomModifierCollection : [];
-                    const slots = (SaveSystem.getDeckUpgrades ? (SaveSystem.getDeckUpgrades().roomModifierCarrySlots || 3) : 3);
-
-                    // Initialize selected modifiers if not set
-                    if (!Array.isArray(Game.selectedRoomModifiers)) {
-                        Game.selectedRoomModifiers = [];
+                if (distance < 50 && !interactionHandled) {
+                    if (typeof window !== 'undefined' && typeof window.toggleGearUpgrades === 'function') {
+                        window.toggleGearUpgrades(true, station.key);
+                        interactionHandled = true;
                     }
-
-                    // Toggle showing selection UI
-                    Game.showingRoomModifierSelection = !Game.showingRoomModifierSelection;
-                    interactionHandled = true;
                 }
-            }
-        }
-
-        // Check deck builder station interaction
-        if (!interactionHandled) {
-            const deckDx = deckBuilderStation.x - Game.player.x;
-            const deckDy = deckBuilderStation.y - Game.player.y;
-            const deckDistance = Math.sqrt(deckDx * deckDx + deckDy * deckDy);
-
-            if (deckDistance < 50) {
-                // Open deck builder UI
-                if (typeof window !== 'undefined' && typeof window.toggleDeckBuilder === 'function') {
-                    window.toggleDeckBuilder();
-                    interactionHandled = true;
-                }
-            }
-        }
-
-        // Check mastery station interaction
-        if (!interactionHandled) {
-            const masteryDx = masteryStation.x - Game.player.x;
-            const masteryDy = masteryStation.y - Game.player.y;
-            const masteryDistance = Math.sqrt(masteryDx * masteryDx + masteryDy * masteryDy);
-
-            if (masteryDistance < 50) {
-                // Open mastery system UI
-                if (typeof window !== 'undefined' && typeof window.toggleMasterySystem === 'function') {
-                    window.toggleMasterySystem();
-                    interactionHandled = true;
-                }
-            }
-        }
-
-        // Check deck upgrades station interaction
-        if (!interactionHandled) {
-            const upgradeDx = deckUpgradeStation.x - Game.player.x;
-            const upgradeDy = deckUpgradeStation.y - Game.player.y;
-            const upgradeDistance = Math.sqrt(upgradeDx * upgradeDx + upgradeDy * upgradeDy);
-
-            if (upgradeDistance < 50) {
-                // Open deck upgrades UI
-                if (typeof window !== 'undefined' && typeof window.toggleDeckUpgrades === 'function') {
-                    window.toggleDeckUpgrades();
-                    interactionHandled = true;
-                }
-            }
+            });
         }
 
         // Check index machine interaction
-        if (!interactionHandled) {
+        if (!interactionHandled && nexusAllows('indexMachine')) {
             const indexDx = nexusRoom.indexMachinePos.x - Game.player.x;
             const indexDy = nexusRoom.indexMachinePos.y - Game.player.y;
             const indexDistance = Math.sqrt(indexDx * indexDx + indexDy * indexDy);
@@ -664,15 +639,15 @@ function updateNexus(ctx, deltaTime) {
     // Check if in multiplayer lobby
     const inMultiplayerLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
 
-    if (isNearSwitcher && shouldInteract && !interactionHandled) {
+    if (isNearSwitcher && shouldInteract && !interactionHandled && nexusAllows('modeSwitcher')) {
         if (inMultiplayerLobby) {
             // Cannot switch modes in multiplayer - mode is locked to gear
             console.log('[Nexus] Cannot switch modes in multiplayer lobby');
             // Don't set interactionHandled so other interactions can still work
         } else {
             // Toggle portal mode (single player only)
-            nexusRoom.portalMode = nexusRoom.portalMode === 'cards' ? 'gear' : 'cards';
-            console.log(`[Nexus] Switched portal mode to: ${nexusRoom.portalMode}`);
+            // Portal switcher is locked to Gear Mode - do not toggle, print info log
+            console.log('[Nexus] Portal switcher is locked to Gear Mode (Card Mode has been deprecated)');
             interactionHandled = true;
         }
     }
@@ -681,23 +656,27 @@ function updateNexus(ctx, deltaTime) {
     const portalDx = nexusRoom.portalPos.x - Game.player.x;
     const portalDy = nexusRoom.portalPos.y - Game.player.y;
     const portalDistance = Math.sqrt(portalDx * portalDx + portalDy * portalDy);
+    const hasResumeCheckpoint = typeof SaveSystem !== 'undefined' && SaveSystem.hasActiveRunCheckpoint
+        && SaveSystem.hasActiveRunCheckpoint();
+    const portalReady = !!(Game.selectedClass || hasResumeCheckpoint);
 
-    if (portalDistance < 60 && Game.selectedClass && shouldInteract && !interactionHandled) {
-        // Set game mode based on portal mode and start game
-        console.log(`[Nexus] Entering ${nexusRoom.portalMode === 'cards' ? 'Card' : 'Gear'} Mode portal`);
-        Game.gameMode = nexusRoom.portalMode;
+    if (portalDistance < 60 && portalReady && shouldInteract && !interactionHandled && nexusAllows('portal')) {
+        console.log(hasResumeCheckpoint ? '[Nexus] Resuming run from checkpoint' : '[Nexus] Entering Gear Mode portal');
+        nexusRoom.portalMode = 'gear';
+        Game.gameMode = 'gear';
 
         // Check multiplayer mode
         const inLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
 
         if (inLobby) {
-            // Only host can start the game in multiplayer
+            // Only host can start the game in multiplayer (no solo checkpoint resume in MP)
             if (multiplayerManager.isHost) {
                 multiplayerManager.startGame();
                 Game.startGame();
             }
+        } else if (typeof Game.tryResumeOrStartFromPortal === 'function') {
+            Game.tryResumeOrStartFromPortal();
         } else {
-            // Single player - start normally
             Game.startGame();
         }
         interactionHandled = true;
@@ -1065,9 +1044,11 @@ function renderNexus(ctx) {
     // CLASSES label - centered above the horizontal class row
     ctx.fillText('CLASSES', 900, 160);
     // UPGRADES label - above the left upgrade column
-    ctx.fillText('UPGRADES', 350, 380);
-    // CARD SYSTEMS label - above the right card systems column (aligned with UPGRADES label)
-    ctx.fillText('CARD SYSTEMS', 1450, 380);
+    ctx.fillText('UPGRADES', 340, 370);
+    // GEAR UPGRADES label - above the right upgrades column
+    ctx.fillText('GEAR UPGRADES', 1450, 370);
+    // SAFE ROOM UPGRADES label - between gear machines and safe-room machines
+    ctx.fillText('SAFE ROOM UPGRADES', 1450, 635);
 
     // Render separator line (vertical line down the center)
     ctx.strokeStyle = 'rgba(150, 150, 200, 0.3)';
@@ -1076,6 +1057,8 @@ function renderNexus(ctx) {
     ctx.moveTo(nexusRoom.width / 2, 120);
     ctx.lineTo(nexusRoom.width / 2, nexusRoom.height - 100);
     ctx.stroke();
+
+    const resumeLocked = isNexusResumeLocked();
 
     // Render class stations
     classStations.forEach(station => {
@@ -1086,25 +1069,30 @@ function renderNexus(ctx) {
         const dy = station.y - (Game.player ? Game.player.y : 0);
         const distance = Math.sqrt(dx * dx + dy * dy);
         const isNear = distance < 50;
+        const mutedColor = '#555555';
 
         // Draw station background (round coordinates to avoid sub-pixel rendering artifacts)
         const classStationX = Math.round(station.x - classStationWidth / 2);
         const classStationY = Math.round(station.y - 30);
-        ctx.fillStyle = isSelected ? 'rgba(255, 255, 0, 0.2)' : 'rgba(255, 255, 255, 0.05)';
-        if (isNear) {
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+        if (resumeLocked) {
+            ctx.fillStyle = 'rgba(40, 40, 40, 0.45)';
+        } else {
+            ctx.fillStyle = isSelected ? 'rgba(255, 255, 0, 0.2)' : 'rgba(255, 255, 255, 0.05)';
+            if (isNear) {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+            }
         }
         ctx.fillRect(classStationX, classStationY, classStationWidth, classStationHeight);
 
         // Draw border
-        ctx.strokeStyle = isSelected ? '#ffff00' : station.color;
-        ctx.lineWidth = isSelected ? 3 : 2;
+        ctx.strokeStyle = resumeLocked ? '#555555' : (isSelected ? '#ffff00' : station.color);
+        ctx.lineWidth = !resumeLocked && isSelected ? 3 : 2;
         ctx.strokeRect(classStationX, classStationY, classStationWidth, classStationHeight);
 
         // Draw class shape
         const classIconX = classStationX + 24;
         const classLabelX = classStationX + 58;
-        ctx.fillStyle = station.color;
+        ctx.fillStyle = resumeLocked ? mutedColor : station.color;
         ctx.save();
         ctx.translate(classIconX, station.y);
 
@@ -1144,167 +1132,81 @@ function renderNexus(ctx) {
         ctx.restore();
 
         // Draw class name
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle = resumeLocked ? '#777777' : '#ffffff';
         ctx.font = 'bold 14px Orbitron';
         ctx.textAlign = 'left';
         ctx.fillText(station.name, classLabelX, station.y + 5);
 
         // Draw interaction prompt (only show in desktop mode, moved down to avoid overlap)
         if (isNear && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
-            ctx.fillStyle = '#ffff00';
-            ctx.font = 'bold 12px Orbitron';
-            ctx.textAlign = 'center';
-            Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'select', station.x, station.y + 45) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('select') : 'Press G to select', station.x, station.y + 45);
+            if (resumeLocked) {
+                ctx.fillStyle = '#ff8866';
+                ctx.font = 'bold 11px Orbitron';
+                ctx.textAlign = 'center';
+                ctx.fillText(NEXUS_RESUME_LOCK_HINT, station.x, station.y + 45);
+            } else {
+                ctx.fillStyle = '#ffff00';
+                ctx.font = 'bold 12px Orbitron';
+                ctx.textAlign = 'center';
+                Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'select', station.x, station.y + 45) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('select') : 'Press G to select', station.x, station.y + 45);
+            }
         }
     });
 
-    // Render room modifier station
-    const modDx = roomModifierStation.x - (Game.player ? Game.player.x : 0);
-    const modDy = roomModifierStation.y - (Game.player ? Game.player.y : 0);
-    const modDistance = Math.sqrt(modDx * modDx + modDy * modDy);
-    const modIsNear = modDistance < 50;
+    // Render gear upgrade stations
+    gearUpgradeStations.forEach(station => {
+        const dx = station.x - (Game.player ? Game.player.x : 0);
+        const dy = station.y - (Game.player ? Game.player.y : 0);
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const isNear = distance < 50;
+        const lock = getGearStationLockState(station);
+        const isLocked = !!lock.locked || resumeLocked;
+        const lockHint = resumeLocked ? NEXUS_RESUME_LOCK_HINT : lock.unlockHint;
 
-    // Round coordinates to avoid sub-pixel rendering artifacts
-    const modStationX = Math.round(roomModifierStation.x - 70);
-    const modStationY = Math.round(roomModifierStation.y - 30);
-    ctx.fillStyle = modIsNear ? 'rgba(255, 255, 0, 0.2)' : 'rgba(255, 255, 255, 0.05)';
-    ctx.fillRect(modStationX, modStationY, 140, 60);
-    ctx.strokeStyle = '#9c27b0';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(modStationX, modStationY, 140, 60);
+        const boxW = 132;
+        const boxH = 70;
+        const stationX = Math.round(station.x - boxW / 2);
+        const stationY = Math.round(station.y - boxH / 2);
+        ctx.fillStyle = isNear && !isLocked
+            ? 'rgba(255, 255, 0, 0.2)'
+            : (isLocked ? 'rgba(40, 40, 40, 0.45)' : 'rgba(255, 255, 255, 0.05)');
+        ctx.fillRect(stationX, stationY, boxW, boxH);
 
-    ctx.fillStyle = '#9c27b0';
-    ctx.font = 'bold 24px Orbitron';
-    ctx.textAlign = 'center';
-    ctx.fillText(roomModifierStation.icon, roomModifierStation.x, roomModifierStation.y - 10);
+        ctx.strokeStyle = isLocked ? '#555555' : '#4a90e2';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(stationX, stationY, boxW, boxH);
 
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 12px Orbitron';
-    ctx.textAlign = 'center';
-    // Split text into two lines if needed
-    const modText = roomModifierStation.name;
-    const words = modText.split(' ');
-    if (words.length > 1) {
-        ctx.fillText(words[0], roomModifierStation.x, roomModifierStation.y + 11);
-        ctx.fillText(words[1], roomModifierStation.x, roomModifierStation.y + 23);
-    } else {
-        ctx.fillText(modText, roomModifierStation.x, roomModifierStation.y + 11);
-    }
-
-    if (modIsNear && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
-        ctx.fillStyle = '#ffff00';
-        ctx.font = '12px Orbitron';
         ctx.textAlign = 'center';
-        Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'select', roomModifierStation.x, roomModifierStation.y + 45) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('select') : 'Press G to select', roomModifierStation.x, roomModifierStation.y + 45);
-    }
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = isLocked ? '#666666' : '#4a90e2';
+        ctx.font = 'bold 22px Orbitron';
+        ctx.fillText(isLocked ? '🔒' : station.icon, station.x, station.y - 16);
 
-    // Render deck builder station
-    const deckDx = deckBuilderStation.x - (Game.player ? Game.player.x : 0);
-    const deckDy = deckBuilderStation.y - (Game.player ? Game.player.y : 0);
-    const deckDistance = Math.sqrt(deckDx * deckDx + deckDy * deckDy);
-    const deckIsNear = deckDistance < 50;
+        ctx.fillStyle = isLocked ? '#777777' : '#ffffff';
+        ctx.font = 'bold 12px Orbitron';
+        const label = station.shortName || station.name;
+        ctx.fillText(label, station.x, station.y + 8);
 
-    // Round coordinates to avoid sub-pixel rendering artifacts
-    const deckStationX = Math.round(deckBuilderStation.x - 60);
-    const deckStationY = Math.round(deckBuilderStation.y - 30);
-    ctx.fillStyle = deckIsNear ? 'rgba(255, 255, 0, 0.2)' : 'rgba(255, 255, 255, 0.05)';
-    ctx.fillRect(deckStationX, deckStationY, 120, 60);
-    ctx.strokeStyle = '#4a90e2';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(deckStationX, deckStationY, 120, 60);
+        if (isLocked && lockHint) {
+            ctx.fillStyle = '#ff8866';
+            ctx.font = 'bold 10px Orbitron';
+            ctx.fillText(lockHint, station.x, station.y + 24);
+        }
+        ctx.textBaseline = 'alphabetic';
 
-    ctx.fillStyle = '#4a90e2';
-    ctx.font = 'bold 24px Orbitron';
-    ctx.textAlign = 'center';
-    ctx.fillText(deckBuilderStation.icon, deckBuilderStation.x, deckBuilderStation.y - 10);
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 12px Orbitron';
-    ctx.textAlign = 'center';
-    const deckWords = deckBuilderStation.name.split(' ');
-    if (deckWords.length > 1) {
-        ctx.fillText(deckWords[0], deckBuilderStation.x, deckBuilderStation.y + 11);
-        ctx.fillText(deckWords[1], deckBuilderStation.x, deckBuilderStation.y + 23);
-    } else {
-        ctx.fillText(deckBuilderStation.name, deckBuilderStation.x, deckBuilderStation.y + 11);
-    }
-
-    if (deckIsNear && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
-        ctx.fillStyle = '#ffff00';
-        ctx.font = '12px Orbitron';
-        ctx.textAlign = 'center';
-        Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'select', deckBuilderStation.x, deckBuilderStation.y + 45) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('select') : 'Press G to select', deckBuilderStation.x, deckBuilderStation.y + 45);
-    }
-
-    // Render deck upgrades station
-    const upgradeDx = deckUpgradeStation.x - (Game.player ? Game.player.x : 0);
-    const upgradeDy = deckUpgradeStation.y - (Game.player ? Game.player.y : 0);
-    const upgradeDistance = Math.sqrt(upgradeDx * upgradeDx + upgradeDy * upgradeDy);
-    const upgradeIsNear = upgradeDistance < 50;
-
-    // Round coordinates to avoid sub-pixel rendering artifacts
-    const deckUpgradeX = Math.round(deckUpgradeStation.x - 60);
-    const deckUpgradeY = Math.round(deckUpgradeStation.y - 30);
-    ctx.fillStyle = upgradeIsNear ? 'rgba(255, 255, 0, 0.2)' : 'rgba(255, 255, 255, 0.05)';
-    ctx.fillRect(deckUpgradeX, deckUpgradeY, 120, 60);
-    ctx.strokeStyle = '#00ff00';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(deckUpgradeX, deckUpgradeY, 120, 60);
-
-    ctx.fillStyle = '#00ff00';
-    ctx.font = 'bold 24px Orbitron';
-    ctx.textAlign = 'center';
-    ctx.fillText(deckUpgradeStation.icon, deckUpgradeStation.x, deckUpgradeStation.y - 10);
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 12px Orbitron';
-    ctx.textAlign = 'center';
-    const upgradeWords = deckUpgradeStation.name.split(' ');
-    if (upgradeWords.length > 1) {
-        ctx.fillText(upgradeWords[0], deckUpgradeStation.x, deckUpgradeStation.y + 11);
-        ctx.fillText(upgradeWords[1], deckUpgradeStation.x, deckUpgradeStation.y + 23);
-    } else {
-        ctx.fillText(deckUpgradeStation.name, deckUpgradeStation.x, deckUpgradeStation.y + 11);
-    }
-
-    if (upgradeIsNear && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
-        ctx.fillStyle = '#ffff00';
-        ctx.font = '12px Orbitron';
-        ctx.textAlign = 'center';
-        Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'select', deckUpgradeStation.x, deckUpgradeStation.y + 45) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('select') : 'Press G to select', deckUpgradeStation.x, deckUpgradeStation.y + 45);
-    }
-
-    // Render mastery station
-    const masteryDx = masteryStation.x - (Game.player ? Game.player.x : 0);
-    const masteryDy = masteryStation.y - (Game.player ? Game.player.y : 0);
-    const masteryDistance = Math.sqrt(masteryDx * masteryDx + masteryDy * masteryDy);
-    const masteryIsNear = masteryDistance < 50;
-
-    // Round coordinates to avoid sub-pixel rendering artifacts
-    const masteryX = Math.round(masteryStation.x - 60);
-    const masteryY = Math.round(masteryStation.y - 30);
-    ctx.fillStyle = masteryIsNear ? 'rgba(255, 255, 0, 0.2)' : 'rgba(255, 255, 255, 0.05)';
-    ctx.fillRect(masteryX, masteryY, 120, 60);
-    ctx.strokeStyle = '#ffd700';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(masteryX, masteryY, 120, 60);
-
-    ctx.fillStyle = '#ffd700';
-    ctx.font = 'bold 24px Orbitron';
-    ctx.textAlign = 'center';
-    ctx.fillText(masteryStation.icon, masteryStation.x, masteryStation.y - 10);
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 12px Orbitron';
-    ctx.textAlign = 'center';
-    ctx.fillText(masteryStation.name, masteryStation.x, masteryStation.y + 12);
-
-    if (masteryIsNear && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
-        ctx.fillStyle = '#ffff00';
-        ctx.font = '12px Orbitron';
-        ctx.textAlign = 'center';
-        Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'select', masteryStation.x, masteryStation.y + 45) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('select') : 'Press G to select', masteryStation.x, masteryStation.y + 45);
-    }
+        // Only show interaction prompts if not locked
+        if (isNear && !isLocked && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
+            ctx.fillStyle = '#ffff00';
+            ctx.font = '12px Orbitron';
+            ctx.textAlign = 'center';
+            Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'select', station.x, station.y + 50) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('select') : 'Press G to select', station.x, station.y + 50);
+        } else if (isNear && isLocked && lockHint) {
+            ctx.fillStyle = '#ff8866';
+            ctx.font = 'bold 11px Orbitron';
+            ctx.textAlign = 'center';
+            ctx.fillText(lockHint, station.x, station.y + 52);
+        }
+    });
 
     // Render index machine
     const indexDx = nexusRoom.indexMachinePos.x - (Game.player ? Game.player.x : 0);
@@ -1315,14 +1217,16 @@ function renderNexus(ctx) {
     // Round coordinates to avoid sub-pixel rendering artifacts
     const indexX = Math.round(nexusRoom.indexMachinePos.x - nexusRoom.indexMachinePos.width / 2);
     const indexY = Math.round(nexusRoom.indexMachinePos.y - nexusRoom.indexMachinePos.height / 2);
-    ctx.fillStyle = indexIsNear ? 'rgba(255, 255, 0, 0.2)' : 'rgba(255, 255, 255, 0.05)';
+    ctx.fillStyle = resumeLocked
+        ? 'rgba(40, 40, 40, 0.45)'
+        : (indexIsNear ? 'rgba(255, 255, 0, 0.2)' : 'rgba(255, 255, 255, 0.05)');
     ctx.fillRect(
         indexX,
         indexY,
         nexusRoom.indexMachinePos.width,
         nexusRoom.indexMachinePos.height
     );
-    ctx.strokeStyle = '#9c27b0';
+    ctx.strokeStyle = resumeLocked ? '#555555' : '#9c27b0';
     ctx.lineWidth = 2;
     ctx.strokeRect(
         indexX,
@@ -1331,21 +1235,28 @@ function renderNexus(ctx) {
         nexusRoom.indexMachinePos.height
     );
 
-    ctx.fillStyle = '#9c27b0';
+    ctx.fillStyle = resumeLocked ? '#666666' : '#9c27b0';
     ctx.font = 'bold 24px Orbitron';
     ctx.textAlign = 'center';
-    ctx.fillText('📚', nexusRoom.indexMachinePos.x, nexusRoom.indexMachinePos.y - 5);
+    ctx.fillText(resumeLocked ? '🔒' : '📚', nexusRoom.indexMachinePos.x, nexusRoom.indexMachinePos.y - 5);
 
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = resumeLocked ? '#777777' : '#ffffff';
     ctx.font = 'bold 12px Orbitron';
     ctx.textAlign = 'center';
     ctx.fillText('Index', nexusRoom.indexMachinePos.x, nexusRoom.indexMachinePos.y + 15);
 
     if (indexIsNear && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
-        ctx.fillStyle = '#ffff00';
-        ctx.font = '12px Orbitron';
-        ctx.textAlign = 'center';
-        Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'open', nexusRoom.indexMachinePos.x, nexusRoom.indexMachinePos.y + 45) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('open') : 'Press G to open', nexusRoom.indexMachinePos.x, nexusRoom.indexMachinePos.y + 45);
+        if (resumeLocked) {
+            ctx.fillStyle = '#ff8866';
+            ctx.font = 'bold 11px Orbitron';
+            ctx.textAlign = 'center';
+            ctx.fillText(NEXUS_RESUME_LOCK_HINT, nexusRoom.indexMachinePos.x, nexusRoom.indexMachinePos.y + 45);
+        } else {
+            ctx.fillStyle = '#ffff00';
+            ctx.font = '12px Orbitron';
+            ctx.textAlign = 'center';
+            Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'open', nexusRoom.indexMachinePos.x, nexusRoom.indexMachinePos.y + 45) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('open') : 'Press G to open', nexusRoom.indexMachinePos.x, nexusRoom.indexMachinePos.y + 45);
+        }
     }
 
     // Render upgrade stations
@@ -1360,41 +1271,60 @@ function renderNexus(ctx) {
             const upgrades = typeof SaveSystem !== 'undefined' ? SaveSystem.getUpgrades(Game.selectedClass) : { damage: 0, defense: 0, speed: 0, cooldown: 0, health: 0, attackSpeed: 0 };
             const currentLevel = upgrades[station.key] || 0;
             const cost = typeof SaveSystem !== 'undefined' ? SaveSystem.getUpgradeCost(station.key, currentLevel) : 50;
-            const canAfford = Game.currentCurrency >= cost;
+            const canAfford = !resumeLocked && Game.currentCurrency >= cost;
 
             // Draw station background (round coordinates to avoid sub-pixel rendering artifacts)
-            const stationX = Math.round(station.x - 60);
-            const stationY = Math.round(station.y - 40);
-            ctx.fillStyle = canAfford && isNear ? 'rgba(0, 255, 0, 0.1)' : 'rgba(255, 255, 255, 0.05)';
-            ctx.fillRect(stationX, stationY, 120, 80);
+            const boxW = 120;
+            const boxH = 92;
+            const stationX = Math.round(station.x - boxW / 2);
+            const stationY = Math.round(station.y - boxH / 2);
+            ctx.fillStyle = resumeLocked
+                ? 'rgba(40, 40, 40, 0.45)'
+                : (canAfford && isNear ? 'rgba(0, 255, 0, 0.1)' : 'rgba(255, 255, 255, 0.05)');
+            ctx.fillRect(stationX, stationY, boxW, boxH);
 
             // Draw border
-            ctx.strokeStyle = canAfford ? '#00ff00' : '#666666';
+            ctx.strokeStyle = resumeLocked ? '#555555' : (canAfford ? '#00ff00' : '#666666');
             ctx.lineWidth = 2;
-            ctx.strokeRect(stationX, stationY, 120, 80);
+            ctx.strokeRect(stationX, stationY, boxW, boxH);
 
-            // Draw icon/name
-            ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 16px Orbitron';
+            // Draw icon/name with clearer vertical rhythm
             ctx.textAlign = 'center';
-            ctx.fillText(station.icon, station.x, station.y - 15);
-            ctx.font = 'bold 14px Orbitron';
-            ctx.fillText(station.name, station.x, station.y);
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = resumeLocked ? '#666666' : '#ffffff';
+            ctx.font = 'bold 18px Orbitron';
+            ctx.fillText(resumeLocked ? '🔒' : station.icon, station.x, station.y - 26);
+            ctx.font = 'bold 13px Orbitron';
+            ctx.fillText(station.name, station.x, station.y - 6);
 
             // Draw level
-            ctx.font = 'bold 12px Orbitron';
-            ctx.fillText(`Level: ${currentLevel}`, station.x, station.y + 15);
+            ctx.font = '11px Orbitron';
+            ctx.fillStyle = resumeLocked ? '#666666' : '#cccccc';
+            ctx.fillText(`Level: ${currentLevel}`, station.x, station.y + 14);
 
-            // Draw cost
-            ctx.fillStyle = canAfford ? '#00ff00' : '#ff6666';
-            ctx.font = 'bold 12px Orbitron';
-            ctx.fillText(`Cost: ${cost}`, station.x, station.y + 30);
+            // Draw cost / lock hint
+            if (resumeLocked) {
+                ctx.fillStyle = '#ff8866';
+                ctx.font = 'bold 10px Orbitron';
+                ctx.fillText(NEXUS_RESUME_LOCK_HINT, station.x, station.y + 32);
+            } else {
+                ctx.fillStyle = canAfford ? '#00ff00' : '#ff6666';
+                ctx.font = 'bold 12px Orbitron';
+                ctx.fillText(`Cost: ${cost}`, station.x, station.y + 32);
+            }
+            ctx.textBaseline = 'alphabetic';
 
             // Draw interaction prompt (only show in desktop mode, moved down to avoid overlap)
             if (isNear && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
-                ctx.fillStyle = '#ffff00';
-                ctx.font = 'bold 12px Orbitron';
-                Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'upgrade', station.x, station.y + 55) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('upgrade') : 'Press G to upgrade', station.x, station.y + 55);
+                if (resumeLocked) {
+                    ctx.fillStyle = '#ff8866';
+                    ctx.font = 'bold 11px Orbitron';
+                    ctx.fillText(NEXUS_RESUME_LOCK_HINT, station.x, station.y + 60);
+                } else {
+                    ctx.fillStyle = '#ffff00';
+                    ctx.font = 'bold 12px Orbitron';
+                    Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'upgrade', station.x, station.y + 60) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('upgrade') : 'Press G to upgrade', station.x, station.y + 60);
+                }
             }
         });
     }
@@ -1407,7 +1337,7 @@ function renderNexus(ctx) {
 
     // Check if in multiplayer lobby
     const inMultiplayerLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
-    const isDisabled = inMultiplayerLobby;
+    const isDisabled = inMultiplayerLobby || resumeLocked;
 
     // Round coordinates to avoid sub-pixel rendering artifacts
     const switcherX = Math.round(nexusRoom.modeSwitcherPos.x - nexusRoom.modeSwitcherPos.width / 2);
@@ -1432,15 +1362,14 @@ function renderNexus(ctx) {
         nexusRoom.modeSwitcherPos.height
     );
 
-    // Mode indicator light - shows current portal mode (dimmed if disabled)
-    const lightColor = nexusRoom.portalMode === 'cards' ? '#66ccff' : '#ff8844';
+    // Mode indicator light (dimmed if disabled)
+    const lightColor = '#ff8844';
     const lightPulse = isDisabled ? 0.3 : (0.7 + Math.sin(Date.now() * 0.003) * 0.3);
     ctx.fillStyle = isDisabled ? '#555555' : lightColor;
     ctx.globalAlpha = lightPulse;
     ctx.beginPath();
     ctx.arc(nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y - 15, 12, 0, Math.PI * 2);
     ctx.fill();
-    // Reset alpha and ensure no bleeding
     ctx.globalAlpha = 1.0;
     ctx.globalCompositeOperation = 'source-over';
 
@@ -1448,22 +1377,26 @@ function renderNexus(ctx) {
     ctx.fillStyle = isDisabled ? '#666666' : '#ffffff';
     ctx.font = 'bold 14px Orbitron';
     ctx.textAlign = 'center';
-    ctx.fillText(nexusRoom.portalMode === 'cards' ? 'CARD' : 'GEAR', nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y + 15);
+    ctx.fillText('GEAR', nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y + 15);
 
     // Switcher interaction prompt
     if (isNearSwitcher && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
-        if (isDisabled) {
+        if (resumeLocked) {
+            ctx.fillStyle = '#ff8866';
+            ctx.font = 'bold 11px Orbitron';
+            ctx.textAlign = 'center';
+            ctx.fillText(NEXUS_RESUME_LOCK_HINT, nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y + 60);
+        } else if (isDisabled) {
             // Show disabled message in multiplayer
             ctx.fillStyle = '#ff6666';
             ctx.font = 'bold 12px Orbitron';
             ctx.textAlign = 'center';
             ctx.fillText('Cannot swap modes in multiplayer', nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y + 60);
         } else {
-            // Show normal prompt
-            ctx.fillStyle = '#ffff00';
+            ctx.fillStyle = '#aaaaaa';
             ctx.font = 'bold 12px Orbitron';
             ctx.textAlign = 'center';
-            Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'switch mode', nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y + 60) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('switch mode') : 'Press G to switch mode', nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y + 60);
+            ctx.fillText('Gear Mode only', nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y + 60);
         }
     }
 
@@ -1474,10 +1407,7 @@ function renderNexus(ctx) {
     const isNearPortal = portalDistance < 60;
     const portalActive = Game.selectedClass !== null;
 
-    // Portal colors based on mode
-    const portalColor = nexusRoom.portalMode === 'cards'
-        ? { glow: 'rgba(100, 200, 255, ', core: 'rgba(150, 220, 255, 0.8)', border: '#66ccff' }
-        : { glow: 'rgba(255, 150, 100, ', core: 'rgba(255, 180, 120, 0.8)', border: '#ff8844' };
+    const portalColor = { glow: 'rgba(255, 150, 100, ', core: 'rgba(255, 180, 120, 0.8)', border: '#ff8844' };
 
     // Portal pulsing animation
     const pulseTime = Date.now() * 0.002;
@@ -1513,22 +1443,44 @@ function renderNexus(ctx) {
     ctx.shadowColor = 'transparent';
     ctx.globalCompositeOperation = 'source-over';
 
-    // Portal label (changes based on mode)
+    // Portal label (changes based on mode / resume)
+    const hasResumeCheckpointLabel = typeof SaveSystem !== 'undefined' && SaveSystem.hasActiveRunCheckpoint
+        && SaveSystem.hasActiveRunCheckpoint();
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 16px Orbitron';
     ctx.textAlign = 'center';
-    ctx.fillText(nexusRoom.portalMode === 'cards' ? 'CARD MODE' : 'GEAR MODE', nexusRoom.portalPos.x, nexusRoom.portalPos.y - 80);
+    ctx.fillText(hasResumeCheckpointLabel ? 'RESUME RUN' : 'GEAR MODE', nexusRoom.portalPos.x, nexusRoom.portalPos.y - 95);
+
+    // Resume state: Lost's PS2 sits on the portal as the resume affordance
+    if (hasResumeCheckpointLabel && typeof drawLostPs2EasterEgg === 'function') {
+        drawLostPs2EasterEgg(ctx, nexusRoom.portalPos.x, nexusRoom.portalPos.y + 4, {
+            lit: true,
+            near: isNearPortal,
+            scale: 0.82,
+            groundShadow: false
+        });
+    }
 
     // Portal interaction prompt (only show in desktop mode)
     if (isNearPortal && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
         const inLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+        const portalCanUse = portalActive || hasResumeCheckpointLabel;
 
-        if (portalActive) {
+        if (portalCanUse) {
             if (inLobby && !multiplayerManager.isHost) {
                 ctx.fillStyle = '#ff6666';
                 ctx.font = 'bold 14px Orbitron';
                 ctx.textAlign = 'center';
                 ctx.fillText('Only host can start', nexusRoom.portalPos.x, nexusRoom.portalPos.y + 70);
+            } else if (hasResumeCheckpointLabel) {
+                ctx.fillStyle = '#ffff00';
+                ctx.font = 'bold 14px Orbitron';
+                ctx.textAlign = 'center';
+                Input.drawInteractionPrompt
+                    ? Input.drawInteractionPrompt(ctx, 'resume run', nexusRoom.portalPos.x, nexusRoom.portalPos.y + 70)
+                    : ctx.fillText(Input.getInteractionPrompt
+                        ? Input.getInteractionPrompt('resume run')
+                        : 'Press G to resume run', nexusRoom.portalPos.x, nexusRoom.portalPos.y + 70);
             } else {
                 ctx.fillStyle = '#ffff00';
                 ctx.font = 'bold 14px Orbitron';
@@ -1595,6 +1547,14 @@ function renderNexus(ctx) {
 
     // Check if in multiplayer (used in both phases)
     const inMultiplayer = Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager;
+
+    // Onboarding / feature-tutorial dim layer: above world UI, below local player
+    if (typeof Onboarding !== 'undefined' && Onboarding.renderSpotlight) {
+        Onboarding.renderSpotlight(ctx);
+    }
+    if (typeof FeatureTutorials !== 'undefined' && FeatureTutorials.renderSpotlight) {
+        FeatureTutorials.renderSpotlight(ctx);
+    }
 
     // ------------------------------------------
     // PHASE 1: THE GLOWS (The "Neon" look)
@@ -1901,7 +1861,14 @@ function renderNexus(ctx) {
         }
     }
 
-    // Render class station tooltips last (when player is near) - so they appear on top
+    // Coach under the cutout; class tooltips draw after so descriptions stay on top
+    if (typeof Onboarding !== 'undefined' && Onboarding.renderCoachCard) {
+        Onboarding.renderCoachCard(ctx);
+    }
+    if (typeof FeatureTutorials !== 'undefined' && FeatureTutorials.renderCoachCard) {
+        FeatureTutorials.renderCoachCard(ctx);
+    }
+
     if (Game.player && Game.player.alive) {
         classStations.forEach(station => {
             renderClassStationTooltip(ctx, Game.player, station);

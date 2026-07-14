@@ -230,6 +230,9 @@ class OctagonEnemy extends EnemyBase {
         // Get target (handles decoy/clone logic, uses internal getAllAlivePlayers)
         // This must be called before minion spawning to ensure targetLock is set
         const target = this.findTarget(null);
+        const targetPlayer = (this.targetLock && this.targetLock.playerRef)
+            ? this.targetLock.playerRef
+            : (typeof Game !== 'undefined' && Game.player ? Game.player : null);
         const targetX = target.x;
         const targetY = target.y;
 
@@ -571,10 +574,18 @@ class OctagonEnemy extends EnemyBase {
                 }
             } // End of in-range combat behavior
 
-            // Normal chase with separation
+            // Normal chase with separation using intercept target
             const separation = this.getSeparationForce(enemies, OCTAGON_CONFIG.separationRadius, OCTAGON_CONFIG.separationStrength);
-            const dirX = dx / distance;
-            const dirY = dy / distance;
+            let dirX = dx / distance;
+            let dirY = dy / distance;
+            if (targetPlayer && targetPlayer.alive) {
+                const interceptPos = this.getInterceptTarget(targetPlayer, 0.65);
+                const iDx = interceptPos.x - this.x;
+                const iDy = interceptPos.y - this.y;
+                const iDist = Math.hypot(iDx, iDy) || 1;
+                dirX = iDx / iDist;
+                dirY = iDy / iDist;
+            }
 
             let moveX = dirX;
             let moveY = dirY;
@@ -778,18 +789,15 @@ class OctagonEnemy extends EnemyBase {
             }
         }
 
-        // Track elite kill for credits reward (octagon enemies are elites)
-        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
-        if (!isClient && typeof Game !== 'undefined') {
-            if (typeof Game.elitesKilled === 'number') {
-                Game.elitesKilled++;
-            } else {
-                Game.elitesKilled = 1;
-            }
+        // Elite kill counter + credit banking (CombatEconomy tier)
+        if (typeof this.awardDeathCredits === 'function') {
+            this.awardDeathCredits();
         }
 
         // Emit particles on death
-        if (typeof createParticleBurst !== 'undefined') {
+        if (typeof this.triggerDeathVisuals === 'function') {
+            this.triggerDeathVisuals();
+        } else if (typeof createParticleBurst !== 'undefined') {
             createParticleBurst(this.x, this.y, this.color, 12);
         }
 
@@ -1246,37 +1254,71 @@ class OctagonEnemy extends EnemyBase {
             drawColor = '#bb86fc';
         }
 
-        // Draw octagon shape
-        ctx.save();
-        ctx.translate(this.x, this.y);
+        drawColor = this.getFlashDrawColor(drawColor);
+        // Voxel damage: draw body to offscreen canvas, punch destroyed cells out, blit back
+        const _sm = scaleMultiplier;
+        const _sz = this.size;
+        const bodyDrawn = typeof renderVoxelDamage === 'function' && renderVoxelDamage(
+            ctx, this, drawColor,
+            (oCtx) => {
+                if (this.state === 'spin') {
+                    oCtx.rotate(this.spinElapsed * 2);
+                }
+                oCtx.beginPath();
+                for (let i = 0; i < 8; i++) {
+                    const angle = (Math.PI / 4) * i;
+                    const px = Math.cos(angle) * _sz * _sm;
+                    const py = Math.sin(angle) * _sz * _sm;
+                    if (i === 0) oCtx.moveTo(px, py);
+                    else oCtx.lineTo(px, py);
+                }
+                oCtx.closePath();
+                oCtx.fill();
+                // Draw outline with purple glow effect
+                oCtx.strokeStyle = '#dda0dd'; // Light purple outline
+                oCtx.lineWidth = 3;
+                oCtx.stroke();
+                // Add subtle inner glow for elite distinction
+                oCtx.strokeStyle = '#ffffff';
+                oCtx.lineWidth = 1;
+                oCtx.stroke();
+            }
+        );
 
-        if (this.state === 'spin') {
-            ctx.rotate(this.spinElapsed * 2); // Rotate when spinning
+        if (!bodyDrawn) {
+            // Draw octagon shape
+            ctx.save();
+            ctx.translate(this.x, this.y);
+
+            if (this.state === 'spin') {
+                ctx.rotate(this.spinElapsed * 2); // Rotate when spinning
+            }
+
+            ctx.fillStyle = drawColor;
+            ctx.beginPath();
+            for (let i = 0; i < 8; i++) {
+                const angle = (Math.PI / 4) * i;
+                const px = Math.cos(angle) * this.size * scaleMultiplier;
+                const py = Math.sin(angle) * this.size * scaleMultiplier;
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            ctx.fill();
+
+            // Draw outline with purple glow effect
+            ctx.strokeStyle = '#dda0dd'; // Light purple outline
+            ctx.lineWidth = 3;
+            ctx.stroke();
+
+            // Add subtle inner glow for elite distinction
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            ctx.restore();
         }
 
-        ctx.fillStyle = drawColor;
-        ctx.beginPath();
-        for (let i = 0; i < 8; i++) {
-            const angle = (Math.PI / 4) * i;
-            const px = Math.cos(angle) * this.size * scaleMultiplier;
-            const py = Math.sin(angle) * this.size * scaleMultiplier;
-            if (i === 0) ctx.moveTo(px, py);
-            else ctx.lineTo(px, py);
-        }
-        ctx.closePath();
-        ctx.fill();
-
-        // Draw outline with purple glow effect
-        ctx.strokeStyle = '#dda0dd'; // Light purple outline
-        ctx.lineWidth = 3;
-        ctx.stroke();
-
-        // Add subtle inner glow for elite distinction
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        ctx.restore();
 
         // Draw status effects (burn, freeze)
         if (typeof renderBurnEffect !== 'undefined') {

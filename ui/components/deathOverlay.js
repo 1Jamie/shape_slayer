@@ -434,7 +434,7 @@
 			shardsLabel.style.fontSize = '18px';
 			shardsLabel.style.fontWeight = '600';
 			shardsLabel.style.color = '#ffd700';
-			shardsLabel.textContent = 'Card Shards Earned:';
+			shardsLabel.textContent = 'Shards Earned:';
 			shardsEl.appendChild(shardsLabel);
 
 			const shardsValue = document.createElement('div');
@@ -627,7 +627,7 @@
 				const shardsDiv = document.createElement('div');
 				shardsDiv.style.color = '#ffd700';
 				shardsDiv.style.marginTop = '4px';
-				shardsDiv.innerHTML = `<strong>Card Shards:</strong> ${shardsEarned.toLocaleString()}`;
+				shardsDiv.innerHTML = `<strong>Shards:</strong> ${shardsEarned.toLocaleString()}`;
 				playerRewardSection.appendChild(shardsDiv);
 			}
 

@@ -359,7 +359,7 @@ const DebugPanel = {
         if (!RunProfiler.isActive()) {
             const sampleCount = RunProfiler.global ? RunProfiler.global.sampleCount : 0;
             statusEl.textContent = sampleCount > 0
-                ? `Inactive (${sampleCount} samples retained — Export to save)`
+                ? `Inactive (${sampleCount} samples retained - Export to save)`
                 : 'Inactive';
             return;
         }
@@ -430,6 +430,9 @@ const DebugPanel = {
                 releaseRoomRenderCaches(currentRoom);
             }
             currentRoom = newRoom;
+            if (typeof resetVoxelStaticCanvas === 'function') {
+                resetVoxelStaticCanvas(newRoom.width || 2400, newRoom.height || 1350);
+            }
             if (typeof prepareRoomRenderCaches === 'function') {
                 prepareRoomRenderCaches(currentRoom, roomNumber);
             }
@@ -690,7 +693,6 @@ const DebugPanel = {
                             `Enemies ${c.enemiesVisible}/${c.enemiesTotal}  ` +
                             `Proj ${c.projectilesVisible}/${c.projectilesTotal}\n` +
                             `Loot ${c.groundLootVisible}/${c.groundLootTotal}  ` +
-                            `Cards ${c.groundCardsVisible}/${c.groundCardsTotal}\n` +
                             `Items ${c.groundItemsVisible}/${c.groundItemsTotal}`;
                     }
                 }

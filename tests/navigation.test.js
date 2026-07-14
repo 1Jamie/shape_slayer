@@ -138,3 +138,33 @@ test('generated rooms keep boss pathfinding away from decor choke points', () =>
         );
     }
 });
+
+test('resolveCircleCollision chooses symmetric axis based on progress', () => {
+    const layout = makeGridLayout([
+        '...',
+        '.#.',
+        '...'
+    ]);
+    const resolved = RoomLayoutGenerator.resolveCircleCollision(layout, 50, 45, 10, 20, 20);
+    assert.equal(resolved.x, 50);
+    assert.equal(resolved.y, 20);
+});
+
+test('pathfinding queue processes requests correctly', () => {
+    const layout = makeGridLayout([
+        '#####',
+        '#...#',
+        '#...#',
+        '#...#',
+        '#####'
+    ]);
+    let pathResult = null;
+    RoomLayoutGenerator.queuePathfinding(layout, { x: 60, y: 60 }, { x: 140, y: 140 }, 12, {}, (path) => {
+        pathResult = path;
+    });
+    
+    assert.equal(pathResult, null);
+    RoomLayoutGenerator.processPathfindingQueue(1);
+    assert.ok(pathResult);
+    assert.ok(pathResult.length >= 2);
+});

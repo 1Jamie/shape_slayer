@@ -180,50 +180,6 @@ class Rogue extends PlayerBase {
             this.dodgeCooldownTime *= this.dashCooldownMultiplier;
         }
         
-        // Apply ability mutator card effects
-        if (typeof DeckState !== 'undefined' && typeof CardEffects !== 'undefined' && CardEffects.getAbilityModifiers) {
-            const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
-            const abilityMods = CardEffects.getAbilityModifiers(this, handCards);
-            
-            if (abilityMods.fanOfKnives) {
-                if (abilityMods.fanOfKnives.knifeCountBonus) {
-                    this.knifeCountBonus += abilityMods.fanOfKnives.knifeCountBonus;
-                }
-                if (abilityMods.fanOfKnives.pierceChance) {
-                    this.fanOfKnivesPierceChance = abilityMods.fanOfKnives.pierceChance;
-                }
-                if (abilityMods.fanOfKnives.returnToPlayer) {
-                    this.fanOfKnivesReturnToPlayer = true;
-                }
-            }
-            
-            if (abilityMods.shadowClone) {
-                if (abilityMods.shadowClone.cloneCountBonus) {
-                    this.shadowCloneCountBonus += abilityMods.shadowClone.cloneCountBonus;
-                }
-                if (abilityMods.shadowClone.cloneDamage) {
-                    this.shadowCloneDamage = abilityMods.shadowClone.cloneDamage;
-                }
-                if (abilityMods.shadowClone.explodeOnDeath) {
-                    this.shadowCloneExplodeOnDeath = true;
-                }
-            }
-            
-            if (abilityMods.backstab) {
-                if (abilityMods.backstab.damageMultiplier) {
-                    this.backstabMultiplierBonus += abilityMods.backstab.damageMultiplier;
-                }
-                if (abilityMods.backstab.chainChance) {
-                    this.backstabChainChance = abilityMods.backstab.chainChance;
-                }
-                if (abilityMods.backstab.stealthOnKill) {
-                    this.backstabStealthOnKill = abilityMods.backstab.stealthOnKill;
-                }
-                if (abilityMods.backstab.resetCooldownOnKill) {
-                    this.backstabResetCooldownOnKill = true;
-                }
-            }
-        }
     }
     
     // Override to apply Rogue-specific class modifiers

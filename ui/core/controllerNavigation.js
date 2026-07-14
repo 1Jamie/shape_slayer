@@ -185,10 +185,16 @@
 
 		getActiveGamepad() {
 			const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+			let pad = null;
 			if (window.Input && Input._gamepadIndex !== null && pads[Input._gamepadIndex]) {
-				return pads[Input._gamepadIndex];
+				pad = pads[Input._gamepadIndex];
+			} else {
+				pad = Array.from(pads).find(p => p && p.connected) || null;
 			}
-			return Array.from(pads).find(pad => pad && pad.connected) || null;
+			if (pad && window.Input && typeof window.Input._getMappedGamepad === 'function') {
+				return window.Input._getMappedGamepad(pad);
+			}
+			return pad;
 		},
 
 		syncGamepadInputSource(gamepad) {
@@ -224,10 +230,27 @@
 		},
 
 		getFocusableTargets(root) {
-			const controls = Array.from(root.querySelectorAll(focusableSelector))
+			let controls = Array.from(root.querySelectorAll(focusableSelector))
 				.filter(el => this.isNavigableTarget(el, root));
 			const scrollables = Array.from(root.querySelectorAll(scrollableSelector))
 				.filter(el => this.isScrollableTarget(el, root));
+
+			// Forced onboarding: trap focus to allowed actions only
+			if (typeof Onboarding !== 'undefined' && Onboarding.isForcedModalActive && Onboarding.isForcedModalActive()) {
+				const step = Onboarding.getStep && Onboarding.getStep();
+				controls = controls.filter(el => {
+					const action = el.getAttribute('data-onboarding-action') || '';
+					if (step === Onboarding.STEPS.PRIVACY) {
+						return action === 'privacy-opt-in' || action === 'privacy-opt-out';
+					}
+					if (step === Onboarding.STEPS.CONTROLS) {
+						return action === 'controls-continue';
+					}
+					return true;
+				});
+				return Array.from(new Set(controls));
+			}
+
 			return Array.from(new Set([...scrollables, ...controls]));
 		},
 
@@ -277,7 +300,7 @@
 				if (scrollPane) return scrollPane;
 			}
 
-			const preferredButton = byText(/resume|continue|close/i);
+			const preferredButton = byText(/got it|opt in|resume|continue|close/i);
 			if (preferredButton) return preferredButton;
 
 			const preferredControl = targets.find(el => el.type === 'range' || el.tagName === 'SELECT');
@@ -494,6 +517,11 @@
 		},
 
 		back() {
+			// Forced onboarding modals: Cancel/Esc cannot dismiss without completing the step
+			if (typeof Onboarding !== 'undefined' && Onboarding.isForcedModalActive && Onboarding.isForcedModalActive()) {
+				return;
+			}
+
 			const modal = this.activeModal || this.getTopVisibleModal();
 			if (!modal) return;
 

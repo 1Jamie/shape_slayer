@@ -97,7 +97,7 @@
             if (roll < 0.75) return 'gauntlet';
             return 'maze';
         }
-        if (roomNumber <= 15) {
+        if (roomNumber <= 20) {
             if (roll < 0.35) return 'road';
             if (roll < 0.55) return 'gauntlet';
             if (roll < 0.75) return 'maze';
@@ -113,6 +113,7 @@
     }
 
     function getLateGameScale(roomNumber) {
+        // Late-game size growth starts after Twin Prism (room 20), i.e. fortress biome onward
         if (!roomNumber || roomNumber <= 20) return 1;
         return 1 + Math.min(0.1, (roomNumber - 20) / 200);
     }
@@ -152,10 +153,10 @@
     }
 
     function buildRoomPlan(roomNumber, gameMode, roomType, modifiers) {
-        const mode = gameMode || 'cards';
+        const mode = gameMode || 'gear';
         const type = roomType || 'normal';
         const biomeConfig = typeof BiomeConfig !== 'undefined' ? BiomeConfig : null;
-        const biomeId = biomeConfig ? biomeConfig.getBiomeIdForRoom(roomNumber, mode) : 'swarm';
+        const biomeId = type === 'safe' ? 'safe' : (biomeConfig ? biomeConfig.getBiomeIdForRoom(roomNumber, mode) : 'swarm');
         const biome = biomeConfig ? biomeConfig.getBiomeDefinition(biomeId) : { id: biomeId, bossTheme: biomeId, layoutStrategy: 'cellular', generation: {} };
         const archetypeRng = createRng(`${mode}:${roomNumber}:${type}:${biomeId}:archetype`);
         const archetype = pickArchetype({ roomNumber, gameMode: mode, roomType: type }, archetypeRng);
@@ -179,7 +180,7 @@
     }
 
     function getPreBossLastRoom(gameMode) {
-        return gameMode === 'cards' ? 11 : 9;
+        return 9;
     }
 
     function getRouteTravelLength(roomNumber, gameMode, roomType) {
@@ -200,6 +201,14 @@
     }
 
     function getRoomDimensions(roomNumber, gameMode, roomType, archetype) {
+        if (roomType === 'safe') {
+            // Compact 16:9 hub - sized to fit typical landscape viewports at desktop zoom
+            return {
+                width: 1600,
+                height: 900,
+                routeTravelLength: 1320
+            };
+        }
         const effectiveArch = roomType === 'boss' ? 'boss' : (archetype || 'road');
         const mul = ARCHETYPE_SIZE[effectiveArch] || ARCHETYPE_SIZE.road;
         const late = getLateGameScale(roomNumber);
@@ -323,14 +332,25 @@
     function makeBaseLayout(plan, seed) {
         const cellSize = plan.cellSize || DEFAULT_CELL_SIZE;
         const archetype = plan.archetype || pickArchetype(plan, createRng(`${seed}:archetype`));
-        const travelLength = plan.routeTravelLength != null
-            ? plan.routeTravelLength
-            : getRouteTravelLength(plan.roomNumber, plan.gameMode, plan.roomType);
-        const entranceVariantId = pickEntranceVariantId(plan, seed);
-        const resolved = resolveRoomDimensionsForVariant(entranceVariantId, travelLength);
-        const sized = applyArchetypeSize(resolved.width, resolved.height, archetype, plan.roomNumber, plan.roomType);
-        const width = sized.width;
-        const height = sized.height;
+        let width;
+        let height;
+        let entranceVariantId;
+        // Safe rooms use fixed plan dimensions - do not rebuild via route/archetype sizing
+        // (that path forced ~1880x1350 and looked tall/narrow on landscape displays)
+        if (plan.roomType === 'safe' && plan.width && plan.height) {
+            width = plan.width;
+            height = plan.height;
+            entranceVariantId = 'leftRight';
+        } else {
+            const travelLength = plan.routeTravelLength != null
+                ? plan.routeTravelLength
+                : getRouteTravelLength(plan.roomNumber, plan.gameMode, plan.roomType);
+            entranceVariantId = pickEntranceVariantId(plan, seed);
+            const resolved = resolveRoomDimensionsForVariant(entranceVariantId, travelLength);
+            const sized = applyArchetypeSize(resolved.width, resolved.height, archetype, plan.roomNumber, plan.roomType);
+            width = sized.width;
+            height = sized.height;
+        }
         const entranceVariant = buildEntranceVariant(entranceVariantId, width, height);
         const cols = Math.ceil(width / cellSize);
         const rows = Math.ceil(height / cellSize);
@@ -340,6 +360,7 @@
             biomeId: plan.biomeId,
             bossTheme: plan.bossTheme,
             roomType: plan.roomType,
+            roomNumber: plan.roomNumber,
             strategy: plan.layoutStrategy,
             archetype,
             wilds: archetype === 'wilds',
@@ -995,7 +1016,12 @@
             const centerT = group.t != null ? group.t : 0.5;
             const tOffset = (enemyIndex - (groupSize - 1) / 2) * 0.018;
             const pt = pointOnPolyline(mainRoad.points, clamp(centerT + tOffset, 0.05, 0.95));
-            const lateral = (rng() - 0.5) * (group.kind === 'ambush' ? 130 : 90);
+            
+            const roomNum = layout.roomNumber || 1;
+            const isScout = rng() < (roomNum <= 8 ? 0.35 : 0.2);
+            const maxLateral = isScout ? 260 : (group.kind === 'ambush' ? 140 : 95);
+            const lateral = (rng() - 0.5) * maxLateral;
+
             let x = pt.x + pt.normalX * lateral;
             let y = pt.y + pt.normalY * lateral;
             x = clamp(x, margin, layout.width - margin);
@@ -1012,7 +1038,7 @@
             if (offshootPath) {
                 const localT = clamp(0.55 + (enemyIndex - (groupSize - 1) / 2) * 0.12, 0.35, 0.95);
                 const pt = pointOnPolyline(offshootPath.points, localT);
-                const lateral = (rng() - 0.5) * 70;
+                const lateral = (rng() - 0.5) * 90;
                 let x = pt.x + pt.normalX * lateral;
                 let y = pt.y + pt.normalY * lateral;
                 x = clamp(x, margin, layout.width - margin);
@@ -1025,7 +1051,11 @@
 
         for (let attempt = 0; attempt < 40; attempt++) {
             const angle = rng() * Math.PI * 2;
-            const dist = rng() * (group.kind === 'ambush' || group.kind === 'offshoot' ? 120 : 95);
+            const roomNum = layout.roomNumber || 1;
+            const isScout = rng() < (roomNum <= 8 ? 0.35 : 0.2);
+            const maxDist = isScout ? 240 : (group.kind === 'ambush' || group.kind === 'offshoot' ? 130 : 100);
+            const dist = rng() * maxDist;
+
             let x = group.x + Math.cos(angle) * dist;
             let y = group.y + Math.sin(angle) * dist;
             x = clamp(x, margin, layout.width - margin);
@@ -2814,14 +2844,56 @@
             const dy = goal.row - row;
             return Math.sqrt(dx * dx + dy * dy);
         };
-        const open = [{
+        const open = [];
+        const heapPush = (node) => {
+            open.push(node);
+            let idx = open.length - 1;
+            while (idx > 0) {
+                const parentIdx = (idx - 1) >> 1;
+                if (open[parentIdx].f <= open[idx].f) break;
+                const tmp = open[parentIdx];
+                open[parentIdx] = open[idx];
+                open[idx] = tmp;
+                idx = parentIdx;
+            }
+        };
+        const heapPop = () => {
+            if (open.length === 0) return null;
+            const top = open[0];
+            const bottom = open.pop();
+            if (open.length > 0) {
+                open[0] = bottom;
+                let idx = 0;
+                const len = open.length;
+                while (true) {
+                    let leftIdx = (idx << 1) + 1;
+                    let rightIdx = leftIdx + 1;
+                    let swapIdx = idx;
+                    if (leftIdx < len && open[leftIdx].f < open[swapIdx].f) {
+                        swapIdx = leftIdx;
+                    }
+                    if (rightIdx < len && open[rightIdx].f < open[swapIdx].f) {
+                        swapIdx = rightIdx;
+                    }
+                    if (swapIdx === idx) break;
+                    const tmp = open[idx];
+                    open[idx] = open[swapIdx];
+                    open[swapIdx] = tmp;
+                    idx = swapIdx;
+                }
+            }
+            return top;
+        };
+
+        const startNode = {
             col: start.col,
             row: start.row,
             g: 0,
             f: heuristic(start.col, start.row),
             parent: null
-        }];
-        const best = new Map([[nodeKey(start.col, start.row), open[0]]]);
+        };
+        heapPush(startNode);
+        const best = new Map([[nodeKey(start.col, start.row), startNode]]);
         const closed = new Set();
         const neighbors = [
             { dc: 1, dr: 0, cost: 1 },
@@ -2837,11 +2909,7 @@
         let visited = 0;
         let goalNode = null;
         while (open.length > 0 && visited < maxVisited) {
-            let bestIndex = 0;
-            for (let i = 1; i < open.length; i++) {
-                if (open[i].f < open[bestIndex].f) bestIndex = i;
-            }
-            const current = open.splice(bestIndex, 1)[0];
+            const current = heapPop();
             const currentKey = nodeKey(current.col, current.row);
             if (closed.has(currentKey)) continue;
             closed.add(currentKey);
@@ -2875,7 +2943,7 @@
                     parent: current
                 };
                 best.set(key, node);
-                open.push(node);
+                heapPush(node);
             }
         }
 
@@ -2932,7 +3000,13 @@
         const tryY = isPointWalkable(layout, previousX, y, radius);
         if (tryX && !tryY) return { x, y: previousY, collided: true };
         if (!tryX && tryY) return { x: previousX, y, collided: true };
-        if (tryX && tryY) return { x, y: previousY, collided: true };
+        if (tryX && tryY) {
+            if (Math.abs(x - previousX) >= Math.abs(y - previousY)) {
+                return { x, y: previousY, collided: true };
+            } else {
+                return { x: previousX, y, collided: true };
+            }
+        }
         if (isPointWalkable(layout, previousX, previousY, radius)) {
             return { x: previousX, y: previousY, collided: true };
         }
@@ -3025,6 +3099,24 @@
         });
     }
 
+    const _pathfindingQueue = [];
+    function queuePathfinding(layout, from, to, radius, options, callback) {
+        _pathfindingQueue.push({ layout, from, to, radius, options, callback });
+    }
+    function processPathfindingQueue(maxPerFrame = 2) {
+        const count = Math.min(maxPerFrame, _pathfindingQueue.length);
+        for (let i = 0; i < count; i++) {
+            const request = _pathfindingQueue.shift();
+            if (request) {
+                const path = findPath(request.layout, request.from, request.to, request.radius, request.options);
+                request.callback(path);
+            }
+        }
+    }
+    function clearPathfindingQueue() {
+        _pathfindingQueue.length = 0;
+    }
+
     const api = {
         LAYOUT_VERSION,
         WALKABLE,
@@ -3065,7 +3157,10 @@
         pointOnPolyline,
         getMainRoadPath,
         buildRouteSpawnGroups,
-        scatterEnemyInGroup
+        scatterEnemyInGroup,
+        queuePathfinding,
+        processPathfindingQueue,
+        clearPathfindingQueue
     };
 
     if (typeof window !== 'undefined') {

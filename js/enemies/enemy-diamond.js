@@ -321,7 +321,14 @@ class DiamondEnemy extends EnemyBase {
                 }
 
                 // Calculate desired orbit position, choosing an alternate angle if scenery blocks it.
-                const orbitPoint = this.findReachableOrbitPoint(targetX, targetY, angle, orbitDistance);
+                let centerX = targetX;
+                let centerY = targetY;
+                if (targetPlayer && targetPlayer.alive) {
+                    const interceptCenter = this.getInterceptTarget(targetPlayer, 0.85);
+                    centerX = interceptCenter.x;
+                    centerY = interceptCenter.y;
+                }
+                const orbitPoint = this.findReachableOrbitPoint(centerX, centerY, angle, orbitDistance);
                 const desiredX = orbitPoint.x;
                 const desiredY = orbitPoint.y;
 
@@ -701,8 +708,14 @@ class DiamondEnemy extends EnemyBase {
             }
         }
 
+        if (typeof this.awardDeathCredits === 'function') {
+            this.awardDeathCredits();
+        }
+
         // Emit particles on death
-        if (typeof createParticleBurst !== 'undefined') {
+        if (typeof this.triggerDeathVisuals === 'function') {
+            this.triggerDeathVisuals();
+        } else if (typeof createParticleBurst !== 'undefined') {
             createParticleBurst(this.x, this.y, this.color, 12);
         }
 
@@ -838,17 +851,32 @@ class DiamondEnemy extends EnemyBase {
             drawColor = '#ffffff';
         }
 
-        // Draw diamond shape (rotated square)
-        ctx.save();
-        ctx.translate(this.x, this.y);
-        ctx.rotate(Math.PI / 4); // Rotate 45 degrees
+        drawColor = this.getFlashDrawColor(drawColor);
 
-        ctx.fillStyle = drawColor;
-        ctx.beginPath();
-        ctx.rect(-drawSize * 0.8, -drawSize * 0.8, drawSize * 1.6, drawSize * 1.6);
-        ctx.fill();
+        // Voxel damage: draw body to offscreen canvas, punch destroyed cells out, blit back
+        const _ds = drawSize;
+        const bodyDrawn = typeof renderVoxelDamage === 'function' && renderVoxelDamage(
+            ctx, this, drawColor,
+            (oCtx) => {
+                oCtx.rotate(Math.PI / 4);
+                oCtx.beginPath();
+                oCtx.rect(-_ds * 0.8, -_ds * 0.8, _ds * 1.6, _ds * 1.6);
+                oCtx.fill();
+            }
+        );
 
-        ctx.restore();
+        if (!bodyDrawn) {
+            // Draw diamond shape (rotated square)
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.rotate(Math.PI / 4);
+            ctx.fillStyle = drawColor;
+            ctx.beginPath();
+            ctx.rect(-drawSize * 0.8, -drawSize * 0.8, drawSize * 1.6, drawSize * 1.6);
+            ctx.fill();
+            ctx.restore();
+        }
+
 
         // Draw status effects (burn, freeze)
         if (typeof renderBurnEffect !== 'undefined') {
@@ -973,7 +1001,7 @@ class DiamondEnemy extends EnemyBase {
             }
         }
 
-        return { x: this.x, y: this.y, angle: preferredAngle };
+        return { x: targetX, y: targetY, angle: preferredAngle };
     }
 
     repositionForBlockedAttack(targetX, targetY, deltaTime, speedMultiplier = 1) {

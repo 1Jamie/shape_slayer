@@ -195,48 +195,6 @@ class Mage extends PlayerBase {
         // Call parent first (applies stat modifiers from cards)
         super.updateEffectiveStats();
 
-        // Apply ability mutator card effects
-        if (typeof DeckState !== 'undefined' && typeof CardEffects !== 'undefined' && CardEffects.getAbilityModifiers) {
-            const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
-            const abilityMods = CardEffects.getAbilityModifiers(this, handCards);
-
-            if (abilityMods.blink) {
-                if (abilityMods.blink.rangeBonus) {
-                    this.blinkRangeBonus += abilityMods.blink.rangeBonus;
-                }
-                if (abilityMods.blink.damageMultiplier) {
-                    this.blinkDamageMultiplier += abilityMods.blink.damageMultiplier;
-                }
-                if (abilityMods.blink.chainBlink) {
-                    this.blinkChainBlink = true;
-                }
-                if (abilityMods.blink.damagingTrail) {
-                    this.blinkDamagingTrail = true;
-                }
-                if (abilityMods.blink.resetOnKill) {
-                    this.blinkResetOnKill = true;
-                }
-            }
-
-            if (abilityMods.beam) {
-                if (abilityMods.beam.chargeBonus) {
-                    this.beamChargeBonus += abilityMods.beam.chargeBonus;
-                }
-                if (abilityMods.beam.tickRateReduction) {
-                    this.beamTickRateReduction += abilityMods.beam.tickRateReduction;
-                }
-                if (abilityMods.beam.durationMultiplier) {
-                    this.beamDurationMultiplier += abilityMods.beam.durationMultiplier;
-                }
-                if (abilityMods.beam.penetrationBonus) {
-                    this.beamPenetrationBonus += abilityMods.beam.penetrationBonus;
-                }
-                if (abilityMods.beam.splitOnHit) {
-                    this.beamSplitOnHit = true;
-                }
-            }
-        }
-
         // Apply beam charge bonuses and resize cooldown array - follow EXACT same pattern as dodge charges in base class
         // Use baseBeamCharges (set in constructor) like base class uses baseDodgeCharges
         const baseCharges = this.baseBeamCharges || MAGE_CONFIG.beamCharges; // Default to config value if not set

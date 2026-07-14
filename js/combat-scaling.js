@@ -21,20 +21,50 @@
 // CONFIG stays in entity files; ENTITY_PROFILES links archetypes to stat groups.
 
 // --- Growth constants (migrated from level.js) ---
-const ENEMY_HP_GROWTH_PER_ROOM = 0.10;
-const ENEMY_DAMAGE_GROWTH_PER_ROOM = 0.15;
-const BOSS_HP_GROWTH_PER_ROOM = 0.09;
-const BOSS_DAMAGE_GROWTH_PER_ROOM = 0.14;
-const ENEMY_TEMPO_GROWTH_PER_ROOM = 0.03;
-const ENEMY_MOBILITY_GROWTH_PER_ROOM = 0.02;
-const ENEMY_COUNT_CAP_ROOM = 18;
-const CAPPED_ROOM_ENEMY_COUNT = 26;
+// Tuned for a 50-room canonical gear run (bosses at 10/20/30/40/50).
+// Per-room rates stretch the old room-30 finale across ~50 rooms so late game
+// does not explode when the campaign is no longer ending at 30.
+//
+// Post-canonical (room 51+): HP/damage keep climbing (reward fantasy) at gentler
+// rates; mobility/tempo/density soft-cap so deep runs stay readable while
+// lethality eventually outpaces linear gear.
+const CANONICAL_END_ROOM = 50;
+const ENEMY_HP_GROWTH_PER_ROOM = 0.058;
+const ENEMY_HP_GROWTH_PER_ROOM_POST = 0.045;
+const ENEMY_DAMAGE_GROWTH_PER_ROOM = 0.085;
+const ENEMY_DAMAGE_GROWTH_PER_ROOM_POST = 0.055;
+const BOSS_HP_GROWTH_PER_ROOM = 0.052;
+const BOSS_HP_GROWTH_PER_ROOM_POST = 0.040;
+const BOSS_DAMAGE_GROWTH_PER_ROOM = 0.080;
+const BOSS_DAMAGE_GROWTH_PER_ROOM_POST = 0.052;
+const ENEMY_TEMPO_GROWTH_PER_ROOM = 0.018;
+const ENEMY_MOBILITY_GROWTH_PER_ROOM = 0.012;
+const ENEMY_MOBILITY_SOFT_MAX = 2.35;
+const ENEMY_MOBILITY_ASYMPTOTE_HALF_LIFE = 40;
+const ENEMY_TEMPO_SOFT_FLOOR = 0.42;
+const ENEMY_TEMPO_ASYMPTOTE_HALF_LIFE = 50;
+const ENEMY_COUNT_CAP_ROOM = 24;
+const CAPPED_ROOM_ENEMY_COUNT = 28;
+// After the density cap, add enemies slowly (was +1.0/room → 58 by room 50).
+const ENEMY_COUNT_POST_CAP_PER_ROOM = 0.4;
+const ENEMY_COUNT_SOFT_MAX = 52;
+const MOBILITY_MOVE_SPEED_ABS_CAP = 360;
+const MOBILITY_LUNGE_SPEED_ABS_CAP = 900;
+const MOBILITY_PROJECTILE_SPEED_ABS_CAP = 520;
+const MOBILITY_ABS_CAPS = {
+    moveSpeed: MOBILITY_MOVE_SPEED_ABS_CAP,
+    lungeSpeed: MOBILITY_LUNGE_SPEED_ABS_CAP,
+    projectileSpeed: MOBILITY_PROJECTILE_SPEED_ABS_CAP,
+    dashSpeed: MOBILITY_LUNGE_SPEED_ABS_CAP
+};
 
 // Pre-boss buildup (trash rooms only - boss encounter tuning unchanged)
 const EARLY_RUN_COUNT_BASE = 8;
 const EARLY_RUN_COUNT_PER_ROOM = 1.35;
 const EARLY_RUN_XP_BONUS = 1.4;
-const EARLY_RUN_HP_BONUS = 1.35;
+// Pre-boss trash HP: keep basics/stars alive long enough to telegraph 1–2 attacks
+// before herd mop-up (was 1.35 - felt like wet paper vs 0.3s warrior cleave).
+const EARLY_RUN_HP_BONUS = 2.2;
 const CARDS_FIRST_BOSS_ROOM = 12;
 
 const DIFFICULTY_PRESETS = {
@@ -73,7 +103,7 @@ const ROOM_TYPE_MODIFIERS = {
 
 // --- Boss scaling (migrated from boss-scaling.js) ---
 const BOSS_SCALING_PROFILES = {
-    swarmKing: { id: 'swarmKing', name: 'Swarm King', hpWeight: 0.88, damageWeight: 0.90, templateDamage: 8 },
+    swarmKing: { id: 'swarmKing', name: 'Swarm King', hpWeight: 0.75, damageWeight: 0.85, templateDamage: 8 },
     twinPrism: { id: 'twinPrism', name: 'Twin Prism', hpWeight: 1.05, damageWeight: 1.10, templateDamage: 10 },
     fortress: { id: 'fortress', name: 'Fortress', hpWeight: 1.10, damageWeight: 1.20, templateDamage: 11 },
     fractalCore: { id: 'fractalCore', name: 'Fractal Core', hpWeight: 1.05, damageWeight: 1.35, templateDamage: 14 },
@@ -82,7 +112,7 @@ const BOSS_SCALING_PROFILES = {
 
 const GEAR_BOSS_CYCLE = ['swarmKing', 'twinPrism', 'fortress', 'fractalCore', 'vortex'];
 const GEAR_FIRST_BOSS_ROOM = 10;
-const GEAR_BOSS_INTERVAL = 5;
+const GEAR_BOSS_INTERVAL = 10;
 
 const CARD_BOSS_ROOMS = {
     12: 'swarmKing',
@@ -92,20 +122,23 @@ const CARD_BOSS_ROOMS = {
 
 const BOSS_MODE_CONFIG = {
     gear: {
-        canonicalEndRoom: 30,
+        // Five bosses at 10/20/30/40/50 with GEAR_BOSS_INTERVAL = 10
+        canonicalEndRoom: 50,
         anchorBaseHp: 17350,
         anchorBaseDamage: 8,
         bossesPerCycle: GEAR_BOSS_CYCLE.length,
         firstBossRoom: GEAR_FIRST_BOSS_ROOM,
         bossInterval: GEAR_BOSS_INTERVAL,
-        encounterHpMultipliers: [1.00, 1.05, 1.10, 1.14, 1.19],
-        encounterDamageMultipliers: [1.00, 1.10, 1.18, 1.26, 1.34],
-        endlessEncounterHpGrowth: 1.16,
-        endlessEncounterDamageGrowth: 1.10,
-        endlessHpGrowthPerRoom: 0.04,
-        endlessDamageGrowthPerRoom: 0.03,
-        endlessCycleHpGrowth: 0.22,
-        endlessCycleDamageGrowth: 0.10,
+        encounterHpMultipliers: [1.00, 1.05, 1.12, 1.20, 1.30],
+        encounterDamageMultipliers: [1.00, 1.08, 1.16, 1.26, 1.36],
+        endlessEncounterHpGrowth: 1.12,
+        endlessEncounterDamageGrowth: 1.08,
+        // Mild extras only - room HP/damage already continue via tapered curve.
+        // Avoid stacking a second strong per-room exponent on top of room scale.
+        endlessHpGrowthPerRoom: 0.008,
+        endlessDamageGrowthPerRoom: 0.006,
+        endlessCycleHpGrowth: 0.18,
+        endlessCycleDamageGrowth: 0.08,
         eliteSpawnHpMultiplier: 0.92
     },
     cards: {
@@ -352,7 +385,8 @@ function computeIntelligence(roomNumber, difficulty) {
     } else if (roomNumber <= 10) {
         intel = 0.65 + ((roomNumber - 3) / 7) * 0.2;
     } else {
-        intel = 0.85 + Math.min((roomNumber - 10) / 10, 0.15);
+        // Full cognition by ~room 30 (was room 20) to match longer biome pacing
+        intel = 0.85 + Math.min((roomNumber - 10) / 20, 0.15);
     }
     return Math.max(0, Math.min(1, intel + preset.intelligence));
 }
@@ -375,15 +409,75 @@ function getPreBossLastRoom(gameMode) {
     return (cfg.firstBossRoom || GEAR_FIRST_BOSS_ROOM) - 1;
 }
 
+/**
+ * Exponential room growth with a gentler post-canonical rate.
+ * roomIndex = roomNumber - 1; rooms 1..splitRoom use ratePre only.
+ */
+function piecewiseRoomGrowth(ratePre, ratePost, roomIndex, splitRoom = CANONICAL_END_ROOM) {
+    const splitIndex = Math.max(0, splitRoom - 1);
+    if (roomIndex <= splitIndex) {
+        return Math.pow(1 + ratePre, roomIndex);
+    }
+    const atSplit = Math.pow(1 + ratePre, splitIndex);
+    return atSplit * Math.pow(1 + ratePost, roomIndex - splitIndex);
+}
+
+/**
+ * Move from valueAtSplit toward target (ceiling or floor) with exponential approach.
+ * halfLifeRooms: rooms past split for halfway to the remaining headroom.
+ */
+function asymptoteToward(valueAtSplit, target, roomsPast, halfLifeRooms) {
+    if (roomsPast <= 0) return valueAtSplit;
+    const halfLife = Math.max(1, halfLifeRooms);
+    const approach = 1 - Math.pow(0.5, roomsPast / halfLife);
+    return valueAtSplit + (target - valueAtSplit) * approach;
+}
+
+function computeRoomMobility(roomNumber) {
+    const roomIndex = Math.max(0, roomNumber - 1);
+    if (roomNumber <= CANONICAL_END_ROOM) {
+        return Math.pow(1 + ENEMY_MOBILITY_GROWTH_PER_ROOM, roomIndex);
+    }
+    const atSplit = Math.pow(1 + ENEMY_MOBILITY_GROWTH_PER_ROOM, CANONICAL_END_ROOM - 1);
+    return asymptoteToward(
+        atSplit,
+        ENEMY_MOBILITY_SOFT_MAX,
+        roomNumber - CANONICAL_END_ROOM,
+        ENEMY_MOBILITY_ASYMPTOTE_HALF_LIFE
+    );
+}
+
+function computeRoomTempo(roomNumber) {
+    const roomIndex = Math.max(0, roomNumber - 1);
+    if (roomNumber <= CANONICAL_END_ROOM) {
+        return 1 / (1 + ENEMY_TEMPO_GROWTH_PER_ROOM * roomIndex);
+    }
+    const atSplit = 1 / (1 + ENEMY_TEMPO_GROWTH_PER_ROOM * (CANONICAL_END_ROOM - 1));
+    return asymptoteToward(
+        atSplit,
+        ENEMY_TEMPO_SOFT_FLOOR,
+        roomNumber - CANONICAL_END_ROOM,
+        ENEMY_TEMPO_ASYMPTOTE_HALF_LIFE
+    );
+}
+
+function clampMobilityField(fieldName, value) {
+    const cap = MOBILITY_ABS_CAPS[fieldName];
+    if (cap == null || !Number.isFinite(value)) return value;
+    return Math.min(value, cap);
+}
+
 function computeBaseEnemyCount(roomNumber, gameMode) {
     const preBossLast = getPreBossLastRoom(gameMode);
+    let count;
     if (roomNumber <= preBossLast) {
-        return EARLY_RUN_COUNT_BASE + Math.floor(roomNumber * EARLY_RUN_COUNT_PER_ROOM);
+        count = EARLY_RUN_COUNT_BASE + Math.floor(roomNumber * EARLY_RUN_COUNT_PER_ROOM);
+    } else if (roomNumber <= ENEMY_COUNT_CAP_ROOM) {
+        count = 6 + Math.floor(roomNumber * 1.05);
+    } else {
+        count = CAPPED_ROOM_ENEMY_COUNT + Math.floor((roomNumber - ENEMY_COUNT_CAP_ROOM) * ENEMY_COUNT_POST_CAP_PER_ROOM);
     }
-    if (roomNumber <= ENEMY_COUNT_CAP_ROOM) {
-        return 6 + Math.floor(roomNumber * 1.05);
-    }
-    return CAPPED_ROOM_ENEMY_COUNT + Math.floor((roomNumber - ENEMY_COUNT_CAP_ROOM) * 1.0);
+    return Math.min(count, ENEMY_COUNT_SOFT_MAX);
 }
 
 function computeEnemyCount(roomNumber, roomType, ctx, factors) {
@@ -410,11 +504,17 @@ function computeScalingFactors(ctx) {
     const mp = getMultiplayerScaling(ctx);
     const roomMod = ROOM_TYPE_MODIFIERS[roomType] || ROOM_TYPE_MODIFIERS.normal;
 
-    const roomHp = Math.pow(1 + ENEMY_HP_GROWTH_PER_ROOM, roomIndex) * roomMod.hp * difficulty.hp;
-    const roomDamage = Math.pow(1 + ENEMY_DAMAGE_GROWTH_PER_ROOM, roomIndex) * roomMod.damage * difficulty.damage;
-    const roomMobility = Math.pow(1 + ENEMY_MOBILITY_GROWTH_PER_ROOM, roomIndex);
-    const roomTempoDivisor = 1 + ENEMY_TEMPO_GROWTH_PER_ROOM * roomIndex;
-    const roomTempo = 1 / roomTempoDivisor;
+    const roomHpGrowth = piecewiseRoomGrowth(
+        ENEMY_HP_GROWTH_PER_ROOM, ENEMY_HP_GROWTH_PER_ROOM_POST, roomIndex
+    );
+    const roomDamageGrowth = piecewiseRoomGrowth(
+        ENEMY_DAMAGE_GROWTH_PER_ROOM, ENEMY_DAMAGE_GROWTH_PER_ROOM_POST, roomIndex
+    );
+    const roomHp = roomHpGrowth * roomMod.hp * difficulty.hp;
+    const roomDamage = roomDamageGrowth * roomMod.damage * difficulty.damage;
+    const roomMobility = computeRoomMobility(roomNumber);
+    const roomTempo = computeRoomTempo(roomNumber);
+    const roomTempoDivisor = roomTempo > 0 ? 1 / roomTempo : 1;
     const difficultyTempo = difficulty.tempo;
     const timingMult = roomTempo / difficultyTempo;
     const intelligence = computeIntelligence(roomNumber, ctx.difficulty);
@@ -551,7 +651,10 @@ function resolveEnemyStats(profileId, baseConfig, ctx, factors, options = {}) {
         maxHp: Math.floor((config.maxHp || 0) * hpMult),
         damage,
         xpValue: Math.floor((config.xpValue || 0) * xpMult),
-        moveSpeed: applyMobilityRoomSteps(roomNumber, config.moveSpeed || 0, profile.mobilityRoomSteps) * mobMult,
+        moveSpeed: clampMobilityField(
+            'moveSpeed',
+            applyMobilityRoomSteps(roomNumber, config.moveSpeed || 0, profile.mobilityRoomSteps) * mobMult
+        ),
         intelligenceLevel: f.intelligence,
         telegraphScale: f.telegraphScale,
         attackCadenceScale: getAttackCadenceScale(f.intelligence),
@@ -574,7 +677,7 @@ function resolveEnemyStats(profileId, baseConfig, ctx, factors, options = {}) {
         if (TEMPO_FIELD_NAMES.has(key) && typeof config[key] === 'number') {
             stats[key] = config[key] * timingMult;
         } else if (MOBILITY_FIELD_NAMES.has(key) && typeof config[key] === 'number') {
-            stats[key] = config[key] * mobMult;
+            stats[key] = clampMobilityField(key, config[key] * mobMult);
         }
     });
 
@@ -688,7 +791,12 @@ function getBossEncounterIndex(gameMode, roomNumber) {
 }
 
 function getBossGrowthConstants() {
-    return { hpGrowth: BOSS_HP_GROWTH_PER_ROOM, damageGrowth: BOSS_DAMAGE_GROWTH_PER_ROOM };
+    return {
+        hpGrowth: BOSS_HP_GROWTH_PER_ROOM,
+        damageGrowth: BOSS_DAMAGE_GROWTH_PER_ROOM,
+        hpGrowthPost: BOSS_HP_GROWTH_PER_ROOM_POST,
+        damageGrowthPost: BOSS_DAMAGE_GROWTH_PER_ROOM_POST
+    };
 }
 
 function resolveBossProfile(boss) {
@@ -700,18 +808,8 @@ function resolveBossProfile(boss) {
 }
 
 function resolveModeWeights(modeConfig, profile, gameMode) {
-    let hpWeight = profile.hpWeight;
-    let damageWeight = profile.damageWeight;
-
-    if (gameMode === 'cards') {
-        if (modeConfig.bossHpWeights && modeConfig.bossHpWeights[profile.id] !== undefined) {
-            hpWeight = modeConfig.bossHpWeights[profile.id];
-        }
-        if (modeConfig.bossDamageWeights && modeConfig.bossDamageWeights[profile.id] !== undefined) {
-            damageWeight = modeConfig.bossDamageWeights[profile.id];
-        }
-    }
-
+    const hpWeight = profile.hpWeight;
+    const damageWeight = profile.damageWeight;
     return { hpWeight, damageWeight };
 }
 
@@ -754,8 +852,11 @@ function computeBossStats(bossScalingId, roomNumber, options = {}) {
         constructorDamage *= modeConfig.eliteSpawnHpMultiplier;
     }
 
-    const roomHpScale = Math.pow(1 + growth.hpGrowth, roomIndex) * difficulty.hp;
-    const roomDamageScale = Math.pow(1 + growth.damageGrowth, roomIndex) * difficulty.damage;
+    const hpGrowthPost = growth.hpGrowthPost != null ? growth.hpGrowthPost : BOSS_HP_GROWTH_PER_ROOM_POST;
+    const damageGrowthPost = growth.damageGrowthPost != null ? growth.damageGrowthPost : BOSS_DAMAGE_GROWTH_PER_ROOM_POST;
+    const splitRoom = modeConfig.canonicalEndRoom || CANONICAL_END_ROOM;
+    const roomHpScale = piecewiseRoomGrowth(growth.hpGrowth, hpGrowthPost, roomIndex, splitRoom) * difficulty.hp;
+    const roomDamageScale = piecewiseRoomGrowth(growth.damageGrowth, damageGrowthPost, roomIndex, splitRoom) * difficulty.damage;
 
     return {
         bossScalingId: profile.id,
@@ -826,7 +927,7 @@ function applyBossScaling(boss, roomNumber, options = {}) {
     if (ENTITY_PROFILES[profileId] && ENTITY_PROFILES[profileId].mobilityFields) {
         ENTITY_PROFILES[profileId].mobilityFields.forEach(field => {
             if (typeof boss[field] === 'number' && boss[field] > 0) {
-                boss[field] *= factors.roomMobility;
+                boss[field] = clampMobilityField(field, boss[field] * factors.roomMobility);
             }
         });
     }
@@ -852,14 +953,16 @@ function inferConfigFieldCategory(key, tagMap) {
     return 'skip';
 }
 
-function scaleNumericByCategory(value, category, factors) {
+function scaleNumericByCategory(value, category, factors, fieldKey) {
     switch (category) {
         case 'timing':
             return value * factors.timingMult;
         case 'damage':
             return value * factors.roomDamage * factors.mp.enemyDamage;
-        case 'mobility':
-            return value * factors.roomMobility;
+        case 'mobility': {
+            const scaled = value * factors.roomMobility;
+            return fieldKey ? clampMobilityField(fieldKey, scaled) : scaled;
+        }
         case 'count':
             return value;
         case 'geometry':
@@ -878,7 +981,7 @@ function scaleBossConfigValue(value, key, path, tagMap, factors, phase) {
         if (category === 'skip' && !_unknownConfigKeysLogged.has(path)) {
             _unknownConfigKeysLogged.add(path);
         }
-        return scaleNumericByCategory(value, category, factors);
+        return scaleNumericByCategory(value, category, factors, key);
     }
 
     if (Array.isArray(value)) {
@@ -994,19 +1097,39 @@ function scaleMinionStats(minion, healthMultiplier, damageMultiplier, xpMultipli
 }
 
 const CombatScaling = {
+    CANONICAL_END_ROOM,
     ENEMY_HP_GROWTH_PER_ROOM,
+    ENEMY_HP_GROWTH_PER_ROOM_POST,
     ENEMY_DAMAGE_GROWTH_PER_ROOM,
+    ENEMY_DAMAGE_GROWTH_PER_ROOM_POST,
     BOSS_HP_GROWTH_PER_ROOM,
+    BOSS_HP_GROWTH_PER_ROOM_POST,
     BOSS_DAMAGE_GROWTH_PER_ROOM,
+    BOSS_DAMAGE_GROWTH_PER_ROOM_POST,
     ENEMY_TEMPO_GROWTH_PER_ROOM,
     ENEMY_MOBILITY_GROWTH_PER_ROOM,
+    ENEMY_MOBILITY_SOFT_MAX,
+    ENEMY_MOBILITY_ASYMPTOTE_HALF_LIFE,
+    ENEMY_TEMPO_SOFT_FLOOR,
+    ENEMY_TEMPO_ASYMPTOTE_HALF_LIFE,
     ENEMY_COUNT_CAP_ROOM,
     CAPPED_ROOM_ENEMY_COUNT,
+    ENEMY_COUNT_POST_CAP_PER_ROOM,
+    ENEMY_COUNT_SOFT_MAX,
+    MOBILITY_MOVE_SPEED_ABS_CAP,
+    MOBILITY_LUNGE_SPEED_ABS_CAP,
+    MOBILITY_PROJECTILE_SPEED_ABS_CAP,
+    MOBILITY_ABS_CAPS,
     EARLY_RUN_COUNT_BASE,
     EARLY_RUN_COUNT_PER_ROOM,
     EARLY_RUN_XP_BONUS,
     EARLY_RUN_HP_BONUS,
     getPreBossLastRoom,
+    piecewiseRoomGrowth,
+    asymptoteToward,
+    computeRoomMobility,
+    computeRoomTempo,
+    clampMobilityField,
     DIFFICULTY_PRESETS,
     MULTIPLAYER_SCALING,
     ROOM_TYPE_MODIFIERS,

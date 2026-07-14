@@ -160,3 +160,69 @@ test('BossScaling shim exposes full public surface', () => {
         }
     });
 });
+
+test('rooms 1/30/50 keep pre-canonical exponential formulas', () => {
+    const CombatScaling = loadCombatScaling();
+    for (const room of [1, 30, 50]) {
+        const f = factorsAtRoom(CombatScaling, room);
+        const i = room - 1;
+        const expectedHp = Math.pow(1 + CombatScaling.ENEMY_HP_GROWTH_PER_ROOM, i);
+        const expectedDmg = Math.pow(1 + CombatScaling.ENEMY_DAMAGE_GROWTH_PER_ROOM, i);
+        const expectedMob = Math.pow(1 + CombatScaling.ENEMY_MOBILITY_GROWTH_PER_ROOM, i);
+        const expectedTempo = 1 / (1 + CombatScaling.ENEMY_TEMPO_GROWTH_PER_ROOM * i);
+
+        assert.ok(Math.abs(f.roomHp - expectedHp) < 1e-9, `room ${room} HP identity`);
+        assert.ok(Math.abs(f.roomDamage - expectedDmg) < 1e-9, `room ${room} damage identity`);
+        assert.ok(Math.abs(f.roomMobility - expectedMob) < 1e-9, `room ${room} mobility identity`);
+        assert.ok(Math.abs(f.roomTempo - expectedTempo) < 1e-9, `room ${room} tempo identity`);
+    }
+});
+
+test('room 146 soft-caps readability stats and keeps HP/damage climbing', () => {
+    const CombatScaling = loadCombatScaling();
+    const f50 = factorsAtRoom(CombatScaling, 50);
+    const f100 = factorsAtRoom(CombatScaling, 100);
+    const f146 = factorsAtRoom(CombatScaling, 146);
+
+    assert.ok(f146.roomMobility <= CombatScaling.ENEMY_MOBILITY_SOFT_MAX + 1e-9, 'mobility soft-max');
+    assert.ok(f146.roomMobility > f50.roomMobility, 'mobility still grows past 50 toward soft-max');
+    assert.ok(f146.roomTempo + 1e-9 >= CombatScaling.ENEMY_TEMPO_SOFT_FLOOR, 'tempo soft-floor');
+    assert.ok(f146.roomTempo < f50.roomTempo, 'tempo still tightens past 50 toward floor');
+
+    assert.ok(f100.roomHp > f50.roomHp && f146.roomHp > f100.roomHp, 'HP keeps climbing');
+    assert.ok(f100.roomDamage > f50.roomDamage && f146.roomDamage > f100.roomDamage, 'damage keeps climbing');
+
+    const uncappedDmg = Math.pow(1 + CombatScaling.ENEMY_DAMAGE_GROWTH_PER_ROOM, 145);
+    assert.ok(f146.roomDamage < uncappedDmg, 'post-50 damage rate is gentler than uncapped');
+
+    const count146 = CombatScaling.computeEnemyCount(
+        146, 'normal',
+        CombatScaling.createContext({ roomNumber: 146, gameMode: 'gear', playerCount: 1 })
+    );
+    assert.ok(count146 <= CombatScaling.ENEMY_COUNT_SOFT_MAX, 'density soft-cap');
+
+    const stats = CombatScaling.resolveEnemyStats(
+        'enemy_basic',
+        { maxHp: 100, damage: 10, xpValue: 10, moveSpeed: 135, lungeSpeed: 400, projectileSpeed: 200 },
+        CombatScaling.createContext({ roomNumber: 146, gameMode: 'gear' }),
+        f146
+    );
+    assert.ok(stats.moveSpeed <= CombatScaling.MOBILITY_MOVE_SPEED_ABS_CAP);
+    assert.ok(stats.lungeSpeed <= CombatScaling.MOBILITY_LUNGE_SPEED_ABS_CAP);
+});
+
+test('boss room scales use tapered post-canonical growth', () => {
+    const CombatScaling = loadCombatScaling();
+    const at50 = CombatScaling.computeBossStats('vortex', 50, { gameMode: 'gear', difficulty: 'normal' });
+    const at146 = CombatScaling.computeBossStats('vortex', 146, { gameMode: 'gear', difficulty: 'normal' });
+
+    assert.ok(at146.maxHp > at50.maxHp, 'boss HP grows into endless');
+    assert.ok(at146.damage > at50.damage, 'boss damage grows into endless');
+
+    const uncappedRoomHp = Math.pow(1 + CombatScaling.BOSS_HP_GROWTH_PER_ROOM, 145);
+    assert.ok(at146.roomHpScale < uncappedRoomHp, 'boss room HP scale uses post rate');
+    assert.ok(
+        CombatScaling.BOSS_MODE_CONFIG.gear.endlessHpGrowthPerRoom < 0.02,
+        'gear endless per-room extra stays mild'
+    );
+});

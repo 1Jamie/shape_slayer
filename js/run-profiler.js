@@ -1,4 +1,4 @@
-// Run-length performance profiler — samples across a full run for export and analysis.
+// Run-length performance profiler - samples across a full run for export and analysis.
 (function () {
     const PHASE_KEYS = [
         'frame', 'process', 'update', 'render',
@@ -11,7 +11,6 @@
         'enemiesVisible', 'enemiesTotal',
         'projectilesVisible', 'projectilesTotal',
         'groundLootVisible', 'groundLootTotal',
-        'groundCardsVisible', 'groundCardsTotal',
         'groundItemsVisible', 'groundItemsTotal'
     ];
 

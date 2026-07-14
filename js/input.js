@@ -218,9 +218,43 @@ const Input = {
         const id = (gamepad && gamepad.id ? gamepad.id : '').toLowerCase();
         if (/dualsense|dualshock|playstation|sony|wireless controller|ps[345]/i.test(id)) return 'playstation';
         if (/nintendo|switch|joy-?con|pro controller|wii/i.test(id)) return 'nintendo';
-        if (/steam|valve/i.test(id)) return 'steam';
+        if (/steam|valve|hori/i.test(id)) return 'steam';
         if (/xbox|xinput|microsoft|360|series|one controller/i.test(id)) return 'xbox';
         return 'generic';
+    },
+
+    _getMappedGamepad(gp) {
+        if (!gp) return null;
+        if (gp.mapping === 'standard') return gp;
+
+        const id = (gp.id || '').toLowerCase();
+        const buttons = [];
+        const axes = [];
+
+        for (let i = 0; i < (gp.axes || []).length; i++) {
+            axes.push(gp.axes[i] || 0);
+        }
+
+        for (let i = 0; i < (gp.buttons || []).length; i++) {
+            const b = gp.buttons[i];
+            buttons.push({
+                pressed: b ? b.pressed : false,
+                value: b ? b.value : 0
+            });
+        }
+
+        // Generic and Steam-specific fallback mapper to align non-standard layouts
+        while (axes.length < 4) axes.push(0);
+        while (buttons.length < 16) buttons.push({ pressed: false, value: 0 });
+
+        return {
+            id: gp.id,
+            index: gp.index,
+            connected: gp.connected,
+            mapping: 'standard',
+            buttons: buttons,
+            axes: axes
+        };
     },
 
     _getGamepadButtonStyle(button) {
@@ -274,6 +308,39 @@ const Input = {
             return `Tap Interact to ${actionText}`;
         }
         return `Press ${this.getInputHint('interact')} to ${actionText}`;
+    },
+
+    /**
+     * Combat ability prompt for tutorials/coach cards.
+     * @param {'primary'|'heavy'|'special'|'dash'} ability
+     */
+    getCombatPrompt(ability) {
+        const key = String(ability || '').toLowerCase();
+        const desktop = {
+            primary: 'LMB',
+            heavy: 'RMB',
+            special: 'Space',
+            dash: 'Shift'
+        };
+        const mobile = {
+            primary: 'Tap Primary',
+            heavy: 'Tap Heavy',
+            special: 'Tap Special',
+            dash: 'Tap Dodge'
+        };
+        const gamepad = {
+            primary: 'RT',
+            heavy: 'LT',
+            special: 'LB',
+            dash: 'RB'
+        };
+        if (this.isGamepadMode()) {
+            return gamepad[key] || '';
+        }
+        if (this.isMobileUiMode && this.isMobileUiMode()) {
+            return mobile[key] || '';
+        }
+        return desktop[key] || '';
     },
 
     getDoorPrompt(hasModifiers = false) {
@@ -693,7 +760,7 @@ const Input = {
             window.addEventListener('orientationchange', recheckDeviceProfile);
         }
 
-        // Keyboard events — window-level so we receive keys regardless of focused DOM element.
+        // Keyboard events - window-level so we receive keys regardless of focused DOM element.
         const onKeyDown = (e) => {
             // Don't intercept keys if user is typing in an input field
             const target = e.target;
@@ -708,57 +775,6 @@ const Input = {
             // Prevent default Tab behavior (focus shifting) when used for character sheet
             if (e.key === 'Tab') {
                 e.preventDefault();
-            }
-
-            // Room modifier selection key (M) when doors are shown
-            if (e.key.toLowerCase() === 'm') {
-                if (typeof Game !== 'undefined' && Game.state === 'PLAYING' && Game.player && Game.awaitingDoorSelection) {
-                    // Check if player is near a door pack
-                    if (typeof checkDoorInteraction === 'function') {
-                        const doorPack = checkDoorInteraction(Game.player);
-                        if (doorPack && typeof window.openDoorModifierSelection === 'function') {
-                            e.preventDefault();
-                            window.openDoorModifierSelection(doorPack);
-                            return;
-                        }
-                    }
-                }
-            }
-
-            // Pickup key (G) for ground cards and door selection during gameplay
-            if (e.key.toLowerCase() === 'g') {
-                if (typeof Game !== 'undefined' && Game.state === 'PLAYING' && Game.player) {
-                    // First check for door selection
-                    if (typeof checkDoorInteraction === 'function' && typeof selectDoor === 'function') {
-                        const door = checkDoorInteraction(Game.player);
-                        if (door) {
-                            selectDoor(door);
-                            return; // Don't also try to pick up cards
-                        }
-                    }
-                    // Then check for upgrade pickup
-                    if (typeof checkUpgradePickup === 'function' && typeof pickupUpgrade === 'function') {
-                        const upgrade = checkUpgradePickup(Game.player);
-                        if (upgrade) {
-                            pickupUpgrade(upgrade);
-                            return; // Don't also try to pick up cards
-                        }
-                    }
-                    // Finally try card pickup
-                    if (typeof CardGround !== 'undefined' && CardGround.pickAt) {
-                        // Attempt pickup at player position
-                        CardGround.pickAt(Game.player.x, Game.player.y);
-                    }
-                }
-            }
-
-            // Cycle ground card selection with [ and ]
-            if (typeof Game !== 'undefined' && Game.state === 'PLAYING' && typeof CardGround !== 'undefined') {
-                if (e.key === '[') {
-                    CardGround.cycleSelection(-1);
-                } else if (e.key === ']') {
-                    CardGround.cycleSelection(1);
-                }
             }
 
             // Prevent arrow keys from scrolling the page when cycling ground loot
@@ -802,17 +818,6 @@ const Input = {
                     e.stopPropagation();
                     return;
                 }
-            }
-            // Suppress gameplay mouse input during blocking UI flows (e.g., swap)
-            if (typeof Game !== 'undefined' && (Game.awaitingHandSwap || Game.awaitingDoorSelection || Game.awaitingUpgradeSelection || Game.awaitingMulligan)) {
-                e.preventDefault();
-                e.stopPropagation();
-                return;
-            }
-            if (typeof CharacterSheet !== 'undefined' && CharacterSheet.isOpen && typeof Game !== 'undefined' && Game.awaitingHandSwap) {
-                e.preventDefault();
-                e.stopPropagation();
-                return;
             }
             this._activateNonGamepadInput('keyboardMouse', canvas);
             if (e.button === 0) this.mouseLeft = true;
@@ -967,10 +972,19 @@ const Input = {
     // Poll the Gamepad API and write its state into the existing touch joystick/button objects.
     // Must be called BEFORE the per-frame button.update() reset inside Input.update().
     _updateGamepad() {
+        // Hot-swapping check: if another gamepad has active input, switch to it!
+        const activeGamepad = this._findGamepadWithInput();
+        if (activeGamepad && activeGamepad.index !== this._gamepadIndex) {
+            console.log(`[INPUT] Dynamic hot-swap gamepad to: "${activeGamepad.id}" (index ${activeGamepad.index})`);
+            this._gamepadIndex = activeGamepad.index;
+            this._gamepadFamily = this._detectGamepadFamily(activeGamepad);
+            this._activateGamepadInput();
+        }
+
         if (this._gamepadIndex === null && !this._scanConnectedGamepads()) return;
 
         const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-        const gp = gamepads[this._gamepadIndex];
+        let gp = gamepads[this._gamepadIndex];
         if (!gp || !gp.connected) {
             this._gamepadIndex = null;
             this._gamepadActive = false;
@@ -980,6 +994,8 @@ const Input = {
             this._scanConnectedGamepads();
             return;
         }
+
+        gp = this._getMappedGamepad(gp);
 
         if (this._hasGamepadInput(gp) && !this._activateGamepadInput()) return;
 
@@ -2194,6 +2210,22 @@ const Input = {
         }
 
         // --- JOYSTICKS ---
+        const tutorialHighlight = (typeof Room0Tutorial !== 'undefined'
+            && Room0Tutorial.getHighlightControl)
+            ? Room0Tutorial.getHighlightControl()
+            : null;
+        const drawTutorialGlow = (cx, cy, radius) => {
+            if (!Number.isFinite(cx) || !Number.isFinite(cy)) return;
+            const pulse = 0.55 + 0.45 * Math.sin(Date.now() * 0.01);
+            ctx.save();
+            ctx.strokeStyle = `rgba(255, 220, 80, ${0.55 + pulse * 0.4})`;
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius + 10, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        };
+
         for (const key in this.touchJoysticks) {
             const joystick = this.touchJoysticks[key];
             if (!joystick) continue;
@@ -2204,6 +2236,10 @@ const Input = {
             }
             if (key === 'dodge') {
                 if (playerClass !== 'triangle') continue; // Only Rogue uses dodge joystick
+            }
+
+            if (tutorialHighlight === key) {
+                drawTutorialGlow(joystick.centerX, joystick.centerY, joystick.radius || 40);
             }
 
             const renderOptions = { playerClass };
@@ -2249,6 +2285,14 @@ const Input = {
 
             // Class-specific visibility
             if (key === 'dodge' && playerClass === 'triangle') continue; // Rogue uses joystick
+
+            if (tutorialHighlight === key) {
+                drawTutorialGlow(
+                    button.x + button.width / 2,
+                    button.y + button.height / 2,
+                    Math.max(button.width, button.height) / 2
+                );
+            }
 
             let snapshot = { cooldown: 0, maxCooldown: 0, charges: null };
             if (key === 'heavyAttack') snapshot = cooldowns.heavy;

@@ -88,6 +88,54 @@ function resolveEnemyPlayerOverlap(enemy, player, extraBuffer = 0) {
         (typeof player.isInSpecialMovement === 'function' && player.isInSpecialMovement());
     
     const enemyState = enemy.state || null;
+    const isSwarmKingDash = enemy.bossName === 'Swarm King' && (enemyState === 'dash' || enemy.isDashing);
+
+    if (isSwarmKingDash) {
+        const playerRadius = player.collisionRadius || player.size || 20;
+        const enemyRadius = enemy.collisionRadius || enemy.size || 20;
+        const minimumSeparation = playerRadius + enemyRadius + extraBuffer;
+
+        let dx = player.x - enemy.x;
+        let dy = player.y - enemy.y;
+        let distanceSq = dx * dx + dy * dy;
+
+        if (distanceSq === 0) {
+            const angle = Math.random() * Math.PI * 2;
+            dx = Math.cos(angle);
+            dy = Math.sin(angle);
+            distanceSq = 1;
+        }
+
+        const distance = Math.sqrt(distanceSq);
+        if (distance >= minimumSeparation) {
+            return;
+        }
+
+        const overlap = minimumSeparation - distance;
+        const normalX = dx / distance;
+        const normalY = dy / distance;
+        const pushDistance = overlap;
+
+        player.x += normalX * pushDistance;
+        player.y += normalY * pushDistance;
+
+        if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.layout && typeof RoomLayoutGenerator !== 'undefined') {
+            player.x = clamp(player.x, player.size, currentRoom.width - player.size);
+            player.y = clamp(player.y, player.size, currentRoom.height - player.size);
+            const resolved = RoomLayoutGenerator.resolveCircleCollision(
+                currentRoom.layout,
+                player.x,
+                player.y,
+                player.size,
+                player.lastSafeX || player.x,
+                player.lastSafeY || player.y
+            );
+            player.x = resolved.x;
+            player.y = resolved.y;
+        }
+        return;
+    }
+
     const enemyAllowsOverlap =
         enemy.allowOverlapDuringAbility === true ||
         (enemyState && ['dash', 'charge', 'slam'].includes(enemyState));
@@ -207,7 +255,7 @@ function calculateDamage(baseDamage, gearMultiplier = 1, defense = 0, critMultip
     return mitigatedDamage * critMultiplier;
 }
 
-// Lifesteal tuning — cleave/multi-hitbox attacks previously procced once per hitbox.
+// Lifesteal tuning - cleave/multi-hitbox attacks previously procced once per hitbox.
 const LIFESTEAL_CONFIG = {
     // Flat cap: high lifesteal % must not raise the heal ceiling.
     baseCapPercentMaxHpPerSec: 0.010,
@@ -510,25 +558,8 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                 // Precision card bonuses: lifeOnCrit and vulnOnCrit (Purple/Orange) - applied after damage calculation
                 // Note: We'll apply these after finalDamage is calculated so we can use the correct damage value
                 
-                // Card effects: Momentum and Overcharge multipliers
-                let cardMultiplier = 1.0;
-                if (typeof CardEffects !== 'undefined') {
-                    const momentumMult = CardEffects.getMomentumMultiplier ? CardEffects.getMomentumMultiplier(player) : 1.0;
-                    const overchargeMult = CardEffects.getOverchargeMultiplier ? CardEffects.getOverchargeMultiplier(player) : 1.0;
-                    cardMultiplier = momentumMult * overchargeMult;
-                    // Reset overcharge after use (one attack only)
-                    if (overchargeMult > 1.0 && player._cardEffects) {
-                        player._cardEffects.overchargeActive = false;
-                        // Restart timer
-                        if (typeof DeckState !== 'undefined' && Array.isArray(DeckState.hand)) {
-                            const condEffects = CardEffects.getConditionalEffects ? CardEffects.getConditionalEffects(DeckState.hand) : null;
-                            if (condEffects && condEffects.overcharge) {
-                                player._cardEffects.overchargeTimer = condEffects.overcharge.interval || 5;
-                            }
-                        }
-                    }
-                }
-                
+                const cardMultiplier = 1.0;
+
                 // Apply pierce damage reduction if this is a pierced hit
                 let pierceDamageMultiplier = 1.0;
                 const enemiesHitBefore = hitbox.hitEnemies ? hitbox.hitEnemies.size : 0;
@@ -547,23 +578,6 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                 // Calculate final damage with backstab and crit multipliers
                 let finalDamage = hitbox.originalDamage * pierceDamageMultiplier * critMultiplier * cardMultiplier;
                 
-                // Velocity card bonus: speedToDamage (movement speed increases damage) - Purple/Orange
-                if (typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
-                    const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
-                    const condEffects = CardEffects.getConditionalEffects(handCards);
-                    if (condEffects.velocity && condEffects.velocity.speedToDamage && condEffects.velocity.speedToDamage > 0) {
-                        // Calculate speed multiplier: current speed / base speed
-                        const baseSpeed = player.baseMoveSpeed || 200; // Fallback if not set
-                        const currentSpeed = player.moveSpeed || baseSpeed;
-                        const speedMultiplier = currentSpeed / baseSpeed;
-                        // Apply speed-to-damage bonus (e.g., 5% per 100% speed = 10% damage at 200% speed)
-                        const speedDamageBonus = (speedMultiplier - 1.0) * condEffects.velocity.speedToDamage;
-                        if (speedDamageBonus > 0) {
-                            finalDamage *= (1 + speedDamageBonus);
-                        }
-                    }
-                }
-                
                 // Apply vulnerability debuff multiplier (Precision Orange bonus)
                 if (enemy.vulnerable && enemy.vulnerabilityMultiplier && enemy.vulnerabilityMultiplier > 1.0) {
                     finalDamage *= enemy.vulnerabilityMultiplier;
@@ -580,29 +594,8 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                     }
                 }
                 
-                // Card Execute: instant kill at threshold (replaces old executeBonus)
-                let executeTriggered = false;
-                if (typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
-                    const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
-                    const condEffects = CardEffects.getConditionalEffects(handCards);
-                    if (condEffects.execute && !isClient) {
-                        const hpPercent = enemy.hp / (enemy.maxHp || enemy.hp);
-                        const threshold = enemy.isBoss ? condEffects.execute.bossThreshold : condEffects.execute.threshold;
-                        if (hpPercent <= threshold) {
-                            // Instant kill
-                            finalDamage = enemy.hp;
-                            executeTriggered = true;
-                            hitbox.displayExecute = true;
-                            // Apply movement speed bonus if available
-                            if (condEffects.execute.moveSpeedOnExecute && typeof player.applyTemporarySpeedBoost === 'function') {
-                                player.applyTemporarySpeedBoost(condEffects.execute.moveSpeedOnExecute.value, condEffects.execute.moveSpeedOnExecute.duration);
-                            }
-                        }
-                    }
-                }
-                
-                // Legacy execute bonus (fallback if no card Execute)
-                if (!executeTriggered && player.executeBonus && player.executeBonus > 0) {
+                // Legacy execute bonus
+                if (player.executeBonus && player.executeBonus > 0) {
                     const hpPercent = enemy.hp / (enemy.maxHp || enemy.hp);
                     if (hpPercent < 0.3) {
                         finalDamage *= (1 + player.executeBonus);
@@ -611,7 +604,7 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                 }
                 
                 // Executioner's Mark: bonus damage to low HP enemies
-                if (!executeTriggered && player.itemExecuteDamagePercent > 0 && player.itemExecuteThreshold > 0) {
+                if (player.itemExecuteDamagePercent > 0 && player.itemExecuteThreshold > 0) {
                     const hpPercent = (enemy.hp / (enemy.maxHp || enemy.hp)) * 100;
                     if (hpPercent <= player.itemExecuteThreshold) {
                         finalDamage *= (1 + player.itemExecuteDamagePercent / 100);
@@ -633,23 +626,6 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                 // Clients send damage events and wait for host's authoritative response
                 const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
                 
-                // Apply Precision card bonuses: lifeOnCrit and vulnOnCrit (Purple/Orange) - applied after damage calculation
-                if (isCrit && !isClient && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
-                    const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
-                    const condEffects = CardEffects.getConditionalEffects(handCards);
-                    if (condEffects.precision) {
-                        // Apply vulnerability debuff on crit (Orange only) - applied before damage for this hit
-                        if (condEffects.precision.vulnOnCrit && enemy && typeof enemy.applyDebuff === 'function') {
-                            const vuln = condEffects.precision.vulnOnCrit;
-                            enemy.applyDebuff({
-                                type: 'vulnerability',
-                                multiplier: vuln.multiplier || 0.10,
-                                duration: vuln.duration || 3.0
-                            });
-                        }
-                    }
-                }
-                
                 // Calculate actual damage dealt BEFORE applying damage (accounting for weak point multiplier)
                 const weakPointMultiplier = enemy.weakPointDamageMultiplier || 3;
                 let damageDealt = hitWeakPoint ? finalDamage * weakPointMultiplier : finalDamage;
@@ -669,12 +645,18 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                 
                 if (!isClient) {
                     // Host or solo: Apply damage locally
+                    let vArchetype = 'slash';
+                    if (hitbox.type === 'shout') vArchetype = 'blast';
+                    else if (hitbox.type === 'hammer') vArchetype = 'slash';
+                    else if (hitbox.type === 'knife' || hitbox.pierce) vArchetype = 'pierce';
+                    else if (hitbox.type === 'magic' || hitbox.type === 'beam') vArchetype = 'magic';
+                    else if (hitbox.displayCrit) vArchetype = 'blast';
+                    enemy._lastHitIsCrit = !!hitbox.displayCrit;
+
                     if (enemy.isBoss && typeof enemy.takeDamage === 'function') {
-                        // Bosses: pass position/radius for weak point detection + attacker ID
-                        enemy.takeDamage(finalDamage, hitbox.x, hitbox.y, hitbox.radius, attackerId);
+                        enemy.takeDamage(finalDamage, hitbox.x, hitbox.y, hitbox.radius, attackerId, vArchetype);
                     } else {
-                        // Normal enemies: pass damage (with backstab multiplier if applicable) + attacker ID
-                        enemy.takeDamage(finalDamage, attackerId);
+                        enemy.takeDamage(finalDamage, attackerId, hitbox.x, hitbox.y, vArchetype);
                     }
                     
                     // Bleeding Edge: Apply bleed debuff on hit
@@ -724,38 +706,6 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                         }
                     }
                     
-                    // Precision card bonuses: lifeOnCrit healing (Purple/Orange) - applied after damage dealt
-                    if (isCrit && !isClient && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
-                        const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
-                        const condEffects = CardEffects.getConditionalEffects(handCards);
-                        if (condEffects.precision && condEffects.precision.lifeOnCrit && condEffects.precision.lifeOnCrit > 0) {
-                            applyLifeOnCritHeal(player, damageDealt, condEffects.precision.lifeOnCrit, { enemy });
-                            if (typeof createParticleBurst !== 'undefined') {
-                                createParticleBurst(player.x, player.y, '#00ff00', 8);
-                            }
-                        }
-                    }
-                    
-                    // Fury card bonuses: stunOnCritChance and critExplosion (Purple/Orange) - applied after damage dealt
-                    if (isCrit && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
-                        const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
-                        const condEffects = CardEffects.getConditionalEffects(handCards);
-                        if (condEffects.fury) {
-                            // Stun on crit chance (Purple)
-                            if (condEffects.fury.stunOnCritChance && condEffects.fury.stunOnCritChance > 0 && 
-                                enemy && typeof enemy.applyStun === 'function' && Math.random() < condEffects.fury.stunOnCritChance) {
-                                enemy.applyStun(condEffects.fury.stunDuration || 1.0);
-                            }
-                            
-                            // Crit explosion (Orange) - AoE explosion on crit
-                            if (condEffects.fury.critExplosion && condEffects.fury.critExplosion.multiplier && 
-                                typeof createExplosion !== 'undefined') {
-                                const explosion = condEffects.fury.critExplosion;
-                                const explosionDamage = damageDealt * explosion.multiplier;
-                                createExplosion(enemy.x, enemy.y, explosion.radius || 90, explosionDamage, player, enemies);
-                            }
-                        }
-                    }
                 }
                 
                 if (!isClient && typeof Telemetry !== 'undefined' && attackerId) {
@@ -794,7 +744,7 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                     const stunDuration = 0.65;
                     enemy.applyStun(stunDuration);
                     
-                    // Tank heal on hit (host/solo only) — shares sustain cap with lifesteal
+                    // Tank heal on hit (host/solo only) - shares sustain cap with lifesteal
                     if (!isClient && player.playerClass === 'pentagon') {
                         applyHammerHeal(player, damageDealt, { enemy });
                     }
@@ -855,63 +805,12 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                     applyFortifyGain(player, damageDealt, { enemy });
                 }
                 
-                // Card Momentum: Gain stack on kill (host/solo only)
-                if (!isClient && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined' && enemy.hp <= 0) {
-                    const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
-                    const condEffects = CardEffects.getConditionalEffects(handCards);
-                    if (condEffects.momentum && player._cardEffects) {
-                        const momentum = condEffects.momentum;
-                        // Cap the total multiplier value, not stack count
-                        const newStacks = Math.min((player._cardEffects.momentumStacks || 0) + momentum.perKill, momentum.cap);
-                        player._cardEffects.momentumStacks = newStacks;
-                        player._cardEffects.momentumTimer = momentum.duration;
-                        if (momentum.extendOnKill) {
-                            player._cardEffects.momentumTimer += momentum.extendOnKill;
-                        }
-                        // Apply movement speed bonus if available
-                        if (momentum.moveSpeedOnKill && typeof player.applyTemporarySpeedBoost === 'function') {
-                            player.applyTemporarySpeedBoost(momentum.moveSpeedOnKill, momentum.duration);
-                        }
-                    }
-                }
-                
                 // Rampage: Gain stack on kill (host/solo only) - legacy affix
                 if (!isClient && player.rampageBonus && player.rampageBonus > 0 && enemy.hp <= 0) {
                     const maxStacks = 5;
                     if (player.rampageStacks < maxStacks) {
                         player.rampageStacks++;
                         player.rampageStackDecay = 5.0; // 5 seconds until decay
-                    }
-                }
-                
-                // Card Fractal Conduit: Chain lightning on hit (host/solo only)
-                if (!isClient && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined' && !hitbox.hasChainedCard) {
-                    const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
-                    const condEffects = CardEffects.getConditionalEffects(handCards);
-                    if (condEffects.fractalConduit) {
-                        const conduit = condEffects.fractalConduit;
-                        const chainRange = conduit.rangeBoost ? 400 : 300;
-                        chainLightningCard(player, enemy, conduit.chainCount, hitbox.damage * conduit.chainDamage, enemies, chainRange, conduit.lifeOnChain);
-                        hitbox.hasChainedCard = true;
-                    }
-                }
-                
-                // Card Detonating Vertex: Chance to explode on hit (host/solo only)
-                if (!isClient && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
-                    const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
-                    const condEffects = CardEffects.getConditionalEffects(handCards);
-                    if (condEffects.detonatingVertex && Math.random() < condEffects.detonatingVertex.chance) {
-                        const vertex = condEffects.detonatingVertex;
-                        createExplosion(enemy.x, enemy.y, 60, hitbox.damage * vertex.aoe, player, enemies);
-                        // Cluster bombs at orange tier
-                        if (vertex.clusters && vertex.clusters.count > 0) {
-                            for (let i = 0; i < vertex.clusters.count; i++) {
-                                const angle = (Math.PI * 2 * i) / vertex.clusters.count;
-                                const offsetX = Math.cos(angle) * 40;
-                                const offsetY = Math.sin(angle) * 40;
-                                createExplosion(enemy.x + offsetX, enemy.y + offsetY, 40, hitbox.damage * vertex.clusters.multiplier, player, enemies);
-                            }
-                        }
                     }
                 }
                 

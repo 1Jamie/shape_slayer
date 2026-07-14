@@ -278,6 +278,16 @@ class EnemyBase {
 
         // Stealth enemy system (room 11+: 25% → room 21+: 50%)
         this.stealthEnemy = this.calculateStealthChance();
+
+        // Voxel fracture system - purely visual, physics-independent
+        if (typeof initVoxelGrid === 'function') {
+            this._voxelGrid = initVoxelGrid(this.size, !!this.isBoss);
+        }
+        this._voxelHitSeq = 0;
+        this.damageFlashUntil = 0;
+        this.damageFlashAlpha = 0.6;
+        this.deathJuiceVisibleUntil = 0;
+        this.lastKillContext = null;
     }
 
     // Calculate if this enemy should be stealth based on room number
@@ -510,8 +520,13 @@ class EnemyBase {
         if (!path || path.length < 2) return false;
         if (this.isBoss) return true;
 
+        if (!this.hasLineOfSightTo(targetX, targetY)) {
+            return true;
+        }
+
         const directDist = Math.hypot(targetX - this.x, targetY - this.y);
-        if (directDist < (layout.cellSize || 40) * 1.5) return true;
+        const cellSize = layout.cellSize || 40;
+        if (directDist < cellSize * 1.5) return true;
 
         let pathLen = 0;
         let prevX = this.x;
@@ -522,8 +537,7 @@ class EnemyBase {
             prevY = path[i].y;
         }
 
-        const cellSize = layout.cellSize || 40;
-        return pathLen <= directDist * 1.55 + cellSize * 2.5;
+        return pathLen <= directDist * 1.85 + cellSize * 4.0;
     }
 
     tryWallFollowHeading(preferredHeading, canMoveAt, isCorridorClear, stepDistance, requireCorridor = false) {
@@ -599,7 +613,12 @@ class EnemyBase {
             );
             this.x = resolved.x;
             this.y = resolved.y;
-            if (!resolved.collided) {
+
+            const actualMoved = Math.hypot(this.x - previousX, this.y - previousY);
+            const intendedMoved = Math.hypot(deltaX, deltaY);
+            const isProgressing = intendedMoved > 0.001 && actualMoved >= Math.min(0.15, intendedMoved * 0.12);
+
+            if (!resolved.collided || isProgressing) {
                 this.lastSafeX = this.x;
                 this.lastSafeY = this.y;
                 this.blockedMoveCount = Math.max(0, (this.blockedMoveCount || 0) - 1);
@@ -639,6 +658,14 @@ class EnemyBase {
     }
 
     getNavigationTargetForHeading(preferredHeading) {
+        // Absolute aggro: pathfind only to clone/decoy while locked (same policy as
+        // updateAggroTarget / findTarget). Do not fall through to the real player.
+        if (this.targetLock && this.targetLockTimer > 0 &&
+            (this.targetLock.type === 'clone' || this.targetLock.type === 'decoy') &&
+            Number.isFinite(this.targetLock.x) && Number.isFinite(this.targetLock.y)) {
+            return { x: this.targetLock.x, y: this.targetLock.y };
+        }
+
         const candidates = [];
         if (this.targetLock && this.targetLockTimer > 0 && Number.isFinite(this.targetLock.x) && Number.isFinite(this.targetLock.y)) {
             candidates.push(this.targetLock);
@@ -664,7 +691,15 @@ class EnemyBase {
             const dx = target.x - this.x;
             const dy = target.y - this.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist < 80) continue;
+            if (dist < 20) continue;
+            
+            const hasLOS = this.hasLineOfSightTo(target.x, target.y);
+            if (dist < 80 && hasLOS) continue;
+
+            if (!hasLOS) {
+                return { x: target.x, y: target.y };
+            }
+
             const targetHeading = Math.atan2(dy, dx);
             const headingDelta = Math.abs(normalizeAngle(targetHeading - preferredHeading));
             if (headingDelta <= Math.PI * 0.64) {
@@ -698,19 +733,43 @@ class EnemyBase {
                     ? Math.max(64, Math.ceil(Math.max(layout.cols, layout.rows) * 0.4))
                     : Math.min(36, Math.ceil(Math.max(layout.cols, layout.rows) * 0.18))
             };
-            this.navigationPath = RoomLayoutGenerator.findPath(
-                layout,
-                { x: this.x, y: this.y },
-                target,
-                navRadius,
-                pathOpts
-            );
-            if (!this.isNavigationPathPractical(this.navigationPath, layout, target.x, target.y)) {
-                this.navigationPath = null;
+            const startPos = { x: this.x, y: this.y };
+            const targetPos = { x: target.x, y: target.y };
+
+            if (RoomLayoutGenerator.queuePathfinding) {
+                this.navigationPathTarget = { x: target.x, y: target.y };
+                this.navigationRepathTimer = this.isBoss ? 0.18 + Math.random() * 0.06 : 0.34 + Math.random() * 0.1;
+                RoomLayoutGenerator.queuePathfinding(
+                    layout,
+                    startPos,
+                    targetPos,
+                    navRadius,
+                    pathOpts,
+                    (path) => {
+                        if (!this.alive) return;
+                        if (this.isNavigationPathPractical(path, layout, targetPos.x, targetPos.y)) {
+                            this.navigationPath = path;
+                        } else {
+                            this.navigationPath = null;
+                        }
+                        this.navigationPathIndex = 1;
+                    }
+                );
+            } else {
+                this.navigationPath = RoomLayoutGenerator.findPath(
+                    layout,
+                    startPos,
+                    targetPos,
+                    navRadius,
+                    pathOpts
+                );
+                if (!this.isNavigationPathPractical(this.navigationPath, layout, target.x, target.y)) {
+                    this.navigationPath = null;
+                }
+                this.navigationPathIndex = 1;
+                this.navigationPathTarget = { x: target.x, y: target.y };
+                this.navigationRepathTimer = this.isBoss ? 0.18 + Math.random() * 0.06 : 0.34 + Math.random() * 0.1;
             }
-            this.navigationPathIndex = 1;
-            this.navigationPathTarget = { x: target.x, y: target.y };
-            this.navigationRepathTimer = this.isBoss ? 0.18 + Math.random() * 0.06 : 0.34 + Math.random() * 0.1;
         }
 
         if (!this.navigationPath || this.navigationPath.length < 2) return null;
@@ -721,7 +780,18 @@ class EnemyBase {
             this.navigationPathIndex++;
         }
 
-        const waypoint = this.navigationPath[this.navigationPathIndex];
+        let targetWaypointIndex = this.navigationPathIndex;
+        const maxLookAhead = Math.min(this.navigationPath.length - 1, this.navigationPathIndex + 4);
+        for (let i = this.navigationPathIndex + 1; i <= maxLookAhead; i++) {
+            const lookPoint = this.navigationPath[i];
+            if (RoomLayoutGenerator.isProjectilePathClear(layout, { x: this.x, y: this.y }, lookPoint, navRadius)) {
+                targetWaypointIndex = i;
+            } else {
+                break;
+            }
+        }
+
+        const waypoint = this.navigationPath[targetWaypointIndex];
         if (!waypoint) return null;
         const heading = Math.atan2(waypoint.y - this.y, waypoint.x - this.x);
         if (canMoveAt(heading)) {
@@ -763,14 +833,16 @@ class EnemyBase {
         };
 
         const directStepClear = canMoveAt(preferredHeading);
+        const navTarget = this.getNavigationTargetForHeading(preferredHeading);
+        const hasLOS = navTarget ? this.hasLineOfSightTo(navTarget.x, navTarget.y) : true;
 
-        if (directStepClear && !blockedRecently) {
+        if (directStepClear && !blockedRecently && hasLOS) {
             this.navigationPath = null;
             this.navigationPathIndex = 0;
             return preferredHeading;
         }
 
-        if (this.navigationPath && directStepClear && !blockedStuck) {
+        if (this.navigationPath && directStepClear && !blockedStuck && hasLOS) {
             const shortLook = this.isBoss ? cellSize * 1.4 : cellSize * 0.9;
             if (isCorridorClear(preferredHeading, shortLook)) {
                 this.navigationPath = null;
@@ -781,12 +853,14 @@ class EnemyBase {
 
         let needsPath = !directStepClear || blockedStuck;
 
-        if (this.isBoss && !needsPath) {
-            const lookaheadDistance = Math.min(Math.max(cellSize * 1.6, stepDistance * 1.5), 120);
+        if (!needsPath) {
+            const lookaheadDistance = this.isBoss 
+                ? Math.min(Math.max(cellSize * 1.6, stepDistance * 1.5), 120)
+                : Math.min(Math.max(cellSize * 1.2, stepDistance * 1.3), 80);
             const navTarget = this.getNavigationTargetForHeading(preferredHeading);
             if (navTarget) {
                 const distToTarget = Math.hypot(navTarget.x - this.x, navTarget.y - this.y);
-                if (distToTarget > cellSize * 2.5) {
+                if (distToTarget > cellSize * 1.8) {
                     needsPath = !RoomLayoutGenerator.isProjectilePathClear(
                         layout,
                         { x: this.x, y: this.y },
@@ -806,6 +880,11 @@ class EnemyBase {
             return preferredHeading;
         }
 
+        if (blockedStuck) {
+            const pathHeading = this.getPathFallbackHeading(layout, preferredHeading, speed, deltaTime, canMoveAt);
+            if (pathHeading !== null) return pathHeading;
+        }
+
         if (!this.isBoss || !blockedStuck) {
             const wallFollowHeading = this.tryWallFollowHeading(
                 preferredHeading,
@@ -819,8 +898,10 @@ class EnemyBase {
             }
         }
 
-        const pathHeading = this.getPathFallbackHeading(layout, preferredHeading, speed, deltaTime, canMoveAt);
-        if (pathHeading !== null) return pathHeading;
+        if (!blockedStuck) {
+            const pathHeading = this.getPathFallbackHeading(layout, preferredHeading, speed, deltaTime, canMoveAt);
+            if (pathHeading !== null) return pathHeading;
+        }
 
         return this.tryWallFollowHeading(preferredHeading, canMoveAt, isCorridorClear, stepDistance, false);
     }
@@ -1767,8 +1848,15 @@ class EnemyBase {
         }
     }
 
+    getFlashDrawColor(drawColor) {
+        if (typeof applyEnemyDamageFlash === 'function') {
+            return applyEnemyDamageFlash(null, this, drawColor);
+        }
+        return drawColor;
+    }
+
     // Take damage
-    takeDamage(damage, attackerId = null) {
+    takeDamage(damage, attackerId = null, impactX = null, impactY = null, weaponArchetype = null) {
         // Check if enemy has shield (Shielded Brood modifier)
         if (this.hasShield && this.shieldHealth > 0) {
             // Shield blocks damage
@@ -1818,8 +1906,74 @@ class EnemyBase {
             this.addThreat(Game.getLocalPlayerId(), damage);
         }
 
+        if (typeof storeKillContext === 'function') {
+            storeKillContext(this, damage, impactX, impactY, weaponArchetype, {
+                isCrit: !!this._lastHitIsCrit
+            });
+        }
+
+        // Voxel damage hook - visual response
+        if (typeof flagVoxelDamage === 'function' && this._voxelGrid) {
+            flagVoxelDamage(this, damage, impactX, impactY, weaponArchetype);
+        }
+
+        if (this.isTutorialDummy && typeof Room0Tutorial !== 'undefined' && Room0Tutorial.onDummyDamaged) {
+            Room0Tutorial.onDummyDamaged(this);
+        }
+
         if (this.hp <= 0) {
             this.die();
+        }
+    }
+
+    triggerDeathVisuals() {
+        if (!this.deathTime) {
+            this.deathTime = Date.now();
+        }
+        if (typeof orchestrateKillJuice === 'function' && this.lastKillContext) {
+            orchestrateKillJuice(this, this.lastKillContext);
+        } else if (typeof createParticleBurst !== 'undefined') {
+            createParticleBurst(this.x, this.y, this.color, 12);
+        }
+    }
+
+    /**
+     * Bank persistent credits for this kill (trash / elite). Bosses use BossBase.die().
+     * Subclasses that override die() without calling super.die() must invoke this.
+     */
+    awardDeathCredits() {
+        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+        if (isClient || typeof Game === 'undefined') return;
+        if (this.isTutorialDummy) return;
+        if (typeof currentRoom !== 'undefined' && currentRoom
+            && (currentRoom.type === 'tutorial' || currentRoom.number === 0)) {
+            return;
+        }
+
+        const typeName = (this.constructor && this.constructor.name) || 'Enemy';
+        if (typeName === 'OctagonEnemy') {
+            Game.elitesKilled = (typeof Game.elitesKilled === 'number' ? Game.elitesKilled : 0) + 1;
+        }
+
+        if (typeof Game.awardRunCredits !== 'function') return;
+
+        const room = Game.roomNumber || 1;
+        let amount;
+        let reason;
+        if (typeof CombatEconomy !== 'undefined' && CombatEconomy.getCreditReward) {
+            amount = CombatEconomy.getCreditReward(this, room);
+            reason = CombatEconomy.getCreditReason
+                ? CombatEconomy.getCreditReason(this)
+                : 'combat';
+        } else {
+            amount = typeName === 'OctagonEnemy'
+                ? (Game.ELITE_CREDIT_REWARD || 15)
+                : 1;
+            reason = typeName === 'OctagonEnemy' ? 'elite' : `trash:${typeName}`;
+        }
+
+        if (amount > 0) {
+            Game.awardRunCredits(amount, reason);
         }
     }
 
@@ -1828,6 +1982,10 @@ class EnemyBase {
     die() {
         this.alive = false;
         this.deathTime = Date.now(); // Track when enemy died (for delayed removal)
+
+        if (this.isTutorialDummy && typeof Room0Tutorial !== 'undefined' && Room0Tutorial.onDummyDied) {
+            Room0Tutorial.onDummyDied();
+        }
 
         // Handle explosion on death (Volatile Spawn modifier)
         if (this.explodesOnDeath) {
@@ -1850,16 +2008,14 @@ class EnemyBase {
             }
         }
 
-        // Elite kills are tracked in OctagonEnemy.die() method (octagon enemies are elites)
-        // Boss kills are tracked in boss die() method
+        // Trash + elite credits (persistent). Boss credits are in BossBase.die().
+        this.awardDeathCredits();
 
-        // Emit particles on death
-        if (typeof createParticleBurst !== 'undefined') {
-            createParticleBurst(this.x, this.y, this.color, 12);
-        }
+        const killContext = this.lastKillContext;
+        this.triggerDeathVisuals();
 
         // Give XP to all alive players (multiplayer: host distributes; solo: local player)
-        if (typeof Game !== 'undefined' && Game.distributeXPToAllPlayers && this.xpValue) {
+        if (!this.isTutorialDummy && typeof Game !== 'undefined' && Game.distributeXPToAllPlayers && this.xpValue) {
             Game.distributeXPToAllPlayers(this.xpValue);
         }
 
@@ -1916,7 +2072,10 @@ class EnemyBase {
         }
 
         // Item drop system
-        if (typeof Game !== 'undefined' && typeof ITEM_DEFINITIONS !== 'undefined' && typeof getRandomItem === 'function') {
+        if (!this.isTutorialDummy
+            && typeof Game !== 'undefined'
+            && typeof ITEM_DEFINITIONS !== 'undefined'
+            && typeof getRandomItem === 'function') {
             // Get drop chance based on enemy type
             const dropChances = {
                 'Enemy': 0.040,           // 4.0% - Basic circle (lowest)
@@ -2887,6 +3046,45 @@ class EnemyBase {
         }
 
         return { x: player.x, y: player.y };
+    }
+
+    getInterceptTarget(player, predictionWeight) {
+        // Clones/decoys are stationary aggro bodies - chase their lock, don't lead the real player.
+        if (this.targetLock && this.targetLockTimer > 0 &&
+            (this.targetLock.type === 'clone' || this.targetLock.type === 'decoy') &&
+            Number.isFinite(this.targetLock.x) && Number.isFinite(this.targetLock.y)) {
+            return { x: this.targetLock.x, y: this.targetLock.y };
+        }
+        if (!player || !player.alive) return { x: this.x, y: this.y };
+        const dist = Math.hypot(player.x - this.x, player.y - this.y);
+        const timeToIntercept = dist / Math.max(1, this.moveSpeed);
+        const clampedTime = Math.min(timeToIntercept, 1.2);
+        const predX = player.x + (player.vx || 0) * clampedTime * predictionWeight;
+        const predY = player.y + (player.vy || 0) * clampedTime * predictionWeight;
+        const layout = typeof currentRoom !== 'undefined' && currentRoom ? currentRoom.layout : null;
+        if (layout) {
+            const margin = layout.cellSize || 40;
+            return {
+                x: Math.max(margin, Math.min(layout.width - margin, predX)),
+                y: Math.max(margin, Math.min(layout.height - margin, predY))
+            };
+        }
+        return { x: predX, y: predY };
+    }
+
+    getFlankSlot() {
+        if (this._flankSlot === undefined || this._flankSlot === null) {
+            let hash = 0;
+            if (this.id) {
+                for (let i = 0; i < this.id.length; i++) {
+                    hash ^= this.id.charCodeAt(i);
+                }
+            } else {
+                hash = Math.floor(Math.random() * 8);
+            }
+            this._flankSlot = hash & 7;
+        }
+        return this._flankSlot;
     }
 
     // Calculate optimal position based on engagement distance

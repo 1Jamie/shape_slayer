@@ -24,11 +24,6 @@
 		
 		root.appendChild(btn);
 		btn.addEventListener('click', () => {
-			// Prevent pausing when awaiting card swap
-			if (typeof Game !== 'undefined' && Game.awaitingHandSwap && Game.pendingSwapCard) {
-				console.log('[PAUSE BUTTON] Blocked - awaiting card swap');
-				return;
-			}
 			if (typeof Game !== 'undefined' && Game.togglePause) {
 				Game.togglePause();
 			}

@@ -50,15 +50,21 @@ test('card and gear progression resolve different biome cadences', () => {
     assert.equal(BiomeConfig.getBiomeIdForRoom(12, 'cards'), 'swarm');
     assert.equal(BiomeConfig.getBiomeIdForRoom(22, 'cards'), 'fortress');
     assert.equal(BiomeConfig.getBiomeIdForRoom(15, 'gear'), 'prism');
-    assert.equal(BiomeConfig.getBiomeIdForRoom(25, 'gear'), 'fractal');
+    assert.equal(BiomeConfig.getBiomeIdForRoom(20, 'gear'), 'prism');
+    assert.equal(BiomeConfig.getBiomeIdForRoom(25, 'gear'), 'fortress');
+    assert.equal(BiomeConfig.getBiomeIdForRoom(40, 'gear'), 'fractal');
+    assert.equal(BiomeConfig.getBiomeIdForRoom(50, 'gear'), 'vortex');
+    assert.equal(BiomeConfig.getBiomeIdForRoom(51, 'gear'), 'endless');
 });
 
 test('generated layouts validate spawn to exit connectivity', () => {
     const rooms = [
         build(8, 'gear'),
-        build(15, 'gear', 'boss'),
+        build(10, 'gear', 'boss'),
         build(20, 'gear', 'boss'),
-        build(25, 'gear', 'boss'),
+        build(30, 'gear', 'boss'),
+        build(40, 'gear', 'boss'),
+        build(50, 'gear', 'boss'),
         build(32, 'cards', 'boss')
     ];
 
@@ -72,8 +78,8 @@ test('generated layouts validate spawn to exit connectivity', () => {
 });
 
 test('projectile path checks use the generated collision grid', () => {
-    const plan = build(20, 'gear', 'boss');
-    const layout = RoomLayoutGenerator.generateRoomLayout(plan, 'gear:20:boss:fortress:v1');
+    const plan = build(30, 'gear', 'boss');
+    const layout = RoomLayoutGenerator.generateRoomLayout(plan, 'gear:30:boss:fortress:v1');
     const blocked = layout.grid.findIndex(cell => cell === RoomLayoutGenerator.BLOCKED);
     assert.notEqual(blocked, -1);
 
@@ -308,6 +314,22 @@ test('getRoomDimensions applies archetype size multipliers', () => {
     assert.equal(road.height, 1350);
 });
 
+test('safe rooms use fixed landscape dimensions from the plan', () => {
+    const dims = RoomLayoutGenerator.getRoomDimensions(10, 'gear', 'safe', 'road');
+    assert.equal(dims.width, 1600);
+    assert.equal(dims.height, 900);
+    assert.ok(Math.abs(dims.width / dims.height - 16 / 9) < 0.01, 'safe room should be 16:9');
+
+    const plan = RoomLayoutGenerator.buildRoomPlan(10, 'gear', 'safe', null);
+    assert.equal(plan.width, 1600);
+    assert.equal(plan.height, 900);
+
+    const layout = RoomLayoutGenerator.generateRoomLayout(plan, 'gear:10:safe:safe:landscape');
+    assert.equal(layout.width, 1600, 'layout must honor plan width (not route-derived ~1880)');
+    assert.equal(layout.height, 900, 'layout must honor plan height (not BASE_CROSS 1350)');
+    assert.equal(layout.entranceVariant, 'leftRight');
+});
+
 test('findDetourMergeT uses center-biased candidate order', () => {
     const points = [
         { x: 100, y: 400 },
@@ -357,7 +379,7 @@ test('layouts expose playability metrics after generation', () => {
 
 test('semantic structural metadata survives serialization without dense decoration payloads', () => {
     const plan = build(17, 'gear');
-    const layout = RoomLayoutGenerator.generateRoomLayout(plan, 'gear:17:normal:fortress:v1');
+    const layout = RoomLayoutGenerator.generateRoomLayout(plan, 'gear:17:normal:prism:v1');
     const serialized = RoomLayoutGenerator.serializeLayout(layout);
     const hydrated = RoomLayoutGenerator.hydrateLayout(serialized);
 
@@ -372,7 +394,7 @@ test('semantic structural metadata survives serialization without dense decorati
 
 test('non-colliding decoration details regenerate deterministically from compact layout data', () => {
     const plan = build(28, 'gear');
-    const layout = RoomLayoutGenerator.generateRoomLayout(plan, 'gear:28:normal:vortex:v1');
+    const layout = RoomLayoutGenerator.generateRoomLayout(plan, 'gear:28:normal:fortress:v1');
     const serialized = RoomLayoutGenerator.serializeLayout(layout);
     const hydrated = RoomLayoutGenerator.hydrateLayout(serialized);
 
@@ -386,7 +408,7 @@ test('non-colliding decoration details regenerate deterministically from compact
 
 test('small scenery fixtures regenerate locally without serialized payload bloat', () => {
     const plan = build(17, 'gear');
-    const layout = RoomLayoutGenerator.generateRoomLayout(plan, 'gear:17:normal:fortress:v1');
+    const layout = RoomLayoutGenerator.generateRoomLayout(plan, 'gear:17:normal:prism:v1');
     const serialized = RoomLayoutGenerator.serializeLayout(layout);
     const hydrated = RoomLayoutGenerator.hydrateLayout(serialized);
 
@@ -423,8 +445,8 @@ test('boss base arena helpers cache and coalesce motif anchors', () => {
 
 test('boss base resolves scenery anchors to nearby walkable points', () => {
     const { BossBase, context } = loadBossBaseForTests();
-    const plan = build(25, 'gear', 'boss');
-    const layout = RoomLayoutGenerator.generateRoomLayout(plan, 'gear:25:boss:fractal:v1');
+    const plan = build(40, 'gear', 'boss');
+    const layout = RoomLayoutGenerator.generateRoomLayout(plan, 'gear:40:boss:fractal:v1');
     context.currentRoom = {
         width: layout.width,
         height: layout.height,

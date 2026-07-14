@@ -2,7 +2,7 @@
 // Update this file when releasing new versions
 
 const GameVersion = {
-  VERSION: '0.7.0',
+  VERSION: '0.8.0',
 
   UPDATE_MESSAGES: {
     '0.2.1': 'Initial early access release! Please report any bugs you find at https://github.com/1jamie/shape_slayer/issues',
@@ -521,11 +521,11 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 ## **🩸 PART 5: LIFESTEAL GETS A BUDGET**
 *"Unlimited free healing off every overlapping hitbox of a cleave attack was, according to math, 'too strong.' I capped it. Reluctantly. Very reluctantly."*
 
-• Lifesteal now caps around 1% of your max HP per second, flat. Stack it all you want — you're a vampire with a spending limit now, not a god.
+• Lifesteal now caps around 1% of your max HP per second, flat. Stack it all you want - you're a vampire with a spending limit now, not a god.
 • Past 5% lifesteal, the extra starts losing efficiency. 11% gear lifesteal now behaves like about 7.1%. Diminishing returns: not a bug, fiscal responsibility.
 • Whirlwinding a boss to full HP in one spin was extremely fun for you and extremely bad for game balance. Boss healing is dialed way down now.
 • Cleaves, whirlwinds, and shout hitboxes proc lifesteal ONCE per enemy per swing now, not once per overlapping hitbox like I was secretly running a healing pyramid scheme.
-• **NEW — Fortify:** Some sustain now builds a temporary shield instead of straight HP. It decays, it's capped, it's basically sustain with training wheels on.
+• **NEW - Fortify:** Some sustain now builds a temporary shield instead of straight HP. It decays, it's capped, it's basically sustain with training wheels on.
 
 ---
 
@@ -535,7 +535,7 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 • **Adaptive Quality:** Three tiers (Normal / Medium / Heavy) dial back vignette, scenery lights, and gear ring detail before your FPS faceplants into the carpet.
 • **Gear Sprite Caching:** I was redrawing the same legendary sword sprite 60 times a second like it might change its mind about being legendary. It never did. I stopped.
 • **Culling:** Loot, cards, and items now only render when you can actually see them. Groundbreaking. Truly. I know.
-• **NEW — Run Profiler:** Full run-length performance receipts — worst rooms, worst phases, exportable JSON. When Room 27 chugs, I'll know exactly why instead of shrugging at the ceiling.
+• **NEW - Run Profiler:** Full run-length performance receipts - worst rooms, worst phases, exportable JSON. When Room 27 chugs, I'll know exactly why instead of shrugging at the ceiling.
 • **Accumulator Truncation:** Alt-tabbing back into the game no longer triggers five seconds of fast-forwarded chaos trying to "catch up." It just resumes. Like a normal, well-adjusted application.
 
 ---
@@ -565,6 +565,139 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 
 *P.P.S. - Yes, Vortex might be a bit much now. No, I'm not nerfing it before you've all had a proper chance to suffer.*
 `,
+    '0.8.0': `**🗑️ UPDATE 0.8.0: THE "UNDECK YOURSELF" UPDATE** (07/14/2026)
+*"Remember Update 0.6.0 when we put a card game inside the bullet hell? Yeah. About that. We looked at the dual-mode spaghetti, made eye contact with our own commit history, and hit delete. Gear Mode is the game now. Card Mode went to live on a farm upstate where the decks are green and the mulligans never end."*
+
+---
+
+## **💜 PART 1: FOR LOST — THE LONG ROAD PAST 50**
+*"Before the cards, the voxels, and the chaos: this one is for LOST specifically."*
+
+Lost: you stress-tested this game like it owed you money, really drug runs into the triple digits, blew through Room 150, and then you sent me back stat sheets that looked less like "telemetry" and more like a crime scene autopsy of my math. I will mention it made me look pretty bad at it too XD. You had damage tallies that could fund a small country right along side HP bars that needed scientific notation, like you legit sent me a screenshot that made the combat scaler look like it was heading for orbit and used scientific notation.
+
+You also, casually, decided Room **200** was a realistic goal instead of a bug report? like who does that? lol. I realized the systems were disrespecting your time a bit, could be a lot more reasonable, and I wanted you to be able to come back and go any lenght of run you want without having to feel like leaving the ps2 constantly running back on Jacksonville road so we wouldnt loose our progress in RAD.
+
+So I built two things because of you:
+
+**💾 Solo Safe Room Save & Resume:**
+• There's a **Save Run** machine in solo Safe Rooms now. Hit it and it stores the real run - room number, class, XP, HP/shields, your actual gear and affixes, items, the whole mess —-then dumps you back in the Nexus without ending the run.
+• When you take the portal again it pops you right back into that Safe Room with the same build. Your HP stays whatever you saved (no free full heal cheese). Checkpoint gets used up on resume so you can't duplicate runs.
+• Catch: save **before** you use the other machines that visit. Once you start spending credits or healing, Save locks until next Safe Room. Solo only - multiplayer is stuck babysitting itself.
+• While you've got a saved run sitting there, Nexus basically just lets you hit the portal. No sneaking off to buy a pile of upgrades and then diving back into a mid-run demon build. Love you.... but also I know you :P
+  *"The Jacksonville road PS2 ritual is officially no longer needed. You can turn the machine off. Progress survives now <3."*
+
+**📈 Post-Room 50 Scaling (the Room 200 chase):**
+• Campaign still technically finishes at 50. After that it doesn't just multiply itself into scientific-notation nonsense that you cant actually play like the screenshot you sent me. you can still get those numbers, but they will be actually playable now.
+• HP and damage keep going up past 50 so the late game still hits, just on a slower curve. Like it's still big but its the kind of climb you can actually live in for a while instead of watching numbers leave the atmosphere and the enemy attacking faster than you can actually react to.
+• Enemy speed and attack timing soft-cap instead of turning every diamond into a missile. Room density soft-caps too, so deep runs stay mean without melting your fps into soup, i know you have a good pc, but this is all on cpu.... so i still have to be reasonable.
+• Bosses still get harder each cycle, but I'm not stacking three kinds of "infinite" on top of each other anymore. That's how we got the Room 150 "Why is everything moving a relativistic speeds?" situation.
+
+Room 200 is still gonna suck in the fun way i hope, but I'm not handing it to you. I just don't want the game to spit on the hours you already put in because I really appreciate you <3. now you can pause your run, go to work, go to sleep, but you can stop leaving the console cooking all night, i promise you wont lose any progress.
+
+*Thank you for every busted run, every cursed screenshot, and treating this weird little geometry hobby like it was worth breaking. This one really is for you, I went through and made a list of things I thought you would appreciate the most and these were the two big things. You're the best sister a girl could ask for, I hope you enjoy this update!
+
+---
+
+## **🃏 PART 2: WE BURNED THE DECK**
+*"I said 'soon™' for multiplayer cards. That 'soon' is now 'never, and also I deleted the files.' Growth... I think that is what we will call this XD"*
+
+• **Card Mode: Gone.** Decks, hands, mulligans, mastery, ground cards, pack doors, room mod stations, curses, team cards, class cards - all of it. Deleted. Not "deprecated." Gone.
+  *"If you still have \`precision_001\` in your save, that number is decorative now. Rest in pieces."*
+• **Nexus is Gear only.** Portal doesn't mode-switch anymore, it just starts a run. Wild concept: a door that is a door.
+• Character sheet / Index Machine / Nexus stations don't pretend cards exist either. Affixes and items kept their little encyclopedia tabs. Cards did not.
+  *"Fewer half-finished systems hanging around making me feel guilty every time I open the project. Huge."*
+
+---
+
+## **🛠️ PART 3: SAFE ROOMS**
+*"Every 5 combat rooms you get a little cyan upgrade lounge. Spend credits, mess with gear, don't die for a minute. I call it progression."*
+
+• Safe Rooms are open hubs (1600x900) with Gear Level Up, Affix Reroll, Healer, and the solo **Save Run** machine from Part 1.
+• **Gear Level Up:** credits in, +4% on that piece. Caps start at 3, Nexus upgrades can raise it if you want to be greedy about it.
+• **Affix Reroll:** pick a slot, reroll it, cry if it gets worse. Rarity bumps only show up after you unlock Rarity Forge in the Nexus.
+• **Healer:** free once per visit, grows max HP a bit then tops you off.
+• Rooms 9 / 19 / 29… also get a small pre-boss heal booth (+25% max HP) so you aren't walking into geometry finals on 12 HP.
+
+---
+
+## **💎 PART 4: NEXUS GEAR UPGRADES**
+*"Shards used to feed card mastery. Now they feed permanent loot luck and Saferoom power. Same addiction loop, slightly less weird."*
+
+• Machines unlock as you progress on purpose:
+  - **Rarity Chance** after Room 5
+  - **Affix Capacity** after Swarm King
+  - **Safe Room Systems** after Twin Prism
+  - **Safe Room Efficiency** after Fortress
+• Each track has its own ladder / locks so you can't day-one dump everything into orange luck and break the economy before breakfast.
+  *"I left the candy aisle locked. You can have orange later. Earn it."*
+
+---
+
+## **💰 PART 5: CREDITS ACTUALLY MATTER NOW**
+*"Used to be elites and bosses paid you and trash was basically unpaid internships. Fixed that. Wrote a whole file for it. There were spreadsheets. Regrettably."*
+
+• Normal enemies drop credits now. Stars/diamonds/rectangles pay a little more. Octagons are the elite ATM. Bosses are the jackpot.
+• Every 10 rooms the payout bumps a bit so late trash stops feeling like pocket lint.
+• Credits bank to your save **on kill**, so closing the game after a boss doesn't also steal your wallet. End of run only pays whatever didn't already bank.
+• Shards still wait until the run ends. Credits are the impatient one.
+• There's a balance sim now that checks dumb stuff like "can rooms 1-5 even afford a class upgrade + gear level." If the economy is broken, a robot yells at me first. Nice.
+
+---
+
+## **📚 PART 6: ONBOARDING (YES, ACTUAL ONBOARDING)**
+*"Dropping people in a Nexus full of glowing mystery boxes with zero explanation was not the vibe. It was just rude."*
+
+• First-run coach walks you through privacy → controls → pick a class → launch → come back to class upgrades. Spotlights and all. You can't open half the Nexus until it says so.
+• **Room 0:** empty tutorial arena. Dash, hit the dummy, heavy, special, dramatic warning, then kill it for real and leave. No loot, no xp, no farming the dummy for credits - I checked.
+  *"Room 0 is not a Safe Room even though 0 % 5 === 0. Yes I had to write a special case for that. No I am not proud of needing to."*
+• As you unlock gear machines later, little coaches show up so you know which glowing box just stopped being furniture.
+• Patch notes wait until the coaches shut up. Brand new saves don't get hit with the update essay before they've even picked a class.
+
+---
+
+## **💥 PART 7: VOXEL FRACTURE**
+*"I got tired of enemies just going poof. Now they look like somebody took bites out of them."*
+
+• Hits punch holes in a little grid on the enemy. Chips fly off, goop splatters, debris sticks around on the floor for a bit.
+• Different weapons chew differently (pierce / magic / slash / blast). Death shatters what's left.
+• Hitpause freezes the fight but the particles still move so it doesn't look like PowerPoint getting stabbed.
+• Low quality settings turn the particle count down so phones don't summon a second Swarm King made of lag.
+  *"Bosses still mostly refuse to keep permanent holes. They shed junk, they just don't stay swiss-cheesed yet. Baby steps."*
+
+---
+
+## **👹 PART 8: SWARM KING + BOSS TIMING**
+*"Phase 3 used to teleport dash like it forgot walls were real. That was funny once. Then it was a bug report."*
+
+• Nest dashes actually collide with rooms now, leave a real web trail of where the king ran, and stop snap-teleporting when confused.
+• Dash pushes the player out of the way instead of getting wedged in your hitbox like a bad hug.
+• Bosses are every **10** rooms now (10/20/30/40/50), not every 5. Music and scaling finally agree on that, which is wild because they used to argue like roommates.
+• Growth is tuned for the longer run. Early trash got more HP so Room 1 isn't wet tissue paper.
+• Swarm King himself got a bit less brick-wall on HP/damage. Still mean. Less "why is the tutorial boss a raid boss."
+
+---
+
+## **🎮 PART 9: CONTROLLERS + CLEANUP**
+• Gamepads hot-swap now - mash buttons on another pad and it becomes the active one.
+• Weird controller mappings get padded into something closer to "buttons that do the thing."
+• Level ups heal half max HP instead of a full spa day. You've got Safe Rooms and pre-boss healers now, chill.
+• MP syncs Safe Room meta per player. Fracture juice stays local because networking hundreds of debris chips sounded like a terrible idea.
+• Deleted a pile of leftover card/door UI that was still hanging out in \`index.html\` like it paid rent. It did not.
+
+---
+
+## **🎯 FINAL WORDS**
+
+*TL;DR:* Cards are gone, Gear is the game. Safe Rooms every 5. Credits drop from everything and bank on kill. Shards buy gear meta. There's a real tutorial now. Enemies chip apart. Bosses every 10 through 50. Post-50 is playable instead of orbital. Solo save/resume exists so long runs don't demand a permanently-on console. I deleted a mountain of code and the game somehow got bigger anyway.*
+
+*P.S. - \`cardShards\` still buys Gear Upgrades. The name is leftover. We are living with it.*
+
+*P.P.S. - If your favorite Card Mode cheese is gone: yes. That was intentional. Touch grass. Or touch gear. Same vibe.*
+
+*P.P.P.S. - Lost: if you're reading this in the update modal after punching something at Room 187, hydrate, save, Then go again. You got this!*
+
+*P.P.P.P.S. - These notes are too long. I think most README.md are shorter, I know. I'm tired. Send coffee or a Room 200 screenshot.*
+`,
   },
 
   // Update type labels - can be: 'major', 'feature', 'minor', 'hotfix', 'bugfix', 'refactor', 'rebalance'
@@ -582,7 +715,8 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
     '0.5.3.1': ['minor', 'feature', 'rebalance'],
     '0.6.0': ['major', 'feature', 'visuals'],
     '0.6.1': ['minor', 'feature', 'hotfix'],
-    '0.7.0': ['major', 'feature', 'rebalance']
+    '0.7.0': ['major', 'feature', 'rebalance'],
+    '0.8.0': ['major', 'feature', 'rebalance', 'visuals']
   }
 };
 

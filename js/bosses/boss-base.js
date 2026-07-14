@@ -22,17 +22,21 @@ class BossBase extends EnemyBase {
         this.introComplete = false;
         this.introTime = 0;
         
-        // Placeholder defaults — applyBossScaling() overwrites maxHp/damage at spawn.
+        // Placeholder defaults - applyBossScaling() overwrites maxHp/damage at spawn.
         this.maxHp = this.maxHp * 12;
         this.hp = this.maxHp;
         this.size = this.size * 2;
         this.damage = this.damage * 1.5;
         this.xpValue = this.xpValue * 3; // 3x XP
+
+        if (typeof refreshEntityVoxelGrid === 'function') {
+            refreshEntityVoxelGrid(this);
+        }
         
         // Boss-specific color (can be overridden by subclasses)
         this.color = '#ff0000'; // Bright red for bosses
 
-        // Running peak hit damage — used to normalize boss hit screen shake over the fight
+        // Running peak hit damage - used to normalize boss hit screen shake over the fight
         this.peakHitDamage = 0;
         this._lastHitShakeTime = 0;
     }
@@ -342,6 +346,19 @@ class BossBase extends EnemyBase {
                 }
             });
         }
+
+        if (typeof triggerBossPhaseFracture === 'function') {
+            triggerBossPhaseFracture(this, oldPhase, newPhase);
+        }
+    }
+
+    getVoxelBodyDrawFn() {
+        const size = this.size || 40;
+        return (oCtx) => {
+            oCtx.beginPath();
+            oCtx.arc(0, 0, size, 0, Math.PI * 2);
+            oCtx.fill();
+        };
     }
     
     // Check if a weak point was hit
@@ -636,7 +653,7 @@ class BossBase extends EnemyBase {
     }
 
     // Override takeDamage to check for weak point hits first
-    takeDamage(damage, hitX = null, hitY = null, hitRadius = 0, attackerId = null) {
+    takeDamage(damage, hitX = null, hitY = null, hitRadius = 0, attackerId = null, weaponArchetype = 'blast') {
         // Check for weak point hit if position provided
         let weakPointHit = null;
         if (hitX !== null && hitY !== null && hitRadius > 0) {
@@ -646,6 +663,8 @@ class BossBase extends EnemyBase {
         // Apply weak point damage multiplier if weak point hit
         const weakPointMultiplier = this.weakPointDamageMultiplier || 3;
         const finalDamage = weakPointHit ? damage * weakPointMultiplier : damage;
+
+        this._lastHitWeakPoint = !!weakPointHit;
         
         this.hp -= finalDamage;
         
@@ -673,6 +692,15 @@ class BossBase extends EnemyBase {
             }
         }
         
+        // Voxel damage hook - visual response
+        const arch = weaponArchetype || 'blast';
+        if (typeof storeKillContext === 'function') {
+            storeKillContext(this, finalDamage, hitX, hitY, arch, { isWeakPoint: !!weakPointHit });
+        }
+        if (typeof flagVoxelDamage === 'function' && this._voxelGrid) {
+            flagVoxelDamage(this, finalDamage, hitX, hitY, arch);
+        }
+
         if (this.hp <= 0) {
             this.die();
         }
@@ -682,6 +710,7 @@ class BossBase extends EnemyBase {
     // NOTE: Only called on host or in solo mode. Clients receive death via game_state sync.
     die() {
         this.alive = false;
+        this.deathTime = Date.now();
         
         // Track kill for the last attacker
         if (this.lastAttacker) {
@@ -699,12 +728,13 @@ class BossBase extends EnemyBase {
             }
         }
         
-        // Emit particles on death
-        if (typeof createParticleBurst !== 'undefined') {
+        // Death visuals (voxel shatter + juice)
+        if (typeof this.triggerDeathVisuals === 'function') {
+            this.triggerDeathVisuals();
+        } else if (typeof createParticleBurst !== 'undefined') {
             createParticleBurst(this.x, this.y, this.color, 30);
         }
-        
-        // Track boss kill for credits reward
+        // Track boss kill - bank persistent credits immediately (CombatEconomy tier)
         const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
         if (!isClient && typeof Game !== 'undefined') {
             if (typeof Game.bossesKilled === 'number') {
@@ -712,6 +742,17 @@ class BossBase extends EnemyBase {
             } else {
                 Game.bossesKilled = 1;
             }
+            if (typeof Game.awardRunCredits === 'function') {
+                const room = Game.roomNumber || 1;
+                const amount = (typeof CombatEconomy !== 'undefined' && CombatEconomy.getCreditReward)
+                    ? CombatEconomy.getCreditReward(this, room)
+                    : (Game.BOSS_CREDIT_REWARD || 50);
+                Game.awardRunCredits(amount, 'boss');
+            }
+        }
+        // Persist unique boss defeat for nexus machine gates
+        if (!isClient && typeof SaveSystem !== 'undefined' && SaveSystem.recordBossDefeated) {
+            SaveSystem.recordBossDefeated(this.bossName || this.constructor.name);
         }
         if (!isClient && typeof Telemetry !== 'undefined') {
             const bossId = this.bossName || this.constructor.name;

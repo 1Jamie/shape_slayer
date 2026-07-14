@@ -56,10 +56,8 @@ function applyGeneratedLayoutToRoom(room, roomType) {
         return room;
     }
 
-    const gameMode = (typeof Game !== 'undefined' && Game.gameMode) ? Game.gameMode : 'cards';
-    const plan = RoomLayoutGenerator.buildRoomPlan(room.number, gameMode, roomType || room.type, {
-        nextRoomModifiers: (typeof Game !== 'undefined' && Game.nextRoomModifiers) ? Game.nextRoomModifiers : null
-    });
+    const gameMode = (typeof Game !== 'undefined' && Game.gameMode) ? Game.gameMode : 'gear';
+    const plan = RoomLayoutGenerator.buildRoomPlan(room.number, gameMode, roomType || room.type, {});
     const seed = `${gameMode}:${room.number}:${plan.roomType}:${plan.biomeId}:v${plan.layoutVersion}`;
     const layout = RoomLayoutGenerator.generateRoomLayout(plan, seed);
 
@@ -97,157 +95,70 @@ function getMultiplayerScaling() {
 function generateRoom(roomNumber) {
     const room = new Room(roomNumber);
 
-    // Check for Boss Rush FIRST (skip to boss room) - modifier override takes priority
-    if (typeof Game !== 'undefined' && Game.bossRushTargetRoom && roomNumber === Game.bossRushTargetRoom) {
-        room.type = 'boss';
-        applyGeneratedLayoutToRoom(room, room.type);
-        const boss = generateBoss(roomNumber);
-        room.enemies.push(boss);
-        Game.bossRushTargetRoom = null;
-        if (Game.nextRoomPackType) Game.nextRoomPackType = null;
-        if (Game.nextRoomTypeOverride) Game.nextRoomTypeOverride = null;
+    // Room 0: purpose-built empty tutorial arena (not a standard generated room)
+    if (roomNumber === 0) {
+        room.type = 'tutorial';
+        if (typeof Room0Tutorial !== 'undefined' && Room0Tutorial.setupRoom) {
+            Room0Tutorial.setupRoom(room);
+        } else {
+            room.width = 1280;
+            room.height = 720;
+            room.enemies = [];
+            room.cleared = false;
+            room.doorOpen = false;
+        }
         return room;
     }
 
-    // Determine room type from pack selection or default logic
+    // Gear mode room type: Safe Room transition, else boss every 10 rooms
     let roomType = 'normal';
-    let packType = null;
-
-    // Check for room type override from room modifier FIRST (takes priority over everything except Boss Rush)
-    if (typeof Game !== 'undefined' && Game.nextRoomTypeOverride) {
-        roomType = Game.nextRoomTypeOverride;
-        Game.nextRoomTypeOverride = null;
-        // Room modifier override takes priority - skip boss room check
-    } else if (typeof Game !== 'undefined' && Game.nextRoomPackType) {
-        // Check for pack type from door selection
-        packType = Game.nextRoomPackType;
-        // Map pack type to room type
-        switch (packType) {
-            case 'Elite':
-                roomType = 'elite';
-                break;
-            case 'Challenge':
-                roomType = 'challenge';
-                break;
-            case 'Rest':
-                roomType = 'rest';
-                break;
-            case 'Safe':
-            case 'Safe Passage':
-                roomType = 'safe';
-                break;
-            case 'Treasure':
-                roomType = 'treasure';
-                break;
-            case 'Purification':
-                roomType = 'purification';
-                break;
-            case 'Bonus Slot':
-                roomType = 'bonus_slot';
-                break;
-            case 'Truncation':
-                roomType = 'truncation';
-                break;
-            case 'Safe':
-                roomType = 'safe';
-                break;
-            case 'Standard':
-            default:
-                roomType = 'normal';
-                break;
-        }
-        // Clear pack type after use (one-time effect)
-        Game.nextRoomPackType = null;
-    } else {
-        // Check game mode for boss room progression
-        const gameMode = (typeof Game !== 'undefined' && Game.gameMode) ? Game.gameMode : 'cards';
-
-        if (gameMode === 'gear') {
-            // Gear mode: bosses at room 10, then every 5 rooms until room 30
-            // After room 30, bosses spawn as elite enemies in normal rooms (not boss rooms)
-            if (roomNumber >= 10 && roomNumber <= 30 && (roomNumber - 10) % 5 === 0) {
-                roomType = 'boss';
-            }
-        } else {
-            // Card mode: Boss rooms per spec at rooms 12, 22, 32 only
-            // After room 32, bosses spawn as elite enemies in normal rooms (not boss rooms)
-            if (roomNumber === 12 || roomNumber === 22 || roomNumber === 32) {
-                roomType = 'boss';
-            } else {
-                // Default: Safe/Upgrade rooms unlock at room 22; appear periodically
-                if (roomNumber >= 22 && (roomNumber % 7 === 2)) {
-                    roomType = 'safe';
-                }
-            }
-        }
+    if (typeof Game !== 'undefined' && Game.enteringSafeRoom) {
+        roomType = 'safe';
+    } else if (roomNumber >= 10 && roomNumber % 10 === 0) {
+        roomType = 'boss';
     }
 
     room.type = roomType;
     applyGeneratedLayoutToRoom(room, roomType);
 
-    // Handle boss room generation (if room type is boss from either modifier or default)
+    // Spawn pre-boss healer near the exit in rooms preceding a boss (9, 19, 29…).
+    // Hidden/unusable until the room is cleared and the boss door opens (see doorOpen gates).
+    if ((roomNumber + 1) % 10 === 0 && roomType !== 'safe' && roomType !== 'boss') {
+        const door = getRoomDoorPosition(room);
+        room.preBossHealer = {
+            x: door.x - 90,
+            y: door.y - 45,
+            range: 60,
+            used: false,
+            name: "Pre-Boss Healer",
+            icon: "💚"
+        };
+    }
+
+    // Handle boss room generation
     if (roomType === 'boss') {
         const boss = generateBoss(roomNumber);
         room.enemies.push(boss);
-        // Clear any remaining pack type since boss overrides it
-        if (typeof Game !== 'undefined' && Game.nextRoomPackType) {
-            Game.nextRoomPackType = null;
-        }
         return room;
     }
 
     // Safe rooms have no enemies - mark as cleared immediately
     if (roomType === 'safe') {
-        // No enemies; mark as cleared immediately so rewards are granted
         room.cleared = true;
         room.doorOpen = true;
-        room.rewardsGranted = false; // Ensure rewards are processed when checkRoomCleared() is called
-        // Note: Rewards will be granted when checkRoomCleared() is called in the update loop
+        room.rewardsGranted = false;
         return room;
     }
 
-    // Parse next-room enemy modifiers from card effects (before clearing)
-    let enemyHpMod = 1.0;
-    let enemySpeedMod = 1.0;
-    let explosionChance = 0;
-    let shieldChance = 0;
-    let doubleEnemies = false;
-
-    if (typeof Game !== 'undefined' && Game.nextRoomModifiers) {
-        const mods = Game.nextRoomModifiers;
-        if (Number.isFinite(mods.hpPct) && mods.hpPct !== 0) {
-            enemyHpMod *= (1 + mods.hpPct);
-        }
-        if (Number.isFinite(mods.speedPct) && mods.speedPct !== 0) {
-            enemySpeedMod *= (1 + mods.speedPct);
-        }
-        explosionChance = mods.explosionChance || 0;
-        shieldChance = mods.shieldChance || 0;
-        doubleEnemies = mods.doubleEnemies || false;
-
-        console.log('[Room Generation] Applying modifiers - explosionChance:', explosionChance, 'shieldChance:', shieldChance, 'hpPct:', mods.hpPct, 'speedPct:', mods.speedPct);
-
-        Game.nextRoomModifiers = null;
-    }
-
-    if (typeof Game !== 'undefined' && Game.nextRoomEnemyMod) {
-        if (Number.isFinite(Game.nextRoomEnemyMod.hpPct) && Game.nextRoomEnemyMod.hpPct !== 0) {
-            enemyHpMod *= (1 + Game.nextRoomEnemyMod.hpPct);
-        }
-        if (Number.isFinite(Game.nextRoomEnemyMod.speedPct) && Game.nextRoomEnemyMod.speedPct !== 0) {
-            enemySpeedMod *= (1 + Game.nextRoomEnemyMod.speedPct);
-        }
-        Game.nextRoomEnemyMod = null;
-    }
-
-    const gameMode = (typeof Game !== 'undefined' && Game.gameMode) ? Game.gameMode : 'cards';
+    const enemyHpMod = 1.0;
+    const enemySpeedMod = 1.0;
+    const gameMode = (typeof Game !== 'undefined' && Game.gameMode) ? Game.gameMode : 'gear';
     const scalingCtx = CombatScaling.createContext({
         roomNumber,
         roomType,
         gameMode,
         enemyHpMod,
-        enemySpeedMod,
-        doubleEnemies
+        enemySpeedMod
     });
     const scalingFactors = CombatScaling.computeScalingFactors(scalingCtx);
     scalingCtx._factors = scalingFactors;
@@ -419,26 +330,19 @@ function generateRoom(roomNumber) {
                 }
             }
 
-            // Choose enemy type based on room number, but elite/challenge rooms override restrictions
+            // Choose enemy type based on room number
             let enemy;
             const rand = Math.random();
 
-            // Elite and challenge rooms (from modifiers) can spawn all enemy types regardless of room number
-            const isEliteOrChallenge = (roomType === 'elite' || roomType === 'challenge' || roomType === 'bonus_slot');
-            const effectiveRoomNumber = isEliteOrChallenge ? Math.max(9, roomNumber) : roomNumber;
-
-            if (effectiveRoomNumber < 3) {
-                // Rooms 1-2: Only basic enemies
+            if (roomNumber < 3) {
                 enemy = new Enemy(x, y);
-            } else if (effectiveRoomNumber < 5) {
-                // Rooms 3-4: Mix of basic and star (60% vs 40%)
+            } else if (roomNumber < 5) {
                 if (rand < 0.6) {
                     enemy = new Enemy(x, y);
                 } else {
                     enemy = new StarEnemy(x, y);
                 }
-            } else if (effectiveRoomNumber < 7) {
-                // Rooms 5-6: Add diamonds (35%, 35%, 30%)
+            } else if (roomNumber < 7) {
                 if (rand < 0.35) {
                     enemy = new Enemy(x, y);
                 } else if (rand < 0.7) {
@@ -446,8 +350,7 @@ function generateRoom(roomNumber) {
                 } else {
                     enemy = new DiamondEnemy(x, y);
                 }
-            } else if (effectiveRoomNumber < 9) {
-                // Rooms 7-8: Add rectangles (25% each)
+            } else if (roomNumber < 9) {
                 if (rand < 0.25) {
                     enemy = new Enemy(x, y);
                 } else if (rand < 0.5) {
@@ -458,17 +361,7 @@ function generateRoom(roomNumber) {
                     enemy = new RectangleEnemy(x, y);
                 }
             } else {
-                // Room 9+: All types including rare octagons
-                // Adjust octagon spawn rate based on room type
-                let octagonChance = 0.05; // Default 5%
-                if (roomType === 'elite') {
-                    octagonChance = 0.25; // 25% for elite rooms
-                } else if (roomType === 'challenge') {
-                    octagonChance = 0.35; // 35% for challenge rooms
-                } else if (roomType === 'bonus_slot') {
-                    octagonChance = 0.45; // 45% for bonus slot rooms
-                }
-
+                const octagonChance = 0.05;
                 if (rand < octagonChance) {
                     enemy = new OctagonEnemy(x, y);
                 } else if (rand < octagonChance + 0.25) {
@@ -480,20 +373,6 @@ function generateRoom(roomNumber) {
                 } else {
                     enemy = new RectangleEnemy(x, y);
                 }
-            }
-
-            // Apply room modifier effects to enemy
-            if (explosionChance > 0) {
-                const roll = Math.random();
-                if (roll < explosionChance) {
-                    enemy.explodesOnDeath = true;
-                    enemy.explosionChance = explosionChance;
-                    console.log('[Enemy Spawn] Enemy set to explode on death (chance:', explosionChance, 'roll:', roll.toFixed(3), ')');
-                }
-            }
-            if (shieldChance > 0 && Math.random() < shieldChance) {
-                enemy.hasShield = true;
-                enemy.shieldReflects = (roomType === 'elite' || roomType === 'challenge' || shieldChance >= 0.4);
             }
 
             CombatScaling.applyEnemyScaling(
@@ -517,36 +396,34 @@ function generateRoom(roomNumber) {
         }
     }
 
-    // Boss elite enemy system after room 30
-    if (roomNumber > 30 && roomType === 'normal') {
+    // Boss elite enemy system after canonical gear run (room 50): mid-cycle spice
+    // Full boss rooms continue at 60, 70, …; elites fill 55, 65, 75, …
+    if (roomNumber > 50 && roomType === 'normal') {
         let bossesToSpawn = 0;
         
-        // Guaranteed boss spawns every 5 rooms after room 30 (35, 40, 45, 50, 55, etc.)
-        if (roomNumber > 30 && (roomNumber % 5 === 0)) {
-            // After room 50 (starting at room 55), guarantee 2 bosses; rooms 35-50 guarantee 1
-            const guaranteedCount = roomNumber > 50 ? 2 : 1;
+        // Guaranteed elite boss midway between boss rooms (55, 65, 75, …)
+        if (roomNumber % 10 === 5) {
+            // After room 80, guarantee 2 elites; rooms 55-75 guarantee 1
+            const guaranteedCount = roomNumber > 80 ? 2 : 1;
             bossesToSpawn = guaranteedCount;
             console.log(`[Room ${roomNumber}] Guaranteed ${guaranteedCount} boss(es) as elite enemies`);
         } else {
             // For non-guaranteed rooms, apply random boss spawn chance
-            const roomsPast30 = roomNumber - 30;
-            const baseBossChance = 0.05; // 5% at room 30
+            const roomsPast50 = roomNumber - 50;
+            const baseBossChance = 0.05; // 5% just after canonical end
             const chancePerRoom = 0.005; // +0.5% per room
-            const randomBossChance = baseBossChance + (roomsPast30 * chancePerRoom);
+            const randomBossChance = baseBossChance + (roomsPast50 * chancePerRoom);
             
             if (Math.random() < randomBossChance) {
                 bossesToSpawn = 1;
                 
-                // After room 50, chance for second random boss
-                if (roomNumber >= 50) {
-                    const roomsPast50 = roomNumber - 50;
-                    const baseDoubleChance = 0.10; // 10% at room 50
-                    const doubleChancePerRoom = 0.005; // +0.5% per room
-                    const doubleBossChance = baseDoubleChance + (roomsPast50 * doubleChancePerRoom);
-                    
-                    if (Math.random() < doubleBossChance) {
-                        bossesToSpawn = 2;
-                    }
+                // Chance for a second random elite as rooms climb past canonical end
+                const baseDoubleChance = 0.10;
+                const doubleChancePerRoom = 0.005;
+                const doubleBossChance = baseDoubleChance + (roomsPast50 * doubleChancePerRoom);
+                
+                if (Math.random() < doubleBossChance) {
+                    bossesToSpawn = 2;
                 }
             }
         }
@@ -678,59 +555,22 @@ function checkRoomCleared() {
     // Process rewards and special effects if room is cleared and rewards haven't been granted yet
     // This handles both safe rooms (pre-marked as cleared) and normal rooms (just cleared)
     if (currentRoom.cleared && !currentRoom.rewardsGranted) {
-        // First spawn the reward for this room (if any)
-        // For Room 1, this generates a random reward
-        // For Room 2+, this just checks if selectedDoorReward exists (doesn't modify it)
-        if (typeof spawnRoomReward === 'function') {
-            spawnRoomReward();
+        // Tutorial room: open door only - no credits/shards/XP/loot/milestones
+        if (currentRoom.type === 'tutorial' || currentRoom.number === 0) {
+            currentRoom.rewardsGranted = true;
+            return true;
         }
 
-        // Handle special room type clear effects
-        if (currentRoom.type === 'safe' || currentRoom.type === 'rest') {
-            // Safe/Rest room: Restore 50% max HP to all players
-            if (typeof Game !== 'undefined' && Game.player) {
+        // Safe room soft landing before machine interactions
+        // Resume from checkpoint skips this so snapshot HP wins.
+        if (currentRoom.type === 'safe') {
+            if (typeof Game !== 'undefined' && Game.resumeSkipSafeSoftHeal) {
+                Game.resumeSkipSafeSoftHeal = false;
+            } else if (typeof Game !== 'undefined' && Game.player) {
                 const maxHp = Game.player.maxHp || 100;
                 const healAmount = Math.floor(maxHp * 0.5);
                 Game.player.hp = Math.min(Game.player.maxHp, Game.player.hp + healAmount);
-                console.log(`[Room Clear] ${currentRoom.type} room: Restored 50% HP (${healAmount})`);
-            }
-        } else if (currentRoom.type === 'treasure') {
-            // Treasure room: Restore 25% max HP to all players
-            if (typeof Game !== 'undefined' && Game.player) {
-                const maxHp = Game.player.maxHp || 100;
-                const healAmount = Math.floor(maxHp * 0.25);
-                Game.player.hp = Math.min(Game.player.maxHp, Game.player.hp + healAmount);
-                console.log('[Room Clear] Treasure room: Restored 25% HP');
-            }
-        } else if (currentRoom.type === 'purification') {
-            // Purification room: Remove one curse or grant 40 shards
-            if (typeof Game !== 'undefined' && typeof SaveSystem !== 'undefined') {
-                // Track last purification room
-                Game.lastPurificationRoom = currentRoom.number;
-                // Check if player has curses in hand
-                const hasCurses = Game.hand && Array.isArray(Game.hand) &&
-                    Game.hand.some(card => card.isCurse === true);
-                if (hasCurses) {
-                    // TODO: Show UI to remove one curse card
-                    Game.awaitingPurificationSelection = true;
-                    console.log('[Room Clear] Purification room: Player has curses, show removal UI');
-                } else {
-                    // Grant 40 shards if no curses
-                    SaveSystem.addCardShards(40);
-                    console.log('[Room Clear] Purification room: No curses, granted 40 shards');
-                }
-            }
-        } else if (currentRoom.type === 'bonus_slot') {
-            // Bonus slot room: Grant +1 hand slot and +15 shards
-            if (typeof Game !== 'undefined' && typeof SaveSystem !== 'undefined') {
-                // Grant +1 hand slot for rest of run
-                if (!Game.runHandSizeBonus) Game.runHandSizeBonus = 0;
-                Game.runHandSizeBonus += 1;
-                // Grant shards
-                SaveSystem.addCardShards(15);
-                // Mark as used (can only appear once per run)
-                Game.bonusSlotRoomUsed = true;
-                console.log('[Room Clear] Bonus slot room: Granted +1 hand slot and 15 shards');
+                console.log(`[Room Clear] safe room: Restored 50% HP (${healAmount})`);
             }
         }
 
@@ -745,7 +585,7 @@ function checkRoomCleared() {
                 roomNumber: currentRoom.number,
                 metadata: {
                     roomType: currentRoom.type,
-                    gameMode: typeof Game !== 'undefined' && Game.gameMode ? Game.gameMode : 'cards',
+                    gameMode: typeof Game !== 'undefined' && Game.gameMode ? Game.gameMode : 'gear',
                     enemiesKilled: typeof Game !== 'undefined' ? Game.enemiesKilled || 0 : 0,
                     bossesKilled: typeof Game !== 'undefined' ? Game.bossesKilled || 0 : 0,
                     itemsDroppedThisRoom: typeof Game !== 'undefined' ? Game.itemsDroppedThisRoom || 0 : 0,
@@ -759,160 +599,18 @@ function checkRoomCleared() {
             Telemetry.recordRoomCleared(currentRoom.number, participants);
         }
 
-        // Update lifetime stats and check for card unlocks based on room milestone
+        // Persist highest room cleared for nexus machine gates
+        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+        if (!isClient && typeof SaveSystem !== 'undefined' && SaveSystem.recordRoomCleared) {
+            const roomNum = currentRoom.number || (typeof Game !== 'undefined' ? Game.roomNumber : 0);
+            SaveSystem.recordRoomCleared(roomNum);
+        }
+
         if (typeof window.updateLifetimeStats === 'function') {
             window.updateLifetimeStats({ totalRoomsCleared: 1 });
         }
-        if (typeof window.checkRoomMilestoneUnlocks === 'function' && typeof Game !== 'undefined' && Game.roomNumber) {
-            const unlocked = window.checkRoomMilestoneUnlocks(Game.roomNumber);
-            if (unlocked.length > 0) {
-                console.log(`[CardUnlocks] Unlocked ${unlocked.length} card(s) at room ${Game.roomNumber}`);
-                // Show toast notifications for unlocked cards
-                if (typeof window.showToast === 'function') {
-                    unlocked.forEach((card, index) => {
-                        const cardName = card.name || card.id || 'Card';
-                        setTimeout(() => {
-                            window.showToast(`New Card Unlocked: ${cardName}!`, 3000);
-                        }, index * 200); // Stagger toasts slightly if multiple unlocks
-                    });
-                }
-            }
-        }
 
-        // Elite kills are now tracked per enemy death in enemy-base.js die() method
-        // This ensures we count all elite enemies, not just one per room
-
-        // Room modifier drops from elite/boss rooms (only in card mode)
-        const gameMode = (typeof Game !== 'undefined' && Game.gameMode) ? Game.gameMode : 'cards';
-        if (gameMode === 'cards' && (currentRoom.type === 'elite' || currentRoom.type === 'boss') && typeof SaveSystem !== 'undefined' && typeof window.ROOM_MODIFIER_CARDS !== 'undefined') {
-            const isElite = currentRoom.type === 'elite';
-            const isBoss = currentRoom.type === 'boss';
-            const dropChance = isBoss ? 0.40 : 0.25; // Boss: 40%, Elite: 25%
-
-            if (Math.random() < dropChance) {
-                // Generate random room modifier card
-                const availableMods = window.ROOM_MODIFIER_CARDS.filter(mod => {
-                    // Filter by unlock status if needed (for now, allow all)
-                    return true;
-                });
-
-                if (availableMods.length > 0) {
-                    const modDef = availableMods[Math.floor(Math.random() * availableMods.length)];
-                    // Determine quality based on room number
-                    const roomNum = currentRoom.number || 1;
-                    let quality = 'white';
-                    if (roomNum >= 22) {
-                        // Late game: higher quality
-                        const rand = Math.random();
-                        if (rand < 0.15) quality = 'orange';
-                        else if (rand < 0.35) quality = 'purple';
-                        else if (rand < 0.60) quality = 'blue';
-                        else if (rand < 0.85) quality = 'green';
-                    } else if (roomNum >= 12) {
-                        // Mid game
-                        const rand = Math.random();
-                        if (rand < 0.05) quality = 'orange';
-                        else if (rand < 0.15) quality = 'purple';
-                        else if (rand < 0.40) quality = 'blue';
-                        else if (rand < 0.70) quality = 'green';
-                    } else {
-                        // Early game
-                        const rand = Math.random();
-                        if (rand < 0.30) quality = 'green';
-                        else quality = 'white';
-                    }
-
-                    // Create modifier instance with resolved quality
-                    const modInstance = { ...modDef };
-                    modInstance._resolvedQuality = quality;
-
-                    // Drop on ground near player
-                    if (typeof Game !== 'undefined' && Game.player && typeof CardGround !== 'undefined' && CardGround.dropAt) {
-                        const dropX = Game.player.x + 60;
-                        const dropY = Game.player.y;
-                        CardGround.dropAt(dropX, dropY, modInstance);
-                        console.log(`[Room Modifier Drop] ${modDef.family} (${quality}) dropped from ${currentRoom.type} room`);
-                    }
-                }
-            }
-        }
-
-        // Grant rewards from previous room's door selection (if any)
-        // This happens AFTER the room is cleared, so rewards are only given after defeating all enemies
-        // For safe rooms, this happens immediately since there are no enemies
-        console.log('[DEBUG] Checking selectedDoorReward:', window.selectedDoorReward);
-        console.log('[DEBUG] CardPacks available:', typeof CardPacks !== 'undefined');
-        console.log('[DEBUG] CardPacks.applyDoorOption available:', typeof CardPacks !== 'undefined' && typeof CardPacks.applyDoorOption === 'function');
-        if (typeof window !== 'undefined' && window.selectedDoorReward && typeof CardPacks !== 'undefined' && CardPacks.applyDoorOption) {
-            const reward = window.selectedDoorReward;
-            console.log('[Room Clear] Granting rewards from previous door selection:', reward);
-            console.log('[DEBUG] Reward type:', reward.rewardType);
-            console.log('[DEBUG] Reward payload:', reward.payload);
-            // Apply the door option to grant rewards (cards, shards, bonus rewards from modifiers)
-            CardPacks.applyDoorOption(reward);
-            console.log('[DEBUG] applyDoorOption completed');
-            // Clear the selected reward after granting
-            window.selectedDoorReward = null;
-        } else {
-            console.log('[DEBUG] Skipping applyDoorOption - condition failed');
-        }
-
-        // Mark that rewards have been granted for this room (prevents duplicate granting)
         currentRoom.rewardsGranted = true;
-
-        // Card system: generate door options for NEXT room (only in card mode)
-        if (typeof Game !== 'undefined' && Game.gameMode === 'cards' && typeof CardPacks !== 'undefined' && CardPacks.generateDoorOptions) {
-            const forceUpgrade = currentRoom.type === 'safe';
-            const count = forceUpgrade ? 1 : (2 + Math.floor(Math.random() * 2));
-            if (forceUpgrade) {
-                const upgradeOption = {
-                    packType: 'Upgrade',
-                    rewardType: 'Upgrade',
-                    preview: ['+1 quality to a hand card', '+20 shards option'],
-                    payload: { upgrade: true, shards: 20 }
-                };
-                // Validate upgrade option - check if player can actually upgrade
-                // IMPORTANT: Account for room reward upgrade that will be picked up before door selection
-                const currentRoomNumber = currentRoom.number || (typeof Game !== 'undefined' ? Game.roomNumber : 1);
-
-                // Check if there's a room reward that's an upgrade (from previous room's door selection)
-                const roomRewardIsUpgrade = typeof window !== 'undefined' && window.selectedDoorReward
-                    && window.selectedDoorReward.rewardType === 'Upgrade'
-                    && window.selectedDoorReward.payload
-                    && window.selectedDoorReward.payload.upgrade;
-
-                // Count how many cards can be upgraded
-                const upgradeableCount = typeof window.countUpgradeableCards === 'function'
-                    ? window.countUpgradeableCards(currentRoomNumber)
-                    : (typeof window.canUpgradeAnyCard === 'function' && window.canUpgradeAnyCard(currentRoomNumber) ? 1 : 0);
-
-                // If room reward is an upgrade, it will use one upgrade slot
-                // So door upgrade options need at least 2 upgradeable cards (1 for room reward, 1 for door option)
-                const requiredUpgradeableCount = roomRewardIsUpgrade ? 2 : 1;
-                const canUpgrade = upgradeableCount >= requiredUpgradeableCount;
-
-                upgradeOption.canUpgrade = canUpgrade;
-                if (!canUpgrade) {
-                    const maxQuality = typeof window.getMaxUpgradeQualityForRoom === 'function'
-                        ? window.getMaxUpgradeQualityForRoom(currentRoomNumber)
-                        : 'orange';
-                    if (roomRewardIsUpgrade) {
-                        upgradeOption.upgradeWarning = `Room reward is an upgrade. After using it, no cards will be upgradeable (max ${maxQuality} for Room ${currentRoomNumber}). Choose a different reward.`;
-                    } else {
-                        upgradeOption.upgradeWarning = `All cards are already at maximum upgrade quality (${maxQuality}) for Room ${currentRoomNumber}). Choose a different reward.`;
-                    }
-                }
-                Game.doorOptions = [upgradeOption];
-            } else {
-                Game.doorOptions = CardPacks.generateDoorOptions(currentRoom.number || 1, count);
-            }
-            Game.awaitingDoorSelection = true;
-        }
-
-        // Spawn physical door selection objects (card packs) for next room
-        if (typeof Game !== 'undefined' && Game.gameMode === 'cards' && typeof createDoorSelections === 'function') {
-            createDoorSelections();
-        }
 
         if (typeof Game !== 'undefined' &&
             Game &&
@@ -1023,10 +721,13 @@ function generateBoss(roomNumber) {
     // Note: Random boss selection for elite enemies is handled by spawnBossAsElite()
     // This function still uses normal boss selection logic for boss rooms
     if (gameMode === 'gear') {
-        // Gear mode: bosses at room 10, 15, 20, 25, 30, etc.
+        // Gear mode: bosses at room 10, 20, 30, 40, 50, etc.
         // Cycle through bosses: Swarm King, Twin Prism, Fortress, Fractal Core, Vortex
-        // Formula: (roomNumber - 10) / 5 gives boss index (0, 1, 2, 3, 4, ...)
-        const bossIndex = Math.floor((roomNumber - 10) / 5) % 5;
+        // Formula: (roomNumber - 10) / 10 gives boss index (0, 1, 2, 3, 4, ...)
+        const bossInterval = (typeof CombatScaling !== 'undefined' && CombatScaling.GEAR_BOSS_INTERVAL)
+            ? CombatScaling.GEAR_BOSS_INTERVAL
+            : 10;
+        const bossIndex = Math.floor((roomNumber - 10) / bossInterval) % 5;
 
         if (bossIndex === 0) {
             // Swarm King
@@ -1200,4 +901,65 @@ function createPlaceholderBoss(x, y, name) {
 
     return boss;
 }
+
+// Get door position specifically using layout of the room object
+function getRoomDoorPosition(room) {
+    if (!room) return { x: 2300, y: 625, width: 50, height: 100 };
+    const roomWidth = room.width || 2400;
+    const roomHeight = room.height || 1350;
+    const exitZone = (room.layout && room.layout.exitZone) ? room.layout.exitZone : null;
+    if (exitZone) {
+        return {
+            x: exitZone.x - 25,
+            y: exitZone.y - 50,
+            width: 50,
+            height: 100
+        };
+    }
+    return {
+        x: roomWidth - 100,
+        y: roomHeight / 2 - 50,
+        width: 50,
+        height: 100
+    };
+}
+
+// Retrieve or initialize Safe Room machines (Save Run booth is solo-only)
+function getSafeRoomMachines(room) {
+    if (!room || room.type !== 'safe') return [];
+    const roomWidth = room.width || 1600;
+    const roomHeight = room.height || 900;
+    const isSolo = typeof Game === 'undefined' || !Game.multiplayerEnabled;
+
+    if (!room.safeRoomMachines) {
+        room.safeRoomMachines = [
+            { id: 'gearUpgrade', name: 'Gear Level Up', icon: '🛠️', x: roomWidth / 2 - 150, y: roomHeight / 2, range: 60 },
+            { id: 'affixReroll', name: 'Affix Reroll', icon: '🎲', x: roomWidth / 2, y: roomHeight / 2, range: 60 },
+            { id: 'healMaxHp', name: 'Healer Machine', icon: '❤️', x: roomWidth / 2 + 150, y: roomHeight / 2, range: 60 }
+        ];
+    }
+
+    const hasSave = room.safeRoomMachines.some(m => m.id === 'runSave');
+    if (isSolo && !hasSave) {
+        room.safeRoomMachines.push({
+            id: 'runSave',
+            name: 'Save Run',
+            icon: '', // drawn as vector PS2 in main.js
+            x: roomWidth / 2,
+            y: roomHeight / 2 + 110,
+            range: 60
+        });
+    } else if (!isSolo && hasSave) {
+        room.safeRoomMachines = room.safeRoomMachines.filter(m => m.id !== 'runSave');
+    }
+
+    return room.safeRoomMachines;
+}
+
+// Expose globally
+if (typeof window !== 'undefined') {
+    window.getRoomDoorPosition = getRoomDoorPosition;
+    window.getSafeRoomMachines = getSafeRoomMachines;
+}
+
 

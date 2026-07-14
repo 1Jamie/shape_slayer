@@ -550,7 +550,7 @@ function formatTime(seconds) {
     ctx.font = `bold ${Math.floor(20 * scale)}px Orbitron`;
     ctx.fillStyle = '#ffd700';
     ctx.textAlign = 'center';
-    ctx.fillText('Card Shards:', centerX, centerY - 30 * scale);
+    ctx.fillText('Shards:', centerX, centerY - 30 * scale);
 
     ctx.font = `bold ${Math.floor(24 * scale)}px Orbitron`;
     ctx.fillStyle = '#ffd700';
@@ -1084,11 +1084,6 @@ function renderDoorDirectionArrow(ctx, player) {
 
     if (typeof Game === 'undefined' || Game.state !== 'PLAYING') return;
     if (typeof currentRoom === 'undefined' || !currentRoom || !currentRoom.doorOpen) return;
-    const hasActiveSelections = typeof window !== 'undefined' &&
-        Array.isArray(window.selectionDoors) &&
-        window.selectionDoors.length > 0 &&
-        window.selectionDoors.some(d => !d.selected && d.alpha > 0);
-    if (hasActiveSelections || Game.awaitingDoorSelection) return;
 
     const inMultiplayer = Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
 
@@ -1202,8 +1197,16 @@ function checkNexusInteractions() {
         return null;
     }
 
+    const allow = (type, detail) => {
+        const cpOk = typeof RunCheckpoint === 'undefined' || !RunCheckpoint.allowsNexusInteraction
+            || RunCheckpoint.allowsNexusInteraction(type);
+        const obOk = typeof Onboarding === 'undefined' || !Onboarding.allowsInteraction || Onboarding.allowsInteraction(type);
+        const ftOk = typeof FeatureTutorials === 'undefined' || !FeatureTutorials.allowsInteraction || FeatureTutorials.allowsInteraction(type, detail);
+        return cpOk && obOk && ftOk;
+    };
+
     // Check class stations
-    if (typeof classStations !== 'undefined') {
+    if (typeof classStations !== 'undefined' && allow('class')) {
         for (const station of classStations) {
             const dx = station.x - Game.player.x;
             const dy = station.y - Game.player.y;
@@ -1216,7 +1219,7 @@ function checkNexusInteractions() {
     }
 
     // Check upgrade stations
-    if (Game.selectedClass && typeof upgradeStations !== 'undefined') {
+    if (Game.selectedClass && typeof upgradeStations !== 'undefined' && allow('upgrade')) {
         for (const station of upgradeStations) {
             const dx = station.x - Game.player.x;
             const dy = station.y - Game.player.y;
@@ -1229,18 +1232,20 @@ function checkNexusInteractions() {
     }
 
     // Check card portal (default)
-    if (nexusRoom.portalPos) {
+    if (nexusRoom.portalPos && allow('portal')) {
         const portalDx = nexusRoom.portalPos.x - Game.player.x;
         const portalDy = nexusRoom.portalPos.y - Game.player.y;
         const portalDistance = Math.sqrt(portalDx * portalDx + portalDy * portalDy);
+        const hasResume = typeof SaveSystem !== 'undefined' && SaveSystem.hasActiveRunCheckpoint
+            && SaveSystem.hasActiveRunCheckpoint();
 
-        if (portalDistance < 60 && Game.selectedClass) {
-            return { type: 'portal', data: { mode: 'cards' } };
+        if (portalDistance < 60 && (Game.selectedClass || hasResume)) {
+            return { type: 'portal', data: { mode: 'gear', resume: hasResume } };
         }
     }
 
     // Check gear portal
-    if (nexusRoom.gearPortalPos) {
+    if (nexusRoom.gearPortalPos && allow('portal')) {
         const gearPortalDx = nexusRoom.gearPortalPos.x - Game.player.x;
         const gearPortalDy = nexusRoom.gearPortalPos.y - Game.player.y;
         const gearPortalDistance = Math.sqrt(gearPortalDx * gearPortalDx + gearPortalDy * gearPortalDy);
@@ -1251,7 +1256,7 @@ function checkNexusInteractions() {
     }
 
     // Check mode switcher
-    if (nexusRoom.modeSwitcherPos) {
+    if (nexusRoom.modeSwitcherPos && allow('modeSwitcher')) {
         const switcherDx = nexusRoom.modeSwitcherPos.x - Game.player.x;
         const switcherDy = nexusRoom.modeSwitcherPos.y - Game.player.y;
         const switcherDistance = Math.sqrt(switcherDx * switcherDx + switcherDy * switcherDy);
@@ -1265,52 +1270,33 @@ function checkNexusInteractions() {
         }
     }
 
-    // Check room modifier station
-    if (typeof roomModifierStation !== 'undefined' && roomModifierStation) {
-        const modDx = roomModifierStation.x - Game.player.x;
-        const modDy = roomModifierStation.y - Game.player.y;
-        const modDistance = Math.sqrt(modDx * modDx + modDy * modDy);
+    // Check gear upgrade stations (UI Safety Locks guard check watchpoint 1)
+    const gearStations = window.gearUpgradeStations;
+    if (typeof gearStations !== 'undefined' && Array.isArray(gearStations)) {
+        const targetedStation = gearStations.find(s => {
+            const dx = s.x - Game.player.x;
+            const dy = s.y - Game.player.y;
+            return Math.sqrt(dx * dx + dy * dy) < 50;
+        });
 
-        if (modDistance < 50) {
-            return { type: 'roomModifier' };
-        }
-    }
-
-    // Check deck builder station
-    if (typeof deckBuilderStation !== 'undefined' && deckBuilderStation) {
-        const deckDx = deckBuilderStation.x - Game.player.x;
-        const deckDy = deckBuilderStation.y - Game.player.y;
-        const deckDistance = Math.sqrt(deckDx * deckDx + deckDy * deckDy);
-
-        if (deckDistance < 50) {
-            return { type: 'deckBuilder' };
-        }
-    }
-
-    // Check deck upgrade station
-    if (typeof deckUpgradeStation !== 'undefined' && deckUpgradeStation) {
-        const upgradeDx = deckUpgradeStation.x - Game.player.x;
-        const upgradeDy = deckUpgradeStation.y - Game.player.y;
-        const upgradeDistance = Math.sqrt(upgradeDx * upgradeDx + upgradeDy * upgradeDy);
-
-        if (upgradeDistance < 50) {
-            return { type: 'deckUpgrade' };
-        }
-    }
-
-    // Check mastery station
-    if (typeof masteryStation !== 'undefined' && masteryStation) {
-        const masteryDx = masteryStation.x - Game.player.x;
-        const masteryDy = masteryStation.y - Game.player.y;
-        const masteryDistance = Math.sqrt(masteryDx * masteryDx + masteryDy * masteryDy);
-
-        if (masteryDistance < 50) {
-            return { type: 'mastery' };
+        if (targetedStation && allow('gearUpgrade', targetedStation.key)) {
+            const lock = (typeof window.getGearStationLockState === 'function')
+                ? window.getGearStationLockState(targetedStation)
+                : { locked: !!targetedStation.isLocked };
+            if (lock.locked) {
+                return {
+                    type: 'gearUpgradeLocked',
+                    upgradeId: targetedStation.key,
+                    unlockHint: lock.unlockHint || 'Locked',
+                    requiredBoss: lock.requiredBoss || null
+                };
+            }
+            return { type: 'gearUpgrade', upgradeId: targetedStation.key };
         }
     }
 
     // Check index machine
-    if (nexusRoom.indexMachinePos) {
+    if (nexusRoom.indexMachinePos && allow('indexMachine')) {
         const indexDx = nexusRoom.indexMachinePos.x - Game.player.x;
         const indexDy = nexusRoom.indexMachinePos.y - Game.player.y;
         const indexDistance = Math.sqrt(indexDx * indexDx + indexDy * indexDy);
@@ -1404,6 +1390,8 @@ let currentInteraction = null;
 function getInteractionTargetName(interaction) {
     if (!interaction) return '';
     const data = interaction.data || interaction.pylon || interaction;
+    if (interaction.type === 'safeRoomMachine') return interaction.machineName || 'Safe Room Machine';
+    if (interaction.type === 'preBossHealer') return 'Pre-Boss Healer';
     if (interaction.type === 'doorpack' && data) {
         return data.packName || data.name || data.type || '';
     }
@@ -1423,6 +1411,13 @@ function getInteractionTargetName(interaction) {
 
 function getInteractionLabel(interaction) {
     if (!interaction) return '';
+    if (interaction.type === 'safeRoomMachine') {
+        if (interaction.machineId === 'runSave' && typeof Game !== 'undefined' && Game.safeRoomUsedThisVisit) {
+            return 'Cannot save after machines used';
+        }
+        return (interaction.machineId === 'runSave' ? 'Use ' : 'Open ') + (interaction.machineName || 'Machine');
+    }
+    if (interaction.type === 'preBossHealer') return 'Activate Healer';
     if (interaction.type === 'doorpack') return 'Select Pack';
     if (interaction.type === 'gear') return 'Pickup Gear';
     if (interaction.type === 'card') return 'Pickup Card';
@@ -1430,16 +1425,29 @@ function getInteractionLabel(interaction) {
     if (interaction.type === 'upgrade') {
         return interaction.data && interaction.data.option ? 'Pickup Upgrade' : 'Purchase Upgrade';
     }
-    if (interaction.type === 'portal') return 'Enter Portal';
+    if (interaction.type === 'portal') {
+        if (typeof SaveSystem !== 'undefined' && SaveSystem.hasActiveRunCheckpoint && SaveSystem.hasActiveRunCheckpoint()) {
+            return 'Resume Run';
+        }
+        return 'Enter Portal';
+    }
     if (interaction.type === 'itemPylon') return 'Interact with Item Pylon';
     if (interaction.type === 'modeSwitcher') {
         const inMultiplayerLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
         return inMultiplayerLobby ? 'Cannot swap modes in multiplayer' : 'Switch Mode';
     }
-    if (interaction.type === 'roomModifier') return 'Open Room Modifiers';
-    if (interaction.type === 'deckBuilder') return 'Open Deck Builder';
-    if (interaction.type === 'deckUpgrade') return 'Open Deck Upgrades';
-    if (interaction.type === 'mastery') return 'Open Mastery';
+    if (interaction.type === 'gearUpgrade') {
+        const upgradeNames = {
+            affixSlots: 'Affix Capacity',
+            rarityChance: 'Rarity Chances',
+            safeRoomSystems: 'Safe Room Systems',
+            safeRoomEfficiency: 'Safe Room Efficiency'
+        };
+        return `Open ${upgradeNames[interaction.upgradeId] || 'Gear Upgrades'}`;
+    }
+    if (interaction.type === 'gearUpgradeLocked') {
+        return interaction.unlockHint || 'Locked';
+    }
     if (interaction.type === 'indexMachine') return 'Open Index';
     return 'Interact';
 }
@@ -1449,6 +1457,9 @@ function getInteractionDisabledReason(interaction) {
     if (interaction.type === 'modeSwitcher') {
         const inMultiplayerLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
         if (inMultiplayerLobby) return 'Cannot swap modes in multiplayer';
+    }
+    if (interaction.type === 'gearUpgradeLocked') {
+        return interaction.unlockHint || 'Locked';
     }
     return '';
 }
@@ -1468,34 +1479,6 @@ function recordMobileInteractionEvent(type, interaction, metadata = {}) {
             ...metadata
         }
     });
-}
-
-// Helper function to check door interaction
-function checkDoorPackInteraction() {
-    if (typeof checkDoorInteraction === 'function' && Game.player) {
-        const door = checkDoorInteraction(Game.player);
-        if (door) {
-            return { type: 'doorpack', data: door };
-        }
-    }
-    return null;
-}
-
-// Helper function to check card interaction
-function checkCardInteraction() {
-    if (typeof CardGround !== 'undefined' && CardGround.getSelected) {
-        const card = CardGround.getSelected();
-        if (card && Game.player) {
-            // Double check distance
-            const dx = card.x - Game.player.x;
-            const dy = card.y - Game.player.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist <= 100) { // Match pickR in ground.js
-                return { type: 'card', data: card };
-            }
-        }
-    }
-    return null;
 }
 
 // Helper function to check gear interaction
@@ -1533,14 +1516,35 @@ function updateInteractionState() {
 
     // Check for interactions based on game state
     if (Game && Game.state === 'PLAYING') {
-        // Priority: door pack > upgrade pickup > card > gear
-        let upgradeInteraction = null;
-        if (typeof checkUpgradePickup === 'function') {
-            const upgrade = checkUpgradePickup(Game.player);
-            if (upgrade) {
-                upgradeInteraction = { type: 'upgrade', data: upgrade };
+        // Check for safe room machines interaction
+        let safeMachineInteraction = null;
+        if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'safe' && Game.player) {
+            const machines = (typeof window.getSafeRoomMachines === 'function') ? window.getSafeRoomMachines(currentRoom) : [];
+            const nearMachine = machines.find(m => {
+                const dx = m.x - Game.player.x;
+                const dy = m.y - Game.player.y;
+                return Math.sqrt(dx * dx + dy * dy) < m.range;
+            });
+            if (nearMachine) {
+                safeMachineInteraction = { type: 'safeRoomMachine', machineId: nearMachine.id, machineName: nearMachine.name };
             }
         }
+
+        // Check for pre-boss healer interaction (only after room clear opens the boss door)
+        let preBossHealerInteraction = null;
+        if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen && currentRoom.preBossHealer && Game.player) {
+            const healer = currentRoom.preBossHealer;
+            if (!healer.usedBy) healer.usedBy = new Set();
+            const _uiLocalId = typeof Game.getLocalPlayerId === 'function' ? Game.getLocalPlayerId() : 'local';
+            if (!healer.usedBy.has(_uiLocalId)) {
+                const dx = healer.x - Game.player.x;
+                const dy = healer.y - Game.player.y;
+                if (Math.sqrt(dx * dx + dy * dy) < healer.range) {
+                    preBossHealerInteraction = { type: 'preBossHealer', healer: healer };
+                }
+            }
+        }
+
         // Check for item pylon interaction (multiplayer)
         let pylonInteraction = null;
         if (typeof checkItemPylonInteraction !== 'undefined' && Game.player) {
@@ -1554,9 +1558,8 @@ function updateInteractionState() {
             }
         }
 
-        currentInteraction = checkDoorPackInteraction() ||
-            upgradeInteraction ||
-            checkCardInteraction() ||
+        currentInteraction = safeMachineInteraction ||
+            preBossHealerInteraction ||
             checkGearInteraction() ||
             pylonInteraction;
     } else if (Game && Game.state === 'NEXUS') {
@@ -1641,12 +1644,7 @@ function performCurrentInteraction() {
 
     recordMobileInteractionEvent('mobileInteractionPerformed', currentInteraction);
 
-    if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'doorpack') {
-            // Select door pack (moves to next room)
-            if (typeof selectDoor === 'function' && currentInteraction.data) {
-                selectDoor(currentInteraction.data);
-            }
-        } else if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'itemPylon') {
+    if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'itemPylon') {
             // Interact with item pylon
             if (currentInteraction.pylon && Game.player && typeof interactWithItemPylon === 'function') {
                 interactWithItemPylon(currentInteraction.pylon, Game.player);
@@ -1681,50 +1679,38 @@ function performCurrentInteraction() {
                     }
                 }
             }
-        } else if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'upgrade' && currentInteraction.data) {
-            // Pick up upgrade (opens upgrade modal)
-            if (typeof pickupUpgrade === 'function') {
-                pickupUpgrade(currentInteraction.data);
+        } else if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'safeRoomMachine') {
+            if (typeof window.toggleSafeRoomMachine === 'function') {
+                window.toggleSafeRoomMachine(true, currentInteraction.machineId);
             }
-        } else if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'card') {
-            if (typeof CardGround !== 'undefined' && CardGround.pickAt && Game.player) {
-                // pick at player's position (within radius)
-                CardGround.pickAt(Game.player.x, Game.player.y);
+        } else if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'preBossHealer'
+            && typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen) {
+            const healer = currentInteraction.healer;
+            if (!healer.usedBy) healer.usedBy = new Set();
+            const _healLocalId = typeof Game.getLocalPlayerId === 'function' ? Game.getLocalPlayerId() : 'local';
+            if (!healer.usedBy.has(_healLocalId)) {
+                healer.usedBy.add(_healLocalId);
+                Game.player.hp = Math.min(Game.player.maxHp, Game.player.hp + Math.floor(Game.player.maxHp * 0.25));
+                if (typeof Game.player.updateEffectiveStats === 'function') {
+                    Game.player.updateEffectiveStats();
+                }
+                if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.sounds.heal) {
+                    AudioManager.sounds.heal();
+                }
+                console.log("[Healer] Restored 25% HP to player", _healLocalId);
             }
         } else if (Game && Game.state === 'NEXUS') {
             // Handle specific nexus interaction types
             if (currentInteraction.type === 'modeSwitcher') {
-                // Check if in multiplayer lobby
-                const inMultiplayerLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
-                if (!inMultiplayerLobby && typeof nexusRoom !== 'undefined' && nexusRoom) {
-                    // Toggle portal mode (single player only)
-                    nexusRoom.portalMode = nexusRoom.portalMode === 'cards' ? 'gear' : 'cards';
-                    console.log(`[Nexus] Switched portal mode to: ${nexusRoom.portalMode}`);
+                // Portal switcher is locked to Gear Mode (Card Mode removed)
+                if (typeof nexusRoom !== 'undefined' && nexusRoom) {
+                    nexusRoom.portalMode = 'gear';
                 }
-            } else if (currentInteraction.type === 'roomModifier') {
-                // Open room modifier selection
-                if (typeof Game !== 'undefined') {
-                    // Initialize selected modifiers if not set
-                    if (!Array.isArray(Game.selectedRoomModifiers)) {
-                        Game.selectedRoomModifiers = [];
-                    }
-                    // Toggle showing selection UI
-                    Game.showingRoomModifierSelection = !Game.showingRoomModifierSelection;
-                }
-            } else if (currentInteraction.type === 'deckBuilder') {
-                // Open deck builder
-                if (typeof window !== 'undefined' && typeof window.toggleDeckBuilder === 'function') {
-                    window.toggleDeckBuilder();
-                }
-            } else if (currentInteraction.type === 'deckUpgrade') {
-                // Open deck upgrades
-                if (typeof window !== 'undefined' && typeof window.toggleDeckUpgrades === 'function') {
-                    window.toggleDeckUpgrades();
-                }
-            } else if (currentInteraction.type === 'mastery') {
-                // Open mastery system
-                if (typeof window !== 'undefined' && typeof window.toggleMasterySystem === 'function') {
-                    window.toggleMasterySystem();
+                console.log('[Nexus] Portal switcher is locked to Gear Mode');
+            } else if (currentInteraction.type === 'gearUpgrade') {
+                // Open gear upgrades
+                if (typeof window !== 'undefined' && typeof window.toggleGearUpgrades === 'function') {
+                    window.toggleGearUpgrades(true, currentInteraction.upgradeId);
                 }
             } else if (currentInteraction.type === 'indexMachine') {
                 // Open index machine

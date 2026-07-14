@@ -208,7 +208,8 @@ class WorkerProcess {
                     triangle: { damage: 0, defense: 0, speed: 0 },
                     pentagon: { damage: 0, defense: 0, speed: 0 },
                     hexagon: { damage: 0, defense: 0, speed: 0 }
-                }
+                },
+                safeRoomMeta: data.safeRoomMeta || {}
             }],
             maxPlayers: config.lobby.maxPlayers,
             createdAt: Date.now()
@@ -234,7 +235,8 @@ class WorkerProcess {
                     class: p.class,
                     ready: p.ready,
                     currency: p.currency,
-                    upgrades: p.upgrades
+                    upgrades: p.upgrades,
+                    safeRoomMeta: p.safeRoomMeta || {}
                 }))
             }
         }));
@@ -307,6 +309,7 @@ class WorkerProcess {
                 existingPlayer.class = playerClass || existingPlayer.class;
                 existingPlayer.currency = data.currency !== undefined ? data.currency : existingPlayer.currency;
                 existingPlayer.upgrades = data.upgrades || existingPlayer.upgrades;
+                if (data.safeRoomMeta) existingPlayer.safeRoomMeta = data.safeRoomMeta;
                 // Keep ready state as-is (don't reset on reconnect)
                 
                 console.log(`[Worker ${this.getWorkerId()}] ${existingPlayer.name} reconnected to lobby ${code} (persistent ID: ${persistentPlayerId})`);
@@ -340,7 +343,8 @@ class WorkerProcess {
                     triangle: { damage: 0, defense: 0, speed: 0 },
                     pentagon: { damage: 0, defense: 0, speed: 0 },
                     hexagon: { damage: 0, defense: 0, speed: 0 }
-                }
+                },
+                safeRoomMeta: data.safeRoomMeta || {}
             };
             
             lobby.players.push(player);
@@ -363,7 +367,8 @@ class WorkerProcess {
                     class: p.class,
                     ready: p.ready,
                     currency: p.currency,
-                    upgrades: p.upgrades
+                    upgrades: p.upgrades,
+                    safeRoomMeta: p.safeRoomMeta || {}
                 }))
             }
         }));
@@ -386,7 +391,8 @@ class WorkerProcess {
                             triangle: { damage: 0, defense: 0, speed: 0 },
                             pentagon: { damage: 0, defense: 0, speed: 0 },
                             hexagon: { damage: 0, defense: 0, speed: 0 }
-                        }
+                        },
+                        safeRoomMeta: data.safeRoomMeta || {}
                     },
                     players: lobby.players.map(p => ({
                         id: p.id,
@@ -394,7 +400,8 @@ class WorkerProcess {
                         class: p.class,
                         ready: p.ready,
                         currency: p.currency,
-                        upgrades: p.upgrades
+                        upgrades: p.upgrades,
+                        safeRoomMeta: p.safeRoomMeta || {}
                     }))
                 }
             }, ws);
@@ -410,7 +417,8 @@ class WorkerProcess {
                         class: p.class,
                         ready: p.ready,
                         currency: p.currency,
-                        upgrades: p.upgrades
+                        upgrades: p.upgrades,
+                        safeRoomMeta: p.safeRoomMeta || {}
                     }))
                 }
             });
@@ -442,7 +450,8 @@ class WorkerProcess {
                     class: p.class,
                     ready: p.ready,
                     currency: p.currency,
-                    upgrades: p.upgrades
+                    upgrades: p.upgrades,
+                    safeRoomMeta: p.safeRoomMeta || {}
                 }))
             }
         });
@@ -629,7 +638,8 @@ class WorkerProcess {
                     class: p.class,
                     ready: p.ready,
                     currency: p.currency,
-                    upgrades: p.upgrades
+                    upgrades: p.upgrades,
+                    safeRoomMeta: p.safeRoomMeta || {}
                 }))
             }
         });
@@ -926,7 +936,7 @@ class WorkerProcess {
                 }));
             }
         }
-        // Host processes upgrade purchases locally in nexus — no server echo needed
+        // Host processes upgrade purchases locally in nexus - no server echo needed
     }
     
     handleUpgradePurchased(ws, data) {

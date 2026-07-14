@@ -628,8 +628,14 @@ class StarEnemy extends EnemyBase {
             }
         }
 
+        if (typeof this.awardDeathCredits === 'function') {
+            this.awardDeathCredits();
+        }
+
         // Emit particles on death
-        if (typeof createParticleBurst !== 'undefined') {
+        if (typeof this.triggerDeathVisuals === 'function') {
+            this.triggerDeathVisuals();
+        } else if (typeof createParticleBurst !== 'undefined') {
             createParticleBurst(this.x, this.y, this.color, 12);
         }
 
@@ -1031,11 +1037,8 @@ class StarEnemy extends EnemyBase {
         }
     }
 
-    render(ctx) {
-        ctx.save();
-        ctx.translate(this.x, this.y);
-        ctx.rotate(this.rotation);
 
+    render(ctx) {
         let drawColor = this.color;
         const telegraphData = this.activeTelegraph;
         let scaleMultiplier = 1;
@@ -1046,26 +1049,43 @@ class StarEnemy extends EnemyBase {
             scaleMultiplier = 1 + (telegraphData.intensity || 1) * 0.08 * pulse;
         }
 
-        ctx.fillStyle = drawColor;
-        ctx.beginPath();
+        drawColor = this.getFlashDrawColor(drawColor);
 
-        // Draw equilateral triangle pointing in the direction of movement
-        const height = this.size * 1.5 * scaleMultiplier;
-        const base = this.size * 1.3 * scaleMultiplier;
+        // Voxel damage: draw body to offscreen canvas, punch destroyed cells out, blit back
+        const _h2 = this.size * 1.5 * scaleMultiplier;
+        const _b  = this.size * 1.3 * scaleMultiplier;
+        const _rot = this.rotation;
+        const bodyDrawn = typeof renderVoxelDamage === 'function' && renderVoxelDamage(
+            ctx, this, drawColor,
+            (oCtx) => {
+                oCtx.rotate(_rot);
+                oCtx.beginPath();
+                oCtx.moveTo(_h2 * 0.6, 0);
+                oCtx.lineTo(-_h2 * 0.4,  _b * 0.5);
+                oCtx.lineTo(-_h2 * 0.4, -_b * 0.5);
+                oCtx.closePath();
+                oCtx.fill();
+            }
+        );
 
-        // Triangle vertices (pointing right/forward)
-        ctx.moveTo(height * 0.6, 0);  // Front point
-        ctx.lineTo(-height * 0.4, base * 0.5);  // Bottom back
-        ctx.lineTo(-height * 0.4, -base * 0.5); // Top back
-        ctx.closePath();
-        ctx.fill();
-
-        // Draw outline
-        ctx.strokeStyle = '#ff8800'; // Darker orange outline
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-        ctx.restore();
+        if (!bodyDrawn) {
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.rotate(this.rotation);
+            ctx.fillStyle = drawColor;
+            ctx.beginPath();
+            const height = this.size * 1.5 * scaleMultiplier;
+            const base   = this.size * 1.3 * scaleMultiplier;
+            ctx.moveTo(height * 0.6, 0);
+            ctx.lineTo(-height * 0.4,  base * 0.5);
+            ctx.lineTo(-height * 0.4, -base * 0.5);
+            ctx.closePath();
+            ctx.fill();
+            ctx.strokeStyle = '#ff8800';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.restore();
+        }
 
         // Draw status effects (burn, freeze)
         if (typeof renderBurnEffect !== 'undefined') {

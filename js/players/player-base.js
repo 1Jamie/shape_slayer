@@ -292,51 +292,6 @@ class PlayerBase {
             return;
         }
 
-        // Block all player actions when awaiting card swap
-        const awaitingSwap = typeof Game !== 'undefined' && Game.awaitingHandSwap && Game.pendingSwapCard;
-        if (awaitingSwap) {
-            // Still update debuffs and cooldowns, but block movement and attacks
-            this.updateEnemyDebuffs(deltaTime);
-
-            // Update cooldowns
-            if (this.attackCooldown > 0) {
-                this.attackCooldown -= deltaTime;
-            }
-            if (this.heavyAttackCooldown > 0) {
-                this.heavyAttackCooldown -= deltaTime;
-            }
-
-            // Update dodge cooldowns (supports both single and multi-charge systems)
-            const usesChargeDodge = this.usesChargeBasedDodge();
-            if (usesChargeDodge && Array.isArray(this.dodgeCharges)) {
-                let readyCharges = 0;
-                for (let i = 0; i < this.dodgeCharges.length; i++) {
-                    if (this.dodgeCharges[i] <= 0) {
-                        readyCharges++;
-                    } else {
-                        this.dodgeCharges[i] -= deltaTime;
-                        if (this.dodgeCharges[i] < 0) this.dodgeCharges[i] = 0;
-                    }
-                }
-                this.dodgeCooldown = readyCharges > 0 ? 0 : (this.dodgeCharges.length > 0 ? Math.max(...this.dodgeCharges) : 0);
-            } else {
-                if (this.dodgeCooldown > 0) {
-                    this.dodgeCooldown -= deltaTime;
-                }
-            }
-
-            // Update special ability cooldown
-            if (this.specialCooldown > 0) {
-                this.specialCooldown -= deltaTime;
-            }
-
-            // Stop movement
-            this.vx = 0;
-            this.vy = 0;
-
-            return; // Skip all other updates
-        }
-
         this.updateEnemyDebuffs(deltaTime);
 
         // Apply item HP regeneration
@@ -409,16 +364,28 @@ class PlayerBase {
         }
 
         // Handle attacks
-        this.handleAttack(input);
+        const room0Action = (typeof Room0Tutorial !== 'undefined' && Room0Tutorial.isActive && Room0Tutorial.isActive())
+            ? Room0Tutorial.getAllowedAction()
+            : 'all';
+
+        if (room0Action === 'all' || room0Action === 'primary') {
+            this.handleAttack(input);
+        }
 
         // Handle heavy attacks
-        this.handleHeavyAttack(input);
+        if (room0Action === 'all' || room0Action === 'heavy') {
+            this.handleHeavyAttack(input);
+        }
 
         // Handle dodge roll
-        this.handleDodge(input);
+        if (room0Action === 'all' || room0Action === 'dash') {
+            this.handleDodge(input);
+        }
 
         // Handle special abilities (calls subclass override)
-        this.handleSpecialAbility(input);
+        if (room0Action === 'all' || room0Action === 'special') {
+            this.handleSpecialAbility(input);
+        }
 
         const beforeClassAbilityX = this.x;
         const beforeClassAbilityY = this.y;
@@ -679,6 +646,9 @@ class PlayerBase {
                 beginLifestealAttackSwing(this);
             }
             this.executeAttack(input);
+            if (typeof Room0Tutorial !== 'undefined' && Room0Tutorial.notifyCombatAction) {
+                Room0Tutorial.notifyCombatAction('primary');
+            }
         }
     }
 
@@ -883,6 +853,10 @@ class PlayerBase {
         console.log(`[DODGE START] input.touchButtons:`, input.touchButtons);
         console.log(`[DODGE START] input.touchButtons.dodge:`, input.touchButtons?.dodge);
         console.log(`[DODGE START] isTouchMode:`, input.isTouchMode ? input.isTouchMode() : 'NO FUNCTION');
+
+        if (typeof Room0Tutorial !== 'undefined' && Room0Tutorial.notifyCombatAction) {
+            Room0Tutorial.notifyCombatAction('dash');
+        }
 
         // Calculate dodge direction
         let dodgeDirX = 0;
@@ -1292,6 +1266,9 @@ class PlayerBase {
         if (specialJustPressed && this.specialCooldown <= 0) {
             // Call subclass-specific special ability activation
             this.activateSpecialAbility(input);
+            if (typeof Room0Tutorial !== 'undefined' && Room0Tutorial.notifyCombatAction) {
+                Room0Tutorial.notifyCombatAction('special');
+            }
         }
     }
 
@@ -1327,6 +1304,10 @@ class PlayerBase {
         } else {
             this.heavyAttackCooldown = effectiveHeavyCooldown;
         }
+
+        if (typeof Room0Tutorial !== 'undefined' && Room0Tutorial.notifyCombatAction) {
+            Room0Tutorial.notifyCombatAction('heavy');
+        }
     }
 
     // Set special cooldown with overcharge check
@@ -1357,20 +1338,7 @@ class PlayerBase {
             return; // Completely negate damage
         }
 
-        // Velocity card bonus: dodgeChance (Orange) - chance to dodge incoming damage
         const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
-        if (!isClient && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
-            const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
-            const condEffects = CardEffects.getConditionalEffects(handCards);
-            if (condEffects.velocity && condEffects.velocity.dodgeChance && condEffects.velocity.dodgeChance > 0 &&
-                Math.random() < condEffects.velocity.dodgeChance) {
-                // Dodged the attack!
-                if (typeof createParticleBurst !== 'undefined') {
-                    createParticleBurst(this.x, this.y, '#ffaa00', 8);
-                }
-                return; // Completely negate damage
-            }
-        }
 
         // Item shield: absorb damage first (before fortify shield)
         if (this.shieldHealth > 0) {
@@ -1399,15 +1367,6 @@ class PlayerBase {
             }
         }
 
-        // Fury card penalty: damageTakenPenalty (+3% damage taken at blue+) - applied before reduction
-        if (!isClient && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
-            const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
-            const condEffects = CardEffects.getConditionalEffects(handCards);
-            if (condEffects.fury && condEffects.fury.damageTakenPenalty && condEffects.fury.damageTakenPenalty > 0) {
-                damage *= (1 + condEffects.fury.damageTakenPenalty); // +3% damage taken
-            }
-        }
-
         // Reactive Armor: Add stack on hit (before damage reduction calculation)
         if (this.reactiveArmorValue > 0 && this.reactiveArmorMaxCap > 0) {
             // Add a stack (each stack gives +5% reduction, capped at maxCap)
@@ -1430,63 +1389,6 @@ class PlayerBase {
         if (isBlocking) {
             if (typeof window.trackLifetimeStat === 'function') {
                 window.trackLifetimeStat('totalBlocks', 1);
-            }
-
-            // Bulwark card bonuses: reflectOnBlock and invulnOnBlock (Purple/Orange)
-            const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
-            if (!isClient && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
-                const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
-                const condEffects = CardEffects.getConditionalEffects(handCards);
-                if (condEffects.bulwark && sourceEnemy && sourceEnemy.alive) {
-                    // Reflect damage on block (Purple/Orange)
-                    if (condEffects.bulwark.reflectOnBlock && condEffects.bulwark.reflectOnBlock > 0) {
-                        const reflectedDamage = originalDamage * condEffects.bulwark.reflectOnBlock; // Use original damage before reduction
-                        const damageDealt = Math.min(reflectedDamage, sourceEnemy.hp);
-
-                        // Get player ID for damage attribution
-                        const attackerId = this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null);
-
-                        sourceEnemy.takeDamage(reflectedDamage, attackerId);
-
-                        // Track reflected damage for lifetime stats
-                        if (typeof window.trackLifetimeStat === 'function') {
-                            window.trackLifetimeStat('totalReflectedDamage', damageDealt);
-                        }
-
-                        // Track stats
-                        if (typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
-                            const stats = Game.getPlayerStats(attackerId);
-                            if (stats) {
-                                stats.addStat('damageDealt', damageDealt);
-                            }
-
-                            // Track kill if enemy died
-                            if (sourceEnemy.hp <= 0) {
-                                const killStats = Game.getPlayerStats(attackerId);
-                                if (killStats) {
-                                    killStats.addStat('kills', 1);
-                                }
-                            }
-                        }
-
-                        // Visual feedback for block reflect
-                        if (typeof createDamageNumber !== 'undefined') {
-                            createDamageNumber(sourceEnemy.x, sourceEnemy.y, damageDealt, false, false);
-                        }
-                        if (typeof createParticleBurst !== 'undefined') {
-                            createParticleBurst(this.x, this.y, '#0099ff', 10);
-                        }
-                    }
-
-                    // Invulnerability on block (Orange only)
-                    if (condEffects.bulwark.invulnOnBlock && condEffects.bulwark.invulnOnBlock > 0) {
-                        this.invulnerabilityTime = condEffects.bulwark.invulnOnBlock; // Brief invulnerability (0.6s)
-                        // Visual feedback
-                        if (typeof createParticleBurst !== 'undefined') {
-                            createParticleBurst(this.x, this.y, '#ffffff', 12);
-                        }
-                    }
-                }
             }
         }
 
@@ -1733,6 +1635,13 @@ class PlayerBase {
                 Game.deathScreenStartTime = Date.now(); // Initialize death screen timer
                 Game.currencyEarned = Game.calculateCurrency();
                 Game.shardsEarned = Game.calculateShards ? Game.calculateShards() : 0;
+
+                // Credit rewards immediately on game over screen
+                if (!Game.multiplayerEnabled || Game.allPlayersDead) {
+                    if (typeof Game.creditRewards === 'function') {
+                        Game.creditRewards();
+                    }
+                }
             }
 
             console.log('Player died!');
@@ -1925,8 +1834,8 @@ class PlayerBase {
         // Recalculate effective stats with gear bonuses
         this.updateEffectiveStats();
 
-        // Heal to full HP
-        this.hp = this.maxHp;
+        // Heal by 50% Max HP (instead of to full)
+        this.hp = Math.min(this.maxHp, this.hp + Math.floor(this.maxHp * 0.5));
 
         // Mark that we've applied bonuses for this level
         this.lastLevelBonusesApplied = this.level;
@@ -2204,78 +2113,6 @@ class PlayerBase {
             }
         });
 
-        // Apply card effects from current hand (card system)
-        if (typeof DeckState !== 'undefined' && typeof CardEffects !== 'undefined' && CardEffects.applyPlayerStatModifiers) {
-            const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
-            const mods = CardEffects.applyPlayerStatModifiers(this, handCards);
-            if (mods) {
-                // Offensive
-                if (Number.isFinite(mods.critChance)) {
-                    this.critChance = (this.critChance || 0) + mods.critChance;
-                }
-                if (Number.isFinite(mods.critDamageMultiplierAdd)) {
-                    this.critDamageMultiplier += mods.critDamageMultiplierAdd;
-                }
-                // Defensive (percent-based multiplier)
-                if (Number.isFinite(mods.defense)) {
-                    this.defenseMultiplier = (this.defenseMultiplier || 1) * (1 + mods.defense);
-                }
-                if (Number.isFinite(mods.thornsReflectAdd) && mods.thornsReflectAdd > 0) {
-                    this.thornsReflect = (this.thornsReflect || 0) + mods.thornsReflectAdd;
-                }
-                // Movement
-                if (Number.isFinite(mods.moveSpeed)) {
-                    // moveSpeed applied as multiplier later
-                    speedBonus *= (1 + mods.moveSpeed);
-                }
-                if (Number.isFinite(mods.projectileSpeedAdd)) {
-                    this.projectileSpeedMultiplier += mods.projectileSpeedAdd;
-                }
-                // Penalties
-                if (Number.isFinite(mods.defensePenalty) && mods.defensePenalty > 0) {
-                    this.defenseMultiplier = (this.defenseMultiplier || 1) * (1 - mods.defensePenalty);
-                }
-                if (Number.isFinite(mods.projectileDamagePenalty) && mods.projectileDamagePenalty > 0) {
-                    // Store as projectile damage penalty multiplier for attacks
-                    this.projectileDamagePenalty = mods.projectileDamagePenalty;
-                }
-                if (Number.isFinite(mods.moveSpeedPenalty) && mods.moveSpeedPenalty > 0) {
-                    speedBonus *= (1 - mods.moveSpeedPenalty);
-                }
-                // Utility
-                if (Number.isFinite(mods.lifestealAdd)) {
-                    this.lifesteal = (this.lifesteal || 0) + mods.lifestealAdd;
-                }
-                if (Number.isFinite(mods.cooldownReductionAdd)) {
-                    this.cooldownReduction = Math.min(0.75, (this.cooldownReduction || 0) + mods.cooldownReductionAdd);
-                }
-                if (Number.isFinite(mods.dodgeCooldownDelta) && mods.dodgeCooldownDelta !== 0) {
-                    this.dodgeCooldownTime = Math.max(0.1, (this.dodgeCooldownTime || 2.0) + mods.dodgeCooldownDelta);
-                }
-                if (Number.isFinite(mods.bonusDodgeChargesAdd) && mods.bonusDodgeChargesAdd !== 0) {
-                    this.bonusDodgeCharges = (this.bonusDodgeCharges || 0) + Math.floor(mods.bonusDodgeChargesAdd);
-                }
-                // Volley card: projectile count bonus
-                if (Number.isFinite(mods.projectileCountBonus) && mods.projectileCountBonus > 0) {
-                    this.projectileCountBonus = (this.projectileCountBonus || 0) + mods.projectileCountBonus;
-                }
-                // Volley card: damage per projectile multiplier (stored for use in projectile creation)
-                if (Number.isFinite(mods.volleyDamagePerProjectile) && mods.volleyDamagePerProjectile < 1.0) {
-                    this.volleyDamagePerProjectile = mods.volleyDamagePerProjectile;
-                }
-                // Volley card: pierce/chain bonuses (stored for use in projectile creation)
-                if (Number.isFinite(mods.volleyPierceChance) && mods.volleyPierceChance > 0) {
-                    this.volleyPierceChance = mods.volleyPierceChance;
-                }
-                if (mods.volleyPierceAll === true) {
-                    this.volleyPierceAll = true;
-                }
-                if (mods.volleyChain === true) {
-                    this.volleyChain = true;
-                }
-            }
-        }
-
         // Apply class card damage bonus (scales with level)
         let classCardDamageBonus = 0;
         if (typeof window.getClassCardDamageBonus === 'function') {
@@ -2294,8 +2131,13 @@ class PlayerBase {
 
         this.defense = baseDefenseWithMultiplier + armorFlatDefense;
 
-        // Apply item speed bonus (multiplicative)
-        this.moveSpeed = this.baseMoveSpeed * speedBonus * (1 + (this.itemSpeedBonus || 0));
+        // Apply item speed bonus (multiplicative), then hard-cap so deep-run
+        // item stacks cannot outpace soft-capped enemy mobility.
+        const PLAYER_MOVE_SPEED_CAP = 520;
+        this.moveSpeed = Math.min(
+            PLAYER_MOVE_SPEED_CAP,
+            this.baseMoveSpeed * speedBonus * (1 + (this.itemSpeedBonus || 0))
+        );
 
         // Apply bonus health (clamping current HP if needed)
         const oldMaxHp = this.maxHp;
@@ -4040,7 +3882,7 @@ class PlayerBase {
         const shieldRadius = this.size + 8;
         const shieldAlpha = 0.6 + (shieldHealth / maxShieldHealth) * 0.4;
 
-        // Outer glow — live radial gradient (cached square sprite looked axis-aligned)
+        // Outer glow - live radial gradient (cached square sprite looked axis-aligned)
         const gradient = ctx.createRadialGradient(0, 0, shieldRadius - 5, 0, 0, shieldRadius + 10);
         gradient.addColorStop(0, `rgba(0, 200, 255, ${shieldAlpha * 0.3})`);
         gradient.addColorStop(1, 'rgba(0, 200, 255, 0)');
@@ -4069,6 +3911,39 @@ class PlayerBase {
         // Override in subclass for class-specific rendering
     }
 
+    // Serialize equipped gear including safe-room progress fields (backward-compatible on read)
+    serializeEquippedGear(gear) {
+        if (!gear) return null;
+        if (typeof normalizeGearProgressFields === 'function') {
+            normalizeGearProgressFields(gear);
+        } else if (typeof window !== 'undefined' && typeof window.normalizeGearProgressFields === 'function') {
+            window.normalizeGearProgressFields(gear);
+        }
+        return {
+            id: gear.id,
+            slot: gear.slot,
+            tier: gear.tier,
+            color: gear.color,
+            stats: gear.stats || {},
+            affixes: gear.affixes || [],
+            weaponType: gear.weaponType || null,
+            armorType: gear.armorType || null,
+            classModifier: gear.classModifier || null,
+            legendaryEffect: gear.legendaryEffect || null,
+            name: gear.name || '',
+            bonus: gear.bonus,
+            scaling: gear.scaling,
+            roomNumber: gear.roomNumber,
+            level: gear.level != null ? gear.level : (gear.roomNumber || 1),
+            upgradesApplied: gear.upgradesApplied != null ? gear.upgradesApplied : 0,
+            originalTier: gear.originalTier || gear.tier,
+            rarityStepsApplied: gear.rarityStepsApplied != null ? gear.rarityStepsApplied : 0,
+            rarityUpgradedThisVisit: !!gear.rarityUpgradedThisVisit,
+            rerollIndex: gear.rerollIndex != null ? gear.rerollIndex : -1,
+            rerollCount: gear.rerollCount != null ? gear.rerollCount : 0
+        };
+    }
+
     // Serialize player state for multiplayer sync (base properties)
     serialize() {
         return {
@@ -4087,41 +3962,9 @@ class PlayerBase {
             xpToNext: this.xpToNext, // Fixed: was xpToNextLevel
 
             // Equipped gear (full objects with all affix system properties)
-            weapon: this.weapon ? {
-                id: this.weapon.id,
-                slot: this.weapon.slot,
-                tier: this.weapon.tier,
-                color: this.weapon.color,
-                stats: this.weapon.stats || {},
-                affixes: this.weapon.affixes || [],
-                weaponType: this.weapon.weaponType || null,
-                classModifier: this.weapon.classModifier || null,
-                legendaryEffect: this.weapon.legendaryEffect || null,
-                name: this.weapon.name || ''
-            } : null,
-            armor: this.armor ? {
-                id: this.armor.id,
-                slot: this.armor.slot,
-                tier: this.armor.tier,
-                color: this.armor.color,
-                stats: this.armor.stats || {},
-                affixes: this.armor.affixes || [],
-                armorType: this.armor.armorType || null,
-                classModifier: this.armor.classModifier || null,
-                legendaryEffect: this.armor.legendaryEffect || null,
-                name: this.armor.name || ''
-            } : null,
-            accessory: this.accessory ? {
-                id: this.accessory.id,
-                slot: this.accessory.slot,
-                tier: this.accessory.tier,
-                color: this.accessory.color,
-                stats: this.accessory.stats || {},
-                affixes: this.accessory.affixes || [],
-                classModifier: this.accessory.classModifier || null,
-                legendaryEffect: this.accessory.legendaryEffect || null,
-                name: this.accessory.name || ''
-            } : null,
+            weapon: this.weapon ? this.serializeEquippedGear(this.weapon) : null,
+            armor: this.armor ? this.serializeEquippedGear(this.armor) : null,
+            accessory: this.accessory ? this.serializeEquippedGear(this.accessory) : null,
 
             // Gear visuals (deterministic patterns for consistent appearance in multiplayer)
             weaponVisual: this.weaponVisual,
@@ -4474,9 +4317,18 @@ class PlayerBase {
         }
 
         // Equipped gear (apply and recalculate stats)
-        if (state.weapon !== undefined) this.weapon = state.weapon;
-        if (state.armor !== undefined) this.armor = state.armor;
-        if (state.accessory !== undefined) this.accessory = state.accessory;
+        if (state.weapon !== undefined) {
+            this.weapon = state.weapon;
+            if (this.weapon && typeof normalizeGearProgressFields === 'function') normalizeGearProgressFields(this.weapon);
+        }
+        if (state.armor !== undefined) {
+            this.armor = state.armor;
+            if (this.armor && typeof normalizeGearProgressFields === 'function') normalizeGearProgressFields(this.armor);
+        }
+        if (state.accessory !== undefined) {
+            this.accessory = state.accessory;
+            if (this.accessory && typeof normalizeGearProgressFields === 'function') normalizeGearProgressFields(this.accessory);
+        }
 
         // Recalculate effective stats based on new gear
         if (state.weapon !== undefined || state.armor !== undefined || state.accessory !== undefined) {
@@ -4581,6 +4433,7 @@ class PlayerBase {
             const weaponChanged = !this.weapon || JSON.stringify(this.weapon) !== JSON.stringify(state.weapon);
             if (weaponChanged) {
                 this.weapon = state.weapon;
+                if (this.weapon && typeof normalizeGearProgressFields === 'function') normalizeGearProgressFields(this.weapon);
                 gearChanged = true;
             }
         }
@@ -4588,6 +4441,7 @@ class PlayerBase {
             const armorChanged = !this.armor || JSON.stringify(this.armor) !== JSON.stringify(state.armor);
             if (armorChanged) {
                 this.armor = state.armor;
+                if (this.armor && typeof normalizeGearProgressFields === 'function') normalizeGearProgressFields(this.armor);
                 gearChanged = true;
             }
         }
@@ -4595,6 +4449,7 @@ class PlayerBase {
             const accessoryChanged = !this.accessory || JSON.stringify(this.accessory) !== JSON.stringify(state.accessory);
             if (accessoryChanged) {
                 this.accessory = state.accessory;
+                if (this.accessory && typeof normalizeGearProgressFields === 'function') normalizeGearProgressFields(this.accessory);
                 gearChanged = true;
             }
         }

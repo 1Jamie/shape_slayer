@@ -759,6 +759,21 @@ class BossFractalCore extends BossBase {
         if (Game.enemies) Game.enemies.push(elite);
     }
     
+    traceOctagonPath(ctx, size) {
+        ctx.beginPath();
+        for (let i = 0; i < 8; i++) {
+            const angle = (Math.PI * 2 / 8) * i - Math.PI / 2;
+            const px = Math.cos(angle) * size;
+            const py = Math.sin(angle) * size;
+            if (i === 0) {
+                ctx.moveTo(px, py);
+            } else {
+                ctx.lineTo(px, py);
+            }
+        }
+        ctx.closePath();
+    }
+
     render(ctx) {
         if (!this.alive) return;
         this.renderTemporalTrail(ctx);
@@ -780,7 +795,6 @@ class BossFractalCore extends BossBase {
             // Render weak points only when fragmented
             this.renderWeakPoints(ctx);
         } else {
-            // Render main octagon with telegraph visual
             this.renderOctagon(ctx, this.x, this.y, this.size, renderColor, this.telegraphActive);
         }
         
@@ -826,19 +840,8 @@ class BossFractalCore extends BossBase {
         ctx.fillStyle = color;
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 3;
-        
-        ctx.beginPath();
-        for (let i = 0; i < 8; i++) {
-            const angle = (Math.PI * 2 / 8) * i - Math.PI / 2;
-            const px = Math.cos(angle) * size;
-            const py = Math.sin(angle) * size;
-            if (i === 0) {
-                ctx.moveTo(px, py);
-            } else {
-                ctx.lineTo(px, py);
-            }
-        }
-        ctx.closePath();
+
+        this.traceOctagonPath(ctx, size);
         ctx.fill();
         ctx.stroke();
         

@@ -187,65 +187,6 @@ class Warrior extends PlayerBase {
         // Call parent (applies stat modifiers from cards)
         super.updateEffectiveStats();
 
-        // Apply ability mutator card effects
-        if (typeof DeckState !== 'undefined' && typeof CardEffects !== 'undefined' && CardEffects.getAbilityModifiers) {
-            const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
-            const abilityMods = CardEffects.getAbilityModifiers(this, handCards);
-
-            if (abilityMods.whirlwind) {
-                if (abilityMods.whirlwind.durationBonus) {
-                    this.whirlwindDurationBonus += abilityMods.whirlwind.durationBonus;
-                }
-                if (abilityMods.whirlwind.damageMultiplier) {
-                    this.whirlwindDamageMultiplier += abilityMods.whirlwind.damageMultiplier;
-                }
-                if (abilityMods.whirlwind.pullEffect) {
-                    this.whirlwindPullEffect = true;
-                }
-                if (abilityMods.whirlwind.damageAura) {
-                    this.whirlwindDamageAura = true;
-                }
-                if (abilityMods.whirlwind.resetOnKill) {
-                    this.whirlwindResetOnKill = true;
-                }
-            }
-
-            if (abilityMods.thrust) {
-                if (abilityMods.thrust.rangeBonus) {
-                    this.thrustDistanceBonus += abilityMods.thrust.rangeBonus;
-                }
-                if (abilityMods.thrust.damageMultiplier) {
-                    this.thrustDamageMultiplier += abilityMods.thrust.damageMultiplier;
-                }
-                if (abilityMods.thrust.knockback) {
-                    this.thrustKnockback = true;
-                }
-                if (abilityMods.thrust.pierce) {
-                    this.thrustPierce = true;
-                }
-                if (abilityMods.thrust.infiniteRange) {
-                    this.thrustInfiniteRange = true;
-                }
-                if (abilityMods.thrust.pierceAll) {
-                    this.thrustPierceAll = true;
-                }
-                if (abilityMods.thrust.burningTrail) {
-                    this.thrustBurningTrail = true;
-                }
-            }
-
-            if (abilityMods.block) {
-                if (abilityMods.block.reductionBonus) {
-                    this.blockReductionBonus += abilityMods.block.reductionBonus;
-                }
-                if (abilityMods.block.damageBoostOnBlock) {
-                    this.blockDamageBoostOnBlock = abilityMods.block.damageBoostOnBlock;
-                }
-                if (abilityMods.block.reflectOnBlock) {
-                    this.blockReflectOnBlock = true;
-                }
-            }
-        }
     }
 
     // Override to apply Warrior-specific class modifiers
@@ -456,19 +397,6 @@ class Warrior extends PlayerBase {
                     const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
 
                     // Precision card bonuses: Apply vulnerability debuff on crit (Orange only)
-                    if (isCrit && !isClient && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
-                        const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
-                        const condEffects = CardEffects.getConditionalEffects(handCards);
-                        if (condEffects.precision && condEffects.precision.vulnOnCrit && typeof enemy.applyDebuff === 'function') {
-                            const vuln = condEffects.precision.vulnOnCrit;
-                            enemy.applyDebuff({
-                                type: 'vulnerability',
-                                multiplier: vuln.multiplier || 0.10,
-                                duration: vuln.duration || 3.0
-                            });
-                        }
-                    }
-
                     // Apply vulnerability debuff multiplier (Precision Orange bonus)
                     if (enemy.vulnerable && enemy.vulnerabilityMultiplier && enemy.vulnerabilityMultiplier > 1.0) {
                         thrustDamage *= enemy.vulnerabilityMultiplier;
@@ -481,20 +409,6 @@ class Warrior extends PlayerBase {
                     const attackerId = this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null);
 
                     enemy.takeDamage(thrustDamage, attackerId);
-
-                    // Precision card bonuses: lifeOnCrit healing (Purple/Orange) - applied after damage dealt
-                    if (isCrit && !isClient && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
-                        const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
-                        const condEffects = CardEffects.getConditionalEffects(handCards);
-                        if (condEffects.precision && condEffects.precision.lifeOnCrit && condEffects.precision.lifeOnCrit > 0) {
-                            if (typeof applyLifeOnCritHeal !== 'undefined') {
-                                applyLifeOnCritHeal(this, damageDealt, condEffects.precision.lifeOnCrit, { enemy });
-                            }
-                            if (typeof createParticleBurst !== 'undefined') {
-                                createParticleBurst(this.x, this.y, '#00ff00', 8);
-                            }
-                        }
-                    }
 
                     // Track stats (host/solo only)
                     if (!isClient) {

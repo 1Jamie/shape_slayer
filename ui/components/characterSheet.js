@@ -3,7 +3,6 @@
 	let open = false;
 	let tabHeldOpen = false;
 	let lastLevel = null;
-	let lastSwapModeState = false;
 
 	function createCharacterSheet() {
 		const rootLayer = document.createElement('div');
@@ -646,517 +645,18 @@
 			return;
 		}
 
-		// Check game mode
-		// When in nexus, use the portal mode to determine which character sheet to show
-		let gameMode = 'cards'; // default
-		if (typeof Game !== 'undefined') {
-			if (Game.state === 'NEXUS' && typeof nexusRoom !== 'undefined' && nexusRoom && nexusRoom.portalMode) {
-				// Use the portal mode in nexus to preview the character sheet
-				gameMode = nexusRoom.portalMode;
-			} else if (Game.gameMode) {
-				// Use the actual game mode during a run
-				gameMode = Game.gameMode;
-			}
-		}
-
-		// Render gear mode character sheet
-		if (gameMode === 'gear') {
-			renderGearMode(player);
-			return;
-		}
-
-		// Card mode character sheet (existing implementation)
-		// Grid container (Left / Center / Right)
-		const grid = document.createElement('div');
-		grid.className = 'cs-grid';
-		grid.style.gridColumn = '1 / -1'; // Span both columns like gear mode
-		grid.style.gridTemplateColumns = '280px 1fr 150px'; // Narrower right column for card mode
-
-		// Left: Stats panel (chips) + Class Card
-		const left = document.createElement('div');
-		left.className = 'cs-panel';
-		const leftTitle = document.createElement('div');
-		leftTitle.className = 'cs-subtitle';
-		leftTitle.textContent = 'STATS';
-		const chips = document.createElement('div');
-		chips.className = 'cs-chips';
-		function chip(label, value) { const d = document.createElement('div'); d.className = 'cs-chip'; d.textContent = `${label}: ${value}`; return d; }
-		chips.appendChild(chip('HP', `${Math.floor(player.hp)}/${Math.floor(player.maxHp)}`));
-		chips.appendChild(chip('DMG', (player.damage != null ? (player.damage.toFixed ? player.damage.toFixed(1) : player.damage) : '')));
-		chips.appendChild(chip('DEF', `${Math.round((player.defense || 0) * 100)}%`));
-		chips.appendChild(chip('SPD', `${Math.round(player.moveSpeed || 0)}`));
-		if (player.maxDodgeCharges) chips.appendChild(chip('DODGE', `${player.maxDodgeCharges}`));
-		left.appendChild(leftTitle);
-		left.appendChild(chips);
-
-		// Class Card Section (below stats in left column)
-		const classCardSection = document.createElement('div');
-		classCardSection.style.marginTop = '20px';
-		classCardSection.style.paddingTop = '16px';
-		classCardSection.style.borderTop = '2px solid rgba(255, 255, 255, 0.2)';
-
-		const classCardTitle = document.createElement('div');
-		classCardTitle.className = 'cs-subtitle';
-		classCardTitle.textContent = 'CLASS CARD';
-		classCardTitle.style.marginBottom = '8px';
-		classCardSection.appendChild(classCardTitle);
-
-		// Get class card
-		const classCard = (typeof DeckState !== 'undefined' && DeckState.classCard) ? DeckState.classCard : null;
-
-		if (classCard) {
-			const card = document.createElement('div');
-			card.className = 'cs-card';
-			const q = classCard._resolvedQuality || 'white';
-			function qColor(q) { const m = { white: '#cccccc', green: '#4caf50', blue: '#2196f3', purple: '#9c27b0', orange: '#ff9800' }; return m[q] || '#cccccc'; }
-			card.style.borderColor = qColor(q);
-			card.style.borderWidth = '3px';
-			card.style.background = 'rgba(0, 0, 0, 0.3)';
-			// Maintain same aspect ratio as hand cards (min-width: 150px, min-height: 210px)
-			// Use aspect-ratio to maintain proportions
-			card.style.aspectRatio = '150 / 210';
-			card.style.width = '100%';
-			card.style.maxWidth = '100%';
-
-			const head = document.createElement('div');
-			head.className = 'cs-card__head';
-			const name = document.createElement('div');
-			name.className = 'cs-card__name';
-			name.textContent = classCard.name || classCard.family || 'Class Card';
-			const tag = document.createElement('div');
-			tag.className = 'cs-card__tag';
-			tag.textContent = `[${q.toUpperCase()}]`;
-			head.appendChild(name);
-			head.appendChild(tag);
-
-			const levelBadge = document.createElement('div');
-			levelBadge.style.marginTop = '4px';
-			levelBadge.style.color = '#ff66aa';
-			levelBadge.style.fontWeight = '700';
-			levelBadge.style.fontSize = '14px';
-			levelBadge.textContent = `Level ${player.level || 1}`;
-			head.appendChild(levelBadge);
-
-			const emblem = document.createElement('div');
-			emblem.className = 'cs-card__emblem';
-			emblem.style.borderBottomColor = '#ff66aa';
-
-			const desc = document.createElement('div');
-			desc.className = 'cs-card__desc';
-			const qb = classCard.qualityBands && classCard.qualityBands[q];
-			const d = qb && qb.description ? qb.description : '';
-			desc.textContent = d || '';
-
-			// Show current damage bonus
-			const bonusInfo = document.createElement('div');
-			bonusInfo.style.marginTop = '6px';
-			bonusInfo.style.color = '#ffaa55';
-			bonusInfo.style.fontSize = '12px';
-			if (typeof window.getClassCardDamageBonus === 'function') {
-				const bonus = window.getClassCardDamageBonus(player);
-				bonusInfo.textContent = `Current Bonus: +${bonus.toFixed(1)} damage`;
-			}
-			desc.appendChild(bonusInfo);
-
-			card.appendChild(head);
-			card.appendChild(emblem);
-			card.appendChild(desc);
-			classCardSection.appendChild(card);
-		} else {
-			const empty = document.createElement('div');
-			empty.className = 'cs-empty';
-			empty.textContent = 'No Class Card';
-			classCardSection.appendChild(empty);
-		}
-
-		left.appendChild(classCardSection);
-
-		// Center: HAND cards grid with slots
-		const center = document.createElement('div');
-		center.className = 'cs-panel cs-panel--center';
-		center.style.pointerEvents = 'auto'; // Ensure center panel can receive pointer events
-
-		// Determine class for display
-		const effectiveClass = (typeof Game !== 'undefined' && Game.state === 'NEXUS')
-			? (Game.selectedClass || (player && player.playerClass))
-			: (player && player.playerClass);
-
-		// HAND section
-		const centerTitle = document.createElement('div');
-		centerTitle.className = 'cs-title';
-		centerTitle.textContent = 'HAND';
-		const metaRow = document.createElement('div');
-		metaRow.style.display = 'flex'; metaRow.style.justifyContent = 'space-between'; metaRow.style.marginBottom = '6px';
-		const countLine = document.createElement('div');
-		countLine.style.color = '#ddd';
-		const hand = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.hand)) ? DeckState.hand : [];
-		const baseMaxHand = (typeof SaveSystem !== 'undefined' && SaveSystem.getDeckUpgrades) ? (SaveSystem.getDeckUpgrades().handSize || 4) : 4;
-		const runBonus = (typeof Game !== 'undefined' && Game.runHandSizeBonus) ? Game.runHandSizeBonus : 0;
-		const maxHand = baseMaxHand + runBonus;
-		countLine.textContent = `(${hand.length}/${maxHand})`;
-		metaRow.appendChild(countLine);
-		// Class bonuses (old sheet showed explicit perks; infer from class and player state)
-		const bonusTitle = document.createElement('div');
-		bonusTitle.style.color = '#ffaa55';
-		bonusTitle.style.fontWeight = '700';
-		bonusTitle.style.marginTop = '2px';
-		bonusTitle.textContent = 'CLASS BONUSES:';
-		const bonusLine = document.createElement('div');
-		bonusLine.style.color = '#ffcc88';
-		bonusLine.style.fontSize = '12px';
-		function describeBonuses(p) {
-			const cls = effectiveClass || p.playerClass || '';
-			const c = (cls || '').toLowerCase();
-			const out = [];
-			if (c === 'triangle') { out.push('15% Base Crit Chance', 'High Speed'); }
-			else if (c === 'square') { out.push('High HP', 'Whirlwind Heavy'); }
-			else if (c === 'pentagon') { out.push('High Defense', 'Directional Shield'); }
-			else if (c === 'hexagon') { out.push('Blink Teleport', 'Beam Heavy'); }
-			// Dynamic traits detectable from state
-			if ((p.maxDodgeCharges || 0) > 1) out.push('Double Dash');
-			return out.join(', ');
-		}
-		bonusLine.textContent = describeBonuses(player) || '-';
-		const cardsGrid = document.createElement('div');
-		cardsGrid.className = 'cs-cards';
-		cardsGrid.style.pointerEvents = 'auto'; // Ensure grid can receive pointer events
-		// helper for colors
-		function qColor(q) { const m = { white: '#cccccc', green: '#4caf50', blue: '#2196f3', purple: '#9c27b0', orange: '#ff9800' }; return m[q] || '#cccccc'; }
-		function catColor(cat) { const c = (cat || '').toLowerCase(); if (c.includes('offense')) return '#ff6b6b'; if (c.includes('defense')) return '#6bc1ff'; if (c.includes('mobility')) return '#5cffb5'; if (c.includes('ability')) return '#ffd166'; if (c.includes('economy')) return '#b4ff66'; if (c.includes('enemy') || c.includes('room')) return '#ff9ff3'; if (c.includes('team')) return '#feca57'; if (c.includes('curse')) return '#ff4757'; return '#bdbdbd'; }
-		// Check if in swap mode
-		const inSwapMode = typeof Game !== 'undefined' && Game.awaitingHandSwap && Game.pendingSwapCard;
-
-		for (let i = 0; i < maxHand; i++) {
-			const c = hand[i];
-			if (!c) {
-				const slot = document.createElement('div'); slot.className = 'cs-empty'; slot.textContent = 'Empty Slot'; cardsGrid.appendChild(slot); continue;
-			}
-			const card = document.createElement('div'); card.className = 'cs-card';
-			card.style.borderColor = qColor(c._resolvedQuality || 'white');
-
-			// Build card structure first
-			const head = document.createElement('div'); head.className = 'cs-card__head';
-			const name = document.createElement('div'); name.className = 'cs-card__name'; name.textContent = c.name || c.family || 'Card';
-			const tag = document.createElement('div'); tag.className = 'cs-card__tag'; const q = (c._resolvedQuality || 'white'); tag.textContent = `[${q.toUpperCase()}]`;
-			head.appendChild(name); head.appendChild(tag);
-			const origin = document.createElement('div'); origin.className = 'cs-card__origin'; origin.style.color = c.origin === 'deck' ? '#00ffaa' : '#ffaa00'; origin.textContent = c.origin === 'deck' ? 'D' : 'F';
-			head.appendChild(origin);
-			const emblem = document.createElement('div'); emblem.className = 'cs-card__emblem'; emblem.style.borderBottomColor = catColor(c.category || c.family || '');
-			const desc = document.createElement('div'); desc.className = 'cs-card__desc';
-			// Show first quality band description if present
-			const qb = c.qualityBands && c.qualityBands[q]; const d = qb && qb.description ? qb.description : '';
-			desc.textContent = d || '';
-			card.appendChild(head); card.appendChild(emblem); card.appendChild(desc);
-
-			// Make card clickable in swap mode (after structure is built)
-			if (inSwapMode) {
-				card.style.cursor = 'pointer';
-				card.style.borderWidth = '3px';
-				card.style.borderStyle = 'dashed';
-				card.style.borderColor = '#ffdd55';
-				card.style.opacity = '0.9';
-				card.style.pointerEvents = 'auto';
-				card.style.position = 'relative';
-				card.style.zIndex = '10';
-
-				// Capture index in closure
-				const cardIndex = i;
-
-				// Make all child elements non-interactive so clicks go to the card
-				const makeChildrenNonBlocking = (el) => {
-					if (el === card) return; // Don't modify the card itself
-					el.style.pointerEvents = 'none';
-					for (let child of el.children) {
-						makeChildrenNonBlocking(child);
-					}
-				};
-
-				// Make all children non-blocking immediately (structure is already built)
-				makeChildrenNonBlocking(card);
-
-				// Add click handler with capture to ensure it fires
-				const handleClick = (e) => {
-					e.preventDefault();
-					e.stopPropagation();
-					console.log('[CHARACTER SHEET] Hand card clicked for swap, index:', cardIndex);
-					if (typeof Game !== 'undefined' && Game.pendingSwapCard && typeof DeckState !== 'undefined' && Array.isArray(DeckState.hand)) {
-						const old = DeckState.hand[cardIndex];
-						if (old && Array.isArray(DeckState.discard)) {
-							DeckState.discard.push(old);
-						}
-
-						// Add the new card to hand
-						const newCard = { ...Game.pendingSwapCard, _resolvedQuality: Game.pendingSwapCard._resolvedQuality || 'white' };
-						DeckState.hand.splice(cardIndex, 1, newCard);
-
-						// Remove the ground card that was picked up
-						if (Game.pendingSwapSourceId && Array.isArray(window.groundCards)) {
-							const gi = window.groundCards.findIndex(g => g.id === Game.pendingSwapSourceId);
-							if (gi >= 0) {
-								window.groundCards.splice(gi, 1);
-								console.log('[CHARACTER SHEET] Ground card removed, source ID:', Game.pendingSwapSourceId);
-							} else {
-								console.warn('[CHARACTER SHEET] Ground card not found for source ID:', Game.pendingSwapSourceId, 'Available IDs:', window.groundCards.map(g => g.id));
-							}
-						} else if (Game.pendingSwapSourceId) {
-							console.warn('[CHARACTER SHEET] Ground cards array not available, source ID:', Game.pendingSwapSourceId);
-						} else {
-							console.warn('[CHARACTER SHEET] No pendingSwapSourceId set - ground card may not be removed');
-						}
-
-						// Clear swap state
-						Game.pendingSwapCard = null;
-						Game.pendingSwapSourceId = null;
-						Game.awaitingHandSwap = false;
-						console.log('[CHARACTER SHEET] Swap completed, card replaced');
-
-						// Re-validate door options after hand change (hand might now have upgradeable cards)
-						if (typeof window.CardPacks !== 'undefined' && typeof window.CardPacks.revalidateDoorOptions === 'function') {
-							window.CardPacks.revalidateDoorOptions();
-						}
-
-						// Re-render to show updated hand
-						render();
-					} else {
-						console.warn('[CHARACTER SHEET] Swap failed - missing required state', {
-							hasGame: typeof Game !== 'undefined',
-							hasPendingCard: typeof Game !== 'undefined' && !!Game.pendingSwapCard,
-							hasDeckState: typeof DeckState !== 'undefined',
-							hasHand: typeof DeckState !== 'undefined' && Array.isArray(DeckState.hand)
-						});
-					}
-				};
-
-				card.addEventListener('click', handleClick, { capture: true });
-				card.addEventListener('mousedown', (e) => {
-					e.preventDefault();
-					e.stopPropagation();
-				}, { capture: true });
-
-				card.addEventListener('mouseenter', () => {
-					card.style.opacity = '1.0';
-					card.style.transform = 'scale(1.05)';
-				});
-				card.addEventListener('mouseleave', () => {
-					card.style.opacity = '0.9';
-					card.style.transform = 'scale(1.0)';
-				});
-			}
-
-			cardsGrid.appendChild(card);
-		}
-
-		center.appendChild(centerTitle);
-		center.appendChild(metaRow);
-		center.appendChild(bonusTitle);
-		center.appendChild(bonusLine);
-		center.appendChild(cardsGrid);
-
-		// Show swap instruction if in swap mode (below the cards)
-		if (inSwapMode) {
-			const pendingCard = typeof Game !== 'undefined' ? Game.pendingSwapCard : null;
-
-			// Show pending card info
-			if (pendingCard) {
-				const pendingInfo = document.createElement('div');
-				pendingInfo.style.marginTop = '12px';
-				pendingInfo.style.padding = '10px';
-				pendingInfo.style.background = 'rgba(76, 175, 80, 0.15)';
-				pendingInfo.style.border = '2px solid rgba(76, 175, 80, 0.6)';
-				pendingInfo.style.borderRadius = '4px';
-
-				const pendingTitle = document.createElement('div');
-				pendingTitle.style.color = '#4caf50';
-				pendingTitle.style.fontWeight = 'bold';
-				pendingTitle.style.fontSize = '14px';
-				pendingTitle.style.marginBottom = '4px';
-				pendingTitle.textContent = 'NEW CARD TO ADD:';
-
-				const pendingName = document.createElement('div');
-				const pendingQuality = pendingCard._resolvedQuality || 'white';
-				const pendingQualityColor = qColor(pendingQuality);
-				pendingName.style.color = pendingQualityColor;
-				pendingName.style.fontWeight = 'bold';
-				pendingName.style.fontSize = '16px';
-				pendingName.textContent = `${pendingCard.name || pendingCard.family || 'Card'} [${pendingQuality.toUpperCase()}]`;
-
-				const pendingDesc = document.createElement('div');
-				pendingDesc.style.color = '#ddd';
-				pendingDesc.style.fontSize = '12px';
-				pendingDesc.style.marginTop = '4px';
-				const qb = pendingCard.qualityBands && pendingCard.qualityBands[pendingQuality];
-				const desc = qb && qb.description ? qb.description : '';
-				pendingDesc.textContent = desc || '';
-
-				pendingInfo.appendChild(pendingTitle);
-				pendingInfo.appendChild(pendingName);
-				if (desc) pendingInfo.appendChild(pendingDesc);
-				center.appendChild(pendingInfo);
-			}
-
-			const swapHint = document.createElement('div');
-			swapHint.style.marginTop = '12px';
-			swapHint.style.padding = '8px';
-			swapHint.style.background = 'rgba(255, 221, 85, 0.15)';
-			swapHint.style.border = '1px solid rgba(255, 221, 85, 0.5)';
-			swapHint.style.borderRadius = '4px';
-			swapHint.style.color = '#ffdd55';
-			swapHint.style.fontSize = '13px';
-			swapHint.style.textAlign = 'center';
-			swapHint.textContent = 'Click a card above to replace it with the new card';
-			center.appendChild(swapHint);
-
-			// Add cancel button
-			const cancelButton = document.createElement('button');
-			cancelButton.className = 'btn';
-			cancelButton.style.marginTop = '8px';
-			cancelButton.style.width = '100%';
-			cancelButton.style.background = 'rgba(255, 77, 77, 0.2)';
-			cancelButton.style.border = '1px solid rgba(255, 77, 77, 0.6)';
-			cancelButton.style.color = '#ff6b6b';
-			cancelButton.textContent = 'Cancel Pickup';
-			cancelButton.addEventListener('click', () => {
-				if (typeof Game !== 'undefined') {
-					// Clear swap state but keep the ground card
-					Game.awaitingHandSwap = false;
-					Game.pendingSwapCard = null;
-					Game.pendingSwapSourceId = null;
-					console.log('[CHARACTER SHEET] Swap cancelled, ground card remains');
-					// Re-render to show updated state
-					render();
-				}
-			});
-			center.appendChild(cancelButton);
-		}
-
-		// Right: Piles counts/labels similar to old UI badges
-		const right = document.createElement('div');
-		right.className = 'cs-panel';
-		const badges = document.createElement('div'); badges.className = 'cs-badges';
-		function badge(label, value) { const d = document.createElement('div'); d.className = 'cs-badge'; d.innerHTML = `<span>${label.toUpperCase()}:</span><span>${value}</span>`; return d; }
-		const draw = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.drawPile)) ? DeckState.drawPile.length : 0;
-		const discard = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.discard)) ? DeckState.discard.length : 0;
-		const spent = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.spent)) ? DeckState.spent.length : 0;
-		badges.appendChild(badge('Draw', draw));
-		badges.appendChild(badge('Discard', discard));
-		badges.appendChild(badge('Spent', spent));
-		right.appendChild(badges);
-
-		// Bottom panels: Reserve / Team / Room Modifiers as in old layout
-		const bottomReserve = document.createElement('div'); bottomReserve.className = 'cs-panel';
-		const brTitle = document.createElement('div'); brTitle.className = 'cs-subtitle'; brTitle.textContent = 'RESERVE';
-		const reserveWrap = document.createElement('div'); reserveWrap.className = 'cs-list';
-		const reserve = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.reserve)) ? DeckState.reserve : [];
-		if (reserve.length === 0) { const p = document.createElement('div'); p.style.opacity = '.8'; p.textContent = 'Empty'; reserveWrap.appendChild(p); }
-		else { reserve.slice(0, 4).forEach(c => { const t = document.createElement('div'); t.className = 'cs-badge'; t.textContent = c.name || c.family || 'Card'; reserveWrap.appendChild(t); }); }
-		bottomReserve.appendChild(brTitle); bottomReserve.appendChild(reserveWrap);
-
-		const bottomTeam = document.createElement('div'); bottomTeam.className = 'cs-panel';
-		const btTitle = document.createElement('div'); btTitle.className = 'cs-subtitle'; btTitle.textContent = 'TEAM CARDS';
-		const teamWrap = document.createElement('div'); teamWrap.style.opacity = '.9';
-		const team = (typeof DeckState !== 'undefined' && Array.isArray(DeckState.activeTeamCards)) ? DeckState.activeTeamCards : [];
-		teamWrap.textContent = team.length > 0 ? team.map(t => t.name || t.family).join(', ') : 'None';
-		bottomTeam.appendChild(btTitle); bottomTeam.appendChild(teamWrap);
-
-		const bottomMods = document.createElement('div'); bottomMods.className = 'cs-panel';
-		const bmTitle = document.createElement('div'); bmTitle.className = 'cs-subtitle'; bmTitle.textContent = 'ITEMS';
-		const modsWrap = document.createElement('div');
-		modsWrap.className = 'cs-list';
-		// Get items from player's itemManager
-		const items = (player && player.itemManager) ? player.itemManager.getItemsArray() : [];
-		if (items.length === 0) {
-			const p = document.createElement('div');
-			p.style.opacity = '.8';
-			p.textContent = 'None';
-			modsWrap.appendChild(p);
-		} else {
-			// Show all items with rarity colors
-			function itemRarityColor(rarity) {
-				const m = { common: '#999999', uncommon: '#4caf50', rare: '#2196f3', epic: '#9c27b0' };
-				return m[rarity] || '#999999';
-			}
-			items.forEach(item => {
-				const row = document.createElement('div');
-				row.className = 'cs-badge';
-				row.style.display = 'flex';
-				row.style.justifyContent = 'space-between';
-				row.style.alignItems = 'center';
-				row.style.marginBottom = '4px';
-				row.style.cursor = 'help';
-				row.title = item.definition.getTooltip ? item.definition.getTooltip(item.stacks) : item.definition.description || '';
-
-				const nameSpan = document.createElement('span');
-				const rarity = item.definition.rarity || 'common';
-				const stackText = item.stacks > 1 ? ` x${item.stacks}` : '';
-				nameSpan.textContent = (item.definition.name || 'Item') + stackText;
-				nameSpan.style.color = itemRarityColor(rarity);
-				nameSpan.style.fontWeight = 'bold';
-
-				const raritySpan = document.createElement('span');
-				raritySpan.textContent = `[${rarity.toUpperCase()}]`;
-				raritySpan.style.color = itemRarityColor(rarity);
-				raritySpan.style.fontSize = '11px';
-				raritySpan.style.opacity = '0.8';
-
-				row.appendChild(nameSpan);
-				row.appendChild(raritySpan);
-				modsWrap.appendChild(row);
-			});
-		}
-		bottomMods.appendChild(bmTitle); bottomMods.appendChild(modsWrap);
-
-		// Assemble grid rows
-		grid.appendChild(left);
-		grid.appendChild(center);
-		grid.appendChild(right);
-		// bottom row: three equal panels
-		const bottomRow = document.createElement('div'); bottomRow.style.gridColumn = '1 / 4'; bottomRow.style.display = 'grid'; bottomRow.style.gridTemplateColumns = '1fr 1fr 1fr'; bottomRow.style.gap = '16px';
-		bottomRow.appendChild(bottomReserve);
-		bottomRow.appendChild(bottomTeam);
-		bottomRow.appendChild(bottomMods);
-		grid.appendChild(bottomRow);
-
-		body.appendChild(grid);
+		renderGearMode(player);
 	}
 
-	function toggle(force) {
-		// If explicitly trying to close while in swap mode, cancel the swap instead of blocking
-		const inSwapMode = typeof Game !== 'undefined' && Game.awaitingHandSwap && Game.pendingSwapCard;
-		if (inSwapMode && (force === false || (force !== true && open))) {
-			// Cancel swap instead of blocking - this allows user to close if they want
-			if (typeof Game !== 'undefined') {
-				Game.awaitingHandSwap = false;
-				Game.pendingSwapCard = null;
-				Game.pendingSwapSourceId = null;
-				console.log('[CHARACTER SHEET] Swap cancelled on close');
-			}
-		}
 
+	function toggle(force) {
 		open = typeof force === 'boolean' ? force : !open;
 		if (!layer) return;
-		// DOM UI is always in use now
 		layer.style.display = open ? 'flex' : 'none';
 		if (open) render();
 	}
 
-	// Auto-open when swap mode is active
-	function checkSwapMode() {
-		const inSwapMode = typeof Game !== 'undefined' && Game.awaitingHandSwap && Game.pendingSwapCard;
-		if (inSwapMode && !open) {
-			toggle(true);
-		}
-	}
-
 	function tick() {
-		checkSwapMode();
-		// Don't constantly re-render in swap mode - it destroys event listeners
-		// Only re-render when swap mode state changes
-		const currentlyInSwapMode = typeof Game !== 'undefined' && Game.awaitingHandSwap && Game.pendingSwapCard;
-		if (open && currentlyInSwapMode !== lastSwapModeState) {
-			// Swap mode state changed, re-render
-			render();
-		}
-		lastSwapModeState = currentlyInSwapMode;
 		requestAnimationFrame(tick);
 	}
 
@@ -1164,54 +664,34 @@
 		createCharacterSheet();
 		tick();
 		document.addEventListener('keydown', (e) => {
-			// Don't intercept keys if user is typing in an input field
 			const target = e.target;
 			if (typeof isFormFieldTarget === 'function' && isFormFieldTarget(target)) {
 				return;
 			}
-
-			// Allow character sheet to open even if other modals are active (they should handle their own blocking)
-			// Only block if we're explicitly in swap mode
 			const key = e.key.toLowerCase();
-			// I toggles open/close (but blocked during swap)
 			if (key === 'i') {
 				toggle();
 				e.preventDefault();
 				return;
 			}
-			// Tab: open while held; close on release (but blocked during swap)
 			if (e.key === 'Tab') {
-				const inSwapMode = typeof Game !== 'undefined' && Game.awaitingHandSwap && Game.pendingSwapCard;
-				if (!open) {
-					// Open the sheet when Tab is pressed
-					toggle(true);
-				}
-				// Don't close on keydown - only on keyup
+				if (!open) toggle(true);
 				tabHeldOpen = true;
 				e.preventDefault();
 				return;
 			}
 		}, { capture: true });
-		// Redundant listeners in case some environments swallow document events
 		window.addEventListener('keydown', (e) => {
-			// Don't intercept keys if user is typing in an input field
 			const target = e.target;
 			if (typeof isFormFieldTarget === 'function' && isFormFieldTarget(target)) {
 				return;
 			}
-
-			// Allow character sheet to open even if other modals are active (they should handle their own blocking)
 			const key = e.key.toLowerCase();
 			if (key === 'i') {
 				toggle();
 				e.preventDefault();
 			} else if (e.key === 'Tab') {
-				const inSwapMode = typeof Game !== 'undefined' && Game.awaitingHandSwap && Game.pendingSwapCard;
-				if (!open) {
-					// Open the sheet when Tab is pressed
-					toggle(true);
-				}
-				// Don't close on keydown - only on keyup
+				if (!open) toggle(true);
 				tabHeldOpen = true;
 				e.preventDefault();
 			}
@@ -1219,11 +699,7 @@
 		document.addEventListener('keyup', (e) => {
 			if (e.key === 'Tab') {
 				if (tabHeldOpen) {
-					const inSwapMode = typeof Game !== 'undefined' && Game.awaitingHandSwap && Game.pendingSwapCard;
-					if (!inSwapMode) {
-						// Only allow closing if not in swap mode
-						toggle(false);
-					}
+					toggle(false);
 					tabHeldOpen = false;
 				}
 				e.preventDefault();
@@ -1232,11 +708,7 @@
 		window.addEventListener('keyup', (e) => {
 			if (e.key === 'Tab') {
 				if (tabHeldOpen) {
-					const inSwapMode = typeof Game !== 'undefined' && Game.awaitingHandSwap && Game.pendingSwapCard;
-					if (!inSwapMode) {
-						// Only allow closing if not in swap mode
-						toggle(false);
-					}
+					toggle(false);
 					tabHeldOpen = false;
 				}
 				e.preventDefault();

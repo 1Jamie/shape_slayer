@@ -132,15 +132,38 @@
                 districtType: 'riftDistrict',
                 plazaType: 'echoYard'
             }
+        },
+        safe: {
+            id: 'safe',
+            bossTheme: null,
+            layoutStrategy: 'safe',
+            baseColor: '#070712',
+            gridColor: 'rgba(0, 255, 204, 0.1)',
+            gridSize: 55,
+            accentColor: '#00ffcc',
+            pattern: 'grid',
+            generation: { fillChance: 0.15, smoothingPasses: 2, minOpenRatio: 0.8 },
+            obstaclePreset: 'solid',
+            scenery: {
+                roadType: 'safeZone',
+                roadColor: 'rgba(0, 255, 204, 0.05)',
+                landmarkTypes: ['healingBay', 'upgradeBay'],
+                decorationProfile: 'neonTech',
+                decorationTypes: ['neonLine', 'techCore'],
+                structureDensity: 0.3,
+                districtType: 'upgradeCourt',
+                plazaType: 'upgradePlaza'
+            }
         }
     };
 
+    // Gear bosses every 10 rooms (10, 20, 30, 40, 50); each biome ends on its boss.
     const GEAR_PROGRESSIONS = [
         { maxRoom: 10, biomeId: 'swarm' },
-        { maxRoom: 15, biomeId: 'prism' },
-        { maxRoom: 20, biomeId: 'fortress' },
-        { maxRoom: 25, biomeId: 'fractal' },
-        { maxRoom: 30, biomeId: 'vortex' }
+        { maxRoom: 20, biomeId: 'prism' },
+        { maxRoom: 30, biomeId: 'fortress' },
+        { maxRoom: 40, biomeId: 'fractal' },
+        { maxRoom: 50, biomeId: 'vortex' }
     ];
 
     const CARD_PROGRESSIONS = [

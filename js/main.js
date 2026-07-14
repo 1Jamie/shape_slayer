@@ -159,13 +159,18 @@ const Game = {
     mouse: { x: 0, y: 0 },
     clickHandled: false,
 
-    // Game mode: 'cards' (default) or 'gear'
-    gameMode: 'cards',
+    // Game mode: 'gear' (default)
+    gameMode: 'gear',
 
     // Currency system
     currentCurrency: 0,
-    currencyEarned: 0, // Currency (credits) earned from current run (elites/bosses only)
-    shardsEarned: 0, // Shards earned from current run
+    currencyEarned: 0, // Credits earned this run (display + bookkeeping)
+    currencyBankedThisRun: 0, // Credits already written to SaveSystem mid-run
+    shardsEarned: 0, // Shards earned from current run (meta; banked at run end)
+    rewardsCredited: false,
+
+    ELITE_CREDIT_REWARD: 15,
+    BOSS_CREDIT_REWARD: 50,
 
     // Game config
     config: {
@@ -235,6 +240,15 @@ const Game = {
     // Host-side currency and upgrade tracking (authoritative)
     playerCurrencies: new Map(), // Map<playerId, currency>
     playerUpgrades: new Map(), // Map<playerId, {square: {damage, defense, speed}, triangle: {...}, ...}>
+    playerSafeRoomMeta: new Map(), // Map<playerId, safe-room gearUpgrades blob>
+
+    // Safe room visit flag (true while inside a safe room)
+    inSafeRoom: false,
+    enteringSafeRoom: false,
+    // True after any Safe Room machine transaction this visit (locks Save Run)
+    safeRoomUsedThisVisit: false,
+    // Skip safe-room +50% soft heal once after resume (snapshot HP wins)
+    resumeSkipSafeSoftHeal: false,
 
     // Door waiting state (for multiplayer)
     playersOnDoor: [], // Array of player IDs currently on door
@@ -245,7 +259,7 @@ const Game = {
     screenShakeIntensity: 0,
     screenShakeDuration: 0,
     screenShakeDirection: null, // 'player' for vertical bias, 'boss' for horizontal bias, null for omnidirectional
-    hitPauseTime: 0, // For brief freezes on big hits
+    hitPauseTime: 0, // Brief gameplay freeze on player heavy attacks only
 
     // Background pause flags
     backgroundPauseActive: false,
@@ -417,25 +431,45 @@ const Game = {
             this.selectedClass = saveData.selectedClass || null;
             this.telemetryOptIn = SaveSystem.getTelemetryOptIn ? SaveSystem.getTelemetryOptIn() : null;
 
-            // Run card system migration and auto-unlock cards on load
-            if (typeof runCardSystemMigration === 'function') {
-                runCardSystemMigration(SaveSystem);
-            }
-            // Auto-unlock any cards that meet conditions (including starter cards)
-            if (typeof window.checkAchievementUnlocks === 'function') {
-                window.checkAchievementUnlocks();
-            }
-
             const hasAcknowledgedPrivacy = SaveSystem.hasAcknowledgedPrivacy ? SaveSystem.hasAcknowledgedPrivacy() : true;
             if (!hasAcknowledgedPrivacy) {
                 this.openPrivacyModal('onboarding');
+            } else if (typeof Onboarding !== 'undefined' && Onboarding.getStep && Onboarding.getStep() === Onboarding.STEPS.CONTROLS) {
+                this.launchModalVisible = true;
             } else if (!SaveSystem.getHasSeenLaunchModal()) {
                 this.launchModalVisible = true;
             }
 
-            // Check if update modal should show (version changed)
+            // Patch notes: returning players only. New saves get a quiet version stamp.
+            if (typeof SaveSystem.stampCurrentVersionIfNew === 'function') {
+                SaveSystem.stampCurrentVersionIfNew();
+            }
             if (SaveSystem.shouldShowUpdateModal()) {
-                this.updateModalVisible = true;
+                if (typeof Onboarding !== 'undefined' && !Onboarding.isComplete()) {
+                    Onboarding.deferUpdateModal();
+                } else if (typeof FeatureTutorials !== 'undefined'
+                    && FeatureTutorials.isSpotlightActive
+                    && FeatureTutorials.isSpotlightActive()) {
+                    if (typeof Onboarding !== 'undefined' && Onboarding.deferUpdateModal) {
+                        Onboarding.deferUpdateModal();
+                    } else {
+                        this.updateModalVisible = false;
+                    }
+                } else {
+                    this.updateModalVisible = true;
+                }
+            }
+
+            if (typeof Onboarding !== 'undefined' && Onboarding.onNexusEnter) {
+                // Delay until nexus is ready; boot may still be initializing
+                setTimeout(() => {
+                    Onboarding.onNexusEnter();
+                    if (typeof FeatureTutorials !== 'undefined' && FeatureTutorials.onNexusEnter) {
+                        FeatureTutorials.onNexusEnter();
+                    }
+                }, 0);
+            } else if (typeof FeatureTutorials !== 'undefined' && FeatureTutorials.onNexusEnter) {
+                setTimeout(() => FeatureTutorials.onNexusEnter(), 0);
             }
         } else {
             this.telemetryOptIn = null;
@@ -498,9 +532,8 @@ const Game = {
             }
 
             if (e.key === 'Escape') {
-                // Prevent pausing when awaiting card swap
-                if (this.awaitingHandSwap && this.pendingSwapCard) {
-                    console.log('[ESC KEY] Blocked - awaiting card swap');
+                // Forced first-run onboarding: Esc cannot dismiss privacy/controls steps
+                if (typeof Onboarding !== 'undefined' && Onboarding.isForcedModalActive && Onboarding.isForcedModalActive()) {
                     e.preventDefault();
                     return;
                 }
@@ -512,6 +545,15 @@ const Game = {
                     // Don't interfere here - the component's handler will close it
                     // Just return early to prevent other handlers from running
                     return;
+                }
+
+                // Close Safe Room upgrades first if visible
+                if (typeof window !== 'undefined' && window.SafeRoomMenu && window.SafeRoomMenu.isOpen) {
+                    if (typeof window.toggleSafeRoomMachine === 'function') {
+                        window.toggleSafeRoomMachine(false);
+                        e.preventDefault();
+                        return;
+                    }
                 }
 
                 // Close character sheet first if open
@@ -541,31 +583,20 @@ const Game = {
 
                 // Close Nexus modals first if visible (in NEXUS state)
                 if (this.state === 'NEXUS') {
+                    // Close gear upgrade modal
+                    if (typeof window !== 'undefined' && window.GearUpgradeMenu && window.GearUpgradeMenu.isOpen) {
+                        if (typeof window.toggleGearUpgrades === 'function') {
+                            window.toggleGearUpgrades(false);
+                            e.preventDefault();
+                            return;
+                        }
+                    }
+
                     // Close room modifier selection modal
                     if (this.showingRoomModifierSelection) {
                         this.showingRoomModifierSelection = false;
                         e.preventDefault();
                         return;
-                    }
-
-                    // Close deck builder modal - check if visible by looking for the modal element
-                    const deckBuilderLayer = document.querySelector('.ui-layer--modal[aria-label="Deck Builder"]');
-                    if (deckBuilderLayer && deckBuilderLayer.style.display !== 'none' && deckBuilderLayer.style.display !== '') {
-                        if (typeof window !== 'undefined' && typeof window.toggleDeckBuilder === 'function') {
-                            window.toggleDeckBuilder(false); // Close it
-                            e.preventDefault();
-                            return;
-                        }
-                    }
-
-                    // Close mastery system modal - check if visible by looking for the modal element
-                    const masteryLayer = document.querySelector('.ui-layer--modal[aria-label="Card Mastery"]');
-                    if (masteryLayer && masteryLayer.style.display !== 'none' && masteryLayer.style.display !== '') {
-                        if (typeof window !== 'undefined' && typeof window.toggleMasterySystem === 'function') {
-                            window.toggleMasterySystem(false); // Close it
-                            e.preventDefault();
-                            return;
-                        }
                     }
 
                     // Close door modifier selection modal (used during gameplay, but check anyway)
@@ -578,6 +609,13 @@ const Game = {
 
                 // Close modals first if visible
                 if (this.launchModalVisible) {
+                    // Pause-menu "How to Play" can still close with Esc; first-run uses Got it
+                    if (typeof Onboarding !== 'undefined' && Onboarding.getStep
+                        && Onboarding.getStep() === Onboarding.STEPS.CONTROLS
+                        && !Onboarding.isSuspended()) {
+                        e.preventDefault();
+                        return;
+                    }
                     this.launchModalVisible = false;
                     if (typeof SaveSystem !== 'undefined') {
                         SaveSystem.setHasSeenLaunchModal(true);
@@ -711,7 +749,7 @@ const Game = {
             this.mobileZoom = 1.0; // Not used on desktop, but set for consistency
         }
 
-        // High DPI Support — cap at 2x, never force upscale on 1x displays
+        // High DPI Support - cap at 2x, never force upscale on 1x displays
         const deviceDpr = window.devicePixelRatio || 1;
         const dpr = Math.min(2, Math.max(1, deviceDpr));
         this.dpr = dpr; // Store for use in other rendering methods
@@ -735,6 +773,7 @@ const Game = {
         this.canvas.style.padding = '0';
 
         // Scale the context so drawing commands use logical pixels
+        this.ctx.setTransform(1, 0, 0, 1, 0, 0);
         this.ctx.scale(dpr, dpr);
 
         // Enable high-quality image smoothing
@@ -953,7 +992,7 @@ const Game = {
             }
             if (typeof window.showToast === 'function') {
                 const msg = this.pseudoFullscreenActive
-                    ? 'Expanded to screen — add to Home Screen for true fullscreen on iOS'
+                    ? 'Expanded to screen - add to Home Screen for true fullscreen on iOS'
                     : 'Exited expanded view';
                 window.showToast(msg, 2500);
             }
@@ -1069,32 +1108,30 @@ const Game = {
         const processStart = performance.now();
         let updateTime = 0;
 
-        // Handle hit pause (uses fixed timestep for consistency)
+        // Hit pause: freeze gameplay sim only - VFX/particles keep moving so it reads as impact, not lag
         if (this.hitPauseTime > 0) {
-            // Process hit pause with fixed timestep
-            const maxUpdates = this.maxCatchupUpdates || 5;
-            let updatesRun = 0;
-            while (this.accumulator >= this.fixedTimestep && this.hitPauseTime > 0 && updatesRun < maxUpdates) {
-                this.hitPauseTime -= this.fixedTimestep;
-                if (this.hitPauseTime <= 0) {
-                    this.hitPauseTime = 0;
-                }
-                this.accumulator -= this.fixedTimestep;
-                updatesRun++;
+            this.hitPauseTime -= cappedRealDeltaTime;
+            if (this.hitPauseTime <= 0) {
+                this.hitPauseTime = 0;
             }
 
-            // If still in hit pause, skip updates but still render
-            if (this.hitPauseTime > 0) {
-                this.render();
-
-                // Schedule next frame based on mode
-                if (this.useSetTimeoutLoop) {
-                    this.timeoutId = setTimeout(() => this.gameLoop(performance.now()), 1000 / 60);
-                } else {
-                    requestAnimationFrame((time) => this.gameLoop(time));
-                }
-                return;
+            const juiceDt = Math.min(cappedRealDeltaTime, this.fixedTimestep);
+            if (typeof updateVoxelParticles === 'function') {
+                updateVoxelParticles(juiceDt);
             }
+            this.updateScreenShake(juiceDt);
+            if (typeof updateDamageNumbers === 'function') {
+                updateDamageNumbers(juiceDt);
+            }
+
+            this.render();
+
+            if (this.useSetTimeoutLoop) {
+                this.timeoutId = setTimeout(() => this.gameLoop(performance.now()), 1000 / 60);
+            } else {
+                requestAnimationFrame((time) => this.gameLoop(time));
+            }
+            return;
         }
 
         // FPS tracking (uses real time delta)
@@ -1125,6 +1162,9 @@ const Game = {
                     updateNexus(this.ctx, this.fixedTimestep);
                 }
                 this.tickNexusPrewarm();
+            }
+            if (typeof updateVoxelParticles === 'function') {
+                updateVoxelParticles(this.fixedTimestep);
             }
             updateTime += performance.now() - updateStart;
             this.accumulator -= this.fixedTimestep;
@@ -1291,6 +1331,25 @@ const Game = {
         ctx.scale(currentZoom, currentZoom);
         ctx.translate(-this.camera.x, -this.camera.y);
 
+        // Draw solid outer-wall fill for safe rooms so non-traversable space is clearly blocked
+        if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'safe') {
+            const rw = currentRoom.width || 2400;
+            const rh = currentRoom.height || 1350;
+            const wallPad = 2400; // extend far beyond room edges
+            ctx.save();
+            ctx.fillStyle = 'rgba(10, 14, 20, 0.96)';
+            // Fill four side bands around the room
+            ctx.fillRect(-wallPad, -wallPad, rw + wallPad * 2, wallPad);           // top
+            ctx.fillRect(-wallPad, rh, rw + wallPad * 2, wallPad);                 // bottom
+            ctx.fillRect(-wallPad, 0, wallPad, rh);                                // left
+            ctx.fillRect(rw, 0, wallPad, rh);                                      // right
+            // Add a subtle inset border/bevel at room edge
+            ctx.strokeStyle = 'rgba(50, 90, 70, 0.55)';
+            ctx.lineWidth = 8;
+            ctx.strokeRect(-4, -4, rw + 8, rh + 8);
+            ctx.restore();
+        }
+
         const staticStart = performance.now();
         if (typeof renderCachedRoomStaticLayer === 'function' && renderCachedRoomStaticLayer(ctx, this.roomNumber)) {
             if (typeof renderRoomAmbientLife === 'function') {
@@ -1315,6 +1374,9 @@ const Game = {
 
         const worldStart = performance.now();
         this.renderGameWorld(ctx);
+        if (typeof Room0Tutorial !== 'undefined' && Room0Tutorial.renderWorld) {
+            Room0Tutorial.renderWorld(ctx);
+        }
         this.currentFrameTimings.world += performance.now() - worldStart;
         ctx.restore();
     },
@@ -1363,9 +1425,14 @@ const Game = {
         this.ctx.globalCompositeOperation = 'source-over';
     },
 
-    // Trigger hit pause
+    // Trigger hit pause (player heavy attacks only - keep short, never stack)
     triggerHitPause(duration = 0.1) {
-        this.hitPauseTime = duration;
+        const capped = Math.min(duration, 0.045);
+        if (this.hitPauseTime <= 0) {
+            this.hitPauseTime = capped;
+        } else {
+            this.hitPauseTime = Math.min(this.hitPauseTime + capped * 0.2, 0.045);
+        }
     },
 
     // Update screen shake
@@ -1439,6 +1506,22 @@ const Game = {
                     this.camera.x = this.bossIntroPanStartX + (targetPlayer.x - this.bossIntroPanStartX) * eased;
                     this.camera.y = this.bossIntroPanStartY + (targetPlayer.y - this.bossIntroPanStartY) * eased;
                 }
+                return;
+            }
+        }
+
+        // Room 0 exit-door coach: bias camera toward the open door
+        if (typeof Room0Tutorial !== 'undefined'
+            && Room0Tutorial.getCameraOverride
+            && Room0Tutorial.isExitCoachActive
+            && Room0Tutorial.isExitCoachActive()) {
+            const override = Room0Tutorial.getCameraOverride();
+            if (override && Number.isFinite(override.x) && Number.isFinite(override.y)) {
+                this.camera.targetX = override.x;
+                this.camera.targetY = override.y;
+                const lerpFactor = 1 - Math.exp(-this.camera.smoothSpeed * deltaTime);
+                this.camera.x += (this.camera.targetX - this.camera.x) * lerpFactor;
+                this.camera.y += (this.camera.targetY - this.camera.y) * lerpFactor;
                 return;
             }
         }
@@ -1528,8 +1611,18 @@ const Game = {
             const halfVisibleWorldW = (this.config.width / 2) / currentZoom;
             const halfVisibleWorldH = (this.config.height / 2) / currentZoom;
 
-            this.camera.targetX = Math.max(halfVisibleWorldW, Math.min(currentRoom.width - halfVisibleWorldW, this.camera.targetX));
-            this.camera.targetY = Math.max(halfVisibleWorldH, Math.min(currentRoom.height - halfVisibleWorldH, this.camera.targetY));
+            // If the room is smaller than the viewport on an axis, center on that axis
+            // (avoids asymmetric side/top buffers from inverted clamp bounds)
+            if (currentRoom.width <= halfVisibleWorldW * 2) {
+                this.camera.targetX = currentRoom.width / 2;
+            } else {
+                this.camera.targetX = Math.max(halfVisibleWorldW, Math.min(currentRoom.width - halfVisibleWorldW, this.camera.targetX));
+            }
+            if (currentRoom.height <= halfVisibleWorldH * 2) {
+                this.camera.targetY = currentRoom.height / 2;
+            } else {
+                this.camera.targetY = Math.max(halfVisibleWorldH, Math.min(currentRoom.height - halfVisibleWorldH, this.camera.targetY));
+            }
         }
 
         // Smooth lerp toward target
@@ -1562,9 +1655,21 @@ const Game = {
     updateNexusCamera(deltaTime) {
         if (!this.player || typeof nexusRoom === 'undefined' || !nexusRoom) return;
 
-        // Target camera on player position
-        this.nexusCamera.targetX = this.player.x;
-        this.nexusCamera.targetY = this.player.y;
+        // Onboarding spotlight: lock camera to cutout center so the hole cannot scroll off-screen
+        let camOverride = (typeof Onboarding !== 'undefined' && Onboarding.getCameraOverride)
+            ? Onboarding.getCameraOverride()
+            : null;
+        if (!camOverride && typeof FeatureTutorials !== 'undefined' && FeatureTutorials.getCameraOverride) {
+            camOverride = FeatureTutorials.getCameraOverride();
+        }
+        if (camOverride) {
+            this.nexusCamera.targetX = camOverride.x;
+            this.nexusCamera.targetY = camOverride.y;
+        } else {
+            // Target camera on player position
+            this.nexusCamera.targetX = this.player.x;
+            this.nexusCamera.targetY = this.player.y;
+        }
 
         // Clamp to nexus boundaries (account for zoom)
         const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
@@ -1574,8 +1679,16 @@ const Game = {
         const halfVisibleWorldW = (this.config.width / 2) / currentZoom;
         const halfVisibleWorldH = (this.config.height / 2) / currentZoom;
 
-        this.nexusCamera.targetX = Math.max(halfVisibleWorldW, Math.min(nexusRoom.width - halfVisibleWorldW, this.nexusCamera.targetX));
-        this.nexusCamera.targetY = Math.max(halfVisibleWorldH, Math.min(nexusRoom.height - halfVisibleWorldH, this.nexusCamera.targetY));
+        if (nexusRoom.width <= halfVisibleWorldW * 2) {
+            this.nexusCamera.targetX = nexusRoom.width / 2;
+        } else {
+            this.nexusCamera.targetX = Math.max(halfVisibleWorldW, Math.min(nexusRoom.width - halfVisibleWorldW, this.nexusCamera.targetX));
+        }
+        if (nexusRoom.height <= halfVisibleWorldH * 2) {
+            this.nexusCamera.targetY = nexusRoom.height / 2;
+        } else {
+            this.nexusCamera.targetY = Math.max(halfVisibleWorldH, Math.min(nexusRoom.height - halfVisibleWorldH, this.nexusCamera.targetY));
+        }
 
         // Smooth lerp toward target
         const lerpFactor = 1 - Math.exp(-this.nexusCamera.smoothSpeed * deltaTime);
@@ -1585,7 +1698,18 @@ const Game = {
 
     // Initialize nexus camera
     initializeNexusCamera() {
-        if (this.player) {
+        let camOverride = (typeof Onboarding !== 'undefined' && Onboarding.getCameraOverride)
+            ? Onboarding.getCameraOverride()
+            : null;
+        if (!camOverride && typeof FeatureTutorials !== 'undefined' && FeatureTutorials.getCameraOverride) {
+            camOverride = FeatureTutorials.getCameraOverride();
+        }
+        if (camOverride) {
+            this.nexusCamera.x = camOverride.x;
+            this.nexusCamera.y = camOverride.y;
+            this.nexusCamera.targetX = camOverride.x;
+            this.nexusCamera.targetY = camOverride.y;
+        } else if (this.player) {
             this.nexusCamera.x = this.player.x;
             this.nexusCamera.y = this.player.y;
             this.nexusCamera.targetX = this.player.x;
@@ -1625,6 +1749,13 @@ const Game = {
     },
 
     closePrivacyModal() {
+        // Forced first-run privacy: closing without Opt In/Out is not allowed
+        if (typeof Onboarding !== 'undefined'
+            && Onboarding.getStep
+            && Onboarding.getStep() === Onboarding.STEPS.PRIVACY
+            && this.privacyModalContext === 'onboarding') {
+            return;
+        }
         this.privacyModalVisible = false;
         if (this.privacyModalReturnToPause) {
             if (this.multiplayerEnabled) {
@@ -1655,10 +1786,21 @@ const Game = {
         }
         const context = this.privacyModalContext;
         this.setTelemetryPreference(optIn);
-        this.closePrivacyModal();
+        // Force-close after ack (privacy step is done; do not use the blocked close path)
+        this.privacyModalVisible = false;
+        this.privacyModalReturnToPause = false;
+        this.privacyModalContext = 'onboarding';
+        this.privacyModalPreviousShowPauseMenu = false;
         if (context === 'onboarding') {
+            if (typeof Onboarding !== 'undefined' && Onboarding.notifyPrivacyDone) {
+                Onboarding.notifyPrivacyDone();
+            }
             if (typeof SaveSystem !== 'undefined' && !SaveSystem.getHasSeenLaunchModal()) {
                 this.launchModalVisible = true;
+            }
+        } else if (context === 'pause') {
+            if (this.multiplayerEnabled) {
+                this.showPauseMenu = true;
             }
         }
     },
@@ -1715,7 +1857,7 @@ const Game = {
 
     getTelemetryRoomContext(room = null) {
         const sourceRoom = room || (typeof currentRoom !== 'undefined' ? currentRoom : null);
-        const gameMode = this.gameMode || 'cards';
+        const gameMode = this.gameMode || 'gear';
         const playerCount = typeof getPlayerCount === 'function'
             ? getPlayerCount()
             : (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.players
@@ -1760,7 +1902,7 @@ const Game = {
             result,
             metadata: {
                 reason,
-                gameMode: this.gameMode || 'cards',
+                gameMode: this.gameMode || 'gear',
                 playerCount: participants.length,
                 difficulty: this.difficulty || 'normal'
             },
@@ -2304,6 +2446,10 @@ const Game = {
     isBossRoom(roomNumber) {
         if (typeof roomNumber !== 'number') return false;
         if (roomNumber < 10) return false;
+        const mode = (typeof Game !== 'undefined' && Game.gameMode) ? Game.gameMode : 'cards';
+        if (mode === 'gear') {
+            return roomNumber % 10 === 0;
+        }
         return roomNumber % 5 === 0;
     },
 
@@ -2325,7 +2471,7 @@ const Game = {
         if (this.gameOverMusicPlaying) {
             return;
         }
-        if (this.state === 'NEXUS') {
+        if (this.state === 'NEXUS' || (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'safe')) {
             MusicManager.setNexus().catch(err => {
                 console.error('[Music] Failed to set nexus music:', err);
             });
@@ -2670,6 +2816,9 @@ const Game = {
                 if (typeof this.triggerGameOverMusic === 'function') {
                     this.triggerGameOverMusic();
                 }
+
+                // Credit rewards immediately on game over screen
+                this.creditRewards();
             }
 
             console.log(`[Host] Remote player ${playerId} died!`);
@@ -2711,11 +2860,6 @@ const Game = {
         // Update damage numbers
         if (typeof updateDamageNumbers !== 'undefined') {
             updateDamageNumbers(deltaTime);
-        }
-
-        // Update door selections
-        if (typeof updateDoorSelections !== 'undefined') {
-            updateDoorSelections(deltaTime);
         }
 
         // Update ground items (pulse animation)
@@ -2908,10 +3052,6 @@ const Game = {
             // SOLO: Update normally
             if (this.player && this.player.alive) {
                 this.player.update(deltaTime, Input);
-                // Update conditional card effects (momentum decay, overcharge timer)
-                if (typeof CardEffects !== 'undefined' && CardEffects.updateConditionalEffects) {
-                    CardEffects.updateConditionalEffects(this.player, deltaTime);
-                }
             }
         }
 
@@ -2946,6 +3086,11 @@ const Game = {
                     }
                 }
             });
+
+            // Drain up to 2 queued A* requests per frame
+            if (typeof RoomLayoutGenerator !== 'undefined' && RoomLayoutGenerator.processPathfindingQueue) {
+                RoomLayoutGenerator.processPathfindingQueue(2);
+            }
         } else {
             // Client: Only interpolate positions from host
             this.enemies.forEach(enemy => {
@@ -3018,16 +3163,12 @@ const Game = {
             // Check if player wants to advance to next room
             // Only check old door collision if no door selections are active
             if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen) {
-                const hasActiveSelections = typeof window !== 'undefined' &&
-                    Array.isArray(window.selectionDoors) &&
-                    window.selectionDoors.length > 0 &&
-                    window.selectionDoors.some(d => !d.selected && d.alpha > 0);
-
-                // Only use old door system if new system is not active
-                if (!hasActiveSelections && !Game.awaitingDoorSelection) {
-                    this.checkDoorCollision();
-                }
+                this.checkDoorCollision();
             }
+        }
+
+        if (typeof Room0Tutorial !== 'undefined' && Room0Tutorial.update) {
+            Room0Tutorial.update(deltaTime);
         }
 
         // Update door pulse animation
@@ -3247,6 +3388,47 @@ const Game = {
         }
 
         if (shouldPickup) {
+            // Check for Safe Room machine interactions
+            if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'safe') {
+                const machines = (typeof window.getSafeRoomMachines === 'function') ? window.getSafeRoomMachines(currentRoom) : [];
+                const nearMachine = machines.find(m => {
+                    const dx = m.x - this.player.x;
+                    const dy = m.y - this.player.y;
+                    return Math.sqrt(dx * dx + dy * dy) < m.range;
+                });
+                if (nearMachine) {
+                    if (typeof window.toggleSafeRoomMachine === 'function') {
+                        window.toggleSafeRoomMachine(true, nearMachine.id);
+                        return;
+                    }
+                }
+            }
+
+            // Check for Pre-Boss Healer interaction (only after room clear opens the boss door)
+            if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen && currentRoom.preBossHealer) {
+                const healer = currentRoom.preBossHealer;
+                // Ensure usedBy is initialised as a Set (backwards-compatible)
+                if (!healer.usedBy) healer.usedBy = new Set();
+                const localId = typeof this.getLocalPlayerId === 'function' ? this.getLocalPlayerId() : 'local';
+                if (!healer.usedBy.has(localId)) {
+                    const dx = healer.x - this.player.x;
+                    const dy = healer.y - this.player.y;
+                    if (Math.sqrt(dx * dx + dy * dy) < healer.range) {
+                        healer.usedBy.add(localId);
+                        // Heal by 25% max HP
+                        this.player.hp = Math.min(this.player.maxHp, this.player.hp + Math.floor(this.player.maxHp * 0.25));
+                        if (typeof this.player.updateEffectiveStats === 'function') {
+                            this.player.updateEffectiveStats();
+                        }
+                        if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.sounds.heal) {
+                            AudioManager.sounds.heal();
+                        }
+                        console.log("[Healer] Restored 25% HP to player", localId);
+                        return;
+                    }
+                }
+            }
+
             // Check for item pylon interaction first (multiplayer)
             if (typeof checkItemPylonInteraction !== 'undefined') {
                 const pylon = checkItemPylonInteraction(this.player);
@@ -3423,6 +3605,7 @@ const Game = {
     // Check door collision
     checkDoorCollision() {
         const doorPos = getDoorPosition();
+        this.nearExitDoor = false; // Reset flag each frame
 
         // Multiplayer: Check if ALL ALIVE players are on the door
         if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
@@ -3455,8 +3638,20 @@ const Game = {
                 const dx = player.x - Math.max(doorPos.x, Math.min(player.x, doorPos.x + doorPos.width));
                 const dy = player.y - Math.max(doorPos.y, Math.min(player.y, doorPos.y + doorPos.height));
                 const distance = Math.sqrt(dx * dx + dy * dy);
-                if (distance <= player.size) {
-                    playersOnDoor.push(id);
+                if (distance <= player.size * 1.8) {
+                    if (id === this.getLocalPlayerId()) {
+                        this.nearExitDoor = true;
+                    }
+                    const isLocal = id === this.getLocalPlayerId();
+                    const isInteracting = isLocal
+                        ? (Input.keys && Input.keys['g'])
+                        : (typeof Game.getRemotePlayerInput === 'function' &&
+                           Game.getRemotePlayerInput(id) &&
+                           Game.getRemotePlayerInput(id).keys &&
+                           Game.getRemotePlayerInput(id).keys['g']);
+                    if (isInteracting) {
+                        playersOnDoor.push(id);
+                    }
                 }
             });
 
@@ -3476,8 +3671,11 @@ const Game = {
             const dy = this.player.y - Math.max(doorPos.y, Math.min(this.player.y, doorPos.y + doorPos.height));
             const distance = Math.sqrt(dx * dx + dy * dy);
 
-            if (distance <= this.player.size) {
-                this.advanceToNextRoom();
+            if (distance <= this.player.size * 1.8) {
+                this.nearExitDoor = true;
+                if (Input.keys && Input.keys['g']) {
+                    this.advanceToNextRoom();
+                }
             }
         }
     },
@@ -3719,6 +3917,21 @@ const Game = {
             if (typeof currentRoom !== 'undefined' && currentRoom && typeof prepareRoomRenderData === 'function') {
                 prepareRoomRenderData(currentRoom, transition.roomNumber);
             }
+            if (typeof resetVoxelStaticCanvas === 'function' && typeof currentRoom !== 'undefined' && currentRoom) {
+                resetVoxelStaticCanvas(currentRoom.width || 2400, currentRoom.height || 1350);
+            }
+            // Fresh frame-budget window per room so end-of-fight load does not crush vignette on entry.
+            this.frameBudgetSamples.length = 0;
+            this.renderQuality = {
+                vignetteScale: 0.5,
+                maxSceneryLights: Infinity,
+                gearRingPoints: 64,
+                groundLootAnimatedRing: true,
+                remoteFullRender: true,
+                maxBeamLights: 8,
+                damageFxScale: 1,
+                voxelParticleCap: 512
+            };
             transition.phase = 1;
             return;
         }
@@ -3768,7 +3981,7 @@ const Game = {
         }
         const boss = this.enemies[0];
         const currentRoomNumber = this.roomNumber || (currentRoom ? currentRoom.number : 0);
-        if (currentRoomNumber <= 30) {
+        if (currentRoomNumber <= 50) {
             this.startBossIntro(boss);
         } else {
             boss.introComplete = true;
@@ -3854,9 +4067,254 @@ const Game = {
         ctx.fillText('Preparing environment...', logicalWidth / 2, logicalHeight / 2 + 18);
     },
 
-    // Advance to next room
+    /**
+     * Set whether we are currently in a safe room.
+     * On true → false, clear rarityUpgradedThisVisit on all live gear.
+     */
+    setInSafeRoom(next) {
+        const was = !!this.inSafeRoom;
+        const now = !!next;
+        this.inSafeRoom = now;
+        if (was && !now && typeof clearAllGearRarityVisitFlags === 'function') {
+            clearAllGearRarityVisitFlags();
+        } else if (was && !now && typeof window !== 'undefined' && typeof window.clearAllGearRarityVisitFlags === 'function') {
+            window.clearAllGearRarityVisitFlags();
+        }
+    },
+
+    syncInSafeRoomFromCurrentRoom(room) {
+        const isSafe = !!(room && room.type === 'safe');
+        if (isSafe && !this.inSafeRoom) {
+            this.safeRoomUsedThisVisit = false;
+        }
+        this.setInSafeRoom(isSafe);
+    },
+
+    markSafeRoomMachineUsed() {
+        this.safeRoomUsedThisVisit = true;
+    },
+
+    canSaveRunAtSafeRoom() {
+        if (this.multiplayerEnabled) return false;
+        if (this.state !== 'PLAYING') return false;
+        if (!this.inSafeRoom && !(typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'safe')) {
+            return false;
+        }
+        if (this.safeRoomUsedThisVisit) return false;
+        if (!this.player || this.player.dead) return false;
+        return true;
+    },
+
+    saveRunAtSafeRoom() {
+        if (!this.canSaveRunAtSafeRoom()) {
+            console.warn('[RunSave] Cannot save: solo safe room + unused machines required');
+            return false;
+        }
+        if (typeof SaveSystem === 'undefined' || typeof RunCheckpoint === 'undefined') {
+            console.error('[RunSave] SaveSystem/RunCheckpoint unavailable');
+            return false;
+        }
+
+        const checkpoint = RunCheckpoint.buildCheckpoint(this, this.player);
+        if (!checkpoint || !checkpoint.player) {
+            console.error('[RunSave] Failed to build checkpoint');
+            return false;
+        }
+
+        SaveSystem.setActiveRunCheckpoint(checkpoint);
+        if (checkpoint.playerClass) {
+            this.selectedClass = checkpoint.playerClass;
+            if (SaveSystem.setSelectedClass) {
+                SaveSystem.setSelectedClass(checkpoint.playerClass);
+            }
+        }
+
+        if (typeof window !== 'undefined' && typeof window.toggleSafeRoomMachine === 'function') {
+            window.toggleSafeRoomMachine(false);
+        }
+
+        this.exitToNexusWithCheckpoint();
+        return true;
+    },
+
+    exitToNexusWithCheckpoint() {
+        // Keep activeRunCheckpoint. Do not creditRewards / end-run economy.
+        this.state = 'NEXUS';
+        this.roomEnterTransition = null;
+        if (typeof initializeRoom !== 'undefined') {
+            currentRoom = null;
+            if (typeof window !== 'undefined') {
+                window.currentRoom = null;
+            }
+        }
+        this.enemies = [];
+        this.projectiles = [];
+        this.gameOverMusicPlaying = false;
+        this.updateMusicForCurrentRoom();
+
+        this.paused = false;
+        this.showPauseMenu = false;
+        this.pausedFromState = null;
+        if (typeof audioMenuVisible !== 'undefined') {
+            audioMenuVisible = false;
+        }
+
+        this.enemiesKilled = 0;
+        this.elitesKilled = 0;
+        this.bossesKilled = 0;
+        this.roomNumber = 1;
+        this.currencyEarned = 0;
+        this.currencyBankedThisRun = 0;
+        this.shardsEarned = 0;
+        this.enteringSafeRoom = false;
+        this.safeRoomUsedThisVisit = false;
+        this.resumeSkipSafeSoftHeal = false;
+        this.setInSafeRoom(false);
+
+        if (typeof groundLoot !== 'undefined') {
+            groundLoot.length = 0;
+        }
+        this.cleanupRunState();
+
+        if (typeof initNexus !== 'undefined') {
+            initNexus();
+        }
+        this.initializeNexusCamera();
+        console.log('[RunSave] Exited to Nexus with active run checkpoint');
+    },
+
+    resumeRunFromCheckpoint(checkpoint) {
+        if (!checkpoint || typeof checkpoint !== 'object') {
+            console.error('[RunSave] resumeRunFromCheckpoint called without checkpoint');
+            return false;
+        }
+        if (this.multiplayerEnabled) {
+            console.warn('[RunSave] Resume blocked in multiplayer');
+            return false;
+        }
+
+        try {
+            const playerClass = checkpoint.playerClass || (checkpoint.player && checkpoint.player.playerClass);
+            if (!playerClass || typeof createPlayer === 'undefined') {
+                throw new Error('Missing player class or createPlayer');
+            }
+
+            this.gameMode = checkpoint.gameMode || 'gear';
+            this.difficulty = checkpoint.difficulty || 'normal';
+            this.selectedClass = playerClass;
+            if (typeof SaveSystem !== 'undefined' && SaveSystem.setSelectedClass) {
+                SaveSystem.setSelectedClass(playerClass);
+            }
+
+            const spawnPoint = this.getRoomSpawnPoint ? this.getRoomSpawnPoint(null, 0) : { x: 400, y: 300 };
+            this.player = createPlayer(playerClass, spawnPoint.x, spawnPoint.y);
+            this.player.playerId = this.getLocalPlayerId ? this.getLocalPlayerId() : 'local';
+
+            if (typeof RunCheckpoint === 'undefined' ||
+                !RunCheckpoint.applyPlayerSnapshot(this.player, checkpoint.player)) {
+                throw new Error('Failed to apply player snapshot');
+            }
+
+            const run = checkpoint.run || {};
+            this.enemiesKilled = run.enemiesKilled || 0;
+            this.elitesKilled = run.elitesKilled || 0;
+            this.bossesKilled = run.bossesKilled || 0;
+            this.currencyEarned = run.currencyEarned || 0;
+            this.currencyBankedThisRun = run.currencyBankedThisRun || 0;
+            this.shardsEarned = run.shardsEarned || 0;
+            this.startTime = run.startTime || Date.now();
+
+            this.roomNumber = checkpoint.roomNumber || 1;
+            this.enteringSafeRoom = true;
+            this.safeRoomUsedThisVisit = false;
+            this.resumeSkipSafeSoftHeal = true;
+            this.gameOverMusicPlaying = false;
+            this.showPauseMenu = false;
+            this.paused = false;
+            this.pausedFromState = null;
+            this.roomEnterTransition = null;
+            this.deathScreenStartTime = 0;
+            this.finalStats = null;
+
+            if (typeof initializeRoom !== 'undefined') {
+                currentRoom = null;
+                if (typeof window !== 'undefined') {
+                    window.currentRoom = null;
+                }
+            }
+
+            this.initializePlayerStats && this.initializePlayerStats();
+            this.state = 'PLAYING';
+            this.spawnEnemies();
+            this.updateMusicForCurrentRoom();
+
+            if (this.beginRoomEnterTransition) {
+                this.beginRoomEnterTransition({
+                    roomNumber: this.roomNumber,
+                    onComplete: () => {}
+                });
+            }
+
+            console.log(`[RunSave] Resumed at safe room for room ${this.roomNumber}`);
+            return true;
+        } catch (err) {
+            console.error('[RunSave] Resume failed after checkpoint consume:', err);
+            this.state = 'NEXUS';
+            this.enteringSafeRoom = false;
+            this.resumeSkipSafeSoftHeal = false;
+            if (typeof initNexus !== 'undefined') {
+                initNexus();
+            }
+            this.initializeNexusCamera && this.initializeNexusCamera();
+            return false;
+        }
+    },
+
+    tryResumeOrStartFromPortal() {
+        if (this.multiplayerEnabled) {
+            this.startGame();
+            return;
+        }
+        if (typeof SaveSystem === 'undefined' || !SaveSystem.hasActiveRunCheckpoint ||
+            !SaveSystem.hasActiveRunCheckpoint()) {
+            this.startGame();
+            return;
+        }
+        const cp = SaveSystem.consumeActiveRunCheckpoint();
+        if (!cp) {
+            this.startGame();
+            return;
+        }
+        this.resumeRunFromCheckpoint(cp);
+    },
+
     advanceToNextRoom() {
-        this.roomNumber++;
+        if (this.roomNumber === 0
+            || (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'tutorial')) {
+            if (typeof Room0Tutorial !== 'undefined' && Room0Tutorial.markDone) {
+                Room0Tutorial.markDone();
+            }
+            this.enteringSafeRoom = false;
+            this.roomNumber = 1;
+        } else if (this.gameMode === 'gear' && typeof currentRoom !== 'undefined' && currentRoom) {
+            if (currentRoom.type !== 'safe') {
+                // Safe room every 5 rooms: after room 5, 10, 15, 20...
+                // Guard: room 0 must never insert a safe room (0 % 5 === 0)
+                if (this.roomNumber > 0 && this.roomNumber % 5 === 0) {
+                    this.enteringSafeRoom = true;
+                } else {
+                    this.roomNumber++;
+                }
+            } else {
+                // Exit Safe Room - clear visit flag then return to regular room structure
+                this.setInSafeRoom(false);
+                this.enteringSafeRoom = false;
+                this.roomNumber++;
+            }
+        } else {
+            if (this.inSafeRoom) this.setInSafeRoom(false);
+            this.roomNumber++;
+        }
         this.gameOverMusicPlaying = false;
         if (typeof audioMenuVisible !== 'undefined') {
             audioMenuVisible = false;
@@ -3905,11 +4363,6 @@ const Game = {
                     groundLoot.length = 0;
                 }
 
-                // Clear ground cards (will be synced from host)
-                if (typeof window.groundCards !== 'undefined' && Array.isArray(window.groundCards)) {
-                    window.groundCards.length = 0;
-                }
-
                 // Clear ground items (will be synced from host)
                 if (typeof Game !== 'undefined' && Game.groundItems && Array.isArray(Game.groundItems)) {
                     Game.groundItems.length = 0;
@@ -3944,6 +4397,10 @@ const Game = {
                     if (typeof window !== 'undefined') {
                         window.currentRoom = currentRoom;
                     }
+                    this.syncInSafeRoomFromCurrentRoom(currentRoom);
+                    if (typeof RoomLayoutGenerator !== 'undefined' && RoomLayoutGenerator.clearPathfindingQueue) {
+                        RoomLayoutGenerator.clearPathfindingQueue();
+                    }
                 }
 
                 // Update enemies array
@@ -3954,11 +4411,6 @@ const Game = {
                     groundLoot.length = 0;
                 }
 
-                // Clear ground cards from previous room
-                if (typeof window.groundCards !== 'undefined' && Array.isArray(window.groundCards)) {
-                    window.groundCards.length = 0;
-                }
-
                 // Clear ground items from previous room
                 if (typeof Game !== 'undefined' && Game.groundItems && Array.isArray(Game.groundItems)) {
                     Game.groundItems.length = 0;
@@ -3967,17 +4419,6 @@ const Game = {
                 // Clear item pylons from previous room (multiplayer)
                 if (typeof Game !== 'undefined' && Game.itemPylons && Array.isArray(Game.itemPylons)) {
                     Game.itemPylons.length = 0;
-                }
-
-                // Clear door selections from previous room (but preserve selectedDoorReward for spawning)
-                if (typeof clearDoorSelections === 'function') {
-                    // Don't clear selectedDoorReward - it needs to persist until this room is cleared
-                    const savedReward = window.selectedDoorReward;
-                    clearDoorSelections();
-                    // Restore it if it exists (it will be cleared after spawning in spawnRoomReward)
-                    if (savedReward) {
-                        window.selectedDoorReward = savedReward;
-                    }
                 }
 
                 // Reset player position to the generated spawn zone.
@@ -4191,10 +4632,44 @@ const Game = {
                 this.currentFrameTimings.postFx += performance.now() - postFxStart;
             }
 
-            const vignetteStart = performance.now();
-            this.renderVignette(this.ctx);
-            this.currentFrameTimings.vignette += performance.now() - vignetteStart;
+            if (typeof currentRoom === 'undefined' || !currentRoom || currentRoom.type !== 'safe') {
+                const vignetteStart = performance.now();
+                this.renderVignette(this.ctx);
+                this.currentFrameTimings.vignette += performance.now() - vignetteStart;
+            }
+
+            // Post-vignette: punch-through screen-space glow for pre-boss healer (after door opens)
+            if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen && currentRoom.preBossHealer && this.player) {
+                const healer = currentRoom.preBossHealer;
+                if (!healer.usedBy) healer.usedBy = new Set();
+                const _localId = typeof this.getLocalPlayerId === 'function' ? this.getLocalPlayerId() : 'local';
+                if (!healer.usedBy.has(_localId)) {
+                    // Convert world coords to screen coords
+                    const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
+                    const _zoom = isMobile ? (this.mobileZoom || 1.0) : (this.baseZoom || 1.1);
+                    const _cX = (this.config.width / 2) + this.screenShakeOffset.x;
+                    const _cY = (this.config.height / 2) + this.screenShakeOffset.y;
+                    const sx = (healer.x - this.camera.x) * _zoom + _cX;
+                    const sy = (healer.y - this.camera.y) * _zoom + _cY;
+                    const _t = Date.now() * 0.002;
+                    const _pulse = 0.5 + Math.sin(_t) * 0.5;
+                    // Draw a bright additive glow that punches through the vignette darkness
+                    this.ctx.save();
+                    this.ctx.globalCompositeOperation = 'lighter';
+                    const glowR = (70 + _pulse * 20) * _zoom;
+                    const grad = this.ctx.createRadialGradient(sx, sy, 0, sx, sy, glowR);
+                    grad.addColorStop(0, `rgba(0, 255, 100, ${0.18 + _pulse * 0.12})`);
+                    grad.addColorStop(0.4, `rgba(0, 200, 80, ${0.08 + _pulse * 0.06})`);
+                    grad.addColorStop(1, 'rgba(0,0,0,0)');
+                    this.ctx.fillStyle = grad;
+                    this.ctx.beginPath();
+                    this.ctx.arc(sx, sy, glowR, 0, Math.PI * 2);
+                    this.ctx.fill();
+                    this.ctx.restore();
+                }
+            }
         }
+
 
         const uiStart = performance.now();
         if (typeof renderEnemyDirectionArrows === 'function') {
@@ -4210,6 +4685,25 @@ const Game = {
         // Render touch controls (on top of everything)
         if (typeof Input !== 'undefined' && Input.render) {
             Input.render(this.ctx);
+        }
+
+        // Room 0 coach + exit-door spotlight (world-space, camera-transformed)
+        if (typeof Room0Tutorial !== 'undefined') {
+            this.ctx.save();
+            const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
+            const currentZoom = isMobile ? (this.mobileZoom || 1.0) : (this.baseZoom);
+            const centerX = this.config.width / 2;
+            const centerY = this.config.height / 2;
+            this.ctx.translate(centerX + this.screenShakeOffset.x, centerY + this.screenShakeOffset.y);
+            this.ctx.scale(currentZoom, currentZoom);
+            this.ctx.translate(-this.camera.x, -this.camera.y);
+            if (Room0Tutorial.renderSpotlight) {
+                Room0Tutorial.renderSpotlight(this.ctx);
+            }
+            if (Room0Tutorial.renderCoachCard) {
+                Room0Tutorial.renderCoachCard(this.ctx);
+            }
+            this.ctx.restore();
         }
 
         // Render interaction button (on top of touch controls)
@@ -4318,7 +4812,8 @@ const Game = {
             groundLootAnimatedRing: true,
             remoteFullRender: true,
             maxBeamLights: 8,
-            damageFxScale: 1
+            damageFxScale: 1,
+            voxelParticleCap: 512
         };
         if (!adaptiveEnabled) {
             this.frameBudgetSamples.length = 0;
@@ -4347,23 +4842,25 @@ const Game = {
 
         if (frameAvg > 34 || renderAvg > 28) {
             this.renderQuality = {
-                vignetteScale: 0.25,
+                vignetteScale: 0.5,
                 maxSceneryLights: 36,
                 gearRingPoints: 24,
                 groundLootAnimatedRing: false,
                 remoteFullRender: false,
                 maxBeamLights: 4,
-                damageFxScale: 0.5
+                damageFxScale: 0.5,
+                voxelParticleCap: 64
             };
         } else if (frameAvg > 30 || renderAvg > 22) {
             this.renderQuality = {
-                vignetteScale: 0.33,
+                vignetteScale: 0.5,
                 maxSceneryLights: 64,
                 gearRingPoints: 32,
                 groundLootAnimatedRing: false,
                 remoteFullRender: true,
                 maxBeamLights: 4,
-                damageFxScale: 0.75
+                damageFxScale: 0.75,
+                voxelParticleCap: 192
             };
         } else if (frameAvg < 24 && renderAvg < 17) {
             this.renderQuality = baseQuality;
@@ -4388,9 +4885,6 @@ const Game = {
         const totalGroundLoot = (typeof groundLoot !== 'undefined' && Array.isArray(groundLoot))
             ? groundLoot.length
             : 0;
-        const totalGroundCards = (typeof window !== 'undefined' && Array.isArray(window.groundCards))
-            ? window.groundCards.length
-            : 0;
         return {
             fps: this.fps || 0,
             qualityTier: this.getRenderQualityTier(),
@@ -4402,8 +4896,6 @@ const Game = {
                 projectilesTotal: this.projectiles ? this.projectiles.length : 0,
                 groundLootVisible: lists.groundLoot ? lists.groundLoot.length : 0,
                 groundLootTotal: totalGroundLoot,
-                groundCardsVisible: lists.groundCards ? lists.groundCards.length : 0,
-                groundCardsTotal: totalGroundCards,
                 groundItemsVisible: lists.groundItems ? lists.groundItems.length : 0,
                 groundItemsTotal: this.groundItems ? this.groundItems.length : 0
             },
@@ -4483,25 +4975,30 @@ const Game = {
             this.vignetteCanvas.height = lightHeight;
             this.playerLightCanvas.width = lightWidth;
             this.playerLightCanvas.height = lightHeight;
-
-            // IMPORTANT: Scale contexts to match logical coordinates
-            // This must be done after resizing (which resets transform)
-            // We need to account for the lightScale as well
-            this.vignetteCtx.scale(dpr * lightScale, dpr * lightScale);
-            this.playerLightCtx.scale(dpr * lightScale, dpr * lightScale);
         }
 
         const vCtx = this.vignetteCtx;
         const pCtx = this.playerLightCtx;
+
+        // Reset mask contexts every frame - phase 4 leaves source-out active and a stale
+        // composite/transform can prevent clears from wiping the buffer (reads as layering).
+        vCtx.setTransform(1, 0, 0, 1, 0, 0);
+        vCtx.globalCompositeOperation = 'source-over';
+        vCtx.globalAlpha = 1;
+        vCtx.clearRect(0, 0, this.vignetteCanvas.width, this.vignetteCanvas.height);
+        vCtx.scale(dpr * lightScale, dpr * lightScale);
+
+        pCtx.setTransform(1, 0, 0, 1, 0, 0);
+        pCtx.globalCompositeOperation = 'source-over';
+        pCtx.globalAlpha = 1;
+        pCtx.clearRect(0, 0, this.playerLightCanvas.width, this.playerLightCanvas.height);
+        pCtx.scale(dpr * lightScale, dpr * lightScale);
+
         const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
         const currentZoom = isMobile ? (this.mobileZoom || 1.0) : (this.baseZoom || 1.1);
         const centerX = logicalWidth / 2;
         const centerY = logicalHeight / 2;
         const visibleLists = this.visibleFrameLists || null;
-
-        // 1. Clear canvases (using logical dimensions because context is scaled)
-        vCtx.clearRect(0, 0, logicalWidth, logicalHeight);
-        pCtx.clearRect(0, 0, logicalWidth, logicalHeight);
 
         // Helper to get screen coordinates
         const getScreenPos = (x, y) => {
@@ -4594,6 +5091,24 @@ const Game = {
             drawLight(vCtx, enemy.x, enemy.y, lightRadius);
         });
 
+        // Draw the static settled voxel/fluid canvas to punch through vignette
+        if (typeof VoxelStaticCanvas !== 'undefined' && VoxelStaticCanvas.dirty && VoxelStaticCanvas.canvas && VoxelStaticCanvas.canvas.width > 0 && VoxelStaticCanvas.canvas.height > 0) {
+            vCtx.save();
+            vCtx.translate(centerX + this.screenShakeOffset.x, centerY + this.screenShakeOffset.y);
+            vCtx.scale(currentZoom, currentZoom);
+            vCtx.translate(-this.camera.x, -this.camera.y);
+            
+            // Draw multiple times using 'screen' to accumulate alpha mask and punch through vignette darkness
+            vCtx.globalCompositeOperation = 'screen';
+            vCtx.drawImage(VoxelStaticCanvas.canvas, 0, 0);
+            vCtx.drawImage(VoxelStaticCanvas.canvas, 0, 0);
+            vCtx.drawImage(VoxelStaticCanvas.canvas, 0, 0);
+            vCtx.restore();
+
+            // Explicitly restore composite operation to lighten for subsequent lights
+            vCtx.globalCompositeOperation = 'lighten';
+        }
+
         // Generated scenery glows softly so physical biome shapes remain readable in darkness.
         if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.layout) {
             if (typeof prepareRoomRenderData === 'function') {
@@ -4605,11 +5120,26 @@ const Game = {
             const maxSceneryLights = adaptiveEnabled && this.renderQuality && this.renderQuality.maxSceneryLights
                 ? this.renderQuality.maxSceneryLights
                 : emitters.length;
-            for (let i = 0; i < emitters.length && i < maxSceneryLights; i++) {
-                const emitter = emitters[i];
-                if (emitter && isVisibleInVignette(emitter.x, emitter.y, emitter.radius)) {
-                    drawLight(vCtx, emitter.x, emitter.y, emitter.radius);
-                }
+            let sceneryLightsToDraw = emitters;
+            if (maxSceneryLights < emitters.length) {
+                const camX = this.camera.x;
+                const camY = this.camera.y;
+                sceneryLightsToDraw = emitters
+                    .filter(emitter => emitter && isVisibleInVignette(emitter.x, emitter.y, emitter.radius))
+                    .sort((a, b) => {
+                        const da = (a.x - camX) * (a.x - camX) + (a.y - camY) * (a.y - camY);
+                        const db = (b.x - camX) * (b.x - camX) + (b.y - camY) * (b.y - camY);
+                        return da - db;
+                    })
+                    .slice(0, maxSceneryLights);
+            } else {
+                sceneryLightsToDraw = emitters.filter(emitter =>
+                    emitter && isVisibleInVignette(emitter.x, emitter.y, emitter.radius)
+                );
+            }
+            for (let i = 0; i < sceneryLightsToDraw.length; i++) {
+                const emitter = sceneryLightsToDraw[i];
+                drawLight(vCtx, emitter.x, emitter.y, emitter.radius);
             }
         }
 
@@ -4621,15 +5151,6 @@ const Game = {
             }
         }
 
-        // 2. Selection Doors (Card Packs in Game) - CULLED
-        if (typeof window.selectionDoors !== 'undefined' && Array.isArray(window.selectionDoors)) {
-            window.selectionDoors.forEach(door => {
-                if (door.alpha > 0 && isVisibleInVignette(door.x, door.y, 200)) {
-                    drawLight(vCtx, door.x, door.y, 200);
-                }
-            });
-        }
-
         // 3. Ground Upgrades (if any) - CULLED
         if (typeof window.groundUpgrades !== 'undefined' && Array.isArray(window.groundUpgrades)) {
             window.groundUpgrades.forEach(upgrade => {
@@ -4638,19 +5159,6 @@ const Game = {
                 }
             });
         }
-
-        // 3.5. Ground Cards (Card Mode Loot) - CULLED
-        const groundCardLights = visibleLists && Array.isArray(visibleLists.groundCards)
-            ? visibleLists.groundCards
-            : (typeof window.groundCards !== 'undefined' && Array.isArray(window.groundCards) ? window.groundCards : []);
-        groundCardLights.forEach(card => {
-                // Match enemy light pattern: size * 4 + base
-                // Card size is ~16, so 16 * 4 + 120 = 184
-                const lightRadius = 200;
-                if (visibleLists || isVisibleInVignette(card.x, card.y, lightRadius)) {
-                    drawLight(vCtx, card.x, card.y, lightRadius);
-                }
-        });
 
         // 3.6. Ground Loot (Gear Items from groundLoot array) - CULLED
         // Note: Gear items use groundLoot array, NOT Game.groundItems
@@ -4693,18 +5201,13 @@ const Game = {
         });
 
         // 4. Level Exit Door (Standard Door) - CULLED
-        if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen) {
-            const selectionDoorsActive = typeof window.selectionDoors !== 'undefined' && Array.isArray(window.selectionDoors) && window.selectionDoors.length > 0;
-
-            if (!selectionDoorsActive && typeof getDoorPosition === 'function') {
-                const doorPos = getDoorPosition();
-                if (doorPos) {
-                    const centerX = doorPos.x + doorPos.width / 2;
-                    const centerY = doorPos.y + doorPos.height / 2;
-
-                    if (isVisibleInVignette(centerX, centerY, 300)) {
-                        drawLight(vCtx, centerX, centerY, 300);
-                    }
+        if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen && typeof getDoorPosition === 'function') {
+            const doorPos = getDoorPosition();
+            if (doorPos) {
+                const centerX = doorPos.x + doorPos.width / 2;
+                const centerY = doorPos.y + doorPos.height / 2;
+                if (isVisibleInVignette(centerX, centerY, 300)) {
+                    drawLight(vCtx, centerX, centerY, 300);
                 }
             }
         }
@@ -4721,20 +5224,21 @@ const Game = {
             }
         });
 
-        // --- PHASE 2: PLAYER LIGHTS (Additive) ---
-        // Render to separate canvas using 'lighter' so player lights stack with each other
-        pCtx.globalCompositeOperation = 'lighter';
+        // --- PHASE 2: PLAYER LIGHTS ---
+        // Draw player lights, projectiles, and abilities directly onto vCtx (vignette light mask)
+        // using 'lighten' so they combine correctly with world lights.
+        vCtx.globalCompositeOperation = 'lighten';
 
         // Player Light (Local Player)
         if (this.player && this.player.alive) {
-            drawLight(pCtx, this.player.x, this.player.y, 400); // Reduced from 600 for stealth gameplay
+            drawLight(vCtx, this.player.x, this.player.y, 400); // Reduced from 600 for stealth gameplay
         }
 
         // Remote Players Lights (Multiplayer)
         if (this.remotePlayers && this.remotePlayers.length > 0) {
             this.remotePlayers.forEach(remotePlayer => {
                 if (remotePlayer && !remotePlayer.dead) { // Check if alive
-                    drawLight(pCtx, remotePlayer.x, remotePlayer.y, 400); // Reduced from 600
+                    drawLight(vCtx, remotePlayer.x, remotePlayer.y, 400); // Reduced from 600
                 }
             });
         }
@@ -4744,7 +5248,7 @@ const Game = {
             if (proj.playerId) {
                 const lightRadius = proj.size * 6 + 50;
                 if (visibleLists || isVisibleInVignette(proj.x, proj.y, lightRadius)) {
-                    drawLight(pCtx, proj.x, proj.y, lightRadius);
+                    drawLight(vCtx, proj.x, proj.y, lightRadius);
                 }
             }
         });
@@ -4769,7 +5273,7 @@ const Game = {
                     const lightSize = 150 * (1 - t * 0.5);
 
                     if (isVisibleInVignette(lightX, lightY, lightSize)) {
-                        drawLight(pCtx, lightX, lightY, lightSize);
+                        drawLight(vCtx, lightX, lightY, lightSize);
                     }
                 }
             });
@@ -4792,19 +5296,13 @@ const Game = {
                             const lightSize = 150 * (1 - t * 0.5);
 
                             if (isVisibleInVignette(lightX, lightY, lightSize)) {
-                                drawLight(pCtx, lightX, lightY, lightSize);
+                                drawLight(vCtx, lightX, lightY, lightSize);
                             }
                         }
                     });
                 }
             });
         }
-
-        // --- PHASE 3: COMBINE ---
-        // Draw player lights onto world lights using 'lighten' (Max)
-        // Note: We use logical dimensions for drawImage because vCtx is scaled
-        vCtx.globalCompositeOperation = 'lighten';
-        vCtx.drawImage(this.playerLightCanvas, 0, 0, logicalWidth, logicalHeight);
 
         // --- PHASE 3.5: BACKGROUND GRID GLOW ---
         // Draw the background grid onto the light mask so it glows through the darkness
@@ -4840,17 +5338,17 @@ const Game = {
         });
 
         // --- PHASE 4: APPLY DARKNESS ---
-        // Draw darkness everywhere EXCEPT where we have light
         vCtx.globalCompositeOperation = 'source-out';
-        vCtx.fillStyle = 'rgba(0, 0, 0, 1.0)'; // Total darkness (100%) - only lit areas visible
+        vCtx.globalAlpha = 1;
+        vCtx.fillStyle = 'rgba(0, 0, 0, 1.0)';
         vCtx.fillRect(0, 0, logicalWidth, logicalHeight);
 
         // --- PHASE 5: RENDER TO SCREEN ---
         ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform to screen space (physical pixels)
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
         ctx.imageSmoothingEnabled = true;
-        // Draw the physical canvas onto the physical screen
-        // Scale it back up to fill the screen (since we rendered at 0.5x)
         ctx.drawImage(this.vignetteCanvas, 0, 0, physicalWidth, physicalHeight);
         ctx.restore();
     },
@@ -4889,12 +5387,14 @@ const Game = {
             projectiles: [],
             projectileLights: [],
             groundLoot: [],
-            groundCards: [],
             groundItems: [],
             itemPylons: []
         };
         this.enemies.forEach(enemy => {
-            if (!enemy || !enemy.alive) return;
+            if (!enemy) return;
+            const visible = enemy.alive ||
+                (typeof isEnemyDeathJuiceVisible === 'function' && isEnemyDeathJuiceVisible(enemy));
+            if (!visible) return;
             if (isVisible(enemy, enemy.size * 3)) frameLists.enemies.push(enemy);
             if (isVisible(enemy, enemy.size * 4 + 100)) frameLists.enemyLights.push(enemy);
         });
@@ -4906,9 +5406,6 @@ const Game = {
         });
         if (typeof groundLoot !== 'undefined' && Array.isArray(groundLoot)) {
             groundLoot.forEach(item => { if (isVisible(item, 50)) frameLists.groundLoot.push(item); });
-        }
-        if (typeof window !== 'undefined' && window.groundCards && Array.isArray(window.groundCards)) {
-            window.groundCards.forEach(card => { if (isVisible(card, 20)) frameLists.groundCards.push(card); });
         }
         if (this.groundItems && Array.isArray(this.groundItems)) {
             this.groundItems.forEach(item => { if (isVisible(item, 20)) frameLists.groundItems.push(item); });
@@ -5009,27 +5506,6 @@ const Game = {
                 const glowSize = 60; // Fixed size for gear
                 const color = gearTierColors[gear.tier] || '#cccccc';
                 drawGlow(gear.x, gear.y, glowSize, color);
-            });
-        }
-
-        // Draw Ground Card Glows (Card Mode Loot) - Culled
-        if (typeof window !== 'undefined' && window.groundCards && Array.isArray(window.groundCards)) {
-            // Card band colors
-            const getBandColor = (band) => {
-                switch (band) {
-                    case 'green': return '#4caf50';
-                    case 'blue': return '#2196f3';
-                    case 'purple': return '#9c27b0';
-                    case 'orange': return '#ff9800';
-                    default: return '#cccccc';
-                }
-            };
-
-            frameLists.groundCards.forEach(card => {
-                const pulseSize = 2 + Math.sin(card.pulse || 0) * 2;
-                const glowSize = (16 + pulseSize) * 3.0;
-                const color = getBandColor(card._resolvedQuality || 'white');
-                drawGlow(card.x, card.y, glowSize, color);
             });
         }
 
@@ -5173,6 +5649,36 @@ const Game = {
             renderItemVisuals(ctx);
         }
 
+        if (typeof renderVoxelStaticLayer === 'function') {
+            renderVoxelStaticLayer(ctx);
+        }
+
+        if (typeof renderDebrisInteractiveFixtures === 'function') {
+            renderDebrisInteractiveFixtures(ctx, this.roomNumber);
+        }
+
+        // Draw ground loot above floor debris/splatters
+        if (typeof renderGroundLoot !== 'undefined') {
+            const visibleLoot = frameLists.groundLoot;
+            this.trackRenderSection('groundLoot', () => {
+                renderGroundLoot(ctx, visibleLoot);
+            });
+        }
+
+        if (typeof renderVoxelActiveParticles === 'function') {
+            renderVoxelActiveParticles(ctx);
+        }
+
+        // Draw ground items (item system - single player)
+        if (typeof renderGroundItems !== 'undefined') {
+            renderGroundItems(ctx, frameLists.groundItems);
+        }
+
+        // Draw item pylons (multiplayer item drops)
+        if (typeof renderItemPylons !== 'undefined') {
+            renderItemPylons(ctx);
+        }
+
         // Draw player (Player is drawn normally)
         if (this.player && this.player.alive) {
             this.player.render(ctx);
@@ -5244,56 +5750,201 @@ const Game = {
             }
         });
 
-        // Draw ground loot
-        if (typeof renderGroundLoot !== 'undefined') {
-            const visibleLoot = frameLists.groundLoot;
-            this.trackRenderSection('groundLoot', () => {
-                renderGroundLoot(ctx, visibleLoot);
+
+
+        // Draw safe room machines
+        if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'safe') {
+            const machines = (typeof window.getSafeRoomMachines === 'function') ? window.getSafeRoomMachines(currentRoom) : [];
+            machines.forEach(machine => {
+                const dx = machine.x - (this.player ? this.player.x : 0);
+                const dy = machine.y - (this.player ? this.player.y : 0);
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const isNear = distance < machine.range;
+                const saveLocked = machine.id === 'runSave' && !!this.safeRoomUsedThisVisit;
+
+                const isRunSave = machine.id === 'runSave';
+                const machineWidth = isRunSave ? 140 : 130;
+                const machineHeight = isRunSave ? 78 : 65;
+                const machineX = Math.round(machine.x - machineWidth / 2);
+                const machineY = Math.round(machine.y - machineHeight / 2);
+
+                ctx.save();
+
+                const accent = saveLocked ? '#888888' : '#00ffcc';
+                // Panel background
+                ctx.fillStyle = saveLocked
+                    ? (isNear ? 'rgba(80, 80, 80, 0.25)' : 'rgba(40, 40, 40, 0.2)')
+                    : (isNear ? 'rgba(0, 255, 204, 0.15)' : 'rgba(0, 255, 204, 0.05)');
+                ctx.fillRect(machineX, machineY, machineWidth, machineHeight);
+
+                // Neon Border
+                ctx.strokeStyle = accent;
+                ctx.lineWidth = isNear ? 2 : 1;
+                ctx.shadowColor = accent;
+                ctx.shadowBlur = isNear ? 8 : 2;
+                ctx.strokeRect(machineX, machineY, machineWidth, machineHeight);
+                ctx.shadowBlur = 0;
+                ctx.shadowColor = 'transparent';
+
+                if (isRunSave) {
+                    // Lost's PS2 is the Save Run icon (no floppy)
+                    drawLostPs2EasterEgg(ctx, machine.x, machine.y - 10, {
+                        lit: !saveLocked,
+                        near: isNear,
+                        scale: 0.72,
+                        groundShadow: false
+                    });
+                } else {
+                    ctx.fillStyle = accent;
+                    ctx.font = '24px Orbitron';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(machine.icon, machine.x, machine.y - 6);
+                }
+
+                // Name
+                ctx.fillStyle = saveLocked ? '#aaaaaa' : '#ffffff';
+                ctx.font = 'bold 11px Orbitron';
+                ctx.textAlign = 'center';
+                ctx.fillText(machine.name, machine.x, isRunSave ? machine.y + 22 : machine.y + 20);
+
+                // Prompt
+                if (isNear && typeof Input !== 'undefined') {
+                    const promptY = isRunSave ? machine.y + 52 : machine.y + 48;
+                    if (saveLocked) {
+                        ctx.fillStyle = '#ff8888';
+                        ctx.font = '10px Orbitron';
+                        ctx.fillText('Locked after use', machine.x, promptY);
+                    } else if (Input.drawInteractionPrompt) {
+                        Input.drawInteractionPrompt(ctx, 'select', machine.x, promptY);
+                    } else {
+                        ctx.fillStyle = '#00ffcc';
+                        ctx.font = '12px Orbitron';
+                        ctx.fillText('Press [G] to open', machine.x, promptY);
+                    }
+                }
+
+                ctx.restore();
             });
         }
 
-        // Draw ground cards
-        if (typeof renderGroundCards !== 'undefined') {
-            renderGroundCards(ctx, frameLists.groundCards);
+        // Draw pre-boss healer machine (visible only once the boss door is open)
+        if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen && currentRoom.preBossHealer) {
+            const healer = currentRoom.preBossHealer;
+            const dx = healer.x - (this.player ? this.player.x : 0);
+            const dy = healer.y - (this.player ? this.player.y : 0);
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const isNear = distance < healer.range;
+
+            // Per-player used check
+            if (!healer.usedBy) healer.usedBy = new Set();
+            const localHealerId = typeof this.getLocalPlayerId === 'function' ? this.getLocalPlayerId() : 'local';
+            const usedByMe = healer.usedBy.has(localHealerId);
+
+            const machineWidth = 150;
+            const machineHeight = 72;
+            const machineX = Math.round(healer.x - machineWidth / 2);
+            const machineY = Math.round(healer.y - machineHeight / 2);
+            const t = Date.now() * 0.002;
+            const pulse = usedByMe ? 0 : (0.5 + Math.sin(t) * 0.5);
+
+            ctx.save();
+
+            if (usedByMe) {
+                // Used state - dark, offline
+                ctx.fillStyle = 'rgba(40, 40, 40, 0.55)';
+                ctx.fillRect(machineX, machineY, machineWidth, machineHeight);
+                ctx.strokeStyle = 'rgba(80, 80, 80, 0.7)';
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(machineX, machineY, machineWidth, machineHeight);
+                ctx.font = '26px serif';
+                ctx.textAlign = 'center';
+                ctx.fillStyle = '#666666';
+                ctx.fillText('\u{1F5A4}', healer.x, healer.y - 4);
+                ctx.fillStyle = '#777777';
+                ctx.font = 'bold 11px Orbitron, monospace';
+                ctx.fillText('Already Used', healer.x, healer.y + 20);
+            } else {
+                // Active state - vivid green glow halo
+                ctx.globalCompositeOperation = 'lighter';
+                const haloGrad = ctx.createRadialGradient(healer.x, healer.y, 0, healer.x, healer.y, 110 + pulse * 20);
+                haloGrad.addColorStop(0, `rgba(0, 255, 100, ${0.06 + pulse * 0.06})`);
+                haloGrad.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = haloGrad;
+                ctx.fillRect(healer.x - 130, healer.y - 130, 260, 260);
+                ctx.globalCompositeOperation = 'source-over';
+
+                // Panel background
+                ctx.fillStyle = isNear
+                    ? `rgba(0, 28, 18, ${0.88 + pulse * 0.05})`
+                    : 'rgba(0, 20, 14, 0.82)';
+                ctx.fillRect(machineX, machineY, machineWidth, machineHeight);
+
+                // Glowing border
+                ctx.shadowColor = '#00ff66';
+                ctx.shadowBlur = isNear ? 18 + pulse * 12 : 8 + pulse * 4;
+                ctx.strokeStyle = isNear ? `rgba(0,255,100,${0.9 + pulse * 0.1})` : '#00cc55';
+                ctx.lineWidth = isNear ? 2.5 : 1.5;
+                ctx.strokeRect(machineX, machineY, machineWidth, machineHeight);
+                ctx.shadowBlur = 0;
+
+                // Icon - large, bright
+                ctx.font = '28px serif';
+                ctx.textAlign = 'center';
+                ctx.fillStyle = `rgba(60,255,140,${0.85 + pulse * 0.15})`;
+                ctx.shadowColor = '#00ff88';
+                ctx.shadowBlur = 12 + pulse * 8;
+                ctx.fillText(healer.icon || '\u{1F49A}', healer.x, healer.y - 2);
+                ctx.shadowBlur = 0;
+
+                // Name label - white with drop-shadow for legibility
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 12px Orbitron, monospace';
+                ctx.textAlign = 'center';
+                ctx.shadowColor = 'rgba(0,0,0,0.95)';
+                ctx.shadowOffsetX = 1; ctx.shadowOffsetY = 1;
+                ctx.shadowBlur = 5;
+                ctx.fillText(healer.name || 'Pre-Boss Healer', healer.x, healer.y + 22);
+                ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0; ctx.shadowBlur = 0;
+
+                // Heal amount tag
+                ctx.fillStyle = `rgba(80,255,140,${0.7 + pulse * 0.2})`;
+                ctx.font = 'bold 10px Orbitron, monospace';
+                ctx.fillText('+25% HP', healer.x, healer.y + 35);
+
+                // Interaction Prompt
+                if (isNear && typeof Input !== 'undefined') {
+                    if (Input.drawInteractionPrompt) {
+                        Input.drawInteractionPrompt(ctx, 'select', healer.x, healer.y + 54);
+                    } else {
+                        ctx.fillStyle = '#00ff88';
+                        ctx.font = '11px Orbitron';
+                        ctx.fillText('Press [G] to Heal', healer.x, healer.y + 54);
+                    }
+                }
+            }
+
+            ctx.restore();
         }
 
-        // Draw ground items (item system - single player)
-        if (typeof renderGroundItems !== 'undefined') {
-            renderGroundItems(ctx, frameLists.groundItems);
-        }
 
-        // Draw item pylons (multiplayer item drops)
-        if (typeof renderItemPylons !== 'undefined') {
-            renderItemPylons(ctx);
-        }
-
-        // Draw upgrade pickups
-        if (typeof window !== 'undefined' && typeof window.renderUpgradePickups === 'function') {
-            window.renderUpgradePickups(ctx);
-        } else if (typeof renderUpgradePickups !== 'undefined') {
-            renderUpgradePickups(ctx);
-        }
-
-        // Draw door selections (card view before selection, door view after)
-        if (typeof window !== 'undefined' && typeof window.renderDoorSelections === 'function') {
-            window.renderDoorSelections(ctx);
-        } else if (typeof renderDoorSelections !== 'undefined') {
-            renderDoorSelections(ctx);
-        }
-
-        // Draw door if room is cleared (only if no door selections active)
-        // The new door selection system replaces the old door when active
+        // Draw door if room is cleared
         if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen) {
-            // Check if new door selection system is active
-            const hasActiveSelections = typeof window !== 'undefined' &&
-                Array.isArray(window.selectionDoors) &&
-                window.selectionDoors.length > 0 &&
-                window.selectionDoors.some(d => !d.selected && d.alpha > 0);
-
-            // Only show regular door if new system is not active
-            if (!hasActiveSelections && !Game.awaitingDoorSelection) {
-                const door = getDoorPosition();
-                Renderer.door(ctx, door.x, door.y, door.width, door.height, this.doorPulse);
+            const door = getDoorPosition();
+            Renderer.door(ctx, door.x, door.y, door.width, door.height, this.doorPulse);
+            if (this.nearExitDoor && typeof Input !== 'undefined' && Input.drawInteractionPrompt) {
+                ctx.save();
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 15px Orbitron, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+                ctx.shadowBlur = 4;
+                ctx.shadowOffsetX = 1;
+                ctx.shadowOffsetY = 1;
+                const promptX = door.x + door.width / 2;
+                const promptY = door.y + door.height + 35;
+                Input.drawInteractionPrompt(ctx, 'enter next room', promptX, promptY);
+                ctx.restore();
             }
         }
 
@@ -5333,12 +5984,6 @@ const Game = {
 
     // Toggle pause
     togglePause() {
-        // Prevent pausing when awaiting card swap
-        if (this.awaitingHandSwap && this.pendingSwapCard) {
-            console.log('[TOGGLE PAUSE] Blocked - awaiting card swap');
-            return;
-        }
-
         // Check if multiplayer is enabled
         const inMultiplayer = this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
 
@@ -5414,119 +6059,72 @@ const Game = {
         }
     },
 
-    // Cleanup deck/hand state (called when returning to nexus, restarting, or game over)
-    cleanupDeckState() {
-        // Clear deck state
-        if (typeof window.DeckState !== 'undefined') {
-            if (Array.isArray(window.DeckState.hand)) {
-                window.DeckState.hand.length = 0;
-            }
-            if (Array.isArray(window.DeckState.discard)) {
-                window.DeckState.discard.length = 0;
-            }
-            if (Array.isArray(window.DeckState.drawPile)) {
-                window.DeckState.drawPile.length = 0;
-            }
-            if (Array.isArray(window.DeckState.spent)) {
-                window.DeckState.spent.length = 0;
-            }
-            if (Array.isArray(window.DeckState.reserve)) {
-                window.DeckState.reserve.length = 0;
-            }
-        }
-
-        // Clear pending swap state
-        this.pendingSwapCard = null;
-        this.pendingSwapSourceId = null;
-        this.awaitingHandSwap = false;
-
-        // Clear ground cards
-        if (typeof window.groundCards !== 'undefined' && Array.isArray(window.groundCards)) {
-            window.groundCards.length = 0;
-        }
-
-        // Clear mulligan state
-        this.awaitingMulligan = false;
-        this.mulliganSelections = [];
-        this.mulliganCount = 0;
-
-        // Clear items on death/run end
+    // Cleanup run state (called when returning to nexus, restarting, or game over)
+    cleanupRunState() {
         if (this.player && this.player.itemManager) {
             this.player.itemManager.clearAllItems();
         }
 
-        // Clear ground items
         if (typeof Game !== 'undefined' && Game.groundItems && Array.isArray(Game.groundItems)) {
             Game.groundItems.length = 0;
         }
 
-        // Clear item pylons (multiplayer)
         if (typeof Game !== 'undefined' && Game.itemPylons && Array.isArray(Game.itemPylons)) {
             Game.itemPylons.length = 0;
         }
     },
 
-    // Return to nexus after death
-    returnToNexus() {
-        // Multiplayer clients: wait for host signal
-        if (this.waitingForHostReturn && this.isMultiplayerClient()) {
-            console.log('[Client] Waiting for host to signal return to nexus');
-            return;
-        }
+    // Credit rewards immediately on game over / death
+    creditRewards() {
+        if (this.rewardsCredited) return;
+        this.rewardsCredited = true;
 
-        // Multiplayer: Host calculates and distributes currency rewards
         if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.isHost) {
-            // Calculate currency for all players who died
+            console.log('[Game] Crediting rewards on game over (Multiplayer Host)');
             const localPlayerId = this.getLocalPlayerId();
 
             // Award shards and credits for local player
             if (this.player && this.player.dead) {
-                // Award shards
                 if (this.shardsEarned > 0 && typeof SaveSystem !== 'undefined' && SaveSystem.addCardShards) {
                     SaveSystem.addCardShards(this.shardsEarned);
-                    console.log(`[Return to Nexus] Awarded ${this.shardsEarned} shards to local player`);
+                    console.log(`[Game Over] Awarded ${this.shardsEarned} shards to local player`);
                 }
 
-                // Award credits (only from elites/bosses)
                 if (this.currencyEarned > 0) {
-                    const currentCurrency = this.playerCurrencies.get(localPlayerId) || 0;
-                    const newCurrency = Math.floor(currentCurrency + this.currencyEarned);
-                    this.playerCurrencies.set(localPlayerId, newCurrency);
+                    const banked = this.currencyBankedThisRun || 0;
+                    const remaining = Math.max(0, Math.floor(this.currencyEarned) - banked);
+                    if (remaining > 0) {
+                        const currentCurrency = this.playerCurrencies.get(localPlayerId) || 0;
+                        const newCurrency = Math.floor(currentCurrency + remaining);
+                        this.playerCurrencies.set(localPlayerId, newCurrency);
 
-                    // Update local SaveSystem
-                    if (typeof SaveSystem !== 'undefined') {
-                        SaveSystem.setCurrency(newCurrency);
-                        this.currentCurrency = newCurrency;
-                    }
+                        if (typeof SaveSystem !== 'undefined') {
+                            SaveSystem.setCurrency(newCurrency);
+                            this.currentCurrency = newCurrency;
+                        }
 
-                    // Send currency update to self via server (for consistency)
-                    if (multiplayerManager.send) {
-                        multiplayerManager.send({
-                            type: 'currency_update',
-                            data: {
-                                targetPlayerId: localPlayerId,
-                                newCurrency: newCurrency,
-                                reason: 'round_reward'
-                            }
-                        });
+                        if (multiplayerManager.send) {
+                            multiplayerManager.send({
+                                type: 'currency_update',
+                                data: {
+                                    targetPlayerId: localPlayerId,
+                                    newCurrency: newCurrency,
+                                    reason: 'round_reward'
+                                }
+                            });
+                        }
+                        this.currencyBankedThisRun = banked + remaining;
                     }
                 }
-
-                this.currencyEarned = 0;
-                this.shardsEarned = 0;
             }
 
             // Award shards and credits for remote players who died
             if (this.deadPlayers && this.deadPlayers.size > 0) {
                 this.deadPlayers.forEach(playerId => {
                     if (playerId !== localPlayerId) {
-                        // Calculate shards for remote player
                         const shardsEarned = this.calculateShardsForPlayer ? this.calculateShardsForPlayer(playerId) : 0;
-
-                        // Calculate credits for remote player (only from elites/bosses)
                         const currencyEarned = this.calculateCurrencyForPlayer(playerId);
 
-                        // Send shards update via server
                         if (shardsEarned > 0 && multiplayerManager.send) {
                             multiplayerManager.send({
                                 type: 'shards_update',
@@ -5538,10 +6136,13 @@ const Game = {
                             });
                         }
 
-                        // Send currency update via server (server will route to player)
                         if (currencyEarned > 0) {
+                            const banked = this.currencyBankedThisRun || 0;
+                            const remaining = Math.max(0, Math.floor(currencyEarned) - banked);
+                            if (remaining <= 0) return;
+
                             const currentCurrency = this.playerCurrencies.get(playerId) || 0;
-                            const newCurrency = Math.floor(currentCurrency + currencyEarned);
+                            const newCurrency = Math.floor(currentCurrency + remaining);
                             this.playerCurrencies.set(playerId, newCurrency);
 
                             if (multiplayerManager.send) {
@@ -5555,7 +6156,6 @@ const Game = {
                                 });
                             }
 
-                            // Update player data in lobby
                             const player = multiplayerManager.players.find(p => p.id === playerId);
                             if (player) {
                                 player.currency = newCurrency;
@@ -5564,6 +6164,75 @@ const Game = {
                     }
                 });
             }
+        } else if (this.multiplayerEnabled && this.isMultiplayerClient && this.isMultiplayerClient()) {
+            console.log('[Game] Crediting rewards on game over (Multiplayer Client Fallback/Pre-emptive)');
+            if (this.player && this.player.dead) {
+                if (typeof SaveSystem !== 'undefined') {
+                    if (this.shardsEarned === 0 && this.calculateShards) {
+                        this.shardsEarned = this.calculateShards();
+                    }
+                    if (this.shardsEarned > 0 && SaveSystem.addCardShards) {
+                        SaveSystem.addCardShards(this.shardsEarned);
+                        console.log(`[Game Over] Client awarded ${this.shardsEarned} shards (pre-emptive)`);
+                    }
+
+                    if (this.currencyEarned === 0 && this.calculateCurrency) {
+                        this.currencyEarned = this.calculateCurrency();
+                    }
+                    // Credits are banked live mid-run; only top up leftovers (avoid double-pay)
+                    const clientRemaining = Math.max(0, Math.floor(this.currencyEarned || 0) - (this.currencyBankedThisRun || 0));
+                    if (clientRemaining > 0) {
+                        SaveSystem.addCurrency(clientRemaining);
+                        const saveData = SaveSystem.load();
+                        this.currentCurrency = Math.floor(saveData.currency || 0);
+                        this.currencyBankedThisRun = (this.currencyBankedThisRun || 0) + clientRemaining;
+                        console.log(`[Game Over] Client topped up ${clientRemaining} credits`);
+                    }
+                }
+            }
+        } else {
+            console.log('[Game] Crediting rewards on game over (Single Player)');
+            if (this.player && this.player.dead) {
+                if (typeof SaveSystem !== 'undefined') {
+                    if (this.shardsEarned > 0 && SaveSystem.addCardShards) {
+                        SaveSystem.addCardShards(this.shardsEarned);
+                        console.log(`[Game Over] Awarded ${this.shardsEarned} shards`);
+                    }
+
+                    // Credits already persist on elite/boss kills; only bank any remainder
+                    if (this.currencyEarned === 0 && this.calculateCurrency) {
+                        this.currencyEarned = this.calculateCurrency();
+                    }
+                    const remaining = Math.max(0, Math.floor(this.currencyEarned || 0) - (this.currencyBankedThisRun || 0));
+                    if (remaining > 0) {
+                        SaveSystem.addCurrency(remaining);
+                        const saveData = SaveSystem.load();
+                        this.currentCurrency = Math.floor(saveData.currency || 0);
+                        this.currencyBankedThisRun = (this.currencyBankedThisRun || 0) + remaining;
+                        console.log(`[Game Over] Topped up ${remaining} credits`);
+                    }
+                }
+            }
+        }
+    },
+
+    // Return to nexus after death
+    returnToNexus() {
+        // Multiplayer clients: wait for host signal
+        if (this.waitingForHostReturn && this.isMultiplayerClient()) {
+            console.log('[Client] Waiting for host to signal return to nexus');
+            return;
+        }
+
+        // Safety net: abandon/death clears any leftover solo checkpoint
+        if (typeof SaveSystem !== 'undefined' && SaveSystem.clearActiveRunCheckpoint) {
+            SaveSystem.clearActiveRunCheckpoint();
+        }
+
+        // Multiplayer: Host calculates and distributes currency rewards
+        if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.isHost) {
+            // Ensure rewards are credited if not already done
+            this.creditRewards();
 
             // Reset death tracking before the next run
             if (this.deadPlayers) {
@@ -5578,57 +6247,15 @@ const Game = {
                 data: { timestamp: Date.now() }
             });
         } else if (this.multiplayerEnabled && this.isMultiplayerClient && this.isMultiplayerClient()) {
-            // Multiplayer client: Calculate and award shards/credits locally (fallback if host message didn't arrive)
-            if (this.player && this.player.dead) {
-                if (typeof SaveSystem !== 'undefined') {
-                    // Calculate shards if not already set
-                    if (this.shardsEarned === 0 && this.calculateShards) {
-                        this.shardsEarned = this.calculateShards();
-                    }
-
-                    // Award shards
-                    if (this.shardsEarned > 0 && SaveSystem.addCardShards) {
-                        SaveSystem.addCardShards(this.shardsEarned);
-                        console.log(`[Return to Nexus] Client awarded ${this.shardsEarned} shards (fallback)`);
-                    }
-
-                    // Calculate credits if not already set
-                    if (this.currencyEarned === 0 && this.calculateCurrency) {
-                        this.currencyEarned = this.calculateCurrency();
-                    }
-
-                    // Award credits (only from elites/bosses)
-                    if (this.currencyEarned > 0) {
-                        SaveSystem.addCurrency(this.currencyEarned);
-                        const saveData = SaveSystem.load();
-                        this.currentCurrency = Math.floor(saveData.currency || 0);
-                        console.log(`[Return to Nexus] Client awarded ${this.currencyEarned} credits (fallback)`);
-                    }
-                }
-                this.currencyEarned = 0;
-                this.shardsEarned = 0;
-            }
+            // Ensure rewards are credited if not already done
+            this.creditRewards();
+            this.currencyEarned = 0;
+            this.shardsEarned = 0;
         } else {
-            // Single-player: Award shards and credits earned
-            if (this.player && this.player.dead) {
-                if (typeof SaveSystem !== 'undefined') {
-                    // Award shards
-                    if (this.shardsEarned > 0 && SaveSystem.addCardShards) {
-                        SaveSystem.addCardShards(this.shardsEarned);
-                        console.log(`[Return to Nexus] Awarded ${this.shardsEarned} shards`);
-                    }
-
-                    // Award credits (only from elites/bosses)
-                    if (this.currencyEarned > 0) {
-                        SaveSystem.addCurrency(this.currencyEarned);
-                        const saveData = SaveSystem.load();
-                        this.currentCurrency = Math.floor(saveData.currency || 0);
-                        console.log(`[Return to Nexus] Awarded ${this.currencyEarned} credits`);
-                    }
-                }
-                this.currencyEarned = 0;
-                this.shardsEarned = 0;
-            }
+            // Single-player: Award shards and credits earned if not already credited
+            this.creditRewards();
+            this.currencyEarned = 0;
+            this.shardsEarned = 0;
         }
 
         if (typeof Telemetry !== 'undefined') {
@@ -5664,6 +6291,12 @@ const Game = {
         // Reset game state
         this.state = 'NEXUS';
         this.roomEnterTransition = null;
+        if (typeof initializeRoom !== 'undefined') {
+            currentRoom = null;
+            if (typeof window !== 'undefined') {
+                window.currentRoom = null;
+            }
+        }
         if (typeof RunProfiler !== 'undefined' && RunProfiler.isActive()) {
             RunProfiler.endRun('returnToNexus');
             console.log('[RunProfiler] Profile captured on return to Nexus:\n' + RunProfiler.getSummaryText());
@@ -5705,6 +6338,7 @@ const Game = {
         this.bossesKilled = 0;
         this.roomNumber = 1;
         this.currencyEarned = 0;
+        this.currencyBankedThisRun = 0;
         this.shardsEarned = 0;
         this.lastGKeyState = false;
         this.clickHandled = false;
@@ -5712,11 +6346,6 @@ const Game = {
         this.waitingForHostReturn = false; // Clear waiting flag
         this.finalStats = null; // Clear final stats
 
-        // Reset first room flag for door reward system
-        if (typeof window !== 'undefined') {
-            window.isFirstRoom = true;
-            window.selectedDoorReward = null;
-        }
         if (this.deadPlayers) {
             this.deadPlayers.clear();
         }
@@ -5728,45 +6357,7 @@ const Game = {
             groundLoot.length = 0;
         }
 
-        // Transfer unused room modifiers from run inventory to Nexus collection
-        if (typeof SaveSystem !== 'undefined' && Array.isArray(this.roomModifierInventory) && this.roomModifierInventory.length > 0) {
-            const save = SaveSystem.load();
-            if (!Array.isArray(save.roomModifierCollection)) {
-                save.roomModifierCollection = [];
-            }
-
-            // Check storage cap
-            const maxStorage = 40;
-            let transferredCount = 0;
-
-            // Transfer each modifier, avoiding duplicates (modifiers picked up during run are already in collection)
-            for (const modifier of this.roomModifierInventory) {
-                if (save.roomModifierCollection.length >= maxStorage) {
-                    console.warn(`[Return to Nexus] Nexus collection full, could not transfer remaining modifiers`);
-                    break;
-                }
-
-                // Check if modifier already exists in collection (by ID)
-                const exists = save.roomModifierCollection.some(m => m && m.id === modifier.id);
-                if (!exists) {
-                    save.roomModifierCollection.push(modifier);
-                    transferredCount++;
-                } else {
-                    console.log(`[Return to Nexus] Modifier ${modifier.family || modifier.name} already in Nexus collection, skipping transfer`);
-                }
-            }
-
-            if (transferredCount > 0) {
-                SaveSystem.save(save);
-                console.log(`[Return to Nexus] Transferred ${transferredCount} unused room modifier(s) to Nexus collection`);
-            }
-
-            // Clear run inventory (modifiers have been transferred or were used)
-            this.roomModifierInventory = [];
-        }
-
-        // Clear deck/hand state (cleanup from run)
-        this.cleanupDeckState();
+        this.cleanupRunState();
 
         // Clean up multiplayer shadow instances (clients only)
         if (this.remotePlayerShadowInstances) {
@@ -5778,6 +6369,16 @@ const Game = {
         if (typeof initNexus !== 'undefined') {
             initNexus();
         }
+
+        if (typeof Onboarding !== 'undefined' && Onboarding.onNexusEnter) {
+            Onboarding.onNexusEnter();
+        }
+        if (typeof FeatureTutorials !== 'undefined' && FeatureTutorials.onNexusEnter) {
+            FeatureTutorials.onNexusEnter();
+        }
+
+        // Camera after onboarding / feature tutorials may have restaged the player
+        this.initializeNexusCamera();
 
         // Host: revive and reset remote player simulations for the nexus
         if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.isHost) {
@@ -5843,9 +6444,6 @@ const Game = {
             }
         }
 
-        // Initialize nexus camera to follow player
-        this.initializeNexusCamera();
-
         console.log('[RETURN TO NEXUS] State reset complete:', {
             state: this.state,
             paused: this.paused,
@@ -5868,22 +6466,21 @@ const Game = {
         }
     },
 
-    // Calculate shards earned from run (for local player)
     calculateShards() {
         if (!this.player) return 0;
-
-        // In gear mode, shards are not rewarded (converted to credits instead)
-        if (this.gameMode === 'gear') {
-            return 0;
-        }
 
         const roomsCleared = Math.max(0, this.roomNumber - 1);
         const enemiesKilled = this.enemiesKilled || 0;
         const levelReached = this.player.level || 1;
 
-        const base = 9 * roomsCleared; // Reduced from 10
-        const bonus = 1.8 * enemiesKilled; // Reduced from 2
-        const levelBonus = 0.9 * levelReached; // Reduced from 1
+        // Boosted rewards in gear mode, standard in card mode
+        const roomScale = this.gameMode === 'gear' ? 12 : 9;
+        const killScale = this.gameMode === 'gear' ? 2.4 : 1.8;
+        const lvlScale = this.gameMode === 'gear' ? 1.2 : 0.9;
+
+        const base = roomScale * roomsCleared;
+        const bonus = killScale * enemiesKilled;
+        const levelBonus = lvlScale * levelReached;
 
         let total = base + bonus + levelBonus;
 
@@ -5897,40 +6494,24 @@ const Game = {
     },
 
     // Calculate currency (credits) earned from run
-    // In gear mode: includes shard-to-credit conversion (rooms, enemies, level)
-    // In card mode: only from elites and bosses
     calculateCurrency() {
+        // Live mid-run banking (trash + elite + boss) is the source of truth
+        if ((this.currencyEarned || 0) > 0 || (this.currencyBankedThisRun || 0) > 0) {
+            return Math.floor(this.currencyEarned || this.currencyBankedThisRun || 0);
+        }
+
         if (!this.player) return 0;
 
         const elitesKilled = this.elitesKilled || 0;
         const bossesKilled = this.bossesKilled || 0;
+        const eliteBase = (typeof CombatEconomy !== 'undefined' && CombatEconomy.CREDIT_BASE)
+            ? CombatEconomy.CREDIT_BASE.OctagonEnemy
+            : (this.ELITE_CREDIT_REWARD || 15);
+        const bossBase = (typeof CombatEconomy !== 'undefined' && CombatEconomy.BOSS_CREDIT_BASE)
+            ? CombatEconomy.BOSS_CREDIT_BASE
+            : (this.BOSS_CREDIT_REWARD || 50);
 
-        let total = 0;
-
-        if (this.gameMode === 'gear') {
-            // In gear mode, convert shard calculation to credits (with reduced scale)
-            const roomsCleared = Math.max(0, this.roomNumber - 1);
-            const enemiesKilled = this.enemiesKilled || 0;
-            const levelReached = this.player.level || 1;
-
-            // Convert shard values to credits with 0.75x scale (a bit less than shards)
-            const creditBase = Math.floor(9 * roomsCleared * 0.75); // 6.75 per room
-            const creditBonus = Math.floor(1.8 * enemiesKilled * 0.75); // 1.35 per enemy
-            const creditLevelBonus = Math.floor(0.9 * levelReached * 0.75); // 0.675 per level
-
-            total = creditBase + creditBonus + creditLevelBonus;
-
-            // Also add elite/boss credits
-            const eliteCredits = 15 * elitesKilled;
-            const bossCredits = 50 * bossesKilled;
-            total += eliteCredits + bossCredits;
-        } else {
-            // Card mode: Credits only from elites and bosses
-            // Elite: 15 credits, Boss: 50 credits
-            const eliteCredits = 15 * elitesKilled;
-            const bossCredits = 50 * bossesKilled;
-            total = eliteCredits + bossCredits;
-        }
+        let total = eliteBase * elitesKilled + bossBase * bossesKilled;
 
         // Apply currency boost from room modifiers (Prism Tax)
         if (this.nextRoomModifiers && typeof this.nextRoomModifiers.currencyBoost === 'number' && this.nextRoomModifiers.currencyBoost > 0) {
@@ -5941,13 +6522,71 @@ const Game = {
         return Math.floor(total);
     },
 
-    // Calculate shards for a specific player (multiplayer)
-    calculateShardsForPlayer(playerId) {
-        // In gear mode, shards are not rewarded (converted to credits instead)
-        if (this.gameMode === 'gear') {
-            return 0;
+    /**
+     * Bank persistent credits immediately (trash / elite / boss kills).
+     * Shards stay end-of-run meta via creditRewards().
+     */
+    awardRunCredits(baseAmount, reason = 'combat') {
+        const isClient = this.isMultiplayerClient && this.isMultiplayerClient();
+        if (isClient) return 0;
+
+        let amount = Math.floor(Number(baseAmount) || 0);
+        if (amount <= 0) return 0;
+
+        if (this.nextRoomModifiers && typeof this.nextRoomModifiers.currencyBoost === 'number' && this.nextRoomModifiers.currencyBoost > 0) {
+            amount = Math.floor(amount * (1 + this.nextRoomModifiers.currencyBoost));
+        }
+        if (amount <= 0) return 0;
+
+        this.currencyEarned = (this.currencyEarned || 0) + amount;
+        this.currencyBankedThisRun = (this.currencyBankedThisRun || 0) + amount;
+
+        if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.isHost) {
+            const players = multiplayerManager.players || [];
+            const localPlayerId = this.getLocalPlayerId ? this.getLocalPlayerId() : null;
+
+            players.forEach(player => {
+                if (!player || !player.id) return;
+                // Skip players already dead this run (no mid-run earn after death)
+                if (this.deadPlayers && this.deadPlayers.has(player.id)) return;
+
+                const currentCurrency = this.playerCurrencies.get(player.id)
+                    || (player.id === localPlayerId && typeof SaveSystem !== 'undefined' ? SaveSystem.getCurrency() : (player.currency || 0));
+                const newCurrency = Math.floor(currentCurrency + amount);
+                this.playerCurrencies.set(player.id, newCurrency);
+                player.currency = newCurrency;
+
+                if (player.id === localPlayerId) {
+                    this.currentCurrency = newCurrency;
+                    if (typeof SaveSystem !== 'undefined' && SaveSystem.setCurrency) {
+                        SaveSystem.setCurrency(newCurrency);
+                    }
+                }
+
+                if (multiplayerManager.send) {
+                    multiplayerManager.send({
+                        type: 'currency_update',
+                        data: {
+                            targetPlayerId: player.id,
+                            newCurrency,
+                            reason: reason || 'run_credit'
+                        }
+                    });
+                }
+            });
+        } else if (typeof SaveSystem !== 'undefined' && SaveSystem.addCurrency) {
+            const newBal = SaveSystem.addCurrency(amount);
+            this.currentCurrency = Math.floor(newBal);
+        } else {
+            this.currentCurrency = Math.floor((this.currentCurrency || 0) + amount);
         }
 
+        console.log(`[Credits] +${amount} (${reason}) → banked this run ${this.currencyBankedThisRun}`);
+        return amount;
+    },
+
+    // Calculate shards for a specific player (multiplayer)
+    calculateShardsForPlayer(playerId) {
         const roomsCleared = Math.max(0, this.roomNumber - 1);
         const enemiesKilled = this.enemiesKilled || 0;
 
@@ -5960,9 +6599,14 @@ const Game = {
             levelReached = remotePlayer.level || 1;
         }
 
-        const base = 9 * roomsCleared;
-        const bonus = 1.8 * enemiesKilled;
-        const levelBonus = 0.9 * levelReached;
+        // Boosted rewards in gear mode, standard in card mode
+        const roomScale = this.gameMode === 'gear' ? 12 : 9;
+        const killScale = this.gameMode === 'gear' ? 2.4 : 1.8;
+        const lvlScale = this.gameMode === 'gear' ? 1.2 : 0.9;
+
+        const base = roomScale * roomsCleared;
+        const bonus = killScale * enemiesKilled;
+        const levelBonus = lvlScale * levelReached;
 
         let total = base + bonus + levelBonus;
 
@@ -5975,49 +6619,22 @@ const Game = {
     },
 
     // Calculate currency (credits) for a specific player (multiplayer)
-    // In gear mode: includes shard-to-credit conversion (rooms, enemies, level)
-    // In card mode: only from elites and bosses
     calculateCurrencyForPlayer(playerId) {
-        // In multiplayer, all players share the same elite/boss kill count
-        const elitesKilled = this.elitesKilled || 0;
-        const bossesKilled = this.bossesKilled || 0;
-
-        let total = 0;
-
-        if (this.gameMode === 'gear') {
-            // In gear mode, convert shard calculation to credits (with reduced scale)
-            const roomsCleared = Math.max(0, this.roomNumber - 1);
-            const enemiesKilled = this.enemiesKilled || 0;
-
-            // Get player level from stats or instance
-            let levelReached = 1;
-            if (playerId === this.getLocalPlayerId()) {
-                levelReached = this.player ? this.player.level || 1 : 1;
-            } else if (this.remotePlayerInstances && this.remotePlayerInstances.has(playerId)) {
-                const remotePlayer = this.remotePlayerInstances.get(playerId);
-                levelReached = remotePlayer.level || 1;
-            }
-
-            // Convert shard values to credits with 0.75x scale (a bit less than shards)
-            const creditBase = Math.floor(9 * roomsCleared * 0.75); // 6.75 per room
-            const creditBonus = Math.floor(1.8 * enemiesKilled * 0.75); // 1.35 per enemy
-            const creditLevelBonus = Math.floor(0.9 * levelReached * 0.75); // 0.675 per level
-
-            total = creditBase + creditBonus + creditLevelBonus;
-
-            // Also add elite/boss credits
-            const eliteCredits = 15 * elitesKilled;
-            const bossCredits = 50 * bossesKilled;
-            total += eliteCredits + bossCredits;
-        } else {
-            // Card mode: Credits only from elites and bosses
-            // Elite: 15 credits, Boss: 50 credits
-            const eliteCredits = 15 * elitesKilled;
-            const bossCredits = 50 * bossesKilled;
-            total = eliteCredits + bossCredits;
+        // Shared pool: mid-run awards already banked equally; prefer live total
+        if ((this.currencyEarned || 0) > 0 || (this.currencyBankedThisRun || 0) > 0) {
+            return Math.floor(this.currencyEarned || this.currencyBankedThisRun || 0);
         }
 
-        // Apply currency boost from room modifiers (Prism Tax)
+        const elitesKilled = this.elitesKilled || 0;
+        const bossesKilled = this.bossesKilled || 0;
+        const eliteBase = (typeof CombatEconomy !== 'undefined' && CombatEconomy.CREDIT_BASE)
+            ? CombatEconomy.CREDIT_BASE.OctagonEnemy
+            : 15;
+        const bossBase = (typeof CombatEconomy !== 'undefined' && CombatEconomy.BOSS_CREDIT_BASE)
+            ? CombatEconomy.BOSS_CREDIT_BASE
+            : 50;
+        let total = eliteBase * elitesKilled + bossBase * bossesKilled;
+
         if (this.nextRoomModifiers && typeof this.nextRoomModifiers.currencyBoost === 'number' && this.nextRoomModifiers.currencyBoost > 0) {
             total *= (1 + this.nextRoomModifiers.currencyBoost);
         }
@@ -6032,97 +6649,8 @@ const Game = {
             return;
         }
 
-        // Initialize based on game mode
-        if (this.gameMode === 'cards') {
-            // Card system migration and deck initialization
-            if (typeof runCardSystemMigration === 'function' && typeof SaveSystem !== 'undefined') {
-                runCardSystemMigration(SaveSystem);
-            }
-            // Check and unlock any cards that meet conditions (including starter cards)
-            if (typeof window.checkAchievementUnlocks === 'function') {
-                window.checkAchievementUnlocks();
-            }
-        }
-
-        if (this.gameMode === 'cards' && typeof initializeRunDeck === 'function' && typeof SaveSystem !== 'undefined' && typeof CardCatalog !== 'undefined') {
-            const deckCfg = SaveSystem.getDeckConfig ? SaveSystem.getDeckConfig() : { cards: [], size: 20 };
-            let cards = Array.isArray(deckCfg.cards) ? deckCfg.cards.slice() : [];
-            // Validate deck: ensure at least 10 cards, cap to size
-            const sizeLimit = Number.isFinite(deckCfg.size) ? deckCfg.size : 20;
-            if (cards.length < 10 && typeof SaveSystem.getCardsUnlocked === 'function') {
-                const unlocked = SaveSystem.getCardsUnlocked();
-                // Fill with unlocked (prefer starters) up to 10
-                const starterOrder = ['precision_001', 'bulwark_001', 'velocity_001'];
-                starterOrder.forEach(id => { if (cards.length < 10 && unlocked.includes(id) && !cards.includes(id)) cards.push(id); });
-                for (let i = 0; i < unlocked.length && cards.length < 10; i++) {
-                    const id = unlocked[i];
-                    if (!cards.includes(id)) cards.push(id);
-                }
-            }
-            if (cards.length > sizeLimit) {
-                cards = cards.slice(0, sizeLimit);
-            }
-            // Apply team card selection (basic support for single team card)
-            if (Array.isArray(window.DeckState && DeckState.activeTeamCards)) {
-                DeckState.activeTeamCards = [];
-            }
-            const activeTeamCardId = SaveSystem.activeTeamCard || null;
-            if (activeTeamCardId && typeof CardCatalog !== 'undefined' && CardCatalog.getById) {
-                const def = CardCatalog.getById(activeTeamCardId);
-                if (def) {
-                    if (typeof DeckState !== 'undefined') {
-                        DeckState.activeTeamCards = [def];
-                    }
-                    // Special-case: Fortune's Favor → global min band of green
-                    if ((def.family || '').toLowerCase().includes('fortune') && (def.family || '').toLowerCase().includes('favor')) {
-                        this.teamMinBand = 'green';
-                    }
-                }
-            } else {
-                this.teamMinBand = null;
-            }
-            initializeRunDeck(cards);
-            const upgrades = SaveSystem.getDeckUpgrades ? SaveSystem.getDeckUpgrades() : { handSize: 4, startingCards: 3 };
-            const drawCount = Math.max(0, Math.min(upgrades.startingCards || 3, upgrades.handSize || 4));
-            if (drawCount > 0) {
-                if (typeof drawStartingHand === 'function') {
-                    drawStartingHand(drawCount);
-                } else {
-                    // Fallback
-                    drawCards(drawCount);
-                }
-            }
-            // Mulligan UI if available
-            const mulligans = (SaveSystem.getDeckUpgrades ? (SaveSystem.getDeckUpgrades().mulligans || 0) : 0);
-            if (mulligans > 0) {
-                this.awaitingMulligan = true;
-                this.mulliganSelections = [];
-                this.mulliganCount = mulligans;
-            } else {
-                this.awaitingMulligan = false;
-                this.mulliganSelections = [];
-                this.mulliganCount = 0;
-            }
-        }
-
-        // Load room modifier inventory from selected modifiers (or use defaults)
-        if (typeof SaveSystem !== 'undefined') {
-            const save = SaveSystem.load();
-            const slots = (SaveSystem.getDeckUpgrades ? (SaveSystem.getDeckUpgrades().roomModifierCarrySlots || 3) : 3);
-            // Load selected modifiers into run inventory (or empty array if none selected)
-            this.roomModifierInventory = Array.isArray(this.selectedRoomModifiers)
-                ? this.selectedRoomModifiers.slice(0, slots)
-                : [];
-            // Also sync to DeckState for consistency
-            if (typeof DeckState !== 'undefined') {
-                DeckState.roomModifierInventory = this.roomModifierInventory.slice();
-            }
-            console.log(`[Game Start] Loaded ${this.roomModifierInventory.length} room modifiers into run inventory`);
-        } else {
-            this.roomModifierInventory = [];
-            if (typeof DeckState !== 'undefined') {
-                DeckState.roomModifierInventory = [];
-            }
+        if (typeof Onboarding !== 'undefined' && Onboarding.notifyRunStarted) {
+            Onboarding.notifyRunStarted();
         }
 
         this.gameOverMusicPlaying = false;
@@ -6143,27 +6671,11 @@ const Game = {
             this.player.playerId = this.getLocalPlayerId();
         }
 
-        // Initialize class card for this run (card mode only)
-        if (this.gameMode === 'cards' && typeof window.initializeClassCard === 'function') {
-            window.initializeClassCard(this.selectedClass);
-        }
-
-        // Initialize conditional card effects state (card mode only)
-        if (this.gameMode === 'cards' && typeof CardEffects !== 'undefined' && CardEffects.initConditionalState) {
-            CardEffects.initConditionalState(this.player);
-            // Initialize Overcharge timer if player has Overcharge card
-            if (typeof DeckState !== 'undefined' && Array.isArray(DeckState.hand)) {
-                const condEffects = CardEffects.getConditionalEffects ? CardEffects.getConditionalEffects(DeckState.hand) : null;
-                if (condEffects && condEffects.overcharge && this.player._cardEffects) {
-                    this.player._cardEffects.overchargeTimer = condEffects.overcharge.interval || 5;
-                    this.player._cardEffects.overchargeBurstDamage = condEffects.overcharge.burstDamage || 0.15;
-                }
-            }
-        }
-
         // Reset tracking before the first room is generated and telemetry starts.
         this.enemiesKilled = 0;
-        this.roomNumber = 1;
+        this.roomNumber = (typeof Room0Tutorial !== 'undefined' && Room0Tutorial.shouldEnter && Room0Tutorial.shouldEnter())
+            ? 0
+            : 1;
         this.doorPulse = 0;
         this.startTime = Date.now();
 
@@ -6173,6 +6685,14 @@ const Game = {
         this.showPauseMenu = false;
         this.pausedFromState = null;
         this.roomEnterTransition = null;
+
+        // Reset room system
+        if (typeof initializeRoom !== 'undefined') {
+            currentRoom = null;
+            if (typeof window !== 'undefined') {
+                window.currentRoom = null;
+            }
+        }
 
         this.spawnEnemies();
         this.updateMusicForCurrentRoom();
@@ -6199,13 +6719,13 @@ const Game = {
 
             Telemetry.startRun({
                 mode: this.multiplayerEnabled ? 'multiplayer' : 'singleplayer',
-                gameMode: this.gameMode || 'cards',
+                gameMode: this.gameMode || 'gear',
                 hostPlayerId: localPlayerId,
                 difficulty: this.difficulty || 'normal',
                 seed: (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.seed) ? currentRoom.seed : null,
                 players: runPlayers,
                 metadata: {
-                    gameMode: this.gameMode || 'cards',
+                    gameMode: this.gameMode || 'gear',
                     selectedClass: this.selectedClass || null,
                     playerCount: runPlayers.length,
                     difficulty: this.difficulty || 'normal'
@@ -6238,7 +6758,7 @@ const Game = {
         };
 
         this.beginRoomEnterTransition({
-            roomNumber: 1,
+            roomNumber: this.roomNumber,
             onComplete: () => {
                 recordStartTelemetry();
                 this.maybeStartBossIntroForCurrentRoom();
@@ -6310,12 +6830,20 @@ const Game = {
 
         // Reset stats
         this.enemiesKilled = 0;
-        this.roomNumber = 1;
+        this.elitesKilled = 0;
+        this.bossesKilled = 0;
+        this.currencyEarned = 0;
+        this.currencyBankedThisRun = 0;
+        this.shardsEarned = 0;
+        this.roomNumber = (typeof Room0Tutorial !== 'undefined' && Room0Tutorial.shouldEnter && Room0Tutorial.shouldEnter())
+            ? 0
+            : 1;
         this.doorPulse = 0;
         this.itemsDroppedThisRoom = 0;
         this.startTime = Date.now();
         this.endTime = 0; // Reset end time
         this.deathScreenStartTime = 0; // Reset death screen timer
+        this.rewardsCredited = false;
 
         // Initialize per-player stats tracking
         this.initializePlayerStats();
@@ -6339,8 +6867,7 @@ const Game = {
             Game.itemPylons.length = 0;
         }
 
-        // Clear deck/hand state (cleanup from previous run)
-        this.cleanupDeckState();
+        this.cleanupRunState();
 
         // Reset room system
         if (typeof initializeRoom !== 'undefined') {
@@ -6372,13 +6899,13 @@ const Game = {
 
             Telemetry.startRun({
                 mode: this.multiplayerEnabled ? 'multiplayer' : 'singleplayer',
-                gameMode: this.gameMode || 'cards',
+                gameMode: this.gameMode || 'gear',
                 hostPlayerId: localPlayerId,
                 difficulty: this.difficulty || 'normal',
                 seed: (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.seed) ? currentRoom.seed : null,
                 players: runPlayers,
                 metadata: {
-                    gameMode: this.gameMode || 'cards',
+                    gameMode: this.gameMode || 'gear',
                     selectedClass: this.selectedClass || null,
                     playerCount: runPlayers.length,
                     difficulty: this.difficulty || 'normal'
@@ -6411,7 +6938,7 @@ const Game = {
         };
 
         this.beginRoomEnterTransition({
-            roomNumber: 1,
+            roomNumber: this.roomNumber,
             onComplete: () => {
                 recordRestartTelemetry();
                 this.maybeStartBossIntroForCurrentRoom();
@@ -6432,21 +6959,26 @@ const Game = {
         }
 
         // Host or solo: Initialize first room if not already done
-        if (typeof initializeRoom !== 'undefined' && (!currentRoom || currentRoom.number === 1)) {
+        if (typeof initializeRoom !== 'undefined' && (!currentRoom || currentRoom.number !== this.roomNumber)) {
             if (typeof releaseRoomRenderCaches === 'function') {
                 releaseRoomRenderCaches(currentRoom);
             }
-            currentRoom = generateRoom(1);
+            currentRoom = generateRoom(this.roomNumber);
             // Sync to window for DOM components
             if (typeof window !== 'undefined') {
                 window.currentRoom = currentRoom;
             }
+            this.syncInSafeRoomFromCurrentRoom(currentRoom);
             this.enemies = currentRoom.enemies;
 
             if (this.player && typeof this.getRoomSpawnPoint === 'function') {
                 const spawnPoint = this.getRoomSpawnPoint(currentRoom, 0);
                 this.player.x = spawnPoint.x;
                 this.player.y = spawnPoint.y;
+            }
+
+            if (typeof Room0Tutorial !== 'undefined' && Room0Tutorial.beginIfNeeded) {
+                Room0Tutorial.beginIfNeeded(currentRoom);
             }
         }
 
@@ -6680,19 +7212,6 @@ const Game = {
                             finalDamage *= critMultiplier;
                             isCrit = true;
 
-                            // Precision card bonuses: Apply vulnerability debuff on crit (Orange only)
-                            if (typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
-                                const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
-                                const condEffects = CardEffects.getConditionalEffects(handCards);
-                                if (condEffects.precision && condEffects.precision.vulnOnCrit && typeof enemy.applyDebuff === 'function') {
-                                    const vuln = condEffects.precision.vulnOnCrit;
-                                    enemy.applyDebuff({
-                                        type: 'vulnerability',
-                                        multiplier: vuln.multiplier || 0.10,
-                                        duration: vuln.duration || 3.0
-                                    });
-                                }
-                            }
                         }
 
                         // Apply vulnerability debuff multiplier (Precision Orange bonus)
@@ -6746,38 +7265,8 @@ const Game = {
                         if (enemy.isBoss && typeof enemy.takeDamage === 'function') {
                             enemy.takeDamage(finalDamage, projectile.x, projectile.y, projectile.size, projectileOwnerId);
                         } else {
-                            enemy.takeDamage(finalDamage, projectileOwnerId);
-                        }
-
-                        // Precision card bonuses: lifeOnCrit healing (Purple/Orange) - applied after damage dealt
-                        if (isCrit && shooterPlayer && typeof CardEffects !== 'undefined' && CardEffects.getConditionalEffects && typeof DeckState !== 'undefined') {
-                            const handCards = Array.isArray(DeckState.hand) ? DeckState.hand : [];
-                            const condEffects = CardEffects.getConditionalEffects(handCards);
-                            if (condEffects.precision && condEffects.precision.lifeOnCrit && condEffects.precision.lifeOnCrit > 0) {
-                                if (typeof applyLifeOnCritHeal !== 'undefined') {
-                                    applyLifeOnCritHeal(shooterPlayer, damageDealt, condEffects.precision.lifeOnCrit, { enemy });
-                                }
-                                if (typeof createParticleBurst !== 'undefined') {
-                                    createParticleBurst(shooterPlayer.x, shooterPlayer.y, '#00ff00', 8);
-                                }
-                            }
-
-                            // Fury card bonuses: stunOnCritChance and critExplosion (Purple/Orange)
-                            if (condEffects.fury) {
-                                // Stun on crit chance (Purple)
-                                if (condEffects.fury.stunOnCritChance && condEffects.fury.stunOnCritChance > 0 &&
-                                    typeof enemy.applyStun === 'function' && Math.random() < condEffects.fury.stunOnCritChance) {
-                                    enemy.applyStun(condEffects.fury.stunDuration || 1.0);
-                                }
-
-                                // Crit explosion (Orange) - AoE explosion on crit
-                                if (condEffects.fury.critExplosion && condEffects.fury.critExplosion.multiplier &&
-                                    typeof createExplosion !== 'undefined' && typeof Game !== 'undefined') {
-                                    const explosion = condEffects.fury.critExplosion;
-                                    const explosionDamage = damageDealt * explosion.multiplier;
-                                    createExplosion(enemy.x, enemy.y, explosion.radius || 90, explosionDamage, shooterPlayer, Game.enemies || []);
-                                }
-                            }
+                            const vArchetype = projectile.type === 'knife' ? 'pierce' : 'magic';
+                            enemy.takeDamage(finalDamage, projectileOwnerId, projectile.x, projectile.y, vArchetype);
                         }
 
                         // Track lifetime damage stat
@@ -7517,8 +8006,286 @@ const Game = {
     },
 };
 
+/**
+ * Vector fat PS2 easter egg (solo Save Run booth).
+ * Ode to Lost: leave it on for days, keep the run, chase room 200.
+ * Front-on fat PS2 — grooved face, MC/controller ports, tray, reset/eject, blue USB bay.
+ */
+function drawLostPs2EasterEgg(ctx, x, y, options = {}) {
+    function roundRectPath(px, py, w, h, r) {
+        const radius = Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2);
+        ctx.beginPath();
+        ctx.moveTo(px + radius, py);
+        ctx.lineTo(px + w - radius, py);
+        ctx.quadraticCurveTo(px + w, py, px + w, py + radius);
+        ctx.lineTo(px + w, py + h - radius);
+        ctx.quadraticCurveTo(px + w, py + h, px + w - radius, py + h);
+        ctx.lineTo(px + radius, py + h);
+        ctx.quadraticCurveTo(px, py + h, px, py + h - radius);
+        ctx.lineTo(px, py + radius);
+        ctx.quadraticCurveTo(px, py, px + radius, py);
+        ctx.closePath();
+    }
+
+    const lit = options.lit !== false;
+    const near = !!options.near;
+    const scale = Number.isFinite(options.scale) ? options.scale : 1;
+    const groundShadow = options.groundShadow !== false;
+    const t = Date.now() * 0.0015;
+    const pulse = lit ? (0.6 + Math.sin(t) * 0.3) : 0.2;
+
+    // Front-view proportions (fat PS2 is a wide black slab)
+    const W = 108;
+    const H = 46;
+    const bx = -W / 2;
+    const by = -H / 2;
+    const grooveH = H * 0.58;
+    const flatH = H - grooveH;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
+
+    // Floor shadow (skip when nested as a machine icon)
+    if (groundShadow) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.beginPath();
+        ctx.ellipse(0, by + H + 6, W * 0.48, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // Outer shell
+    const shell = ctx.createLinearGradient(0, by, 0, by + H);
+    shell.addColorStop(0, '#2a2a2e');
+    shell.addColorStop(0.55, '#1a1a1e');
+    shell.addColorStop(1, '#101014');
+    ctx.fillStyle = shell;
+    roundRectPath(bx, by, W, H, 3);
+    ctx.fill();
+
+    // === UPPER GROOVED FACE ===
+    ctx.fillStyle = '#16161a';
+    ctx.fillRect(bx + 2, by + 2, W - 4, grooveH - 2);
+
+    // Horizontal ribbing across the whole upper band
+    for (let i = 0; i < 7; i++) {
+        const gy = by + 4 + i * ((grooveH - 6) / 6);
+        ctx.strokeStyle = i % 2 === 0 ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.45)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(bx + 3, gy);
+        ctx.lineTo(bx + W - 3, gy);
+        ctx.stroke();
+    }
+
+    // Left bay: memory card flaps (top) + controller ports (bottom)
+    const portBayX = bx + 5;
+    const portBayY = by + 5;
+    const portBayW = 28;
+    const portBayH = grooveH - 8;
+    ctx.fillStyle = '#0c0c10';
+    roundRectPath(portBayX, portBayY, portBayW, portBayH, 1.5);
+    ctx.fill();
+
+    // MEMORY CARD slots
+    for (let i = 0; i < 2; i++) {
+        const sx = portBayX + 3 + i * 12;
+        const sy = portBayY + 3;
+        ctx.fillStyle = '#222228';
+        roundRectPath(sx, sy, 10, 7, 1);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+        ctx.lineWidth = 0.8;
+        roundRectPath(sx, sy, 10, 7, 1);
+        ctx.stroke();
+        // flap hinge line
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.beginPath();
+        ctx.moveTo(sx + 1, sy + 3.5);
+        ctx.lineTo(sx + 9, sy + 3.5);
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(170,175,190,0.55)';
+        ctx.font = 'bold 4px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(String(i + 1), sx + 5, sy - 0.5);
+    }
+
+    // Controller ports (circle + pin ring look)
+    for (let i = 0; i < 2; i++) {
+        const cx = portBayX + 8 + i * 12;
+        const cy = portBayY + portBayH - 8;
+        ctx.fillStyle = '#1c1c22';
+        ctx.beginPath();
+        ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+        ctx.fillStyle = '#0a0a0e';
+        ctx.beginPath();
+        ctx.arc(cx, cy, 2.6, 0, Math.PI * 2);
+        ctx.fill();
+        // pin dots
+        ctx.fillStyle = 'rgba(200,200,210,0.35)';
+        for (let p = 0; p < 6; p++) {
+            const a = (p / 6) * Math.PI * 2 - Math.PI / 2;
+            ctx.beginPath();
+            ctx.arc(cx + Math.cos(a) * 1.5, cy + Math.sin(a) * 1.5, 0.45, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    // Disc tray (center of upper face)
+    const trayX = bx + 36;
+    const trayY = by + 6;
+    const trayW = 48;
+    const trayH = grooveH - 10;
+    ctx.fillStyle = '#1e1e24';
+    roundRectPath(trayX, trayY, trayW, trayH, 1.5);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.lineWidth = 1;
+    roundRectPath(trayX, trayY, trayW, trayH, 1.5);
+    ctx.stroke();
+    // tray face detail lines
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.beginPath();
+    ctx.moveTo(trayX + 4, trayY + trayH * 0.35);
+    ctx.lineTo(trayX + trayW - 4, trayY + trayH * 0.35);
+    ctx.moveTo(trayX + 4, trayY + trayH * 0.65);
+    ctx.lineTo(trayX + trayW - 4, trayY + trayH * 0.65);
+    ctx.stroke();
+
+    // Right: RESET + EJECT buttons
+    const btnX = bx + W - 18;
+    // Reset (top) — green power glyph
+    ctx.fillStyle = '#2a2a30';
+    roundRectPath(btnX, by + 5, 12, 11, 1.5);
+    ctx.fill();
+    const resetGlow = lit ? `rgba(40, 220, 160, ${0.55 + pulse * 0.35})` : 'rgba(40, 120, 90, 0.45)';
+    if (lit) {
+        ctx.shadowColor = resetGlow;
+        ctx.shadowBlur = near ? 6 : 3;
+    }
+    ctx.strokeStyle = resetGlow;
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.arc(btnX + 6, by + 9.5, 2.6, Math.PI * 0.2, Math.PI * 1.8);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(btnX + 6, by + 7.2);
+    ctx.lineTo(btnX + 6, by + 10.2);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = lit ? 'rgba(80, 230, 180, 0.7)' : 'rgba(100, 140, 120, 0.45)';
+    ctx.font = 'bold 3.5px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('RESET', btnX + 6, by + 13.5);
+
+    // Eject (bottom) — blue triangle
+    ctx.fillStyle = '#2a2a30';
+    roundRectPath(btnX, by + 18, 12, 9, 1.5);
+    ctx.fill();
+    const ejectGlow = lit
+        ? `rgba(60, 140, 255, ${0.65 + pulse * 0.3})`
+        : 'rgba(40, 70, 120, 0.5)';
+    if (lit) {
+        ctx.shadowColor = ejectGlow;
+        ctx.shadowBlur = near ? 7 : 4;
+    }
+    ctx.fillStyle = ejectGlow;
+    ctx.beginPath();
+    ctx.moveTo(btnX + 4, by + 20.5);
+    ctx.lineTo(btnX + 8.5, by + 22.5);
+    ctx.lineTo(btnX + 4, by + 24.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillRect(btnX + 8.2, by + 20.5, 1.6, 4);
+    ctx.shadowBlur = 0;
+
+    // === LOWER FLAT FACE ===
+    const flatY = by + grooveH;
+    ctx.fillStyle = '#141418';
+    ctx.fillRect(bx + 2, flatY, W - 4, flatH - 2);
+
+    // Blue USB / i.LINK bay (the famous tell)
+    const usbX = bx + 5;
+    const usbY = flatY + 3;
+    const usbW = 22;
+    const usbH = flatH - 7;
+    ctx.fillStyle = lit ? '#1a4fd0' : '#163a8a';
+    roundRectPath(usbX, usbY, usbW, usbH, 1.5);
+    ctx.fill();
+    // highlight on blue bay
+    ctx.fillStyle = 'rgba(120, 170, 255, 0.25)';
+    ctx.fillRect(usbX + 1, usbY + 1, usbW - 2, 2);
+
+    // Two stacked USB ports
+    for (let i = 0; i < 2; i++) {
+        const uy = usbY + 3 + i * 5;
+        ctx.fillStyle = '#0a0a12';
+        roundRectPath(usbX + 3, uy, 8, 3.5, 0.5);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(200, 210, 230, 0.35)';
+        ctx.fillRect(usbX + 4, uy + 1, 6, 1.5);
+    }
+    // i.LINK (small square + icon mark)
+    ctx.fillStyle = '#0a0a12';
+    roundRectPath(usbX + 13, usbY + 5, 6, 6, 0.5);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(220, 230, 255, 0.45)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(usbX + 14.5, usbY + 8);
+    ctx.lineTo(usbX + 17.5, usbY + 8);
+    ctx.moveTo(usbX + 16, usbY + 6.5);
+    ctx.lineTo(usbX + 16, usbY + 9.5);
+    ctx.stroke();
+
+    // Ventilation grille (rest of lower face)
+    const ventX = usbX + usbW + 3;
+    const ventY = flatY + 4;
+    const ventW = bx + W - 5 - ventX;
+    const ventH = flatH - 9;
+    ctx.fillStyle = '#0c0c10';
+    roundRectPath(ventX, ventY, ventW, ventH, 1);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.lineWidth = 0.6;
+    const slits = 16;
+    for (let i = 0; i < slits; i++) {
+        const sy = ventY + 1.5 + (i / (slits - 1)) * (ventH - 3);
+        ctx.beginPath();
+        ctx.moveTo(ventX + 2, sy);
+        ctx.lineTo(ventX + ventW - 2, sy);
+        ctx.stroke();
+    }
+
+    // Feet
+    ctx.fillStyle = '#0a0a0c';
+    ctx.beginPath();
+    ctx.ellipse(bx + 10, by + H - 1, 4, 1.6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(bx + W - 10, by + H - 1, 4, 1.6, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Outer rim
+    ctx.strokeStyle = near ? 'rgba(200, 210, 230, 0.28)' : 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 1;
+    roundRectPath(bx, by, W, H, 3);
+    ctx.stroke();
+
+    ctx.restore();
+}
+
 if (typeof window !== 'undefined') {
     window.Game = Game;
+    window.drawLostPs2EasterEgg = drawLostPs2EasterEgg;
 }
 
 // Start the game when page loads

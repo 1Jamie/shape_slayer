@@ -18,7 +18,7 @@ function parseArgs(argv) {
     const options = {
         runs: 150,
         gameMode: 'gear',
-        endRoom: 30,
+        endRoom: 50,
         players: 1,
         difficulty: 'normal',
         targetSeconds: 75,
@@ -278,16 +278,16 @@ function printHelp() {
     console.log(`Full-run GEAR mode balance synthesis
 
 Simulates a full run (room 1..--end-room) with continuous player progression.
-Canonical run ends at room 30 (gear) or 32 (cards); use --end-room beyond
+Canonical run ends at room 50 (gear) or 32 (cards); use --end-room beyond
 that to model endless continuation (same run, extra scaling kicks in).
 
-GEAR mode boss rooms: 10, 15, 20, 25, 30 (then elite spawns after 30).
+GEAR mode boss rooms: 10, 20, 30, 40, 50 (then mid-cycle elite spawns after 50).
 CARDS mode boss rooms: 12, 22, 32.
 
 Options:
   --runs <n>                 Monte Carlo runs (default 150)
   --game-mode <gear|cards>   Game mode boss schedule (default gear)
-  --end-room <n>             Last room to simulate (default 30 = canonical gear run end)
+  --end-room <n>             Last room to simulate (default 50 = canonical gear run end)
   --players <n>              Player count for boss HP/damage scaling (default 1)
   --target-seconds <n>       Desired median boss fight length (default 75)
   --target-seconds-growth <n> Add N seconds of target per boss encountered (default 0)

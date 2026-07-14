@@ -385,6 +385,9 @@ class MultiplayerManager {
         
         const currency = this.getCurrency();
         const upgrades = this.getAllUpgrades();
+        const safeRoomMeta = (typeof SaveSystem !== 'undefined' && SaveSystem.getSafeRoomUpgradeBlob)
+            ? SaveSystem.getSafeRoomUpgradeBlob()
+            : {};
         
         // Ensure persistent ID is set
         if (!this.persistentPlayerId) {
@@ -398,6 +401,7 @@ class MultiplayerManager {
                 class: playerClass || Game.selectedClass || 'square',
                 currency: currency,
                 upgrades: upgrades,
+                safeRoomMeta: safeRoomMeta,
                 persistentPlayerId: this.persistentPlayerId // Send persistent ID for reconnection
             }
         });
@@ -411,6 +415,9 @@ class MultiplayerManager {
         
         const currency = this.getCurrency();
         const upgrades = this.getAllUpgrades();
+        const safeRoomMeta = (typeof SaveSystem !== 'undefined' && SaveSystem.getSafeRoomUpgradeBlob)
+            ? SaveSystem.getSafeRoomUpgradeBlob()
+            : {};
         
         // Ensure persistent ID is set
         if (!this.persistentPlayerId) {
@@ -425,6 +432,7 @@ class MultiplayerManager {
                 playerClass: playerClass || Game.selectedClass || 'square',
                 currency: currency,
                 upgrades: upgrades,
+                safeRoomMeta: safeRoomMeta,
                 persistentPlayerId: this.persistentPlayerId // Send persistent ID for reconnection
             }
         });
@@ -1080,6 +1088,9 @@ class MultiplayerManager {
         // Include currency and upgrades for sync
         const currency = typeof SaveSystem !== 'undefined' ? Math.floor(SaveSystem.getCurrency()) : Math.floor(Game.currentCurrency || 0);
         const upgrades = this.getAllUpgrades();
+        const safeRoomMeta = (typeof SaveSystem !== 'undefined' && SaveSystem.getSafeRoomUpgradeBlob)
+            ? SaveSystem.getSafeRoomUpgradeBlob()
+            : {};
         
         return {
             id: this.playerId,
@@ -1094,6 +1105,7 @@ class MultiplayerManager {
             // Currency and upgrades (for host tracking)
             currency: currency,
             upgrades: upgrades,
+            safeRoomMeta: safeRoomMeta,
             
             // Client timestamp for RTT calculation
             clientTimestamp: clientTimestamp,
@@ -1224,6 +1236,10 @@ class MultiplayerManager {
         if (typeof window !== 'undefined' && window.UIBus && UIBus.emit) {
             UIBus.emit('mp:lobby:created', { code: this.lobbyCode, isHost: !!this.isHost, players: (this.players || []).slice() });
         }
+
+        if (typeof Onboarding !== 'undefined' && Onboarding.suspendForMultiplayer) {
+            Onboarding.suspendForMultiplayer();
+        }
         
         // Initialize host-side currency and upgrade tracking
         if (typeof Game !== 'undefined' && this.isHost && data.players) {
@@ -1235,6 +1251,10 @@ class MultiplayerManager {
                 // Initialize upgrade tracking
                 if (player.upgrades) {
                     Game.playerUpgrades.set(player.id, player.upgrades);
+                }
+                if (player.safeRoomMeta) {
+                    if (!Game.playerSafeRoomMeta) Game.playerSafeRoomMeta = new Map();
+                    Game.playerSafeRoomMeta.set(player.id, player.safeRoomMeta);
                 }
             });
         }
@@ -1317,6 +1337,10 @@ class MultiplayerManager {
         if (typeof window !== 'undefined' && window.UIBus && UIBus.emit) {
             UIBus.emit('mp:lobby:joined', { code: this.lobbyCode, isHost: !!this.isHost, players: (this.players || []).slice() });
         }
+
+        if (typeof Onboarding !== 'undefined' && Onboarding.suspendForMultiplayer) {
+            Onboarding.suspendForMultiplayer();
+        }
         
         // Initialize host-side currency and upgrade tracking
         if (typeof Game !== 'undefined' && this.isHost && data.players) {
@@ -1328,6 +1352,10 @@ class MultiplayerManager {
                 // Initialize upgrade tracking
                 if (player.upgrades) {
                     Game.playerUpgrades.set(player.id, player.upgrades);
+                }
+                if (player.safeRoomMeta) {
+                    if (!Game.playerSafeRoomMeta) Game.playerSafeRoomMeta = new Map();
+                    Game.playerSafeRoomMeta.set(player.id, player.safeRoomMeta);
                 }
             });
         }
@@ -1447,6 +1475,10 @@ class MultiplayerManager {
             // Initialize upgrade tracking
             if (data.player.upgrades) {
                 Game.playerUpgrades.set(data.player.id, data.player.upgrades);
+            }
+            if (data.player.safeRoomMeta) {
+                if (!Game.playerSafeRoomMeta) Game.playerSafeRoomMeta = new Map();
+                Game.playerSafeRoomMeta.set(data.player.id, data.player.safeRoomMeta);
             }
         }
         
@@ -1848,6 +1880,11 @@ class MultiplayerManager {
                     console.log(`[Host] Updated upgrades for player ${data.id}`);
                 }
             }
+
+            if (data.safeRoomMeta) {
+                if (!Game.playerSafeRoomMeta) Game.playerSafeRoomMeta = new Map();
+                Game.playerSafeRoomMeta.set(data.id, data.safeRoomMeta);
+            }
         }
         
         // Check if player changed class (in nexus)
@@ -2187,7 +2224,8 @@ class MultiplayerManager {
         if (enemy.isBoss && hitboxX !== undefined && hitboxY !== undefined && hitboxRadius !== undefined) {
             enemy.takeDamage(damage, hitboxX, hitboxY, hitboxRadius, attackerId);
         } else {
-            enemy.takeDamage(damage, attackerId);
+            const mpArchetype = hitboxRadius > 80 ? 'blast' : (hitboxRadius > 35 ? 'slash' : 'pierce');
+            enemy.takeDamage(damage, attackerId, hitboxX ?? null, hitboxY ?? null, mpArchetype);
         }
         
         // Track last attacker (already done in takeDamage, but ensure it's set)
@@ -2309,9 +2347,13 @@ class MultiplayerManager {
         // XP and loot are handled by host and synced via game_state
         if (died && !enemy.alive) {
             console.log(`[Multiplayer Client] Enemy ${enemyIndex} died (killed by ${lastAttacker})`);
-            
-            // Trigger visual effects (particles) for client-side feedback
-            if (typeof createParticleBurst !== 'undefined') {
+
+            if (!enemy.lastKillContext && typeof storeKillContext === 'function') {
+                storeKillContext(enemy, enemy.maxHp || 100, enemy.x, enemy.y, 'slash');
+            }
+            if (typeof enemy.triggerDeathVisuals === 'function') {
+                enemy.triggerDeathVisuals();
+            } else if (typeof createParticleBurst !== 'undefined') {
                 createParticleBurst(enemy.x, enemy.y, enemy.color, 12);
             }
             
@@ -2400,6 +2442,11 @@ class MultiplayerManager {
                 size: gear.size || 15,
                 pulse: gear.pulse || 0
             };
+            if (typeof normalizeGearProgressFields === 'function') {
+                normalizeGearProgressFields(fullGear);
+            } else if (typeof window !== 'undefined' && typeof window.normalizeGearProgressFields === 'function') {
+                window.normalizeGearProgressFields(fullGear);
+            }
             if (typeof ensureGearDropMetadata === 'function') {
                 ensureGearDropMetadata(fullGear);
             }
@@ -2654,8 +2701,20 @@ class MultiplayerManager {
             roomNumber: lootData.roomNumber,
             size: lootData.size || 15,
             color: lootData.color || tierColors[lootData.tier] || '#999999',
-            pulse: lootData.pulse || 0
+            pulse: lootData.pulse || 0,
+            level: lootData.level,
+            upgradesApplied: lootData.upgradesApplied,
+            originalTier: lootData.originalTier,
+            rarityStepsApplied: lootData.rarityStepsApplied,
+            rarityUpgradedThisVisit: lootData.rarityUpgradedThisVisit,
+            rerollIndex: lootData.rerollIndex,
+            rerollCount: lootData.rerollCount
         };
+        if (typeof normalizeGearProgressFields === 'function') {
+            normalizeGearProgressFields(gear);
+        } else if (typeof window !== 'undefined' && typeof window.normalizeGearProgressFields === 'function') {
+            window.normalizeGearProgressFields(gear);
+        }
         if (typeof ensureGearDropMetadata === 'function') {
             ensureGearDropMetadata(gear);
         }
@@ -2663,6 +2722,12 @@ class MultiplayerManager {
     }
 
     serializeGearForNetwork(gear) {
+        if (!gear) return null;
+        if (typeof normalizeGearProgressFields === 'function') {
+            normalizeGearProgressFields(gear);
+        } else if (typeof window !== 'undefined' && typeof window.normalizeGearProgressFields === 'function') {
+            window.normalizeGearProgressFields(gear);
+        }
         return {
             id: gear.id,
             x: gear.x,
@@ -2681,8 +2746,26 @@ class MultiplayerManager {
             name: gear.name,
             roomNumber: gear.roomNumber,
             scaling: gear.scaling,
-            pulse: gear.pulse || 0
+            pulse: gear.pulse || 0,
+            level: gear.level != null ? gear.level : (gear.roomNumber || 1),
+            upgradesApplied: gear.upgradesApplied != null ? gear.upgradesApplied : 0,
+            originalTier: gear.originalTier || gear.tier,
+            rarityStepsApplied: gear.rarityStepsApplied != null ? gear.rarityStepsApplied : 0,
+            rarityUpgradedThisVisit: !!gear.rarityUpgradedThisVisit,
+            rerollIndex: gear.rerollIndex != null ? gear.rerollIndex : -1,
+            rerollCount: gear.rerollCount != null ? gear.rerollCount : 0
         };
+    }
+
+    hydrateGearFromNetwork(data) {
+        if (!data) return null;
+        const gear = Object.assign({}, data);
+        if (typeof normalizeGearProgressFields === 'function') {
+            normalizeGearProgressFields(gear);
+        } else if (typeof window !== 'undefined' && typeof window.normalizeGearProgressFields === 'function') {
+            window.normalizeGearProgressFields(gear);
+        }
+        return gear;
     }
     
     getGearTierColor(tier) {
@@ -2937,6 +3020,20 @@ class MultiplayerManager {
             createDamageNumber(displayX, displayY, damage, isCrit, isWeakPoint);
         } else {
             console.warn('[Client] createDamageNumber function not available!');
+        }
+
+        // Trigger local visual voxel fracture on clients
+        if (enemyId && typeof Game !== 'undefined' && Game.enemies) {
+            const enemy = Game.enemies.find(e => e.id === enemyId);
+            if (enemy && enemy._voxelGrid) {
+                const mpArchetype = isWeakPoint ? 'pierce' : (isCrit ? 'blast' : 'slash');
+                if (typeof storeKillContext === 'function') {
+                    storeKillContext(enemy, damage, displayX, displayY, mpArchetype, { isCrit, isWeakPoint });
+                }
+                if (typeof flagVoxelDamage === 'function') {
+                    flagVoxelDamage(enemy, damage, displayX, displayY, mpArchetype);
+                }
+            }
         }
         
         if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.initialized) {
@@ -3206,6 +3303,9 @@ class MultiplayerManager {
         if (typeof window !== 'undefined') {
             window.currentRoom = currentRoom;
         }
+        if (typeof Game !== 'undefined' && typeof Game.syncInSafeRoomFromCurrentRoom === 'function') {
+            Game.syncInSafeRoomFromCurrentRoom(currentRoom);
+        }
         this.beginClientRoomEnterTransition(roomNumber);
     }
 
@@ -3277,6 +3377,10 @@ class MultiplayerManager {
                 }
                 if (typeof Game.triggerGameOverMusic === 'function') {
                     Game.triggerGameOverMusic();
+                }
+                // Pre-emptively/fallback credit rewards on clients as soon as all players die
+                if (typeof Game.creditRewards === 'function') {
+                    Game.creditRewards();
                 }
             }
         }
@@ -3824,6 +3928,10 @@ class MultiplayerManager {
         if (typeof Game !== 'undefined') {
             Game.remotePlayers = [];
             Game.multiplayerEnabled = false;
+        }
+
+        if (typeof Onboarding !== 'undefined' && Onboarding.resumeFromMultiplayer) {
+            Onboarding.resumeFromMultiplayer();
         }
         
         this.stopHeartbeat();
