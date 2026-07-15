@@ -84,9 +84,8 @@ const Onboarding = {
         if (!p.selectClassDone) return this.STEPS.SELECT_CLASS;
         if (!p.launchRunDone) return this.STEPS.LAUNCH_RUN;
 
-        // classUpgrades only after a first run has started and player is back in nexus
-        // launchRunDone is a backup if firstRunStarted was lost to a partial save rewrite
-        if ((p.firstRunStarted || p.launchRunDone) && !p.classUpgradesDone) {
+        // classUpgrades only after a first run has actually started and player is back in nexus
+        if (p.firstRunStarted && !p.classUpgradesDone) {
             if (typeof Game !== 'undefined' && Game.state === 'NEXUS') {
                 return this.STEPS.CLASS_UPGRADES;
             }
@@ -101,6 +100,14 @@ const Onboarding = {
         return null;
     },
 
+    /** Nexus itself, or pause opened from Nexus (skip escape still available). */
+    isOnNexusContext() {
+        if (typeof Game === 'undefined') return false;
+        if (Game.state === 'NEXUS') return true;
+        if (Game.state === 'PAUSED' && Game.pausedFromState === 'NEXUS') return true;
+        return false;
+    },
+
     /** True when canvas spotlight hard-gates are active in nexus. */
     isSpotlightActive() {
         if (this.isSuspended() || this.isComplete()) return false;
@@ -109,6 +116,94 @@ const Onboarding = {
         return step === this.STEPS.SELECT_CLASS
             || step === this.STEPS.LAUNCH_RUN
             || step === this.STEPS.CLASS_UPGRADES;
+    },
+
+    /**
+     * Current skippable Nexus coach step (works while paused from Nexus too).
+     * Privacy / controls modals are not skippable here.
+     */
+    getSkippableStep() {
+        if (this.isSuspended() || this.isComplete()) return null;
+        if (!this.isOnNexusContext()) return null;
+        const p = this.getProgress();
+        if (!p.selectClassDone) return this.STEPS.SELECT_CLASS;
+        if (!p.launchRunDone) return this.STEPS.LAUNCH_RUN;
+        if (p.firstRunStarted && !p.classUpgradesDone) {
+            return this.STEPS.CLASS_UPGRADES;
+        }
+        return null;
+    },
+
+    /** True when the current Nexus coach step can be dismissed. */
+    canSkipGuide() {
+        return !!this.getSkippableStep();
+    },
+
+    /** Desktop/mobile floating Skip while onboarding spotlight is on screen. */
+    shouldShowSkipOverlay() {
+        if (typeof Game === 'undefined' || Game.state !== 'NEXUS') return false;
+        if (Game.showPauseMenu) return false;
+        return this.canSkipGuide() && this.isSpotlightActive();
+    },
+
+    /**
+     * Escape hatch: dismiss only the current coach step.
+     * Later steps stay for normal progression. Used by pause menu + Skip overlay.
+     */
+    skipGuide() {
+        const step = this.getSkippableStep();
+        if (!step) return false;
+
+        if (step === this.STEPS.SELECT_CLASS) {
+            // Need a class so portal / upgrades work
+            if (typeof Game !== 'undefined' && !Game.selectedClass) {
+                Game.selectedClass = 'square';
+                if (Game.player && typeof createPlayer === 'function') {
+                    const x = Game.player.x;
+                    const y = Game.player.y;
+                    const pid = Game.player.playerId;
+                    Game.player = createPlayer('square', x, y);
+                    Game.player.playerId = pid || null;
+                }
+            }
+            this.notifyClassSelected();
+            console.log('[Onboarding] Skipped current step: selectClass');
+        } else if (step === this.STEPS.LAUNCH_RUN) {
+            // Only open the portal gate — first-run / class-upgrades still await a real run
+            this.patch({ launchRunDone: true });
+            if (typeof CoachTransition !== 'undefined' && CoachTransition.clear) {
+                CoachTransition.clear();
+            }
+            console.log('[Onboarding] Skipped current step: launchRun');
+        } else if (step === this.STEPS.CLASS_UPGRADES) {
+            // Same completion as opening a station, without requiring interact arming
+            const fromRect = this._targetSpotlightRect();
+            this.patch({ classUpgradesDone: true });
+            this.markComplete();
+            this._classUpgradesArmedAt = 0;
+            let handedOff = false;
+            if (typeof FeatureTutorials !== 'undefined' && FeatureTutorials.continueFrom) {
+                handedOff = !!FeatureTutorials.continueFrom(fromRect);
+            } else if (typeof FeatureTutorials !== 'undefined' && FeatureTutorials.onNexusEnter) {
+                FeatureTutorials.onNexusEnter();
+                handedOff = typeof FeatureTutorials.getCurrentId === 'function'
+                    && !!FeatureTutorials.getCurrentId();
+            }
+            if (!handedOff) {
+                if (typeof CoachTransition !== 'undefined' && CoachTransition.clear) {
+                    CoachTransition.clear();
+                }
+                this.maybeShowDeferredUpdateModal();
+            }
+            console.log('[Onboarding] Skipped current step: classUpgrades');
+        } else {
+            return false;
+        }
+
+        if (typeof window !== 'undefined' && typeof window.showToast === 'function') {
+            window.showToast('Guide step skipped', 2200);
+        }
+        return true;
     },
 
     /** Forced modal that cannot be dismissed without completing. */
@@ -163,9 +258,12 @@ const Onboarding = {
             };
         }
         if (step === this.STEPS.CLASS_UPGRADES) {
+            const skipHint = (typeof Input !== 'undefined' && Input.controlMode === 'gamepad')
+                ? 'Stuck? Pause → Skip Guide'
+                : 'Stuck? Use Skip Guide';
             return {
                 title: 'Class upgrades',
-                body: `Walk left and spend Credits on an UPGRADES station. ${hint('upgrade')}. Gear machines unlock next.`
+                body: `Walk left and open an UPGRADES station (${hint('upgrade')}). Opening continues — Credits optional. ${skipHint}`
             };
         }
         return null;

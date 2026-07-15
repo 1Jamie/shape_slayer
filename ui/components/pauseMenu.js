@@ -1,5 +1,5 @@
 (function () {
-	let layer, modal, modalBody, updateModeButtons;
+	let layer, modal, modalBody, updateModeButtons, skipGuideBtn;
 
 	function createMenu() {
 		const rootLayer = document.createElement('div');
@@ -61,7 +61,7 @@
 		document.head.appendChild(style);
 		list.className = 'pause-menu-list';
 
-		for (const a of actions) {
+		function appendActionButton(a) {
 			const btn = document.createElement('button');
 			btn.className = 'btn' + (a.primary ? ' btn--primary' : '');
 			btn.type = 'button';
@@ -131,6 +131,31 @@
 			}
 
 			list.appendChild(btn);
+			return btn;
+		}
+
+		for (const a of actions) {
+			appendActionButton(a);
+			if (a.text === 'Resume') {
+				skipGuideBtn = appendActionButton({
+					text: 'Skip Guide',
+					action: () => {
+						if (window.CoachSkipUI && window.CoachSkipUI.trySkipGuide) {
+							window.CoachSkipUI.trySkipGuide();
+						} else {
+							if (typeof Onboarding !== 'undefined' && Onboarding.canSkipGuide
+								&& Onboarding.canSkipGuide() && Onboarding.skipGuide) {
+								Onboarding.skipGuide();
+							} else if (typeof FeatureTutorials !== 'undefined' && FeatureTutorials.skipGuide) {
+								FeatureTutorials.skipGuide();
+							}
+						}
+						if (Game && Game.togglePause) Game.togglePause();
+					}
+				});
+				skipGuideBtn.style.display = 'none';
+				skipGuideBtn.title = 'Dismiss the Nexus tutorial spotlight if you get stuck';
+			}
 		}
 
 		// Add custom scroll indicator for mobile (attached to body, not list)
@@ -323,6 +348,16 @@
 	function refresh() {
 		if (!layer) return;
 		layer.style.display = isPauseVisible() ? 'flex' : 'none';
+
+		const canSkipOnboarding = typeof Onboarding !== 'undefined'
+			&& Onboarding.canSkipGuide
+			&& Onboarding.canSkipGuide();
+		const canSkipFeature = typeof FeatureTutorials !== 'undefined'
+			&& FeatureTutorials.canSkipGuide
+			&& FeatureTutorials.canSkipGuide();
+		if (skipGuideBtn) {
+			skipGuideBtn.style.display = (canSkipOnboarding || canSkipFeature) ? '' : 'none';
+		}
 
 		// Update scroll indicator when menu becomes visible
 		if (isPauseVisible() && modalBody) {

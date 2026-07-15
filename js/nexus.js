@@ -298,6 +298,9 @@ function initNexus() {
 
 // Update nexus
 function updateNexus(ctx, deltaTime) {
+    if (typeof FeatureTutorials !== 'undefined' && FeatureTutorials.enforcePresentationSafety) {
+        FeatureTutorials.enforcePresentationSafety();
+    }
     if (!nexusRoom) {
         initNexus();
     }

@@ -43,6 +43,8 @@ const FeatureTutorials = {
 
     _armedAt: 0,
     _sessionSuspended: false,
+    /** When true, present queue head on next safe Nexus frame (e.g. after skip while paused). */
+    _pendingPresent: false,
 
     catalogIndex(id) {
         return this.CATALOG.findIndex(e => e.id === id);
@@ -89,12 +91,45 @@ const FeatureTutorials = {
             && SaveSystem.hasActiveRunCheckpoint();
     },
 
+    /** Nexus itself, or pause opened from Nexus (skip escape hatch still available). */
+    isOnNexusContext() {
+        if (typeof Game === 'undefined') return false;
+        if (Game.state === 'NEXUS') return true;
+        if (Game.state === 'PAUSED' && Game.pausedFromState === 'NEXUS') return true;
+        return false;
+    },
+
     /** Clear any in-flight coach UI so resume-locked nexus stays portal-only. */
     clearPresentation() {
         this._armedAt = 0;
         if (typeof CoachTransition !== 'undefined' && CoachTransition.clear) {
             CoachTransition.clear();
         }
+    },
+
+    /**
+     * Hard safety: never leave coach UI up when it cannot be completed.
+     * Call every Nexus frame / enter so resume/lock races cannot soft-lock.
+     * Does NOT clear arming on pause — players pause/unpause mid-guide.
+     */
+    enforcePresentationSafety() {
+        if (this.isBlockedByResumeCheckpoint() || this.isSuspended()) {
+            this.clearPresentation();
+            this._pendingPresent = false;
+            return false;
+        }
+        const head = this.getQueueHeadId();
+        if (head && !this.isMachineUnlocked(head)) {
+            this.syncFromProgress({ showToast: false });
+            this.clearPresentation();
+            return false;
+        }
+        if (this._pendingPresent && this.canPresent() && this.getQueueHeadId()) {
+            this._pendingPresent = false;
+            this.prepareCurrentStep({ leavePlayer: true, snapCamera: false, transitionFrom: null });
+            return true;
+        }
+        return this.canPresent();
     },
 
     /** First-run coach still owns the nexus - wait until it finishes. */
@@ -106,6 +141,68 @@ const FeatureTutorials = {
             return false;
         }
         // If onboarding module missing, allow after nexus is playable
+        return true;
+    },
+
+    /** Queue head regardless of whether we are allowed to spotlight it right now. */
+    getQueueHeadId() {
+        const state = this.ensureInitialized();
+        const queue = state.queue || [];
+        return queue.length ? queue[0] : null;
+    },
+
+    /** True when player can dismiss the current machine guide step. */
+    canSkipGuide() {
+        if (this.isSuspended()) return false;
+        if (!this.isOnNexusContext()) return false;
+        return !!this.getQueueHeadId();
+    },
+
+    /** Desktop/mobile floating Skip — only while the coach is actually on screen. */
+    shouldShowSkipOverlay() {
+        if (typeof Game === 'undefined' || Game.state !== 'NEXUS') return false;
+        if (Game.showPauseMenu) return false;
+        return this.canSkipGuide() && this.isSpotlightActive();
+    },
+
+    /**
+     * Escape hatch: dismiss only the current queue head.
+     * Later unlocks stay queued. Used by pause menu + Skip overlay.
+     */
+    skipGuide() {
+        if (!this.canSkipGuide()) return false;
+        const currentId = this.getQueueHeadId();
+        if (!currentId) return false;
+
+        const fromRect = this._stationRect(currentId);
+        const state = this.ensureInitialized();
+        const completed = Object.assign({}, state.completed, { [currentId]: true });
+        const toasted = Object.assign({}, state.toasted, { [currentId]: true });
+        const queue = this._buildQueue(completed);
+        this.patch({ completed, toasted, queue, initialized: true });
+        this._armedAt = 0;
+        console.log(`[FeatureTutorials] Skipped current guide ${currentId}; queue=`, queue);
+
+        if (queue.length && typeof Game !== 'undefined' && Game.state === 'NEXUS' && this.canPresent()) {
+            this.prepareCurrentStep({
+                transitionFrom: fromRect,
+                leavePlayer: true,
+                snapCamera: false
+            });
+        } else if (queue.length) {
+            // Paused / not safe to present yet — resume will arm the next step
+            this._pendingPresent = true;
+            this.clearPresentation();
+        } else {
+            this.clearPresentation();
+            if (typeof Onboarding !== 'undefined' && Onboarding.maybeShowDeferredUpdateModal) {
+                Onboarding.maybeShowDeferredUpdateModal();
+            }
+        }
+
+        if (typeof window !== 'undefined' && typeof window.showToast === 'function') {
+            window.showToast('Guide step skipped', 2200);
+        }
         return true;
     },
 
@@ -188,9 +285,7 @@ const FeatureTutorials = {
 
     getCurrentId() {
         if (!this.canPresent()) return null;
-        const state = this.ensureInitialized();
-        const queue = state.queue || [];
-        return queue.length ? queue[0] : null;
+        return this.getQueueHeadId();
     },
 
     getCurrentEntry() {
@@ -210,15 +305,22 @@ const FeatureTutorials = {
 
     allowsInteraction(type, detail) {
         if (this.isSuspended()) return true;
-        // Resume lock wins — do not trap the player on a machine they cannot open
-        if (this.isBlockedByResumeCheckpoint()) return true;
+        // Resume / unlock races must never hard-gate the Nexus
+        if (this.isBlockedByResumeCheckpoint()) {
+            this.clearPresentation();
+            return true;
+        }
         if (!this.isSpotlightActive()) return true;
         if (typeof Game === 'undefined' || Game.state !== 'NEXUS') return true;
 
         const currentId = this.getCurrentId();
-        if (!currentId) return true;
+        if (!currentId || !this.isMachineUnlocked(currentId)) {
+            this.clearPresentation();
+            return true;
+        }
 
         // Hard-gate: only the spotlighted gear machine
+        // Escape: Skip Guide overlay + Pause → Skip Machine Guide
         if (type === 'gearUpgrade') {
             return detail === currentId;
         }
@@ -229,9 +331,11 @@ const FeatureTutorials = {
         const entry = this.getCurrentEntry();
         if (!entry) return null;
         const hint = this._interactHint('open');
+        const skipHint = this._skipHint();
         return {
             title: entry.title,
-            body: `${entry.body} ${hint}`
+            body: `${entry.body} ${hint}`,
+            skipHint
         };
     },
 
@@ -240,6 +344,12 @@ const FeatureTutorials = {
             return Input.getInteractionPrompt(action);
         }
         return 'Press G to open';
+    },
+
+    _skipHint() {
+        const gamepad = typeof Input !== 'undefined' && Input.controlMode === 'gamepad';
+        if (gamepad) return 'Stuck? Pause → Skip Machine Guide';
+        return 'Stuck? Use Skip Guide';
     },
 
     _stationRect(machineId) {
@@ -286,11 +396,7 @@ const FeatureTutorials = {
      * @param {{ transitionFrom?: object, leavePlayer?: boolean, snapCamera?: boolean }} options
      */
     prepareCurrentStep(options = {}) {
-        if (!this.canPresent()) return;
-        if (this.isBlockedByResumeCheckpoint()) {
-            this.clearPresentation();
-            return;
-        }
+        if (!this.enforcePresentationSafety()) return;
         const id = this.getCurrentId();
         if (!id || typeof gearUpgradeStations === 'undefined') return;
         const station = gearUpgradeStations.find(s => s.key === id);
@@ -336,11 +442,7 @@ const FeatureTutorials = {
     /** Smooth handoff from another coach step (e.g. class upgrades → rarity). */
     continueFrom(fromRect) {
         this.syncFromProgress({ showToast: false });
-        if (this.isBlockedByResumeCheckpoint()) {
-            this.clearPresentation();
-            return false;
-        }
-        if (!this.canPresent() || !this.getCurrentId()) return false;
+        if (!this.enforcePresentationSafety() || !this.getCurrentId()) return false;
         this.prepareCurrentStep({
             transitionFrom: fromRect || null,
             leavePlayer: true,
@@ -385,17 +487,17 @@ const FeatureTutorials = {
     onNexusEnter() {
         if (this.isMultiplayerActive()) {
             this._sessionSuspended = true;
+            this.clearPresentation();
             return;
         }
         this._sessionSuspended = false;
         this.syncFromProgress({ showToast: false });
         // Keep unlock queue/toasts, but never spotlight machines during resume-only Nexus
-        if (this.isBlockedByResumeCheckpoint()) {
-            this.clearPresentation();
-            console.log('[FeatureTutorials] Deferred spotlight — active run checkpoint (resume/finish run first)');
+        if (!this.enforcePresentationSafety()) {
+            console.log('[FeatureTutorials] Deferred spotlight — unsafe to present (resume/MP/lock)');
             return;
         }
-        if (this.canPresent() && this.getCurrentId()) {
+        if (this.getCurrentId()) {
             // Cold entry: stage near machine, soft camera pan from spawn
             this.prepareCurrentStep({ leavePlayer: false, snapCamera: false, transitionFrom: null });
         }
@@ -413,7 +515,7 @@ const FeatureTutorials = {
     // --- Render (mirrors Onboarding spotlight style) ---
 
     renderSpotlight(ctx) {
-        if (!this.isSpotlightActive() || !ctx) return;
+        if (!this.enforcePresentationSafety() || !this.isSpotlightActive() || !ctx) return;
         if (typeof Game === 'undefined') return;
         // Don't stack under first-run onboarding dim
         if (typeof Onboarding !== 'undefined' && Onboarding.isSpotlightActive && Onboarding.isSpotlightActive()) {
@@ -446,7 +548,7 @@ const FeatureTutorials = {
     },
 
     renderCoachCard(ctx) {
-        if (!this.isSpotlightActive() || !ctx) return;
+        if (!this.enforcePresentationSafety() || !this.isSpotlightActive() || !ctx) return;
         if (typeof Onboarding !== 'undefined' && Onboarding.isSpotlightActive && Onboarding.isSpotlightActive()) {
             return;
         }
@@ -469,6 +571,7 @@ const FeatureTutorials = {
         const cardW = Math.min(isMobile ? 300 : 400, Math.max(240, Math.min(rect.w + 80, viewW - 40)));
         const lineHeight = isMobile ? 15 : 16;
         const titleH = isMobile ? 22 : 24;
+        const skipH = copy.skipHint ? (isMobile ? 14 : 15) : 0;
         const topPad = 12;
         const gap = 6;
         const bottomPad = 12;
@@ -477,7 +580,8 @@ const FeatureTutorials = {
         ctx.save();
         ctx.font = isMobile ? '12px sans-serif' : '13px sans-serif';
         const lines = this._wrapLines(ctx, copy.body, cardW - padX * 2);
-        const cardH = topPad + titleH + gap + Math.max(1, lines.length) * lineHeight + bottomPad;
+        const cardH = topPad + titleH + gap + Math.max(1, lines.length) * lineHeight
+            + (skipH ? gap + skipH : 0) + bottomPad;
 
         let x = rect.x + rect.w / 2 - cardW / 2;
         let y = rect.y + rect.h + 16;
@@ -507,6 +611,15 @@ const FeatureTutorials = {
         const ty = y + topPad + titleH + gap;
         for (let i = 0; i < lines.length; i++) {
             ctx.fillText(lines[i], x + cardW / 2, ty + i * lineHeight);
+        }
+        if (copy.skipHint) {
+            ctx.fillStyle = '#8fa3b8';
+            ctx.font = isMobile ? '11px sans-serif' : '12px sans-serif';
+            ctx.fillText(
+                copy.skipHint,
+                x + cardW / 2,
+                ty + Math.max(1, lines.length) * lineHeight + gap
+            );
         }
         ctx.restore();
     },

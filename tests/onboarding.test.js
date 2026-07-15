@@ -274,3 +274,139 @@ describe('Onboarding camera override', () => {
         assert.ok(Math.abs(cam.y - 200) < 1);
     });
 });
+
+
+describe('Onboarding skip escape', () => {
+    it('skipGuide on classUpgrades completes only that step', () => {
+        const sandbox = loadOnboardingSandbox({
+            seedSave: {
+                privacyAcknowledged: true,
+                hasSeenLaunchModal: true,
+                onboarding: {
+                    selectClassDone: true,
+                    launchRunDone: true,
+                    firstRunStarted: true,
+                    classUpgradesDone: false,
+                    complete: false,
+                    tutorialVersion: 1
+                }
+            },
+            Game: {
+                state: 'NEXUS',
+                selectedClass: 'square',
+                config: { width: 1920, height: 1080 },
+                nexusCamera: { x: 900, y: 500 },
+                baseZoom: 1,
+                player: { x: 620, y: 600, playerId: null }
+            }
+        });
+        const { Onboarding, SaveSystem, Game } = sandbox;
+        assert.equal(Onboarding.getStep(), 'classUpgrades');
+        assert.equal(Onboarding.allowsInteraction('portal'), false);
+
+        assert.equal(Onboarding.skipGuide(), true);
+        assert.equal(Onboarding.isComplete(), true);
+        assert.equal(SaveSystem.getOnboarding().classUpgradesDone, true);
+        assert.equal(Onboarding.isSpotlightActive(), false);
+        assert.equal(Onboarding.allowsInteraction('portal'), true);
+        assert.equal(Onboarding.canSkipGuide(), false);
+        assert.equal(Game.state, 'NEXUS');
+    });
+
+    it('skipGuide on selectClass advances only to launchRun', () => {
+        const sandbox = loadOnboardingSandbox({
+            seedSave: {
+                privacyAcknowledged: true,
+                hasSeenLaunchModal: true,
+                onboarding: {
+                    selectClassDone: false,
+                    launchRunDone: false,
+                    firstRunStarted: false,
+                    classUpgradesDone: false,
+                    complete: false,
+                    tutorialVersion: 1
+                }
+            },
+            Game: {
+                state: 'NEXUS',
+                selectedClass: null,
+                config: { width: 1920, height: 1080 },
+                nexusCamera: { x: 900, y: 500 },
+                baseZoom: 1,
+                player: { x: 900, y: 500, playerId: null }
+            }
+        });
+        const { Onboarding, SaveSystem, Game } = sandbox;
+        assert.equal(Onboarding.getStep(), 'selectClass');
+        assert.equal(Onboarding.skipGuide(), true);
+        assert.equal(SaveSystem.getOnboarding().selectClassDone, true);
+        assert.equal(SaveSystem.getOnboarding().launchRunDone, false);
+        assert.equal(SaveSystem.getOnboarding().classUpgradesDone, false);
+        assert.equal(SaveSystem.getOnboarding().complete, false);
+        assert.equal(Onboarding.getStep(), 'launchRun');
+        assert.equal(Game.selectedClass, 'square');
+    });
+
+    it('skipGuide on launchRun does not skip class upgrades', () => {
+        const sandbox = loadOnboardingSandbox({
+            seedSave: {
+                privacyAcknowledged: true,
+                hasSeenLaunchModal: true,
+                onboarding: {
+                    selectClassDone: true,
+                    launchRunDone: false,
+                    firstRunStarted: false,
+                    classUpgradesDone: false,
+                    complete: false,
+                    tutorialVersion: 1
+                }
+            },
+            Game: {
+                state: 'NEXUS',
+                selectedClass: 'square',
+                config: { width: 1920, height: 1080 },
+                nexusCamera: { x: 900, y: 500 },
+                baseZoom: 1,
+                player: { x: 900, y: 500 }
+            }
+        });
+        const { Onboarding, SaveSystem } = sandbox;
+        assert.equal(Onboarding.skipGuide(), true);
+        assert.equal(SaveSystem.getOnboarding().launchRunDone, true);
+        assert.equal(SaveSystem.getOnboarding().firstRunStarted, false);
+        assert.equal(SaveSystem.getOnboarding().classUpgradesDone, false);
+        assert.equal(Onboarding.getStep(), null);
+        assert.equal(Onboarding.canSkipGuide(), false);
+    });
+
+    it('canSkipGuide stays available while paused from Nexus', () => {
+        const sandbox = loadOnboardingSandbox({
+            seedSave: {
+                privacyAcknowledged: true,
+                hasSeenLaunchModal: true,
+                onboarding: {
+                    selectClassDone: true,
+                    launchRunDone: true,
+                    firstRunStarted: true,
+                    classUpgradesDone: false,
+                    complete: false,
+                    tutorialVersion: 1
+                }
+            },
+            Game: {
+                state: 'PAUSED',
+                pausedFromState: 'NEXUS',
+                selectedClass: 'square',
+                config: { width: 1920, height: 1080 },
+                nexusCamera: { x: 900, y: 500 },
+                baseZoom: 1,
+                player: { x: 620, y: 600 }
+            }
+        });
+        const { Onboarding } = sandbox;
+        assert.equal(Onboarding.canSkipGuide(), true);
+        assert.equal(Onboarding.shouldShowSkipOverlay(), false);
+        assert.equal(Onboarding.skipGuide(), true);
+        assert.equal(Onboarding.isComplete(), true);
+    });
+});

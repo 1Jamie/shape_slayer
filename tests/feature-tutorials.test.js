@@ -463,3 +463,113 @@ describe('FeatureTutorials resume checkpoint deferral', () => {
         assert.equal(FeatureTutorials.allowsInteraction('gearUpgrade', 'rarityChance'), true);
     });
 });
+
+
+describe('FeatureTutorials skip escape', () => {
+    it('skipGuide dismisses only the current step and keeps later queue items', () => {
+        const sandbox = loadSandbox({
+            seedSave: {
+                privacyAcknowledged: true,
+                hasSeenLaunchModal: true,
+                highestRoomCleared: 5,
+                bossesDefeated: { 'Swarm King': true },
+                onboarding: {
+                    complete: true,
+                    tutorialVersion: 1,
+                    selectClassDone: true,
+                    launchRunDone: true,
+                    classUpgradesDone: true,
+                    firstRunStarted: true
+                },
+                featureTutorials: {
+                    initialized: true,
+                    completed: {},
+                    toasted: { rarityChance: true, affixSlots: true },
+                    queue: ['rarityChance', 'affixSlots']
+                }
+            }
+        });
+        const { FeatureTutorials, SaveSystem, Game } = sandbox;
+        Game.state = 'NEXUS';
+        FeatureTutorials.onNexusEnter();
+        assert.equal(FeatureTutorials.getCurrentId(), 'rarityChance');
+        assert.equal(FeatureTutorials.allowsInteraction('portal'), false);
+
+        assert.equal(FeatureTutorials.skipGuide(), true);
+        assert.equal(SaveSystem.getFeatureTutorials().completed.rarityChance, true);
+        assert.equal(SaveSystem.getFeatureTutorials().completed.affixSlots, undefined);
+        assert.deepEqual(SaveSystem.getFeatureTutorials().queue, ['affixSlots']);
+        assert.equal(FeatureTutorials.getCurrentId(), 'affixSlots');
+        assert.equal(FeatureTutorials.isSpotlightActive(), true);
+        assert.equal(FeatureTutorials.canSkipGuide(), true);
+    });
+
+    it('canSkipGuide stays available while paused from Nexus', () => {
+        const sandbox = loadSandbox({
+            seedSave: {
+                privacyAcknowledged: true,
+                hasSeenLaunchModal: true,
+                highestRoomCleared: 5,
+                onboarding: {
+                    complete: true,
+                    tutorialVersion: 1,
+                    selectClassDone: true,
+                    launchRunDone: true,
+                    classUpgradesDone: true,
+                    firstRunStarted: true
+                },
+                featureTutorials: {
+                    initialized: true,
+                    completed: {},
+                    toasted: { rarityChance: true },
+                    queue: ['rarityChance']
+                }
+            }
+        });
+        const { FeatureTutorials, Game } = sandbox;
+        Game.state = 'PAUSED';
+        Game.pausedFromState = 'NEXUS';
+        assert.equal(FeatureTutorials.canSkipGuide(), true);
+        assert.equal(FeatureTutorials.shouldShowSkipOverlay(), false);
+        assert.equal(FeatureTutorials.skipGuide(), true);
+        assert.equal(FeatureTutorials.canSkipGuide(), false);
+    });
+
+    it('enforcePresentationSafety unblocks portal when resume checkpoint appears mid-guide', () => {
+        const sandbox = loadSandbox({
+            seedSave: {
+                privacyAcknowledged: true,
+                hasSeenLaunchModal: true,
+                highestRoomCleared: 5,
+                onboarding: {
+                    complete: true,
+                    tutorialVersion: 1,
+                    selectClassDone: true,
+                    launchRunDone: true,
+                    classUpgradesDone: true,
+                    firstRunStarted: true
+                },
+                featureTutorials: {
+                    initialized: true,
+                    completed: {},
+                    toasted: { rarityChance: true },
+                    queue: ['rarityChance']
+                }
+            }
+        });
+        const { FeatureTutorials, SaveSystem, Game } = sandbox;
+        Game.state = 'NEXUS';
+        FeatureTutorials.onNexusEnter();
+        assert.equal(FeatureTutorials.isSpotlightActive(), true);
+
+        SaveSystem.setActiveRunCheckpoint({
+            version: 1,
+            roomNumber: 5,
+            playerClass: 'square',
+            player: { level: 2 }
+        });
+        assert.equal(FeatureTutorials.enforcePresentationSafety(), false);
+        assert.equal(FeatureTutorials.isSpotlightActive(), false);
+        assert.equal(FeatureTutorials.allowsInteraction('portal'), true);
+    });
+});
