@@ -7,6 +7,11 @@ const MusicManager = {
     context: null,
     musicBus: null,
     buffers: new Map(),
+    pendingLoads: new Map(),
+    backgroundWarmStarted: false,
+    fallbackWarmQueue: [],
+    fallbackWarmQueued: new Set(),
+    fallbackWarmRunning: false,
     currentSetId: null,
     currentCategory: null, // 'normal', 'boss', 'pause', 'nexus', 'gameOver'
     lastNonPauseSetId: null,
@@ -53,6 +58,7 @@ const MusicManager = {
             
             this.config = await response.json();
             this.initialized = true;
+            this.startBackgroundAudioWarm();
         })().catch(error => {
             console.error('[MusicManager] Initialization failed:', error);
             this.initPromise = null;
@@ -60,6 +66,187 @@ const MusicManager = {
         });
         
         return this.initPromise;
+    },
+
+    collectAllTrackUrls() {
+        if (!this.config) {
+            return [];
+        }
+
+        const names = new Set();
+        const addTracks = (tracks) => {
+            if (!Array.isArray(tracks)) {
+                return;
+            }
+            tracks.forEach((track) => {
+                if (typeof track === 'string' && track) {
+                    names.add(track);
+                }
+            });
+        };
+
+        if (Array.isArray(this.config.roomSets)) {
+            this.config.roomSets.forEach((set) => addTracks(set && set.tracks));
+        }
+
+        if (Array.isArray(this.config.bosses)) {
+            this.config.bosses.forEach((boss) => {
+                const phases = boss && boss.phases;
+                if (!phases || typeof phases !== 'object') {
+                    return;
+                }
+                Object.keys(phases).forEach((phaseKey) => {
+                    addTracks(phases[phaseKey] && phases[phaseKey].tracks);
+                });
+            });
+        }
+
+        if (this.config.pauseMenu) {
+            addTracks(this.config.pauseMenu.tracks);
+        }
+
+        if (this.config.special && typeof this.config.special === 'object') {
+            Object.keys(this.config.special).forEach((key) => {
+                addTracks(this.config.special[key] && this.config.special[key].tracks);
+            });
+        }
+
+        return Array.from(names).map((name) => this.basePath + name);
+    },
+
+    postAudioWarmMessage(type, urls) {
+        if (typeof navigator === 'undefined' || !navigator.serviceWorker) {
+            return false;
+        }
+
+        const message = { type, urls };
+        const controller = navigator.serviceWorker.controller;
+        if (controller) {
+            controller.postMessage(message);
+            return true;
+        }
+
+        navigator.serviceWorker.ready.then((registration) => {
+            if (registration.active) {
+                registration.active.postMessage(message);
+            }
+        }).catch(() => {
+            // Ignore — fallback warm still runs.
+        });
+        return false;
+    },
+
+    enqueueFallbackAudioWarm(urls, prioritize) {
+        if (!Array.isArray(urls) || urls.length === 0) {
+            return;
+        }
+
+        const toAdd = [];
+        urls.forEach((url) => {
+            if (!url || this.buffers.has(url) || this.pendingLoads.has(url) || this.fallbackWarmQueued.has(url)) {
+                return;
+            }
+            this.fallbackWarmQueued.add(url);
+            toAdd.push(url);
+        });
+
+        if (toAdd.length === 0) {
+            return;
+        }
+
+        if (prioritize) {
+            this.fallbackWarmQueue = toAdd.concat(this.fallbackWarmQueue);
+        } else {
+            this.fallbackWarmQueue = this.fallbackWarmQueue.concat(toAdd);
+        }
+
+        this.pumpFallbackAudioWarm();
+    },
+
+    pumpFallbackAudioWarm() {
+        if (this.fallbackWarmRunning) {
+            return;
+        }
+        this.fallbackWarmRunning = true;
+
+        const runNext = async () => {
+            while (this.fallbackWarmQueue.length > 0) {
+                const url = this.fallbackWarmQueue.shift();
+                this.fallbackWarmQueued.delete(url);
+                try {
+                    // Fetch only — do not decode. Keeps RAM low while filling HTTP/SW cache.
+                    const response = await fetch(url, { credentials: 'same-origin' });
+                    if (response && response.ok) {
+                        await response.arrayBuffer();
+                    }
+                } catch (error) {
+                    // Best-effort background warm.
+                }
+                await new Promise((resolve) => setTimeout(resolve, 0));
+            }
+            this.fallbackWarmRunning = false;
+        };
+
+        runNext().catch(() => {
+            this.fallbackWarmRunning = false;
+        });
+    },
+
+    prioritizeAudioWarm(urls) {
+        if (!Array.isArray(urls) || urls.length === 0) {
+            return;
+        }
+        const sent = this.postAudioWarmMessage('PRIORITIZE_AUDIO', urls);
+        if (!sent) {
+            this.enqueueFallbackAudioWarm(urls, true);
+        }
+    },
+
+    startBackgroundAudioWarm() {
+        if (this.backgroundWarmStarted || !this.config) {
+            return;
+        }
+        this.backgroundWarmStarted = true;
+
+        const urls = this.collectAllTrackUrls();
+        if (urls.length === 0) {
+            return;
+        }
+
+        this.postAudioWarmMessage('WARM_AUDIO_LIBRARY', urls);
+
+        const hasController = typeof navigator !== 'undefined' &&
+            navigator.serviceWorker &&
+            navigator.serviceWorker.controller;
+
+        if (hasController) {
+            // Service worker owns the library warm — avoid competing downloads.
+            return;
+        }
+
+        // First visit / SW not controlling yet: page-side fetch fills cache until then.
+        this.enqueueFallbackAudioWarm(urls, false);
+
+        if (typeof navigator === 'undefined' || !navigator.serviceWorker) {
+            return;
+        }
+
+        const handoffToServiceWorker = () => {
+            this.fallbackWarmQueue.length = 0;
+            this.fallbackWarmQueued.clear();
+            this.postAudioWarmMessage('WARM_AUDIO_LIBRARY', urls);
+        };
+
+        navigator.serviceWorker.ready.then((registration) => {
+            if (registration.active) {
+                registration.active.postMessage({ type: 'WARM_AUDIO_LIBRARY', urls });
+            }
+            if (navigator.serviceWorker.controller) {
+                handoffToServiceWorker();
+            }
+        }).catch(() => {});
+
+        navigator.serviceWorker.addEventListener('controllerchange', handoffToServiceWorker, { once: true });
     },
     
     ensureInitialized() {
@@ -306,6 +493,10 @@ const MusicManager = {
         }
         
         const trackUrl = this.basePath + trackName;
+        // Prefer the track we're about to play, then the rest of this set, for cache warming.
+        const setUrls = setConfig.tracks.map((name) => this.basePath + name);
+        this.prioritizeAudioWarm([trackUrl].concat(setUrls.filter((url) => url !== trackUrl)));
+
         const buffer = await this.loadBuffer(trackUrl);
         if (!buffer) {
             console.warn(`[MusicManager] Could not load buffer for ${trackUrl}`);
@@ -524,17 +715,31 @@ const MusicManager = {
         if (this.buffers.has(url)) {
             return this.buffers.get(url);
         }
-        
-        const response = await fetch(url);
-        if (!response.ok) {
-            console.error(`[MusicManager] Failed to fetch ${url} (${response.status})`);
-            return null;
+
+        if (this.pendingLoads.has(url)) {
+            return this.pendingLoads.get(url);
         }
-        
-        const arrayBuffer = await response.arrayBuffer();
-        const audioBuffer = await this.context.decodeAudioData(arrayBuffer);
-        this.buffers.set(url, audioBuffer);
-        return audioBuffer;
+
+        const loadPromise = (async () => {
+            const response = await fetch(url);
+            if (!response.ok) {
+                console.error(`[MusicManager] Failed to fetch ${url} (${response.status})`);
+                return null;
+            }
+
+            const arrayBuffer = await response.arrayBuffer();
+            const audioBuffer = await this.context.decodeAudioData(arrayBuffer);
+            this.buffers.set(url, audioBuffer);
+            return audioBuffer;
+        })().catch((error) => {
+            console.error(`[MusicManager] Failed to load ${url}:`, error);
+            return null;
+        }).finally(() => {
+            this.pendingLoads.delete(url);
+        });
+
+        this.pendingLoads.set(url, loadPromise);
+        return loadPromise;
     },
     
     getSpecialSet(key) {

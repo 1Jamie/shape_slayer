@@ -2,6 +2,7 @@
 // Update this file when releasing new versions
 
 const GameVersion = {
+  // Keep sw.js CACHE_VERSION in sync when bumping this.
   VERSION: '0.8.0',
 
   UPDATE_MESSAGES: {

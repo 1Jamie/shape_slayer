@@ -20,8 +20,8 @@ const PORT = 3000;
 const IP = getLocalIP();
 const ROOT_DIR = path.resolve(__dirname);
 
-const ALLOWED_ROOT_FILES = new Set(['index.html', 'privacy.html', 'manifest.json']);
-const ALLOWED_DIRECTORIES = new Set(['css', 'js', 'ui', 'audio']);
+const ALLOWED_ROOT_FILES = new Set(['index.html', 'privacy.html', 'manifest.json', 'sw.js']);
+const ALLOWED_DIRECTORIES = new Set(['css', 'js', 'ui', 'audio', 'icons']);
 
 const mimeTypes = {
     '.html': 'text/html',
