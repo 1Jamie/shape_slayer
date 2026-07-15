@@ -151,18 +151,28 @@ const FeatureTutorials = {
         return queue.length ? queue[0] : null;
     },
 
-    /** True when player can dismiss the current machine guide step. */
+    /**
+     * True when player can dismiss the current unlock-machine guide
+     * (room 5 rarity, Swarm King affixes, Twin Prism systems, Fortress efficiency).
+     */
     canSkipGuide() {
         if (this.isSuspended()) return false;
         if (!this.isOnNexusContext()) return false;
-        return !!this.getQueueHeadId();
+        if (!this.getQueueHeadId()) return false;
+        // Live spotlight on Nexus
+        if (this.isSpotlightActive()) return true;
+        // Paused mid-guide (state is PAUSED so isSpotlightActive is false)
+        if (typeof Game !== 'undefined' && Game.state === 'PAUSED' && Game.pausedFromState === 'NEXUS') {
+            return this._armedAt > 0 || this._pendingPresent === true;
+        }
+        return false;
     },
 
-    /** Desktop/mobile floating Skip — only while the coach is actually on screen. */
+    /** Desktop/mobile floating Skip — only while a machine unlock coach is on screen. */
     shouldShowSkipOverlay() {
         if (typeof Game === 'undefined' || Game.state !== 'NEXUS') return false;
         if (Game.showPauseMenu) return false;
-        return this.canSkipGuide() && this.isSpotlightActive();
+        return this.isSpotlightActive() && !!this.getQueueHeadId();
     },
 
     /**

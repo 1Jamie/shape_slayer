@@ -504,7 +504,7 @@ describe('FeatureTutorials skip escape', () => {
         assert.equal(FeatureTutorials.canSkipGuide(), true);
     });
 
-    it('canSkipGuide stays available while paused from Nexus', () => {
+    it('canSkipGuide stays available while paused mid machine-unlock guide', () => {
         const sandbox = loadSandbox({
             seedSave: {
                 privacyAcknowledged: true,
@@ -527,6 +527,9 @@ describe('FeatureTutorials skip escape', () => {
             }
         });
         const { FeatureTutorials, Game } = sandbox;
+        Game.state = 'NEXUS';
+        FeatureTutorials.onNexusEnter();
+        assert.ok(FeatureTutorials._armedAt > 0);
         Game.state = 'PAUSED';
         Game.pausedFromState = 'NEXUS';
         assert.equal(FeatureTutorials.canSkipGuide(), true);
@@ -534,6 +537,59 @@ describe('FeatureTutorials skip escape', () => {
         assert.equal(FeatureTutorials.skipGuide(), true);
         assert.equal(FeatureTutorials.canSkipGuide(), false);
     });
+
+    it('skip works for each unlock-machine guide (room 5 / Swarm King / Twin Prism / Fortress)', () => {
+        const cases = [
+            { id: 'rarityChance', seed: { highestRoomCleared: 5 } },
+            { id: 'affixSlots', seed: { highestRoomCleared: 5, bossesDefeated: { 'Swarm King': true } } },
+            { id: 'safeRoomSystems', seed: { highestRoomCleared: 5, bossesDefeated: { 'Swarm King': true, 'Twin Prism': true } } },
+            { id: 'safeRoomEfficiency', seed: { highestRoomCleared: 5, bossesDefeated: { 'Swarm King': true, 'Twin Prism': true, Fortress: true } } }
+        ];
+
+        for (const entry of cases) {
+            const completedPrior = {};
+            FeatureTutorialsCatalogPriorIds(entry.id).forEach((id) => { completedPrior[id] = true; });
+
+            const sandbox = loadSandbox({
+                seedSave: Object.assign({
+                    privacyAcknowledged: true,
+                    hasSeenLaunchModal: true,
+                    onboarding: {
+                        complete: true,
+                        tutorialVersion: 1,
+                        selectClassDone: true,
+                        launchRunDone: true,
+                        classUpgradesDone: true,
+                        firstRunStarted: true
+                    },
+                    featureTutorials: {
+                        initialized: true,
+                        completed: completedPrior,
+                        toasted: Object.assign({}, completedPrior, { [entry.id]: true }),
+                        queue: [entry.id]
+                    }
+                }, entry.seed)
+            });
+            const { FeatureTutorials, SaveSystem, Game } = sandbox;
+            Game.state = 'NEXUS';
+            FeatureTutorials.onNexusEnter();
+            assert.equal(FeatureTutorials.getCurrentId(), entry.id, `${entry.id} should be current`);
+            assert.equal(FeatureTutorials.shouldShowSkipOverlay(), true, `${entry.id} shows Skip overlay`);
+            assert.equal(FeatureTutorials.canSkipGuide(), true, `${entry.id} can skip`);
+            assert.equal(FeatureTutorials.allowsInteraction('portal'), false, `${entry.id} gates portal`);
+
+            assert.equal(FeatureTutorials.skipGuide(), true, `${entry.id} skip succeeds`);
+            assert.equal(SaveSystem.getFeatureTutorials().completed[entry.id], true, `${entry.id} marked complete`);
+            assert.equal(FeatureTutorials.getCurrentId(), null, `${entry.id} cleared as only queued step`);
+            assert.equal(FeatureTutorials.allowsInteraction('portal'), true, `${entry.id} unblocks portal`);
+        }
+    });
+
+    function FeatureTutorialsCatalogPriorIds(id) {
+        const order = ['rarityChance', 'affixSlots', 'safeRoomSystems', 'safeRoomEfficiency'];
+        const idx = order.indexOf(id);
+        return idx > 0 ? order.slice(0, idx) : [];
+    }
 
     it('enforcePresentationSafety unblocks portal when resume checkpoint appears mid-guide', () => {
         const sandbox = loadSandbox({
