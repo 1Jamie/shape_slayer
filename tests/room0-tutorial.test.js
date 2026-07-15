@@ -10,6 +10,7 @@ const vm = require('vm');
 function loadSandbox(options = {}) {
     const saveCode = fs.readFileSync(path.join(__dirname, '../js/save.js'), 'utf8');
     const room0Code = fs.readFileSync(path.join(__dirname, '../js/room0-tutorial.js'), 'utf8');
+    const coachCode = fs.readFileSync(path.join(__dirname, '../js/coach-transition.js'), 'utf8');
     const inputCode = fs.readFileSync(path.join(__dirname, '../js/input.js'), 'utf8');
 
     const localStorage = {
@@ -73,6 +74,7 @@ function loadSandbox(options = {}) {
 
     vm.runInNewContext(
         saveCode + '\nthis.SaveSystem = SaveSystem;\n'
+        + coachCode + '\nthis.CoachTransition = CoachTransition;\n'
         + room0Code + '\nthis.Room0Tutorial = Room0Tutorial;\n'
         + 'var Input = ' + JSON.stringify({
             // Placeholder; real Input object attached after
@@ -340,5 +342,41 @@ describe('tutorial reward skip', () => {
         }
         assert.equal(room.rewardsGranted, true);
         assert.equal(room.doorOpen, true);
+    });
+});
+
+
+describe('CoachTransition framing', () => {
+    it('frames camera so player stays visible with spotlight on a small mobile viewport', () => {
+        const { CoachTransition } = loadSandbox({
+            Game: {
+                state: 'PLAYING',
+                config: { width: 800, height: 450 },
+                camera: { x: 0, y: 0 },
+                baseZoom: 1,
+                mobileZoom: 1.15,
+                player: { x: 200, y: 360, size: 28 },
+                multiplayerEnabled: false,
+                roomNumber: 0
+            }
+        });
+        // Force mobile buffers via stub
+        const oldMobile = CoachTransition._isMobile;
+        CoachTransition._isMobile = () => true;
+        const focusRect = { x: 1100, y: 300, w: 80, h: 100 };
+        const framed = CoachTransition.frameCameraTarget({
+            focusRect,
+            playerX: 200,
+            playerY: 360,
+            viewHalfW: 800 / (2 * 1.15),
+            viewHalfH: 450 / (2 * 1.15)
+        });
+        CoachTransition._isMobile = oldMobile;
+        assert.ok(framed);
+        const halfW = 800 / (2 * 1.15);
+        const halfH = 450 / (2 * 1.15);
+        // Player must remain inside the camera window with margin
+        assert.ok(Math.abs(framed.x - 200) <= halfW - 40, `player X offscreen: cam=${framed.x}`);
+        assert.ok(Math.abs(framed.y - 360) <= halfH - 40, `player Y offscreen: cam=${framed.y}`);
     });
 });

@@ -3638,7 +3638,9 @@ const Game = {
                 const dx = player.x - Math.max(doorPos.x, Math.min(player.x, doorPos.x + doorPos.width));
                 const dy = player.y - Math.max(doorPos.y, Math.min(player.y, doorPos.y + doorPos.height));
                 const distance = Math.sqrt(dx * dx + dy * dy);
-                if (distance <= player.size * 1.8) {
+                const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
+                const nearRange = (player.size || 28) * (isMobile ? 3.2 : 1.8);
+                if (distance <= nearRange) {
                     if (id === this.getLocalPlayerId()) {
                         this.nearExitDoor = true;
                     }
@@ -3670,8 +3672,10 @@ const Game = {
             const dx = this.player.x - Math.max(doorPos.x, Math.min(this.player.x, doorPos.x + doorPos.width));
             const dy = this.player.y - Math.max(doorPos.y, Math.min(this.player.y, doorPos.y + doorPos.height));
             const distance = Math.sqrt(dx * dx + dy * dy);
+            const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
+            const nearRange = (this.player.size || 28) * (isMobile ? 3.2 : 1.8);
 
-            if (distance <= this.player.size * 1.8) {
+            if (distance <= nearRange) {
                 this.nearExitDoor = true;
                 if (Input.keys && Input.keys['g']) {
                     this.advanceToNextRoom();
@@ -4703,6 +4707,14 @@ const Game = {
             this.ctx.translate(-this.camera.x, -this.camera.y);
             if (Room0Tutorial.renderSpotlight) {
                 Room0Tutorial.renderSpotlight(this.ctx);
+            }
+            // Redraw player above the exit-coach dim (shade stays full; character sits on top)
+            if (Room0Tutorial.isExitCoachActive
+                && Room0Tutorial.isExitCoachActive()
+                && this.player
+                && this.player.alive
+                && typeof this.player.render === 'function') {
+                this.player.render(this.ctx);
             }
             if (Room0Tutorial.renderCoachCard) {
                 Room0Tutorial.renderCoachCard(this.ctx);

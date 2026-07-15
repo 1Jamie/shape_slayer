@@ -298,7 +298,8 @@ describe('FeatureTutorials smooth handoff', () => {
         assert.equal(Game.player.y, 600);
         assert.equal(CoachTransition.isActive(), true);
         assert.equal(FeatureTutorials.isArmed(), false);
-        assert.ok(Math.abs(Game.nexusCamera.targetX - 1450) < 1);
+        // Camera frames player + machine (not hard-locked to machine center)
+        assert.ok(Game.nexusCamera.targetX > 620 && Game.nexusCamera.targetX < 1450);
         assert.ok(Math.abs(Game.nexusCamera.x - 340) < 1);
     });
 
@@ -376,7 +377,7 @@ describe('FeatureTutorials smooth handoff', () => {
         assert.equal(CoachTransition.isActive(), true);
         assert.equal(FeatureTutorials.isArmed(), false);
         // Camera should target rarity machine, not snap instantly
-        assert.ok(Math.abs(Game.nexusCamera.targetX - 1450) < 1);
+        assert.ok(Game.nexusCamera.targetX > 620 && Game.nexusCamera.targetX < 1450);
         assert.ok(Math.abs(Game.nexusCamera.x - 340) < 1);
     });
 

@@ -330,6 +330,15 @@ const Onboarding = {
         }
         const rect = this._targetSpotlightRect();
         if (!rect) return null;
+        const player = (typeof Game !== 'undefined') ? Game.player : null;
+        if (typeof CoachTransition !== 'undefined' && CoachTransition.frameCameraTarget) {
+            const framed = CoachTransition.frameCameraTarget({
+                focusRect: rect,
+                playerX: player ? player.x : null,
+                playerY: player ? player.y : null
+            });
+            if (framed) return framed;
+        }
         return {
             x: rect.x + rect.w / 2,
             y: rect.y + rect.h / 2

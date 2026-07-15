@@ -1449,6 +1449,7 @@ function getInteractionLabel(interaction) {
         return interaction.unlockHint || 'Locked';
     }
     if (interaction.type === 'indexMachine') return 'Open Index';
+    if (interaction.type === 'exitDoor') return 'Enter Door';
     return 'Interact';
 }
 
@@ -1558,10 +1559,18 @@ function updateInteractionState() {
             }
         }
 
+        // Check for exit-door interaction (solo G-key on desktop; touch button on mobile)
+        let exitDoorInteraction = null;
+        if (typeof Game !== 'undefined' && Game.nearExitDoor
+            && typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen) {
+            exitDoorInteraction = { type: 'exitDoor' };
+        }
+
         currentInteraction = safeMachineInteraction ||
             preBossHealerInteraction ||
             checkGearInteraction() ||
-            pylonInteraction;
+            pylonInteraction ||
+            exitDoorInteraction;
     } else if (Game && Game.state === 'NEXUS') {
         currentInteraction = checkNexusInteractions();
     } else {
@@ -1698,6 +1707,10 @@ function performCurrentInteraction() {
                     AudioManager.sounds.heal();
                 }
                 console.log("[Healer] Restored 25% HP to player", _healLocalId);
+            }
+        } else if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'exitDoor') {
+            if (typeof Game.advanceToNextRoom === 'function') {
+                Game.advanceToNextRoom();
             }
         } else if (Game && Game.state === 'NEXUS') {
             // Handle specific nexus interaction types

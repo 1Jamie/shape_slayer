@@ -354,16 +354,23 @@ const Room0Tutorial = {
     },
 
     /**
-     * Soft camera pull toward the exit while the door coach is active.
+     * Soft camera pull that keeps both exit door + player on screen (critical on mobile).
      */
     getCameraOverride() {
         if (!this.isExitCoachActive()) return null;
         const rect = this.getExitSpotlightRect();
         if (!rect) return null;
+        const player = (typeof Game !== 'undefined') ? Game.player : null;
+        if (typeof CoachTransition !== 'undefined' && CoachTransition.frameCameraTarget) {
+            const framed = CoachTransition.frameCameraTarget({
+                focusRect: rect,
+                playerX: player ? player.x : null,
+                playerY: player ? player.y : null
+            });
+            if (framed) return framed;
+        }
         const exitX = rect.x + rect.w / 2;
         const exitY = rect.y + rect.h / 2;
-        // Blend exit with player so they can still navigate comfortably
-        const player = (typeof Game !== 'undefined') ? Game.player : null;
         if (player) {
             return {
                 x: player.x * 0.45 + exitX * 0.55,
@@ -482,11 +489,20 @@ const Room0Tutorial = {
                     title: 'Fight!',
                     body: 'Defeat the enemy to open the door.'
                 };
-            case this.STEPS.EXIT:
+            case this.STEPS.EXIT: {
+                let interactHint = '';
+                if (typeof Input !== 'undefined' && Input.getInteractionPrompt) {
+                    interactHint = ` ${Input.getInteractionPrompt('enter')}.`;
+                } else if (typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode()) {
+                    interactHint = ' Tap Enter Door when nearby.';
+                } else {
+                    interactHint = ' Press G when nearby.';
+                }
                 return {
                     title: 'Exit Door',
-                    body: 'The exit door is open. Walk into it to leave this room and begin your run.'
+                    body: `The exit door is open. Walk to it to leave this room and begin your run.${interactHint}`
                 };
+            }
             default:
                 return null;
         }
