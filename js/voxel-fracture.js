@@ -390,9 +390,53 @@
         ctx: null,
         width: 0,
         height: 0,
+        logicalWidth: 0,
+        logicalHeight: 0,
+        scale: 1,
         dirty: false
     };
     globalThis.VoxelStaticCanvas = VoxelStaticCanvas;
+
+    // Scratch canvases + small pool to cut SpiderMonkey/Servo alloc storms on shatter.
+    const _scratchSnapshot = { canvas: null };
+    const _scratchMask = { canvas: null };
+    const _bakeCanvasPool = [];
+    const BAKE_CANVAS_POOL_MAX = 24;
+
+    function _ensureScratchCanvas(holder, w, h) {
+        if (!holder.canvas) holder.canvas = document.createElement('canvas');
+        if (holder.canvas.width !== w || holder.canvas.height !== h) {
+            holder.canvas.width = w;
+            holder.canvas.height = h;
+        }
+        return holder.canvas;
+    }
+
+    function _acquireBakeCanvas(w, h) {
+        let canvas = _bakeCanvasPool.pop();
+        if (!canvas) canvas = document.createElement('canvas');
+        if (canvas.width !== w || canvas.height !== h) {
+            canvas.width = w;
+            canvas.height = h;
+        }
+        return canvas;
+    }
+
+    function _releaseBakeCanvas(canvas) {
+        if (!canvas || _bakeCanvasPool.length >= BAKE_CANVAS_POOL_MAX) return;
+        _bakeCanvasPool.push(canvas);
+    }
+
+    function _isGeckoFamilyEngine() {
+        return typeof DeviceDetection !== 'undefined'
+            && typeof DeviceDetection.isGeckoFamily === 'function'
+            && DeviceDetection.isGeckoFamily();
+    }
+
+    function _getStaticCanvasScale() {
+        // Half-res settled debris on Gecko/Servo — world/vignette still upscale to full room.
+        return _isGeckoFamilyEngine() ? 0.5 : 1;
+    }
 
     function seededRandom(seed) {
         let s = seed | 0;
@@ -475,6 +519,11 @@
 
     function deactivateSlot(idx) {
         if (!VoxelParticlePool.alive[idx]) return;
+        const sprite = VoxelParticlePool.sprite[idx];
+        if (sprite && sprite._pooled && sprite.canvas) {
+            _releaseBakeCanvas(sprite.canvas);
+            sprite.canvas = null;
+        }
         VoxelParticlePool.alive[idx] = 0;
         VoxelParticlePool.linkLeader[idx] = -1;
         VoxelParticlePool.sprite[idx] = null;
@@ -753,12 +802,17 @@
 
     function _stampAndDeactivateGroup(leaderIdx, skipStamp) {
         const indices = VoxelParticlePool._activeIndices.slice();
+        const toKill = [];
         for (let n = 0; n < indices.length; n++) {
             const i = indices[n];
             if (!VoxelParticlePool.alive[i]) continue;
             if (i !== leaderIdx && VoxelParticlePool.linkLeader[i] !== leaderIdx) continue;
             if (!skipStamp) _stampToStaticCanvas(i);
-            deactivateSlot(i);
+            toKill.push(i);
+        }
+        // Deactivate after all stamps so pooled sprite canvases stay valid for the whole group.
+        for (let k = 0; k < toKill.length; k++) {
+            deactivateSlot(toKill[k]);
         }
     }
 
@@ -807,10 +861,13 @@
         g.destroyedCount = 0;
         _rebuildVoxelComposite(g, drawColor, drawBodyFn);
 
-        const snapshot = document.createElement('canvas');
-        snapshot.width = g.canvas.width;
-        snapshot.height = g.canvas.height;
-        snapshot.getContext('2d').drawImage(g.canvas, 0, 0);
+        const snapshot = _ensureScratchCanvas(_scratchSnapshot, g.canvas.width, g.canvas.height);
+        const sCtx = snapshot.getContext('2d');
+        sCtx.setTransform(1, 0, 0, 1, 0, 0);
+        sCtx.globalCompositeOperation = 'source-over';
+        sCtx.globalAlpha = 1;
+        sCtx.clearRect(0, 0, snapshot.width, snapshot.height);
+        sCtx.drawImage(g.canvas, 0, 0);
 
         g.destroyed.set(destroyedCopy);
         g.destroyedCount = destroyedCountCopy;
@@ -845,10 +902,12 @@
         const w = Math.max(1, Math.round(srcW * displayScale));
         const h = Math.max(1, Math.round(srcH * displayScale));
 
-        const mask = document.createElement('canvas');
-        mask.width = srcW;
-        mask.height = srcH;
+        const mask = _ensureScratchCanvas(_scratchMask, srcW, srcH);
         const mctx = mask.getContext('2d');
+        mctx.setTransform(1, 0, 0, 1, 0, 0);
+        mctx.globalCompositeOperation = 'source-over';
+        mctx.globalAlpha = 1;
+        mctx.clearRect(0, 0, srcW, srcH);
         mctx.fillStyle = '#ffffff';
         for (let i = 0; i < indices.length; i++) {
             const idx = indices[i];
@@ -857,10 +916,12 @@
             mctx.fillRect((c - minC) * g.voxelW, (r - minR) * g.voxelH, g.voxelW, g.voxelH);
         }
 
-        const canvas = document.createElement('canvas');
-        canvas.width = srcW;
-        canvas.height = srcH;
+        const canvas = _acquireBakeCanvas(srcW, srcH);
         const ctx = canvas.getContext('2d');
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
+        ctx.clearRect(0, 0, srcW, srcH);
         const origin = _compositeOrigin(g);
         const sx = origin.x + minC * g.voxelW;
         const sy = origin.y + minR * g.voxelH;
@@ -870,7 +931,20 @@
         ctx.globalCompositeOperation = 'source-over';
 
         _applyChunkSheen(canvas, srcW, srcH);
-        return { canvas, w, h, srcW, srcH, displayScale, minC, minR, cellCols, cellRows, cellCount: indices.length };
+        return {
+            canvas,
+            w,
+            h,
+            srcW,
+            srcH,
+            displayScale,
+            minC,
+            minR,
+            cellCols,
+            cellRows,
+            cellCount: indices.length,
+            _pooled: true
+        };
     }
 
     function _applyChunkSheen(canvas, w, h) {
@@ -1581,6 +1655,7 @@
     function _stampToStaticCanvas(i) {
         if (!VoxelStaticCanvas.ctx) return;
         const sCtx = VoxelStaticCanvas.ctx;
+        const scale = VoxelStaticCanvas.scale || 1;
         const particleType = VoxelParticlePool.type[i];
         const isFluid = particleType === 1;
         const isSprite = particleType === 2;
@@ -1588,6 +1663,8 @@
         const r = Math.round(VoxelParticlePool.cr[i] * 255);
         const g = Math.round(VoxelParticlePool.cg[i] * 255);
         const b = Math.round(VoxelParticlePool.cb[i] * 255);
+        const px = VoxelParticlePool.px[i] * scale;
+        const py = VoxelParticlePool.py[i] * scale;
 
         sCtx.save();
         const finalAlpha = isFluid
@@ -1596,18 +1673,21 @@
         sCtx.globalAlpha = finalAlpha;
 
         if (sprite && sprite.canvas) {
-            sCtx.translate(VoxelParticlePool.px[i], VoxelParticlePool.py[i]);
+            const sw = sprite.w * scale;
+            const sh = sprite.h * scale;
+            sCtx.translate(px, py);
             sCtx.rotate(VoxelParticlePool.rot[i]);
-            sCtx.drawImage(sprite.canvas, -sprite.w * 0.5, -sprite.h * 0.5, sprite.w, sprite.h);
-            _drawChunkSpecular(sCtx, sprite.w, sprite.h);
+            sCtx.drawImage(sprite.canvas, -sw * 0.5, -sh * 0.5, sw, sh);
+            // Keep chunk specular for spray sheen; cheap on stamped static layer.
+            _drawChunkSpecular(sCtx, sw, sh);
         } else if (isFluid) {
-            const splatW = VoxelParticlePool.w[i] * (1.0 + Math.random() * 0.3);
-            const splatH = VoxelParticlePool.h[i] * (0.6 + Math.random() * 0.3);
+            const splatW = VoxelParticlePool.w[i] * (1.0 + Math.random() * 0.3) * scale;
+            const splatH = VoxelParticlePool.h[i] * (0.6 + Math.random() * 0.3) * scale;
 
             sCtx.fillStyle = `rgba(${r},${g},${b}, 0.28)`;
             sCtx.beginPath();
             sCtx.ellipse(
-                VoxelParticlePool.px[i], VoxelParticlePool.py[i],
+                px, py,
                 splatW * 2.0, splatH * 2.0,
                 VoxelParticlePool.rot[i], 0, Math.PI * 2
             );
@@ -1620,19 +1700,18 @@
             )`;
             sCtx.beginPath();
             sCtx.ellipse(
-                VoxelParticlePool.px[i], VoxelParticlePool.py[i],
+                px, py,
                 splatW, splatH,
                 VoxelParticlePool.rot[i], 0, Math.PI * 2
             );
             sCtx.fill();
         } else {
-            sCtx.translate(VoxelParticlePool.px[i], VoxelParticlePool.py[i]);
+            const cw = VoxelParticlePool.w[i] * scale;
+            const ch = VoxelParticlePool.h[i] * scale;
+            sCtx.translate(px, py);
             sCtx.rotate(VoxelParticlePool.rot[i]);
             sCtx.fillStyle = `rgb(${r},${g},${b})`;
-            sCtx.fillRect(
-                -VoxelParticlePool.w[i] / 2, -VoxelParticlePool.h[i] / 2,
-                VoxelParticlePool.w[i], VoxelParticlePool.h[i]
-            );
+            sCtx.fillRect(-cw / 2, -ch / 2, cw, ch);
         }
 
         sCtx.restore();
@@ -1675,7 +1754,9 @@
 
     globalThis.renderVoxelStaticLayer = function(ctx) {
         if (VoxelStaticCanvas.canvas && VoxelStaticCanvas.dirty) {
-            ctx.drawImage(VoxelStaticCanvas.canvas, 0, 0);
+            const destW = VoxelStaticCanvas.logicalWidth || VoxelStaticCanvas.width || VoxelStaticCanvas.canvas.width;
+            const destH = VoxelStaticCanvas.logicalHeight || VoxelStaticCanvas.height || VoxelStaticCanvas.canvas.height;
+            ctx.drawImage(VoxelStaticCanvas.canvas, 0, 0, destW, destH);
         }
     };
 
@@ -1809,16 +1890,34 @@
         // Ensure w and h are valid positive numbers, fallback to defaults
         const validW = (typeof w === 'number' && w > 0 && !isNaN(w)) ? Math.floor(w) : 2400;
         const validH = (typeof h === 'number' && h > 0 && !isNaN(h)) ? Math.floor(h) : 1350;
+        const scale = _getStaticCanvasScale();
+        const pixelW = Math.max(1, Math.floor(validW * scale));
+        const pixelH = Math.max(1, Math.floor(validH * scale));
 
-        VoxelStaticCanvas.canvas.width = validW;
-        VoxelStaticCanvas.canvas.height = validH;
+        VoxelStaticCanvas.canvas.width = pixelW;
+        VoxelStaticCanvas.canvas.height = pixelH;
         VoxelStaticCanvas.ctx = VoxelStaticCanvas.canvas.getContext('2d');
-        VoxelStaticCanvas.width = validW;
-        VoxelStaticCanvas.height = validH;
+        VoxelStaticCanvas.width = pixelW;
+        VoxelStaticCanvas.height = pixelH;
+        VoxelStaticCanvas.logicalWidth = validW;
+        VoxelStaticCanvas.logicalHeight = validH;
+        VoxelStaticCanvas.scale = scale;
         VoxelStaticCanvas.dirty = false;
+        if (VoxelStaticCanvas.ctx) {
+            VoxelStaticCanvas.ctx.imageSmoothingEnabled = true;
+            if ('imageSmoothingQuality' in VoxelStaticCanvas.ctx) {
+                VoxelStaticCanvas.ctx.imageSmoothingQuality = 'high';
+            }
+        }
 
         for (let i = 0; i < VOXEL_POOL_MAX; i++) {
+            const sprite = VoxelParticlePool.sprite[i];
+            if (sprite && sprite._pooled && sprite.canvas) {
+                _releaseBakeCanvas(sprite.canvas);
+                sprite.canvas = null;
+            }
             VoxelParticlePool.alive[i] = 0;
+            VoxelParticlePool.sprite[i] = null;
         }
         VoxelParticlePool._activeCount = 0;
         VoxelParticlePool._activeIndices.length = 0;

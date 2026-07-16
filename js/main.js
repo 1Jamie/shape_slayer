@@ -140,7 +140,8 @@ const Game = {
         groundLootAnimatedRing: true,
         remoteFullRender: true,
         maxBeamLights: 8,
-        damageFxScale: 1
+        damageFxScale: 1,
+        voxelParticleCap: 512
     },
     renderSubTimings: { groundLoot: 0, gearRings: 0, remotePlayers: 0, worldGlow: 0, worldBodies: 0 },
     renderSubTimingSamples: null,
@@ -371,6 +372,7 @@ const Game = {
 
         // Setup responsive scaling
         this.setupResponsiveCanvas();
+        this.renderQuality = this.getBaseRenderQuality();
         this.prewarmRenderCaches();
 
         // Initialize input system
@@ -755,9 +757,11 @@ const Game = {
             this.mobileZoom = 1.0; // Not used on desktop, but set for consistency
         }
 
-        // High DPI Support - cap at 2x, never force upscale on 1x displays
+        // High DPI Support - never force upscale on 1x displays.
+        // Gecko/Servo: cap at 1.5 (matches room static cache) — full 2x backbuffers thrash WebRender.
         const deviceDpr = window.devicePixelRatio || 1;
-        const dpr = Math.min(2, Math.max(1, deviceDpr));
+        const dprCap = this.getDprCap ? this.getDprCap() : 2;
+        const dpr = Math.min(dprCap, Math.max(1, deviceDpr));
         this.dpr = dpr; // Store for use in other rendering methods
 
         // Set canvas resolution (internal rendering size) scaled by DPR
@@ -4339,16 +4343,7 @@ const Game = {
             }
             // Fresh frame-budget window per room so end-of-fight load does not crush vignette on entry.
             this.frameBudgetSamples.length = 0;
-            this.renderQuality = {
-                vignetteScale: 0.5,
-                maxSceneryLights: Infinity,
-                gearRingPoints: 64,
-                groundLootAnimatedRing: true,
-                remoteFullRender: true,
-                maxBeamLights: 8,
-                damageFxScale: 1,
-                voxelParticleCap: 512
-            };
+            this.renderQuality = this.getBaseRenderQuality();
             transition.phase = 1;
             return;
         }
@@ -5087,18 +5082,28 @@ const Game = {
                     const sy = (healer.y - this.camera.y) * _zoom + _cY;
                     const _t = Date.now() * 0.002;
                     const _pulse = 0.5 + Math.sin(_t) * 0.5;
-                    // Draw a bright additive glow that punches through the vignette darkness
+                    // Draw a bright additive glow that punches through the vignette darkness.
+                    // Gecko/Servo: sprite drawImage (shadowBlur/live gradients are weak or costly).
                     this.ctx.save();
                     this.ctx.globalCompositeOperation = 'lighter';
                     const glowR = (70 + _pulse * 20) * _zoom;
-                    const grad = this.ctx.createRadialGradient(sx, sy, 0, sx, sy, glowR);
-                    grad.addColorStop(0, `rgba(0, 255, 100, ${0.18 + _pulse * 0.12})`);
-                    grad.addColorStop(0.4, `rgba(0, 200, 80, ${0.08 + _pulse * 0.06})`);
-                    grad.addColorStop(1, 'rgba(0,0,0,0)');
-                    this.ctx.fillStyle = grad;
-                    this.ctx.beginPath();
-                    this.ctx.arc(sx, sy, glowR, 0, Math.PI * 2);
-                    this.ctx.fill();
+                    if (this.preferSpriteShadows && this.preferSpriteShadows()) {
+                        const sprite = this.getCachedGlowSprite('#00ff64');
+                        if (sprite) {
+                            this.ctx.globalAlpha = 0.22 + _pulse * 0.14;
+                            this.ctx.drawImage(sprite, sx - glowR, sy - glowR, glowR * 2, glowR * 2);
+                            this.ctx.globalAlpha = 1;
+                        }
+                    } else {
+                        const grad = this.ctx.createRadialGradient(sx, sy, 0, sx, sy, glowR);
+                        grad.addColorStop(0, `rgba(0, 255, 100, ${0.18 + _pulse * 0.12})`);
+                        grad.addColorStop(0.4, `rgba(0, 200, 80, ${0.08 + _pulse * 0.06})`);
+                        grad.addColorStop(1, 'rgba(0,0,0,0)');
+                        this.ctx.fillStyle = grad;
+                        this.ctx.beginPath();
+                        this.ctx.arc(sx, sy, glowR, 0, Math.PI * 2);
+                        this.ctx.fill();
+                    }
                     this.ctx.restore();
                 }
             }
@@ -5247,16 +5252,7 @@ const Game = {
 
     updateFrameBudgetGovernor(frameTimeMs, renderTimeMs) {
         const adaptiveEnabled = typeof DebugFlags === 'undefined' || DebugFlags.ADAPTIVE_RENDER_QUALITY !== false;
-        const baseQuality = {
-            vignetteScale: 0.5,
-            maxSceneryLights: Infinity,
-            gearRingPoints: 64,
-            groundLootAnimatedRing: true,
-            remoteFullRender: true,
-            maxBeamLights: 8,
-            damageFxScale: 1,
-            voxelParticleCap: 512
-        };
+        const baseQuality = this.getBaseRenderQuality();
         if (!adaptiveEnabled) {
             this.frameBudgetSamples.length = 0;
             this.renderQuality = baseQuality;
@@ -5282,9 +5278,10 @@ const Game = {
         const renderAvg = renderSum / count;
         this.debugFrameBudget = { frameAvg, renderAvg };
 
-        if (frameAvg > 34 || renderAvg > 28) {
+        const thresholds = this.getFrameBudgetThresholds();
+        if (frameAvg > thresholds.heavyFrame || renderAvg > thresholds.heavyRender) {
             this.renderQuality = {
-                vignetteScale: 0.5,
+                vignetteScale: thresholds.heavyVignetteScale,
                 maxSceneryLights: 36,
                 gearRingPoints: 24,
                 groundLootAnimatedRing: false,
@@ -5293,9 +5290,9 @@ const Game = {
                 damageFxScale: 0.5,
                 voxelParticleCap: 64
             };
-        } else if (frameAvg > 30 || renderAvg > 22) {
+        } else if (frameAvg > thresholds.mediumFrame || renderAvg > thresholds.mediumRender) {
             this.renderQuality = {
-                vignetteScale: 0.5,
+                vignetteScale: thresholds.mediumVignetteScale,
                 maxSceneryLights: 64,
                 gearRingPoints: 32,
                 groundLootAnimatedRing: false,
@@ -5304,9 +5301,123 @@ const Game = {
                 damageFxScale: 0.75,
                 voxelParticleCap: 192
             };
-        } else if (frameAvg < 24 && renderAvg < 17) {
+        } else if (frameAvg < thresholds.restoreFrame && renderAvg < thresholds.restoreRender) {
             this.renderQuality = baseQuality;
         }
+    },
+
+    isGeckoFamilyEngine() {
+        return typeof DeviceDetection !== 'undefined'
+            && typeof DeviceDetection.isGeckoFamily === 'function'
+            && DeviceDetection.isGeckoFamily();
+    },
+
+    // Servo: shadowBlur largely unimplemented. Firefox: live shadows are WebRender-expensive.
+    preferSpriteShadows() {
+        return this.isGeckoFamilyEngine();
+    },
+
+    getDprCap() {
+        return this.isGeckoFamilyEngine() ? 1.5 : 2;
+    },
+
+    getBaseRenderQuality() {
+        const gecko = this.isGeckoFamilyEngine();
+        return {
+            vignetteScale: 0.5,
+            // Soft scenery cap on Gecko so crowded rooms don't explode before the governor wakes.
+            maxSceneryLights: gecko ? 96 : Infinity,
+            gearRingPoints: 64,
+            groundLootAnimatedRing: true,
+            remoteFullRender: true,
+            maxBeamLights: 8,
+            damageFxScale: 1,
+            voxelParticleCap: 512
+        };
+    },
+
+    getFrameBudgetThresholds() {
+        if (this.isGeckoFamilyEngine()) {
+            return {
+                mediumFrame: 28,
+                mediumRender: 20,
+                heavyFrame: 32,
+                heavyRender: 24,
+                restoreFrame: 24,
+                restoreRender: 17,
+                mediumVignetteScale: 0.4,
+                heavyVignetteScale: 0.33
+            };
+        }
+        return {
+            mediumFrame: 30,
+            mediumRender: 22,
+            heavyFrame: 34,
+            heavyRender: 28,
+            restoreFrame: 24,
+            restoreRender: 17,
+            mediumVignetteScale: 0.4,
+            heavyVignetteScale: 0.33
+        };
+    },
+
+    // Approximate neon stroke glow without ctx.shadowBlur (Servo/Firefox).
+    strokeNeonRect(ctx, x, y, w, h, color, blur, lineWidth) {
+        const lw = lineWidth != null ? lineWidth : 2;
+        if (!this.preferSpriteShadows()) {
+            ctx.shadowColor = color;
+            ctx.shadowBlur = blur;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = lw;
+            ctx.strokeRect(x, y, w, h);
+            ctx.shadowBlur = 0;
+            ctx.shadowColor = 'transparent';
+            return;
+        }
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        const layers = Math.max(2, Math.min(5, Math.round(blur / 4)));
+        for (let i = layers; i >= 1; i--) {
+            ctx.globalAlpha = 0.12 * (layers - i + 1) / layers;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = lw + i * 1.6;
+            ctx.strokeRect(x, y, w, h);
+        }
+        ctx.restore();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lw;
+        ctx.globalAlpha = 1;
+        ctx.strokeRect(x, y, w, h);
+    },
+
+    fillNeonText(ctx, text, x, y, color, blur) {
+        if (!this.preferSpriteShadows()) {
+            ctx.shadowColor = color;
+            ctx.shadowBlur = blur;
+            ctx.fillStyle = color;
+            ctx.fillText(text, x, y);
+            ctx.shadowBlur = 0;
+            return;
+        }
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = 0.35;
+        ctx.fillStyle = color;
+        ctx.fillText(text, x, y);
+        ctx.restore();
+        ctx.fillStyle = color;
+        ctx.fillText(text, x, y);
+    },
+
+    drawAdditiveGlowSprite(ctx, x, y, radius, colorCss, alpha) {
+        const sprite = this.getCachedGlowSprite(colorCss || '#ffffff');
+        if (!sprite) return false;
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = alpha != null ? alpha : 0.2;
+        ctx.drawImage(sprite, x - radius, y - radius, radius * 2, radius * 2);
+        ctx.restore();
+        return true;
     },
 
     shouldCollectDebugMetrics() {
@@ -5533,18 +5644,29 @@ const Game = {
             drawLight(vCtx, enemy.x, enemy.y, lightRadius);
         });
 
-        // Draw the static settled voxel/fluid canvas to punch through vignette
+        // Draw the static settled voxel/fluid canvas to punch through vignette.
+        // Spray/layering stay on; Gecko/Servo avoid 3x full-room screen blits (WebRender thrash).
         if (typeof VoxelStaticCanvas !== 'undefined' && VoxelStaticCanvas.dirty && VoxelStaticCanvas.canvas && VoxelStaticCanvas.canvas.width > 0 && VoxelStaticCanvas.canvas.height > 0) {
             vCtx.save();
             vCtx.translate(centerX + this.screenShakeOffset.x, centerY + this.screenShakeOffset.y);
             vCtx.scale(currentZoom, currentZoom);
             vCtx.translate(-this.camera.x, -this.camera.y);
-            
-            // Draw multiple times using 'screen' to accumulate alpha mask and punch through vignette darkness
+
+            const destW = VoxelStaticCanvas.logicalWidth || VoxelStaticCanvas.width || VoxelStaticCanvas.canvas.width;
+            const destH = VoxelStaticCanvas.logicalHeight || VoxelStaticCanvas.height || VoxelStaticCanvas.canvas.height;
             vCtx.globalCompositeOperation = 'screen';
-            vCtx.drawImage(VoxelStaticCanvas.canvas, 0, 0);
-            vCtx.drawImage(VoxelStaticCanvas.canvas, 0, 0);
-            vCtx.drawImage(VoxelStaticCanvas.canvas, 0, 0);
+            if (this.isGeckoFamilyEngine && this.isGeckoFamilyEngine()) {
+                // One blit + boosted alpha ≈ triple-screen punch without 3x upload cost.
+                vCtx.globalAlpha = 1;
+                vCtx.drawImage(VoxelStaticCanvas.canvas, 0, 0, destW, destH);
+                vCtx.globalAlpha = 0.85;
+                vCtx.drawImage(VoxelStaticCanvas.canvas, 0, 0, destW, destH);
+                vCtx.globalAlpha = 1;
+            } else {
+                vCtx.drawImage(VoxelStaticCanvas.canvas, 0, 0, destW, destH);
+                vCtx.drawImage(VoxelStaticCanvas.canvas, 0, 0, destW, destH);
+                vCtx.drawImage(VoxelStaticCanvas.canvas, 0, 0, destW, destH);
+            }
             vCtx.restore();
 
             // Explicitly restore composite operation to lighten for subsequent lights
@@ -6226,11 +6348,7 @@ const Game = {
                 // Neon Border
                 ctx.strokeStyle = accent;
                 ctx.lineWidth = isNear ? 2 : 1;
-                ctx.shadowColor = accent;
-                ctx.shadowBlur = isNear ? 8 : 2;
-                ctx.strokeRect(machineX, machineY, machineWidth, machineHeight);
-                ctx.shadowBlur = 0;
-                ctx.shadowColor = 'transparent';
+                this.strokeNeonRect(ctx, machineX, machineY, machineWidth, machineHeight, accent, isNear ? 8 : 2, isNear ? 2 : 1);
 
                 if (isRunSave) {
                     // Lost's PS2 is the Save Run icon (no floppy)
@@ -6311,13 +6429,22 @@ const Game = {
                 ctx.fillText('Already Used', healer.x, healer.y + 20);
             } else {
                 // Active state - vivid green glow halo
-                ctx.globalCompositeOperation = 'lighter';
-                const haloGrad = ctx.createRadialGradient(healer.x, healer.y, 0, healer.x, healer.y, 110 + pulse * 20);
-                haloGrad.addColorStop(0, `rgba(0, 255, 100, ${0.06 + pulse * 0.06})`);
-                haloGrad.addColorStop(1, 'rgba(0,0,0,0)');
-                ctx.fillStyle = haloGrad;
-                ctx.fillRect(healer.x - 130, healer.y - 130, 260, 260);
-                ctx.globalCompositeOperation = 'source-over';
+                if (this.preferSpriteShadows()) {
+                    this.drawAdditiveGlowSprite(
+                        ctx, healer.x, healer.y,
+                        110 + pulse * 20,
+                        '#00ff64',
+                        0.1 + pulse * 0.08
+                    );
+                } else {
+                    ctx.globalCompositeOperation = 'lighter';
+                    const haloGrad = ctx.createRadialGradient(healer.x, healer.y, 0, healer.x, healer.y, 110 + pulse * 20);
+                    haloGrad.addColorStop(0, `rgba(0, 255, 100, ${0.06 + pulse * 0.06})`);
+                    haloGrad.addColorStop(1, 'rgba(0,0,0,0)');
+                    ctx.fillStyle = haloGrad;
+                    ctx.fillRect(healer.x - 130, healer.y - 130, 260, 260);
+                    ctx.globalCompositeOperation = 'source-over';
+                }
 
                 // Panel background
                 ctx.fillStyle = isNear
@@ -6326,31 +6453,42 @@ const Game = {
                 ctx.fillRect(machineX, machineY, machineWidth, machineHeight);
 
                 // Glowing border
-                ctx.shadowColor = '#00ff66';
-                ctx.shadowBlur = isNear ? 18 + pulse * 12 : 8 + pulse * 4;
-                ctx.strokeStyle = isNear ? `rgba(0,255,100,${0.9 + pulse * 0.1})` : '#00cc55';
-                ctx.lineWidth = isNear ? 2.5 : 1.5;
-                ctx.strokeRect(machineX, machineY, machineWidth, machineHeight);
-                ctx.shadowBlur = 0;
+                const borderColor = isNear ? `rgba(0,255,100,${0.9 + pulse * 0.1})` : '#00cc55';
+                this.strokeNeonRect(
+                    ctx, machineX, machineY, machineWidth, machineHeight,
+                    borderColor,
+                    isNear ? 18 + pulse * 12 : 8 + pulse * 4,
+                    isNear ? 2.5 : 1.5
+                );
 
                 // Icon - large, bright
                 ctx.font = '28px serif';
                 ctx.textAlign = 'center';
-                ctx.fillStyle = `rgba(60,255,140,${0.85 + pulse * 0.15})`;
-                ctx.shadowColor = '#00ff88';
-                ctx.shadowBlur = 12 + pulse * 8;
-                ctx.fillText(healer.icon || '\u{1F49A}', healer.x, healer.y - 2);
-                ctx.shadowBlur = 0;
+                this.fillNeonText(
+                    ctx,
+                    healer.icon || '\u{1F49A}',
+                    healer.x,
+                    healer.y - 2,
+                    `rgba(60,255,140,${0.85 + pulse * 0.15})`,
+                    12 + pulse * 8
+                );
 
                 // Name label - white with drop-shadow for legibility
                 ctx.fillStyle = '#ffffff';
                 ctx.font = 'bold 12px Orbitron, monospace';
                 ctx.textAlign = 'center';
-                ctx.shadowColor = 'rgba(0,0,0,0.95)';
-                ctx.shadowOffsetX = 1; ctx.shadowOffsetY = 1;
-                ctx.shadowBlur = 5;
-                ctx.fillText(healer.name || 'Pre-Boss Healer', healer.x, healer.y + 22);
-                ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0; ctx.shadowBlur = 0;
+                if (this.preferSpriteShadows()) {
+                    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+                    ctx.fillText(healer.name || 'Pre-Boss Healer', healer.x + 1, healer.y + 23);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillText(healer.name || 'Pre-Boss Healer', healer.x, healer.y + 22);
+                } else {
+                    ctx.shadowColor = 'rgba(0,0,0,0.95)';
+                    ctx.shadowOffsetX = 1; ctx.shadowOffsetY = 1;
+                    ctx.shadowBlur = 5;
+                    ctx.fillText(healer.name || 'Pre-Boss Healer', healer.x, healer.y + 22);
+                    ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0; ctx.shadowBlur = 0;
+                }
 
                 // Heal amount tag
                 ctx.fillStyle = `rgba(80,255,140,${0.7 + pulse * 0.2})`;
@@ -8625,8 +8763,21 @@ function drawLostPs2EasterEgg(ctx, x, y, options = {}) {
     ctx.fill();
     const resetGlow = lit ? `rgba(40, 220, 160, ${0.55 + pulse * 0.35})` : 'rgba(40, 120, 90, 0.45)';
     if (lit) {
-        ctx.shadowColor = resetGlow;
-        ctx.shadowBlur = near ? 6 : 3;
+        const preferSprites = typeof Game !== 'undefined' && Game.preferSpriteShadows && Game.preferSpriteShadows();
+        if (preferSprites) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.globalAlpha = near ? 0.45 : 0.28;
+            ctx.strokeStyle = resetGlow;
+            ctx.lineWidth = 2.4;
+            ctx.beginPath();
+            ctx.arc(btnX + 6, by + 9.5, 2.6, Math.PI * 0.2, Math.PI * 1.8);
+            ctx.stroke();
+            ctx.restore();
+        } else {
+            ctx.shadowColor = resetGlow;
+            ctx.shadowBlur = near ? 6 : 3;
+        }
     }
     ctx.strokeStyle = resetGlow;
     ctx.lineWidth = 1.4;
@@ -8652,8 +8803,24 @@ function drawLostPs2EasterEgg(ctx, x, y, options = {}) {
         ? `rgba(60, 140, 255, ${0.65 + pulse * 0.3})`
         : 'rgba(40, 70, 120, 0.5)';
     if (lit) {
-        ctx.shadowColor = ejectGlow;
-        ctx.shadowBlur = near ? 7 : 4;
+        const preferSprites = typeof Game !== 'undefined' && Game.preferSpriteShadows && Game.preferSpriteShadows();
+        if (preferSprites) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.globalAlpha = near ? 0.5 : 0.3;
+            ctx.fillStyle = ejectGlow;
+            ctx.beginPath();
+            ctx.moveTo(btnX + 4, by + 20.5);
+            ctx.lineTo(btnX + 8.5, by + 22.5);
+            ctx.lineTo(btnX + 4, by + 24.5);
+            ctx.closePath();
+            ctx.fill();
+            ctx.fillRect(btnX + 8.2, by + 20.5, 1.6, 4);
+            ctx.restore();
+        } else {
+            ctx.shadowColor = ejectGlow;
+            ctx.shadowBlur = near ? 7 : 4;
+        }
     }
     ctx.fillStyle = ejectGlow;
     ctx.beginPath();

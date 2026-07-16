@@ -175,3 +175,49 @@ test('supportsElementFullscreen returns false on iOS', () => {
     });
     assert.equal(DeviceDetection.supportsElementFullscreen(), false);
 });
+
+test('detects Firefox as gecko family', () => {
+    mockEnv({
+        ua: 'Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0',
+        platform: 'Linux x86_64',
+        maxTouchPoints: 0
+    });
+    const profile = DeviceDetection.getProfile(true);
+    assert.equal(profile.engine, 'gecko');
+    assert.equal(profile.isGeckoFamily, true);
+    assert.equal(DeviceDetection.isGeckoFamily(), true);
+});
+
+test('does not treat Chrome like-Gecko as gecko', () => {
+    mockEnv({
+        ua: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        platform: 'Linux x86_64',
+        maxTouchPoints: 0
+    });
+    const profile = DeviceDetection.getProfile(true);
+    assert.equal(profile.engine, 'blink');
+    assert.equal(profile.isGeckoFamily, false);
+});
+
+test('detects Servo as gecko family', () => {
+    mockEnv({
+        ua: 'Mozilla/5.0 (X11; Linux x86_64) Servo/0.0.1',
+        platform: 'Linux x86_64',
+        maxTouchPoints: 0
+    });
+    const profile = DeviceDetection.getProfile(true);
+    assert.equal(profile.engine, 'servo');
+    assert.equal(profile.isGeckoFamily, true);
+    assert.equal(DeviceDetection.isServo(), true);
+});
+
+test('detects Safari as webkit', () => {
+    mockEnv({
+        ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+        platform: 'MacIntel',
+        maxTouchPoints: 0
+    });
+    const profile = DeviceDetection.getProfile(true);
+    assert.equal(profile.engine, 'webkit');
+    assert.equal(profile.isGeckoFamily, false);
+});

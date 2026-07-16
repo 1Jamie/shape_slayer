@@ -176,6 +176,25 @@ const DeviceDetection = {
         return { formFactor: 'desktop', os: 'unknown', confidence: 'low', reason: 'default-desktop' };
     },
 
+    // Engine sniff for Canvas2D policy. Chrome/Edge ship "like Gecko" — exclude those.
+    // Servo inherits Gecko-family opts: weak/missing shadowBlur, expensive composite layers (Vello).
+    _parseEngine(ua) {
+        const raw = typeof ua === 'string' ? ua : '';
+        if (/Servo\//i.test(raw)) {
+            return { engine: 'servo', confidence: 'high', reason: 'ua-servo' };
+        }
+        if (/Firefox\//i.test(raw) || (/Gecko\//i.test(raw) && !/like Gecko/i.test(raw))) {
+            return { engine: 'gecko', confidence: 'high', reason: 'ua-firefox-gecko' };
+        }
+        if (/Edg\/|OPR\/|Chrome\/|Chromium\//i.test(raw)) {
+            return { engine: 'blink', confidence: 'high', reason: 'ua-chromium' };
+        }
+        if (/AppleWebKit\//i.test(raw) && /Safari\//i.test(raw) && !/Chrome\//i.test(raw)) {
+            return { engine: 'webkit', confidence: 'high', reason: 'ua-safari' };
+        }
+        return { engine: 'unknown', confidence: 'low', reason: 'ua-unknown-engine' };
+    },
+
     getProfile(forceRefresh = false) {
         if (!forceRefresh && this._cachedProfile) {
             return this._cachedProfile;
@@ -195,16 +214,21 @@ const DeviceDetection = {
 
         const formFactor = parsed.formFactor || 'unknown';
         const isMobile = formFactor === 'phone' || formFactor === 'tablet';
+        const engineInfo = this._parseEngine(nav.ua);
+        const engine = engineInfo.engine || 'unknown';
 
         this._cachedProfile = {
             formFactor,
             os: parsed.os || 'unknown',
+            engine,
+            isGeckoFamily: engine === 'gecko' || engine === 'servo',
             isMobile,
             isPhone: formFactor === 'phone',
             isTablet: formFactor === 'tablet',
             isDesktop: formFactor === 'desktop',
             confidence: parsed.confidence || 'low',
             reason: parsed.reason || 'unknown',
+            engineReason: engineInfo.reason || 'unknown',
             capabilities: {
                 touch: hasTouch,
                 maxTouchPoints: nav.maxTouchPoints,
@@ -253,6 +277,19 @@ const DeviceDetection = {
 
     isIos() {
         return this.getProfile().os === 'ios';
+    },
+
+    getEngine() {
+        return this.getProfile().engine || 'unknown';
+    },
+
+    // Firefox + Servo share Canvas2D pain: expensive composites, weak/missing shadowBlur.
+    isGeckoFamily() {
+        return !!this.getProfile().isGeckoFamily;
+    },
+
+    isServo() {
+        return this.getEngine() === 'servo';
     },
 
     // Canvas/document fullscreen is not available on iOS Safari (non-video elements).

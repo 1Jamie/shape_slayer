@@ -289,7 +289,13 @@
             path: loc && typeof loc.pathname === 'string' ? loc.pathname : null,
             protocol,
             href: loc && typeof loc.href === 'string' ? loc.href : null,
-            isElectron
+            isElectron,
+            engine: (typeof DeviceDetection !== 'undefined' && DeviceDetection.getEngine)
+                ? DeviceDetection.getEngine()
+                : 'unknown',
+            isGeckoFamily: (typeof DeviceDetection !== 'undefined' && DeviceDetection.isGeckoFamily)
+                ? DeviceDetection.isGeckoFamily()
+                : false
         };
     }
 
