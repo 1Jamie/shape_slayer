@@ -71,6 +71,9 @@ class MultiplayerManager {
         this.driftBiasX = 0;
         this.driftBiasY = 0;
         this.driftCoherence = 0;
+
+        // Class is only selectable in Nexus — freeze for the whole run
+        this.runClassLocks = new Map(); // playerId -> classKey
     }
 
     createEmptyPredictionStats() {
@@ -90,6 +93,75 @@ class MultiplayerManager {
             driftCoherence: 0,
             driftActive: false
         };
+    }
+
+    isRunClassLocked() {
+        return this.runClassLocks && this.runClassLocks.size > 0;
+    }
+
+    getRunClass(playerId, fallback = null) {
+        if (playerId != null && this.runClassLocks && this.runClassLocks.has(playerId)) {
+            return this.runClassLocks.get(playerId);
+        }
+        return fallback;
+    }
+
+    /**
+     * Snapshot every player's class at run start. Class can only change in Nexus,
+     * so mid-run network noise must not recreate people as pink squares.
+     */
+    lockRunClasses() {
+        if (!this.runClassLocks) this.runClassLocks = new Map();
+        this.runClassLocks.clear();
+
+        const remember = (playerId, classKey) => {
+            if (!playerId || !classKey) return;
+            if (!this.runClassLocks.has(playerId)) {
+                this.runClassLocks.set(playerId, classKey);
+            }
+        };
+
+        if (typeof Game !== 'undefined') {
+            if (this.playerId) {
+                remember(this.playerId, Game.selectedClass || (Game.player && Game.player.playerClass));
+            }
+            if (Game.player && Game.player.playerId) {
+                remember(Game.player.playerId, Game.player.playerClass);
+            }
+            if (Game.remotePlayerInstances) {
+                Game.remotePlayerInstances.forEach((inst, id) => {
+                    remember(id, inst && inst.playerClass);
+                });
+            }
+            if (Game.remotePlayerShadowInstances) {
+                Game.remotePlayerShadowInstances.forEach((inst, id) => {
+                    remember(id, inst && inst.playerClass);
+                });
+            }
+        }
+
+        if (this.remotePlayers) {
+            this.remotePlayers.forEach(rp => remember(rp.id, rp.class || rp.playerClass));
+        }
+        if (this.players) {
+            this.players.forEach(p => remember(p.id, p.class));
+        }
+
+        console.log('[Multiplayer] Locked run classes:', Array.from(this.runClassLocks.entries()));
+    }
+
+    clearRunClassLocks() {
+        if (this.runClassLocks) this.runClassLocks.clear();
+    }
+
+    resolvePlayerClass(playerId, claimedClass = null) {
+        const locked = this.getRunClass(playerId, null);
+        if (locked) return locked;
+        if (claimedClass) return claimedClass;
+        if (playerId === this.playerId && typeof Game !== 'undefined') {
+            return Game.selectedClass || (Game.player && Game.player.playerClass) || 'square';
+        }
+        return 'square';
     }
     
     // Connect to multiplayer server
@@ -1086,12 +1158,11 @@ class MultiplayerManager {
         // Let the player serialize itself! (clean architecture)
         const playerState = player.serialize ? player.serialize() : {};
         
-        // Determine class - use selectedClass in NEXUS, playerClass in PLAYING
-        let playerClass = player.playerClass;
-        if (typeof Game !== 'undefined' && Game.state === 'NEXUS') {
-            // In NEXUS, use selectedClass if this is the local player
+        // Determine class - locked for runs; Nexus may use selectedClass for local
+        let playerClass = this.resolvePlayerClass(playerId, player.playerClass);
+        if (!this.isRunClassLocked() && typeof Game !== 'undefined' && Game.state === 'NEXUS') {
             if (playerId === this.playerId) {
-                playerClass = Game.selectedClass || player.playerClass;
+                playerClass = Game.selectedClass || player.playerClass || playerClass;
             }
         }
         
@@ -1105,11 +1176,13 @@ class MultiplayerManager {
         
         return {
             id: playerId,
-            class: playerClass,
             name: 'Player', // TODO: Add player name selection
             currency: currency,
             upgrades: upgrades,
             ...playerState, // All player state from player.serialize()
+            // Class is authoritative / run-locked — always win over serialize() fields
+            class: playerClass,
+            playerClass: playerClass,
             lastProcessedInputSeq: player.lastProcessedInputSeq != null
                 ? player.lastProcessedInputSeq
                 : (playerState.lastProcessedInputSeq != null ? playerState.lastProcessedInputSeq : null)
@@ -1152,8 +1225,9 @@ class MultiplayerManager {
             y: Game.player.y,
             rotation: Game.player.rotation,
             
-            // Current class (important for nexus class changes)
-            class: Game.selectedClass || Game.player.playerClass,
+            // Current class (locked for runs; otherwise selected / local)
+            class: this.resolvePlayerClass(this.playerId, Game.selectedClass || Game.player.playerClass),
+            playerClass: this.resolvePlayerClass(this.playerId, Game.selectedClass || Game.player.playerClass),
             
             // Currency and upgrades (for host tracking)
             currency: currency,
@@ -2289,70 +2363,92 @@ class MultiplayerManager {
             }
         }
         
-        // Check if player changed class (in nexus)
-        if (data.class && typeof Game !== 'undefined') {
-            // Check if we have an instance for this player
-            const currentInstance = Game.remotePlayerInstances.get(data.id);
-            
-            // If class changed or no instance exists, recreate it
-            if (!currentInstance || currentInstance.playerClass !== data.class) {
-                console.log(`[Host] Recreating player instance for ${data.id} as ${data.class}`);
-                const newInstance = createPlayer(data.class, data.x, data.y);
-                newInstance.lastAimAngle = 0; // Initialize rotation state for touch controls
-                
-                // Apply upgrades from host tracking
-                // Note: Player instance already has base stats from its CONFIG
-                // We just need to apply the upgrade bonuses
-                const upgrades = Game.playerUpgrades.get(data.id);
-                if (upgrades && upgrades[data.class]) {
-                    const classUpgrades = upgrades[data.class];
-                    
-                    // Get the config for this class to calculate upgrade bonuses
-                    let config = null;
-                    if (data.class === 'square' && typeof WARRIOR_CONFIG !== 'undefined') {
-                        config = WARRIOR_CONFIG;
-                    } else if (data.class === 'triangle' && typeof ROGUE_CONFIG !== 'undefined') {
-                        config = ROGUE_CONFIG;
-                    } else if (data.class === 'pentagon' && typeof TANK_CONFIG !== 'undefined') {
-                        config = TANK_CONFIG;
-                    } else if (data.class === 'hexagon' && typeof MAGE_CONFIG !== 'undefined') {
-                        config = MAGE_CONFIG;
-                    }
-                    
-                    if (config) {
-                        // Calculate upgrade bonuses using config values
-                        const upgradeBonuses = {
-                            damage: classUpgrades.damage * config.damagePerLevel,
-                            defense: classUpgrades.defense * config.defensePerLevel,
-                            speed: classUpgrades.speed * config.speedPerLevel
-                        };
-                        
-                        // Apply upgrades to base stats (config values already loaded in constructor)
-                        newInstance.baseDamage = config.baseDamage + upgradeBonuses.damage;
-                        newInstance.baseMoveSpeed = config.baseSpeed + upgradeBonuses.speed;
-                        newInstance.baseDefense = config.baseDefense + upgradeBonuses.defense;
-                        
-                        // Recalculate effective stats
-                        newInstance.updateEffectiveStats();
-                    }
+        // Class changes only apply in Nexus. During a run, use the locked class.
+        if (typeof Game !== 'undefined') {
+            const lockedClass = this.getRunClass(data.id, null);
+            const claimedClass = data.class || null;
+            const targetClass = lockedClass || claimedClass;
+
+            if (this.isRunClassLocked()) {
+                // Ignore mid-run class chatter; keep roster/meta on the lock
+                if (lockedClass) {
+                    data.class = lockedClass;
+                    const playerEntry = this.players.find(p => p.id === data.id);
+                    if (playerEntry) playerEntry.class = lockedClass;
+                    const remotePlayer = this.remotePlayers.find(rp => rp.id === data.id);
+                    if (remotePlayer) remotePlayer.class = lockedClass;
                 }
-                
-                Game.remotePlayerInstances.set(data.id, newInstance);
-                
-                // Update the player entry in our players list
-                const playerEntry = this.players.find(p => p.id === data.id);
-                if (playerEntry) {
-                    playerEntry.class = data.class;
+            }
+
+            if (targetClass) {
+                const currentInstance = Game.remotePlayerInstances.get(data.id);
+
+                // Only create/recreate when missing, or (Nexus) when class actually changed
+                const shouldRecreate = !currentInstance || (
+                    !this.isRunClassLocked() && currentInstance.playerClass !== targetClass
+                );
+
+                if (shouldRecreate) {
+                    console.log(`[Host] Recreating player instance for ${data.id} as ${targetClass}`);
+                    const newInstance = createPlayer(targetClass, data.x, data.y);
+                    newInstance.lastAimAngle = 0; // Initialize rotation state for touch controls
+                    
+                    // Apply upgrades from host tracking
+                    // Note: Player instance already has base stats from its CONFIG
+                    // We just need to apply the upgrade bonuses
+                    const upgrades = Game.playerUpgrades.get(data.id);
+                    if (upgrades && upgrades[targetClass]) {
+                        const classUpgrades = upgrades[targetClass];
+                        
+                        // Get the config for this class to calculate upgrade bonuses
+                        let config = null;
+                        if (targetClass === 'square' && typeof WARRIOR_CONFIG !== 'undefined') {
+                            config = WARRIOR_CONFIG;
+                        } else if (targetClass === 'triangle' && typeof ROGUE_CONFIG !== 'undefined') {
+                            config = ROGUE_CONFIG;
+                        } else if (targetClass === 'pentagon' && typeof TANK_CONFIG !== 'undefined') {
+                            config = TANK_CONFIG;
+                        } else if (targetClass === 'hexagon' && typeof MAGE_CONFIG !== 'undefined') {
+                            config = MAGE_CONFIG;
+                        }
+                        
+                        if (config) {
+                            // Calculate upgrade bonuses using config values
+                            const upgradeBonuses = {
+                                damage: classUpgrades.damage * config.damagePerLevel,
+                                defense: classUpgrades.defense * config.defensePerLevel,
+                                speed: classUpgrades.speed * config.speedPerLevel
+                            };
+                            
+                            // Apply upgrades to base stats (config values already loaded in constructor)
+                            newInstance.baseDamage = config.baseDamage + upgradeBonuses.damage;
+                            newInstance.baseMoveSpeed = config.baseSpeed + upgradeBonuses.speed;
+                            newInstance.baseDefense = config.baseDefense + upgradeBonuses.defense;
+                            
+                            // Recalculate effective stats
+                            newInstance.updateEffectiveStats();
+                        }
+                    }
+                    
+                    Game.remotePlayerInstances.set(data.id, newInstance);
+                    
+                    // Update the player entry in our players list
+                    const playerEntry = this.players.find(p => p.id === data.id);
+                    if (playerEntry) {
+                        playerEntry.class = targetClass;
+                    }
                 }
             }
         }
         
-        // Store player's selected class (for NEXUS rendering)
+        // Store player's selected class (for NEXUS rendering) — never overwrite a lock
         if (data.class) {
             const remotePlayer = this.remotePlayers.find(rp => rp.id === data.id);
             if (remotePlayer) {
-                remotePlayer.class = data.class;
-                console.log(`[Host] Updated remote player ${data.id} class to ${data.class}`);
+                remotePlayer.class = this.resolvePlayerClass(data.id, data.class);
+                if (!this.isRunClassLocked()) {
+                    console.log(`[Host] Updated remote player ${data.id} class to ${remotePlayer.class}`);
+                }
             }
         }
         
@@ -2410,6 +2506,9 @@ class MultiplayerManager {
     // Handle game start
     handleGameStart(data) {
         console.log('[Multiplayer] Game starting');
+
+        // Freeze classes for the run (Nexus is the only place they can change)
+        this.lockRunClasses();
         
         // Ensure game mode is set to gear (multiplayer only supports gear mode)
         if (typeof Game !== 'undefined') {
@@ -2430,6 +2529,8 @@ class MultiplayerManager {
             this.remotePlayers.forEach(rp => {
                 rp.x = 100;
                 rp.y = 360;
+                const locked = this.getRunClass(rp.id, rp.class);
+                if (locked) rp.class = locked;
             });
             
             if (typeof Game !== 'undefined') {
@@ -2441,11 +2542,16 @@ class MultiplayerManager {
         if (typeof onGameStart === 'function') {
             onGameStart(data);
         }
+
+        // Host startGame path may have created instances — lock again with freshest data
+        this.lockRunClasses();
     }
     
     // Handle return to nexus
     handleReturnToNexus(data) {
         console.log('[Multiplayer] Host returned to nexus, following...');
+
+        this.clearRunClassLocks();
         
         // Clear waiting flag - host has signaled return
         if (typeof Game !== 'undefined') {
@@ -3952,19 +4058,36 @@ class MultiplayerManager {
                         if (playerData.id !== this.playerId) {
                             // Get or create shadow instance
                             let shadowInstance = Game.remotePlayerShadowInstances.get(playerData.id);
-                            
-                            if (!shadowInstance || shadowInstance.playerClass !== playerData.class) {
-                                // Create new shadow instance
+                            const lockedClass = this.resolvePlayerClass(
+                                playerData.id,
+                                playerData.class || playerData.playerClass || null
+                            );
+
+                            // Never recreate mid-run from missing/wrong class chatter
+                            const needsCreate = !shadowInstance;
+                            const needsClassFix = shadowInstance &&
+                                !this.isRunClassLocked() &&
+                                playerData.class &&
+                                shadowInstance.playerClass !== playerData.class;
+                            const lockedMismatch = shadowInstance &&
+                                this.isRunClassLocked() &&
+                                shadowInstance.playerClass !== lockedClass;
+
+                            if (needsCreate || needsClassFix || lockedMismatch) {
                                 if (typeof createPlayer !== 'undefined') {
-                                    shadowInstance = createPlayer(playerData.class, playerData.x, playerData.y);
+                                    shadowInstance = createPlayer(lockedClass, playerData.x, playerData.y);
                                     shadowInstance.playerId = playerData.id;
                                     shadowInstance.lobbyName = playerData.name || null;
                                     Game.remotePlayerShadowInstances.set(playerData.id, shadowInstance);
-                                    console.log(`[Client] Created shadow instance for ${playerData.id} (${playerData.class})`);
+                                    console.log(`[Client] Created shadow instance for ${playerData.id} (${lockedClass})`);
                                 }
                             } else if (!shadowInstance.playerId) {
                                 shadowInstance.playerId = playerData.id;
                             }
+
+                            // Keep meta class aligned with lock
+                            playerData.class = lockedClass;
+                            playerData.playerClass = lockedClass;
                             
                             // Update shadow instance with host state
                             if (shadowInstance && Game.updateShadowInstance) {
@@ -3974,9 +4097,12 @@ class MultiplayerManager {
                     });
                 }
                 
-                // Verify and log remote player classes
+                // Verify remote player classes (prefer run lock)
                 this.remotePlayers.forEach(rp => {
-                    if (!rp.class) {
+                    const locked = this.getRunClass(rp.id, rp.class || rp.playerClass);
+                    if (locked) {
+                        rp.class = locked;
+                    } else if (!rp.class) {
                         console.warn(`[Client] Remote player ${rp.id} missing class! Using square as fallback.`);
                         rp.class = 'square';
                     }
@@ -4277,6 +4403,14 @@ class MultiplayerManager {
     
     // Update remote player (host only)
     updateRemotePlayer(playerState) {
+        if (!playerState || !playerState.id) return;
+
+        const lockedClass = this.resolvePlayerClass(playerState.id, playerState.class || playerState.playerClass || null);
+        if (lockedClass) {
+            playerState.class = lockedClass;
+            playerState.playerClass = lockedClass;
+        }
+
         // Find or create remote player in our list
         let remotePlayer = this.remotePlayers.find(p => p.id === playerState.id);
         
@@ -4285,12 +4419,14 @@ class MultiplayerManager {
         } else {
             // Update existing player
             Object.assign(remotePlayer, playerState);
+            if (lockedClass) remotePlayer.class = lockedClass;
         }
         
         // Also update in players list for lobby display
         const playerInList = this.players.find(p => p.id === playerState.id);
         if (playerInList) {
             Object.assign(playerInList, playerState);
+            if (lockedClass) playerInList.class = lockedClass;
         }
         
         // Store in Game object for rendering
@@ -4311,7 +4447,7 @@ class MultiplayerManager {
             return {
                 id: player.id,
                 name: player.name,
-                class: player.class || 'square', // CRITICAL: Copy class from lobby data
+                class: this.resolvePlayerClass(player.id, player.class || (existing && existing.class) || 'square'),
                 ready: player.ready,
                 // Preserve position if it exists
                 x: existing ? existing.x : (player.x !== undefined ? player.x : 300),
@@ -4445,6 +4581,7 @@ class MultiplayerManager {
         this.lastPlayerStateSnapshot = null;
         this.playerStateBuffer = [];
         this.playerLastUpdateTimes.clear();
+        this.clearRunClassLocks();
     }
     
     // Disconnect

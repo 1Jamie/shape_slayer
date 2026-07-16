@@ -106,6 +106,15 @@ test('server player_state_batch updates lobby player class', () => {
     assert.ok(source.includes('player.class = frame.class'));
 });
 
+test('run class locks freeze class for the run', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'multiplayer.js'), 'utf-8');
+    assert.ok(source.includes('lockRunClasses('));
+    assert.ok(source.includes('clearRunClassLocks('));
+    assert.ok(source.includes('resolvePlayerClass('));
+    assert.ok(source.includes('runClassLocks'));
+    assert.ok(source.includes('isRunClassLocked('));
+});
+
 test('boss-base serializes weakPoints', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'bosses', 'boss-base.js'), 'utf-8');
     assert.ok(source.includes('weakPoints:'));

@@ -2029,10 +2029,15 @@ const Game = {
                         const remoteMeta = (typeof multiplayerManager !== 'undefined' && multiplayerManager.remotePlayers)
                             ? multiplayerManager.remotePlayers.find(rp => rp.id === player.id)
                             : null;
-                        const className = (existing && existing.playerClass)
-                            || (remoteMeta && remoteMeta.class)
-                            || player.class
-                            || 'square';
+                        const className = (typeof multiplayerManager !== 'undefined' && multiplayerManager.resolvePlayerClass)
+                            ? multiplayerManager.resolvePlayerClass(
+                                player.id,
+                                (existing && existing.playerClass) || (remoteMeta && remoteMeta.class) || player.class
+                            )
+                            : ((existing && existing.playerClass)
+                                || (remoteMeta && remoteMeta.class)
+                                || player.class
+                                || 'square');
                         if (!existing || existing.playerClass !== className) {
                             this.initializeRemotePlayerInstance(player.id, className);
                         }
@@ -6308,6 +6313,11 @@ const Game = {
             return;
         }
 
+        if (typeof multiplayerManager !== 'undefined' && multiplayerManager &&
+            typeof multiplayerManager.clearRunClassLocks === 'function') {
+            multiplayerManager.clearRunClassLocks();
+        }
+
         // Safety net: abandon/death clears any leftover solo checkpoint
         if (typeof SaveSystem !== 'undefined' && SaveSystem.clearActiveRunCheckpoint) {
             SaveSystem.clearActiveRunCheckpoint();
@@ -6765,6 +6775,12 @@ const Game = {
 
         // Initialize per-player stats tracking
         this.initializePlayerStats();
+
+        // MP: freeze classes for the run (host path never goes through handleGameStart)
+        if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager &&
+            typeof multiplayerManager.lockRunClasses === 'function') {
+            multiplayerManager.lockRunClasses();
+        }
 
         this.showPauseMenu = false;
         this.pausedFromState = null;
@@ -7733,14 +7749,13 @@ const Game = {
 
     renderSimplifiedRemote(ctx, remote) {
         if (!remote) return;
-        const classDef = typeof CLASS_DEFINITIONS !== 'undefined' && CLASS_DEFINITIONS[remote.classType]
-            ? CLASS_DEFINITIONS[remote.classType]
-            : (typeof PLAYER_CLASSES !== 'undefined' && PLAYER_CLASSES[remote.playerClass]
-                ? PLAYER_CLASSES[remote.playerClass]
-                : { shape: 'square', color: '#ff1493' });
-        const color = classDef.color || remote.color || '#ff1493';
+        const classKey = remote.playerClass || remote.classType || remote.class || null;
+        const classDef = (classKey && typeof CLASS_DEFINITIONS !== 'undefined' && CLASS_DEFINITIONS[classKey])
+            ? CLASS_DEFINITIONS[classKey]
+            : null;
+        const color = remote.color || (classDef && classDef.color) || '#4a90e2';
         const size = remote.size || 20;
-        const shape = remote.shape || classDef.shape || 'square';
+        const shape = remote.shape || (classDef && classDef.shape) || 'square';
 
         if (this.glowCache && typeof this.getCachedGlowSprite === 'function') {
             const cached = this.getCachedGlowSprite(color);
