@@ -772,21 +772,12 @@ class Mage extends PlayerBase {
 
                         if (typeof createDamageNumber !== 'undefined') {
                             createDamageNumber(enemy.x, enemy.y, damageDealt, isCrit, false);
-
-                            // In multiplayer, send damage number event to clients
-                            if (typeof Game !== 'undefined' && Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
-                                multiplayerManager.send({
-                                    type: 'damage_number',
-                                    data: {
-                                        enemyId: enemy.id,
-                                        x: enemy.x,
-                                        y: enemy.y,
-                                        damage: Math.floor(damageDealt),
-                                        isCrit: isCrit,
-                                        isWeakPoint: false
-                                    }
-                                });
-                            }
+                        }
+                        if (typeof hostBroadcastDamageNumber === 'function') {
+                            hostBroadcastDamageNumber(enemy.x, enemy.y, damageDealt, {
+                                enemyId: enemy.id,
+                                isCrit
+                            });
                         }
 
                         // Push enemies away from explosion
@@ -1194,21 +1185,12 @@ class Mage extends PlayerBase {
 
             if (typeof createDamageNumber !== 'undefined') {
                 createDamageNumber(enemy.x, enemy.y, damageDealt, isCrit, false);
-
-                // In multiplayer, send damage number event to clients
-                if (typeof Game !== 'undefined' && Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
-                    multiplayerManager.send({
-                        type: 'damage_number',
-                        data: {
-                            enemyId: enemy.id,
-                            x: enemy.x,
-                            y: enemy.y,
-                            damage: Math.floor(damageDealt),
-                            isCrit: isCrit,
-                            isWeakPoint: false
-                        }
-                    });
-                }
+            }
+            if (typeof hostBroadcastDamageNumber === 'function') {
+                hostBroadcastDamageNumber(enemy.x, enemy.y, damageDealt, {
+                    enemyId: enemy.id,
+                    isCrit
+                });
             }
 
             hitCount++;
@@ -1454,8 +1436,16 @@ class Mage extends PlayerBase {
             blinkExplosionElapsed: this.blinkExplosionElapsed, // For correct explosion animation on clients
             blinkExplosionX: this.blinkExplosionX,
             blinkExplosionY: this.blinkExplosionY,
-            // Beam attack state
-            activeBeams: this.activeBeams,
+            // Beam attack state (omit hitEnemies Map — clients raycast for visuals)
+            activeBeams: (this.activeBeams || []).map(b => ({
+                beamId: b.beamId,
+                elapsed: b.elapsed,
+                lastTickTime: b.lastTickTime,
+                damageTickCount: b.damageTickCount,
+                origin: b.origin ? { x: b.origin.x, y: b.origin.y } : null,
+                direction: b.direction ? { x: b.direction.x, y: b.direction.y } : null,
+                playerId: b.playerId || null
+            })),
             beamCharges: this.beamCharges,
             beamChargeCooldowns: this.beamChargeCooldowns
         };
@@ -1477,7 +1467,14 @@ class Mage extends PlayerBase {
         if (state.blinkExplosionX !== undefined) this.blinkExplosionX = state.blinkExplosionX;
         if (state.blinkExplosionY !== undefined) this.blinkExplosionY = state.blinkExplosionY;
         // Beam attack state
-        if (state.activeBeams !== undefined) this.activeBeams = state.activeBeams;
+        if (state.activeBeams !== undefined) {
+            this.activeBeams = (state.activeBeams || []).map(b => ({
+                ...b,
+                origin: b.origin ? { ...b.origin } : { x: 0, y: 0 },
+                direction: b.direction ? { ...b.direction } : { x: 1, y: 0 },
+                hitEnemies: b.hitEnemies instanceof Map ? b.hitEnemies : new Map()
+            }));
+        }
         if (state.beamCharges !== undefined) this.beamCharges = state.beamCharges;
         if (state.beamChargeCooldowns !== undefined) this.beamChargeCooldowns = state.beamChargeCooldowns;
     }

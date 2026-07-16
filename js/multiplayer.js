@@ -27,6 +27,7 @@ class MultiplayerManager {
         this.projectileBroadcastInterval = 100; // limit projectile updates to 10 Hz
         this.lastProjectileBroadcast = 0;
         this.latestGameState = null;
+        this.forceFullState = false; // Host: next sendGameState must be a full snapshot
         
         // Latency tracking
         this.rttSamples = []; // Array of RTT measurements
@@ -54,10 +55,41 @@ class MultiplayerManager {
         this.maxPacketArrivalSamples = 20; // Keep last 20 arrival times for jitter calculation
         
         // Client-side prediction with rollback
-        this.inputHistory = []; // Array of {timestamp, input, position} for rollback
-        this.maxInputHistorySize = 60; // Keep ~1 second of history at 60fps
-        this.lastConfirmedState = null; // Last state confirmed by host
-        this.predictionEnabled = true; // Enable/disable prediction
+        this.inputHistory = []; // Array of { inputSeq, input, dt, timestamp }
+        this.maxInputHistorySize = (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.INPUT_HISTORY_SIZE)
+            ? MultiplayerConfig.INPUT_HISTORY_SIZE
+            : 90;
+        this.lastConfirmedState = null; // { inputSeq, x, y, rotation, vx, vy }
+        this.predictionEnabled = (typeof MultiplayerConfig !== 'undefined')
+            ? MultiplayerConfig.PREDICTION_ENABLED !== false
+            : true;
+        this.lastSentInputSeq = 0; // Latest inputSeq attached to outbound input
+
+        // Prediction divergence / drift self-correction (clients)
+        this.predictionStats = this.createEmptyPredictionStats();
+        this.driftSamples = []; // { dx, dy, mag } recent reconcile corrections
+        this.driftBiasX = 0;
+        this.driftBiasY = 0;
+        this.driftCoherence = 0;
+    }
+
+    createEmptyPredictionStats() {
+        return {
+            reconciles: 0,
+            softIgnores: 0,
+            mediumBlends: 0,
+            hardSnaps: 0,
+            significantDivergences: 0,
+            lastDivergencePx: 0,
+            maxDivergencePx: 0,
+            avgDivergencePx: 0,
+            divergenceSum: 0,
+            lastReplaySteps: 0,
+            lastMode: 'none',
+            driftBiasMag: 0,
+            driftCoherence: 0,
+            driftActive: false
+        };
     }
     
     // Connect to multiplayer server
@@ -169,6 +201,7 @@ class MultiplayerManager {
                     this.handleRoomTransition(msg.data);
                     break;
                 case 'enemy_damaged':
+                    // Legacy: thin clients no longer send this; host still accepts for old clients
                     this.handleEnemyDamaged(msg.data);
                     break;
                 case 'enemy_state_update':
@@ -178,6 +211,7 @@ class MultiplayerManager {
                     this.handleRevivePlayers(msg.data);
                     break;
                 case 'player_damaged':
+                    // Deprecated: HP syncs via game_state
                     this.handlePlayerDamaged(msg.data);
                     break;
                 case 'loot_pickup':
@@ -199,10 +233,17 @@ class MultiplayerManager {
                     this.handleShardsUpdate(msg.data);
                     break;
                 case 'upgrades_sync':
+                    // Unused: upgrades ride on game_state / player_state. Kept for forward-compat.
                     this.handleUpgradesSync(msg.data);
                     break;
                 case 'damage_number':
                     this.handleDamageNumber(msg.data);
+                    break;
+                case 'combat_fx':
+                    this.handleCombatFx(msg.data);
+                    break;
+                case 'resync_request':
+                    this.handleResyncRequest(msg.data);
                     break;
                 case 'final_stats':
                     this.handleFinalStats(msg.data);
@@ -523,8 +564,15 @@ class MultiplayerManager {
     buildPlayerStateDelta(state) {
         const prev = this.lastPlayerStateSnapshot;
         const now = Date.now();
+        // Prefer seq from prediction frame this tick; otherwise allocate for send-only paths
+        const seq = (this.lastSentInputSeq && this.lastSentInputSeq >= this.playerStateSeq)
+            ? this.lastSentInputSeq
+            : ++this.playerStateSeq;
+        this.playerStateSeq = Math.max(this.playerStateSeq, seq);
+        this.lastSentInputSeq = seq;
         const delta = {
-            sequence: ++this.playerStateSeq,
+            sequence: seq,
+            inputSeq: seq,
             id: state.id,
             clientTimestamp: state.clientTimestamp
         };
@@ -549,6 +597,10 @@ class MultiplayerManager {
         const inputChanged = !prev || !this.inputsEqual(prev.input, state.input);
         if (!prev || inputChanged) {
             delta.input = state.input;
+            if (delta.input && typeof delta.input === 'object') {
+                delta.input.inputSeq = delta.inputSeq;
+            }
+            this.lastSentInputSeq = delta.inputSeq;
         }
         
         const classChanged = !prev || prev.class !== state.class;
@@ -651,29 +703,37 @@ class MultiplayerManager {
             ) : [],
             
             // Serialize projectiles (only if in PLAYING state)
-            projectiles: (Game.state === 'PLAYING') ? Game.projectiles.map(proj => ({
-                id: proj.id || `proj-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // Generate ID if missing
-                x: proj.x,
-                y: proj.y,
-                vx: proj.vx,
-                vy: proj.vy,
-                size: proj.size,
-                type: proj.type,
-                color: proj.color,
-                damage: proj.damage,
-                lifetime: proj.lifetime,
-                elapsed: proj.elapsed,
-                trailLength: proj.trailLength,
-                trailColor: proj.trailColor,
-                baseAngle: proj.baseAngle,
-                baseSpeed: proj.baseSpeed,
-                waveAmplitude: proj.waveAmplitude,
-                waveFrequency: proj.waveFrequency,
-                wavePhase: proj.wavePhase,
-                waveClock: proj.waveClock,
-                playerId: proj.playerId || proj.ownerId || null,
-                ownerId: proj.ownerId || proj.playerId || null
-            })) : [],
+            // Ensure stable IDs on the live objects so clients can match across snapshots
+            projectiles: (Game.state === 'PLAYING') ? Game.projectiles.map(proj => {
+                if (typeof ensureProjectileId === 'function') {
+                    ensureProjectileId(proj);
+                } else if (!proj.id) {
+                    console.warn('[Multiplayer] Projectile missing id during serialize');
+                }
+                return {
+                    id: proj.id,
+                    x: proj.x,
+                    y: proj.y,
+                    vx: proj.vx,
+                    vy: proj.vy,
+                    size: proj.size,
+                    type: proj.type,
+                    color: proj.color,
+                    damage: proj.damage,
+                    lifetime: proj.lifetime,
+                    elapsed: proj.elapsed,
+                    trailLength: proj.trailLength,
+                    trailColor: proj.trailColor,
+                    baseAngle: proj.baseAngle,
+                    baseSpeed: proj.baseSpeed,
+                    waveAmplitude: proj.waveAmplitude,
+                    waveFrequency: proj.waveFrequency,
+                    wavePhase: proj.wavePhase,
+                    waveClock: proj.waveClock,
+                    playerId: proj.playerId || proj.ownerId || null,
+                    ownerId: proj.ownerId || proj.playerId || null
+                };
+            }) : [],
             
             // Serialize ground loot (only if in PLAYING state)
             groundLoot: (Game.state === 'PLAYING' && typeof groundLoot !== 'undefined')
@@ -700,9 +760,10 @@ class MultiplayerManager {
         const baseline = this.lastSentGameState;
         this.latestGameState = this.deepClone(state);
         
-        const needsFull = !baseline || (now - this.lastFullGameStateSentAt >= this.gameStateFullInterval);
+        const needsFull = this.forceFullState || !baseline || (now - this.lastFullGameStateSentAt >= this.gameStateFullInterval);
         
         if (needsFull) {
+            this.forceFullState = false;
             const fullState = this.deepClone(state);
             this.lastFullGameStateSentAt = now;
             this.lastProjectileBroadcast = now;
@@ -1048,7 +1109,10 @@ class MultiplayerManager {
             name: 'Player', // TODO: Add player name selection
             currency: currency,
             upgrades: upgrades,
-            ...playerState // All player state from player.serialize()
+            ...playerState, // All player state from player.serialize()
+            lastProcessedInputSeq: player.lastProcessedInputSeq != null
+                ? player.lastProcessedInputSeq
+                : (playerState.lastProcessedInputSeq != null ? playerState.lastProcessedInputSeq : null)
         };
     }
     
@@ -1062,19 +1126,8 @@ class MultiplayerManager {
         // Otherwise serialize fresh input (for initial states)
         const inputState = this.cachedInputSnapshot || this.serializeInput();
         
-        // Store input history for rollback (client-side prediction)
-        if (this.predictionEnabled && !this.isHost && Game.player) {
-            this.inputHistory.push({
-                timestamp: clientTimestamp,
-                input: this.deepClone(inputState),
-                position: { x: Game.player.x, y: Game.player.y, rotation: Game.player.rotation }
-            });
-            
-            // Limit history size
-            if (this.inputHistory.length > this.maxInputHistorySize) {
-                this.inputHistory.shift();
-            }
-        }
+        // Store input history for rollback (client-side prediction) — also recorded in predict loop with dt
+        // Serialize still tags seq for host ack; history with dt is owned by recordPredictionFrame()
         
         // Debug: Log when sending button releases for abilities
         if (inputState.isTouchMode && inputState.touchButtons) {
@@ -1212,6 +1265,7 @@ class MultiplayerManager {
         this.lobbyCode = data.code;
         this.playerId = data.playerId;
         this.isHost = data.isHost;
+        this.predictionEnabled = false; // Host is authoritative; no self-prediction
         this.players = data.players;
         this.updateRemotePlayers();
         
@@ -1308,6 +1362,9 @@ class MultiplayerManager {
         this.lobbyCode = data.code;
         this.playerId = data.playerId;
         this.isHost = data.isHost;
+        this.predictionEnabled = this.isHost
+            ? false
+            : ((typeof MultiplayerConfig !== 'undefined') ? MultiplayerConfig.PREDICTION_ENABLED !== false : true);
         this.players = data.players;
         this.updateRemotePlayers();
         
@@ -1560,14 +1617,36 @@ class MultiplayerManager {
         const wasHost = this.isHost;
         this.isHost = data.newHostId === this.playerId;
         
-        console.log(`[Multiplayer] Host migrated. Am I host? ${this.isHost} (new host: ${data.newHostId})`);
+        console.log(`[Multiplayer] Host migrated. Am I host? ${this.isHost} (new host: ${data.newHostId})${data.provisional ? ' (provisional)' : ''}`);
+
+        // Sequence space resets when a new host starts sending game_state
+        this.expectedSequence = null;
+        this.sequenceBuffer.clear();
+        this.lastSentGameState = null;
+        this.packetLossCount = 0;
+
+        if (this.isHost) {
+            // Promoted: stop predicting self; clear history
+            this.resetPredictionState({ clearHistory: true, reenableIfClient: false });
+            this.predictionEnabled = false;
+            this.forceFullState = true;
+            this.gameStateSequence = 0;
+        } else if (wasHost && !this.isHost) {
+            // Demoted: re-enable prediction after clearing host-side buffers
+            this.resetPredictionState({ clearHistory: true, reenableIfClient: true });
+            this.latestGameState = null;
+        } else {
+            // Stayed client under a new host: keep input history, clear confirm until new acks
+            this.lastConfirmedState = null;
+        }
         
         if (typeof Game !== 'undefined' && typeof Game.handleHostMigration === 'function') {
             Game.handleHostMigration({
                 wasHost,
                 isHost: this.isHost,
                 newHostId: data.newHostId,
-                previousHostId: data.previousHostId || null
+                previousHostId: data.previousHostId || null,
+                provisional: !!data.provisional
             });
         }
         
@@ -1760,12 +1839,40 @@ class MultiplayerManager {
     
     // Request resync from host (request full state)
     requestResync() {
+        const now = Date.now();
+        const cooldown = (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.RESYNC_REQUEST_COOLDOWN)
+            ? MultiplayerConfig.RESYNC_REQUEST_COOLDOWN
+            : 1000;
+        if (now - this.lastResyncRequest < cooldown) {
+            return;
+        }
+        this.lastResyncRequest = now;
+
         console.log('[Multiplayer] Requesting resync from host');
-        // Send resync request - host will send full state on next update
-        // We can also force a full state by clearing latestGameState
+        // Clear local sequence tracking so we re-baseline on the next full state
         this.latestGameState = null;
         this.expectedSequence = null;
         this.sequenceBuffer.clear();
+
+        if (!this.isHost && this.connected) {
+            this.send({
+                type: 'resync_request',
+                data: {
+                    playerId: this.playerId,
+                    timestamp: now
+                }
+            });
+        }
+    }
+
+    // Host: client asked for a full game_state snapshot
+    handleResyncRequest(data) {
+        if (!this.isHost) return;
+        console.log('[Multiplayer] Host received resync_request', data && data.playerId ? `from ${data.playerId}` : '');
+        this.forceFullState = true;
+        // Bypass throttle so the full state goes out ASAP
+        this.lastStateUpdate = 0;
+        this.sendGameState();
     }
     
     // Get packet loss and jitter metrics
@@ -1804,50 +1911,345 @@ class MultiplayerManager {
     
     // Handle prediction rollback when host correction arrives
     handlePredictionRollback(hostState) {
-        if (!Game.player || !this.lastConfirmedState) return;
-        
-        // Calculate difference between predicted and authoritative state
-        const predictedX = Game.player.x;
-        const predictedY = Game.player.y;
-        const authoritativeX = hostState.x;
-        const authoritativeY = hostState.y;
-        
-        const dx = authoritativeX - predictedX;
-        const dy = authoritativeY - predictedY;
+        this.reconcilePrediction(hostState);
+    }
+
+    /**
+     * Record a predicted frame for later rewind/replay.
+     * Owns the monotonic inputSeq shared with outbound player_state.
+     */
+    recordPredictionFrame(deltaTime, inputState) {
+        if (!this.predictionEnabled || this.isHost || !Game.player) return null;
+        const inputSeq = ++this.playerStateSeq;
+        this.lastSentInputSeq = inputSeq;
+        const clonedInput = this.deepClone(inputState || this.serializeInput());
+        if (clonedInput) {
+            clonedInput.inputSeq = inputSeq;
+            // Strip edge-trigger flags so rewind/replay cannot re-fire dodges/abilities
+            if (clonedInput.touchButtons) {
+                for (const btn of Object.values(clonedInput.touchButtons)) {
+                    if (btn && typeof btn === 'object') {
+                        btn.justPressed = false;
+                        btn.justReleased = false;
+                    }
+                }
+            }
+            if (clonedInput.keys) {
+                for (const key of Object.values(clonedInput.keys)) {
+                    if (key && typeof key === 'object') {
+                        key.justPressed = false;
+                        key.justReleased = false;
+                    }
+                }
+            }
+        }
+        this.inputHistory.push({
+            inputSeq,
+            input: clonedInput,
+            dt: deltaTime,
+            timestamp: Date.now()
+        });
+        while (this.inputHistory.length > this.maxInputHistorySize) {
+            this.inputHistory.shift();
+        }
+        return inputSeq;
+    }
+
+    /**
+     * Reconcile local prediction against host-authoritative pose + lastProcessedInputSeq.
+     * Small errors ignored; medium errors soft-blended + visual correction; large errors hard-snap.
+     * Tracks divergence for debug, learns coherent drift bias, caps replay length.
+     * Replay never starts new predicted dodges and does not apply drift bias.
+     */
+    reconcilePrediction(hostState) {
+        if (!Game.player || !hostState) return;
+        if (!this.predictionEnabled || this.isHost) return;
+
+        const softDist = (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.RECONCILE_SOFT_DISTANCE != null)
+            ? MultiplayerConfig.RECONCILE_SOFT_DISTANCE
+            : 5;
+        const snapDist = (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.RECONCILE_SNAP_DISTANCE != null)
+            ? MultiplayerConfig.RECONCILE_SNAP_DISTANCE
+            : 80;
+        let blendFactor = (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.RECONCILE_BLEND_FACTOR != null)
+            ? MultiplayerConfig.RECONCILE_BLEND_FACTOR
+            : 0.35;
+        const divergenceThreshold = (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.PREDICTION_DIVERGENCE_THRESHOLD != null)
+            ? MultiplayerConfig.PREDICTION_DIVERGENCE_THRESHOLD
+            : 8;
+        const maxReplaySteps = (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.PREDICTION_MAX_REPLAY_STEPS != null)
+            ? MultiplayerConfig.PREDICTION_MAX_REPLAY_STEPS
+            : 45;
+
+        const authX = hostState.x;
+        const authY = hostState.y;
+        if (typeof authX !== 'number' || typeof authY !== 'number') return;
+
+        // Align movement flags with host before measuring error / replaying
+        if (typeof Game.player.syncPredictedMovementFromHost === 'function') {
+            Game.player.syncPredictedMovementFromHost(hostState);
+        }
+
+        const lastProcessed = hostState.lastProcessedInputSeq;
+        if (lastProcessed != null) {
+            this.inputHistory = this.inputHistory.filter(entry => entry.inputSeq > lastProcessed);
+        }
+        if (this.inputHistory.length > maxReplaySteps) {
+            this.inputHistory = this.inputHistory.slice(this.inputHistory.length - maxReplaySteps);
+        }
+
+        const preX = Game.player.x;
+        const preY = Game.player.y;
+        const visualX = preX + (Game.player._predictionCorrectionX || 0);
+        const visualY = preY + (Game.player._predictionCorrectionY || 0);
+
+        const dx = authX - preX;
+        const dy = authY - preY;
         const distance = Math.sqrt(dx * dx + dy * dy);
-        
-        // Only rollback if difference is significant (more than 5 pixels)
-        // For smaller differences, let interpolation handle it smoothly
-        if (distance > 5) {
-            // Smooth rollback: Update interpolation targets instead of snapping
-            // This allows the interpolation system to smoothly correct the position
-            if (Game.player.targetX !== undefined) {
-                Game.player.targetX = authoritativeX;
-                Game.player.targetY = authoritativeY;
-                if (hostState.rotation !== undefined) {
-                    Game.player.targetRotation = hostState.rotation;
+
+        const stats = this.predictionStats || this.createEmptyPredictionStats();
+        this.predictionStats = stats;
+        stats.reconciles++;
+
+        // Tiny error and nothing to replay — leave predicted pose alone
+        if (distance <= softDist && this.inputHistory.length === 0) {
+            stats.softIgnores++;
+            stats.lastMode = 'soft';
+            stats.lastDivergencePx = distance;
+            stats.lastReplaySteps = 0;
+            this.updateDriftEstimator(dx, dy);
+            this.lastConfirmedState = {
+                inputSeq: lastProcessed != null ? lastProcessed : (this.lastConfirmedState && this.lastConfirmedState.inputSeq) || 0,
+                x: authX,
+                y: authY,
+                rotation: hostState.rotation,
+                vx: hostState.vx,
+                vy: hostState.vy
+            };
+            return;
+        }
+
+        // When drift is coherent, blend a bit harder toward host (still soft — not a snap)
+        if (stats.driftActive && this.driftCoherence > 0.55 && distance > softDist && distance <= snapDist) {
+            blendFactor = Math.min(0.72, blendFactor + 0.18 * this.driftCoherence);
+        }
+
+        let baseX;
+        let baseY;
+        let mode = 'replay';
+        if (distance > snapDist) {
+            mode = 'hard';
+            stats.hardSnaps++;
+            baseX = authX;
+            baseY = authY;
+            if (hostState.vx !== undefined) Game.player.vx = hostState.vx;
+            if (hostState.vy !== undefined) Game.player.vy = hostState.vy;
+            if (hostState.rotation !== undefined) {
+                Game.player.rotation = hostState.rotation;
+            }
+        } else if (distance > softDist) {
+            mode = 'medium';
+            stats.mediumBlends++;
+            baseX = Game.player.x + dx * blendFactor;
+            baseY = Game.player.y + dy * blendFactor;
+            if (hostState.vx !== undefined) {
+                Game.player.vx = Game.player.vx * (1 - blendFactor) + hostState.vx * blendFactor;
+            }
+            if (hostState.vy !== undefined) {
+                Game.player.vy = Game.player.vy * (1 - blendFactor) + hostState.vy * blendFactor;
+            }
+        } else {
+            mode = 'soft-replay';
+            stats.softIgnores++;
+            baseX = Game.player.x;
+            baseY = Game.player.y;
+        }
+
+        Game.player.x = baseX;
+        Game.player.y = baseY;
+        Game.player.targetX = authX;
+        Game.player.targetY = authY;
+        if (hostState.rotation !== undefined) {
+            Game.player.targetRotation = hostState.rotation;
+        }
+
+        // Replay unacked inputs: host moveSpeed, no new dodges, no forces, no drift bias
+        const hostMoveSpeed = (typeof hostState.moveSpeed === 'number') ? hostState.moveSpeed : undefined;
+        let replaySteps = 0;
+        if (typeof Game.player.predictMovementStep === 'function' && typeof Game.createRemoteInputAdapter === 'function') {
+            for (let i = 0; i < this.inputHistory.length; i++) {
+                const entry = this.inputHistory[i];
+                const adapter = Game.createRemoteInputAdapter(entry.input, Game.player);
+                Game.player.predictMovementStep(entry.dt || (1 / 60), adapter, {
+                    allowPredictedDodge: false,
+                    applyForces: false,
+                    applyAim: false,
+                    applyDriftBias: false,
+                    moveSpeedOverride: hostMoveSpeed
+                });
+                replaySteps++;
+            }
+        }
+
+        // Post-replay divergence vs pre-reconcile pose (how far we actually moved the sim)
+        const postDx = Game.player.x - preX;
+        const postDy = Game.player.y - preY;
+        const correctionPx = Math.sqrt(postDx * postDx + postDy * postDy);
+        stats.lastDivergencePx = correctionPx;
+        stats.lastReplaySteps = replaySteps;
+        stats.lastMode = mode;
+        stats.divergenceSum += correctionPx;
+        stats.avgDivergencePx = stats.divergenceSum / Math.max(1, stats.reconciles);
+        if (correctionPx > stats.maxDivergencePx) {
+            stats.maxDivergencePx = correctionPx;
+        }
+        if (correctionPx > divergenceThreshold) {
+            stats.significantDivergences++;
+            if (typeof DebugFlags !== 'undefined' && DebugFlags.PREDICTION_DIVERGENCE) {
+                console.log(
+                    `[Prediction] divergence ${correctionPx.toFixed(1)}px mode=${mode} ` +
+                    `replay=${replaySteps} bias=${Math.hypot(this.driftBiasX, this.driftBiasY).toFixed(1)}`
+                );
+            }
+        }
+
+        // Feed error pattern (auth - predicted) into drift estimator
+        this.updateDriftEstimator(dx, dy);
+
+        // Hide remaining visual discontinuity by decaying correction offset
+        Game.player._predictionCorrectionX = visualX - Game.player.x;
+        Game.player._predictionCorrectionY = visualY - Game.player.y;
+        const maxCorr = snapDist;
+        const corrMag = Math.sqrt(
+            Game.player._predictionCorrectionX * Game.player._predictionCorrectionX +
+            Game.player._predictionCorrectionY * Game.player._predictionCorrectionY
+        );
+        if (corrMag > maxCorr) {
+            const s = maxCorr / corrMag;
+            Game.player._predictionCorrectionX *= s;
+            Game.player._predictionCorrectionY *= s;
+        }
+
+        this.lastConfirmedState = {
+            inputSeq: lastProcessed != null ? lastProcessed : 0,
+            x: Game.player.x,
+            y: Game.player.y,
+            rotation: Game.player.rotation,
+            vx: Game.player.vx,
+            vy: Game.player.vy
+        };
+    }
+
+    /**
+     * Detect coherent directional reconcile error and maintain a gentle drift bias
+     * for live prediction self-correction.
+     */
+    updateDriftEstimator(errorDx, errorDy) {
+        const windowSize = (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.PREDICTION_DRIFT_WINDOW != null)
+            ? MultiplayerConfig.PREDICTION_DRIFT_WINDOW
+            : 12;
+        const coherenceMin = (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.PREDICTION_DRIFT_COHERENCE != null)
+            ? MultiplayerConfig.PREDICTION_DRIFT_COHERENCE
+            : 0.62;
+        const minMean = (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.PREDICTION_DRIFT_MIN_MEAN != null)
+            ? MultiplayerConfig.PREDICTION_DRIFT_MIN_MEAN
+            : 4;
+        const strength = (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.PREDICTION_DRIFT_STRENGTH != null)
+            ? MultiplayerConfig.PREDICTION_DRIFT_STRENGTH
+            : 0.45;
+        const maxBias = (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.PREDICTION_DRIFT_MAX != null)
+            ? MultiplayerConfig.PREDICTION_DRIFT_MAX
+            : 28;
+        const decay = (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.PREDICTION_DRIFT_DECAY != null)
+            ? MultiplayerConfig.PREDICTION_DRIFT_DECAY
+            : 0.92;
+
+        const mag = Math.sqrt(errorDx * errorDx + errorDy * errorDy);
+        if (!this.driftSamples) this.driftSamples = [];
+        this.driftSamples.push({ dx: errorDx, dy: errorDy, mag });
+        while (this.driftSamples.length > windowSize) {
+            this.driftSamples.shift();
+        }
+
+        let coherence = 0;
+        if (this.driftSamples.length >= 3) {
+            let sumX = 0;
+            let sumY = 0;
+            let sumMag = 0;
+            for (let i = 0; i < this.driftSamples.length; i++) {
+                sumX += this.driftSamples[i].dx;
+                sumY += this.driftSamples[i].dy;
+                sumMag += this.driftSamples[i].mag;
+            }
+            const n = this.driftSamples.length;
+            const meanX = sumX / n;
+            const meanY = sumY / n;
+            const meanMag = Math.sqrt(meanX * meanX + meanY * meanY);
+            const avgMag = sumMag / n;
+            coherence = meanMag / (avgMag + 1e-6);
+            this.driftCoherence = coherence;
+
+            if (meanMag >= minMean && coherence >= coherenceMin) {
+                this.driftBiasX += (meanX - this.driftBiasX) * strength;
+                this.driftBiasY += (meanY - this.driftBiasY) * strength;
+                const biasMag = Math.sqrt(this.driftBiasX * this.driftBiasX + this.driftBiasY * this.driftBiasY);
+                if (biasMag > maxBias) {
+                    const s = maxBias / biasMag;
+                    this.driftBiasX *= s;
+                    this.driftBiasY *= s;
                 }
             } else {
-                // Fallback: direct update if targets not available
-                Game.player.x = authoritativeX;
-                Game.player.y = authoritativeY;
-                if (hostState.rotation !== undefined) {
-                    Game.player.rotation = hostState.rotation;
-                }
+                this.driftBiasX *= decay;
+                this.driftBiasY *= decay;
+                if (Math.abs(this.driftBiasX) < 0.4) this.driftBiasX = 0;
+                if (Math.abs(this.driftBiasY) < 0.4) this.driftBiasY = 0;
             }
-            
-            // Clean up input history older than confirmed state timestamp
-            const confirmedTime = this.lastConfirmedState.timestamp;
-            this.inputHistory = this.inputHistory.filter(entry => entry.timestamp >= confirmedTime);
         } else {
-            // Small difference - just update targets for smooth correction
-            if (Game.player.targetX !== undefined) {
-                Game.player.targetX = authoritativeX;
-                Game.player.targetY = authoritativeY;
-                if (hostState.rotation !== undefined) {
-                    Game.player.targetRotation = hostState.rotation;
-                }
-            }
+            this.driftCoherence = 0;
+        }
+
+        const biasMag = Math.sqrt(this.driftBiasX * this.driftBiasX + this.driftBiasY * this.driftBiasY);
+        const stats = this.predictionStats || this.createEmptyPredictionStats();
+        this.predictionStats = stats;
+        stats.driftBiasMag = biasMag;
+        stats.driftCoherence = this.driftCoherence;
+        stats.driftActive = biasMag > 1.25 && this.driftCoherence >= coherenceMin * 0.85;
+    }
+
+    getPredictionDebugStats() {
+        const stats = this.predictionStats || this.createEmptyPredictionStats();
+        return {
+            ...stats,
+            historyLen: this.inputHistory ? this.inputHistory.length : 0,
+            driftBiasX: this.driftBiasX || 0,
+            driftBiasY: this.driftBiasY || 0,
+            lastSentInputSeq: this.lastSentInputSeq || 0,
+            predictionEnabled: !!this.predictionEnabled,
+            isHost: !!this.isHost
+        };
+    }
+
+    resetPredictionState({ clearHistory = true, reenableIfClient = true } = {}) {
+        if (clearHistory) {
+            this.inputHistory = [];
+        }
+        this.lastConfirmedState = null;
+        this.driftSamples = [];
+        this.driftBiasX = 0;
+        this.driftBiasY = 0;
+        this.driftCoherence = 0;
+        this.predictionStats = this.createEmptyPredictionStats();
+        if (typeof Game !== 'undefined' && Game.player) {
+            Game.player._predictionCorrectionX = 0;
+            Game.player._predictionCorrectionY = 0;
+            Game.player._predictedDodgeActive = false;
+        }
+        if (reenableIfClient && !this.isHost) {
+            this.predictionEnabled = (typeof MultiplayerConfig !== 'undefined')
+                ? MultiplayerConfig.PREDICTION_ENABLED !== false
+                : true;
+        } else if (this.isHost) {
+            this.predictionEnabled = false;
         }
     }
     
@@ -1956,7 +2358,22 @@ class MultiplayerManager {
         
         // Store the client's input state for simulation
         if (data.input && typeof Game !== 'undefined' && Game.storeRemotePlayerInput) {
-            Game.storeRemotePlayerInput(data.id, data.input);
+            const inputPayload = data.input;
+            if (data.inputSeq != null && inputPayload && inputPayload.inputSeq == null) {
+                inputPayload.inputSeq = data.inputSeq;
+            } else if (data.sequence != null && inputPayload && inputPayload.inputSeq == null) {
+                inputPayload.inputSeq = data.sequence;
+            }
+            Game.storeRemotePlayerInput(data.id, inputPayload);
+        } else if ((data.inputSeq != null || data.sequence != null) && typeof Game !== 'undefined' && Game.remotePlayerInstances) {
+            // Transform-only / heartbeat frame still advances ack seq for prediction reconcile
+            const instance = Game.remotePlayerInstances.get(data.id);
+            if (instance) {
+                const seq = data.inputSeq != null ? data.inputSeq : data.sequence;
+                if (seq != null && (instance.lastProcessedInputSeq == null || seq >= instance.lastProcessedInputSeq)) {
+                    instance.lastProcessedInputSeq = seq;
+                }
+            }
         }
         
         // Update remote player in our game state (for rendering)
@@ -1983,6 +2400,8 @@ class MultiplayerManager {
             if (frame.currency !== undefined) payload.currency = frame.currency;
             if (frame.upgrades !== undefined) payload.upgrades = frame.upgrades;
             if (frame.sequence !== undefined) payload.sequence = frame.sequence;
+            if (frame.inputSeq !== undefined) payload.inputSeq = frame.inputSeq;
+            else if (frame.sequence !== undefined) payload.inputSeq = frame.sequence;
             
             this.handlePlayerState(payload);
         });
@@ -2290,20 +2709,13 @@ class MultiplayerManager {
         }
         
         // Broadcast damage number event to all clients for visual feedback
-        if (typeof DebugFlags !== 'undefined' && DebugFlags.DAMAGE_NUMBERS) {
-            console.log(`[Host] Sending damage_number to clients: enemyId=${enemy.id}, coords=(${enemy.x}, ${enemy.y}), damage=${Math.floor(damageDealt)}`);
-        }
-        
-        this.send({
-            type: 'damage_number',
-            data: {
-                enemyId: enemy.id,
-                x: enemy.x,
-                y: enemy.y,
-                damage: Math.floor(damageDealt),
-                isCrit: false, // Melee attacks: crit info not passed from client yet
-                isWeakPoint: hitWeakPoint || false
-            }
+        this.sendDamageNumber({
+            enemyId: enemy.id,
+            x: enemy.x,
+            y: enemy.y,
+            damage: damageDealt,
+            isCrit: false,
+            isWeakPoint: hitWeakPoint || false
         });
         
         // Broadcast state update to all clients (including the attacker for validation)
@@ -2973,6 +3385,31 @@ class MultiplayerManager {
         }
     }
     
+    // Host helpers: broadcast combat visuals to clients
+    sendDamageNumber({ enemyId = null, x, y, damage, isCrit = false, isWeakPoint = false } = {}) {
+        if (!this.isHost || !this.connected) return;
+        if (typeof x !== 'number' || typeof y !== 'number' || typeof damage !== 'number') return;
+        this.send({
+            type: 'damage_number',
+            data: {
+                enemyId,
+                x,
+                y,
+                damage: Math.floor(damage),
+                isCrit: !!isCrit,
+                isWeakPoint: !!isWeakPoint
+            }
+        });
+    }
+
+    sendCombatFx(fx) {
+        if (!this.isHost || !this.connected || !fx || !fx.kind) return;
+        this.send({
+            type: 'combat_fx',
+            data: fx
+        });
+    }
+
     // Handle damage number event (from host)
     handleDamageNumber(data) {
         if (this.isHost) return; // Host doesn't need to receive their own damage numbers
@@ -3045,6 +3482,45 @@ class MultiplayerManager {
             } else if (AudioManager.sounds.hitNormal) {
                 AudioManager.sounds.hitNormal(intensity);
             }
+        }
+    }
+
+    // Handle combat FX (particles, lightning, explosions) from host — display-only client simulation
+    handleCombatFx(data) {
+        if (this.isHost) return;
+        if (!data || !data.kind) return;
+
+        switch (data.kind) {
+            case 'particle_burst':
+                if (typeof createParticleBurst === 'function') {
+                    createParticleBurst(data.x, data.y, data.color || '#ffffff', data.count || 10);
+                }
+                break;
+            case 'lightning_arc':
+                if (typeof createLightningArc === 'function') {
+                    createLightningArc(data.x1, data.y1, data.x2, data.y2);
+                }
+                break;
+            case 'explosion':
+                if (typeof Game !== 'undefined') {
+                    if (!Game.explosions) Game.explosions = [];
+                    Game.explosions.push({
+                        x: data.x,
+                        y: data.y,
+                        radius: data.radius || 40,
+                        maxRadius: data.maxRadius || data.radius || 40,
+                        life: data.life || 0.4,
+                        maxLife: data.maxLife || data.life || 0.4,
+                        color: data.color || '#ff6600',
+                        alpha: 1
+                    });
+                }
+                if (typeof createParticleBurst === 'function') {
+                    createParticleBurst(data.x, data.y, data.color || '#ff6600', data.count || 15);
+                }
+                break;
+            default:
+                break;
         }
     }
     
@@ -3393,23 +3869,20 @@ class MultiplayerManager {
         if (state.players) {
             state.players.forEach(playerData => {
                 if (playerData.id === this.playerId) {
-                    // This is our player - apply authoritative state from host
-                    // Handle client-side prediction rollback if enabled
-                    if (this.predictionEnabled && !this.isHost && this.lastConfirmedState) {
-                        this.handlePredictionRollback(playerData);
-                    }
-                    
-                    // Store confirmed state for rollback
-                    this.lastConfirmedState = {
-                        x: playerData.x,
-                        y: playerData.y,
-                        rotation: playerData.rotation,
-                        timestamp: Date.now()
-                    };
-                    
-                    // Let the player apply its own state! (clean architecture)
+                    // Local player: apply non-transform host fields, then reconcile prediction
                     if (typeof Game !== 'undefined' && Game.player && Game.player.applyState) {
-                        Game.player.applyState(playerData);
+                        const skipTransform = this.predictionEnabled && !this.isHost;
+                        Game.player.applyState(playerData, { skipTransform });
+                    }
+
+                    if (this.predictionEnabled && !this.isHost) {
+                        this.reconcilePrediction(playerData);
+                    } else if (typeof Game !== 'undefined' && Game.player) {
+                        // No prediction: keep prior interpolate behavior via applyState targets
+                        if (playerData.x !== undefined) {
+                            Game.player.targetX = playerData.x;
+                            Game.player.targetY = playerData.y;
+                        }
                     }
                     
                     // Sync currency and upgrades from host (authoritative)
@@ -3541,9 +4014,13 @@ class MultiplayerManager {
                             if (enemy) {
                                 Game.enemies.push(enemy);
                                 console.log(`[Client] Created enemy ${enemyUpdate.id} (${enemyUpdate.shape}) from host data`);
+                                // Apply full serialized state (boss attacks/phases/hazards, telegraphs, etc.)
+                                if (enemy.applyState) {
+                                    enemy.applyState(enemyUpdate);
+                                }
                             }
                         }
-                        return; // Enemy is already fully initialized from data
+                        return;
                     }
                     
                     // Let the enemy apply its own state! (clean architecture)
@@ -3578,8 +4055,11 @@ class MultiplayerManager {
                 const newProjectiles = [];
                 state.projectiles.forEach(hostProj => {
                     if (!hostProj.id) {
-                        // Host projectile missing ID - generate one (shouldn't happen, but safety)
-                        hostProj.id = `proj-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                        if (typeof generateProjectileId === 'function') {
+                            hostProj.id = generateProjectileId();
+                        } else {
+                            hostProj.id = `proj-fallback-${Date.now()}`;
+                        }
                     }
                     
                     let matchingProj = projectileMap.get(hostProj.id);
@@ -3686,7 +4166,9 @@ class MultiplayerManager {
                     }
                 });
                 
-                Game.projectiles = newProjectiles;
+                Game.projectiles = (typeof createProjectileList === 'function')
+                    ? createProjectileList(newProjectiles)
+                    : newProjectiles;
             }
             
             // Update ground loot (authoritative from host)

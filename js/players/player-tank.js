@@ -659,6 +659,12 @@ class Tank extends PlayerBase {
                                 if (typeof createDamageNumber !== 'undefined') {
                                     createDamageNumber(body.x, body.y, damageDealt, true);
                                 }
+                                if (typeof hostBroadcastDamageNumber === 'function') {
+                                    hostBroadcastDamageNumber(body.x, body.y, damageDealt, {
+                                        enemyId: enemy.id,
+                                        isCrit: true
+                                    });
+                                }
                                 const knockbackForce = TANK_CONFIG.shieldWaveKnockback;
                                 enemy.applyKnockback(playerDirX * knockbackForce, playerDirY * knockbackForce);
                             }

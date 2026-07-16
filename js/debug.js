@@ -9,6 +9,7 @@ const DebugFlags = {
     ADAPTIVE_RENDER_QUALITY: true, // Reduce optional render resolution/frequency under sustained pressure
     RENDER_TIMING: false, // Track ground loot / player gear / remote player render sub-timings
     ROOM_LAYOUT: false, // Draw generated room collision grid, spawn, and exit zones
+    PREDICTION_DIVERGENCE: false, // Log significant client prediction divergences to console
 
     // Toggle a debug flag from console: DebugFlags.DAMAGE_NUMBERS = true
     enable(flagName) {
@@ -176,6 +177,10 @@ const DebugPanel = {
             <div style="margin-bottom: 15px; padding-top: 10px; border-top: 1px solid #00ff00;">
                 <div style="margin-bottom: 8px; font-weight: bold;">Combat Scaling</div>
                 <div id="debugScalingFactors" style="font-size: 11px; color: #88ff88; line-height: 1.4;">-</div>
+            </div>
+            <div id="debugMpPredictionSection" style="margin-bottom: 15px; padding-top: 10px; border-top: 1px solid #00ff00; display: none;">
+                <div style="margin-bottom: 8px; font-weight: bold;">MP Prediction</div>
+                <div id="debugMpPrediction" style="font-size: 11px; color: #88ff88; line-height: 1.45; white-space: pre-wrap;">-</div>
             </div>
             <div style="margin-bottom: 15px; padding-top: 10px; border-top: 1px solid #00ff00;">
                 <div style="margin-bottom: 8px; font-weight: bold;">Cheats</div>
@@ -502,7 +507,45 @@ const DebugPanel = {
                 `intel=${f.intelligence.toFixed(2)} count=${f.enemyCount}`;
         }
 
+        this.updateMpPredictionSection();
         this.updateBossSection();
+    },
+
+    updateMpPredictionSection() {
+        if (!this.panelElement) return;
+        const section = this.panelElement.querySelector('#debugMpPredictionSection');
+        const el = this.panelElement.querySelector('#debugMpPrediction');
+        if (!section || !el) return;
+
+        const mpEnabled = typeof Game !== 'undefined' && Game.multiplayerEnabled;
+        const mm = (typeof multiplayerManager !== 'undefined') ? multiplayerManager : null;
+        if (!mpEnabled || !mm || typeof mm.getPredictionDebugStats !== 'function') {
+            section.style.display = 'none';
+            return;
+        }
+
+        section.style.display = 'block';
+        const s = mm.getPredictionDebugStats();
+        if (s.isHost) {
+            el.textContent = 'Role: HOST (no client prediction)\nPrediction off on authority.';
+            return;
+        }
+
+        const rate = s.reconciles > 0
+            ? ((s.significantDivergences / s.reconciles) * 100).toFixed(1)
+            : '0.0';
+        const rtt = (typeof mm.currentRTT === 'number' && isFinite(mm.currentRTT))
+            ? `${Math.round(mm.currentRTT)}ms`
+            : '-';
+
+        el.textContent =
+            `Role: CLIENT  pred=${s.predictionEnabled ? 'on' : 'off'}  RTT=${rtt}\n` +
+            `Reconciles: ${s.reconciles}  sigDiv: ${s.significantDivergences} (${rate}%)\n` +
+            `Modes soft/med/hard: ${s.softIgnores}/${s.mediumBlends}/${s.hardSnaps}\n` +
+            `Last: ${s.lastDivergencePx.toFixed(1)}px  avg: ${s.avgDivergencePx.toFixed(1)}  max: ${s.maxDivergencePx.toFixed(1)}\n` +
+            `Replay steps: ${s.lastReplaySteps}  hist: ${s.historyLen}  mode: ${s.lastMode}\n` +
+            `Drift: ${s.driftActive ? 'ACTIVE' : 'idle'}  |bias|=${s.driftBiasMag.toFixed(1)}  coh=${s.driftCoherence.toFixed(2)}\n` +
+            `bias=(${s.driftBiasX.toFixed(1)}, ${s.driftBiasY.toFixed(1)})  seq=${s.lastSentInputSeq}`;
     },
 
     getCurrentBoss() {

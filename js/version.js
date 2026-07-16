@@ -3,7 +3,7 @@
 
 const GameVersion = {
   // Keep sw.js CACHE_VERSION in sync when bumping this.
-  VERSION: '0.8.0',
+  VERSION: '0.8.1',
 
   UPDATE_MESSAGES: {
     '0.2.1': 'Initial early access release! Please report any bugs you find at https://github.com/1jamie/shape_slayer/issues',
@@ -699,6 +699,39 @@ Room 200 is still gonna suck in the fun way i hope, but I'm not handing it to yo
 
 *P.P.P.P.S. - These notes are too long. I think most README.md are shorter, I know. I'm tired. Send coffee or a Room 200 screenshot.*
 `,
+    '0.8.1': `**🌐 UPDATE 0.8.1: THE "STOP TELEPORTING, PLEASE" UPDATE** (07/15/2026)
+*"Clients used to wait politely for the host before they moved. Honest. Also rubber-band city. I fixed the honesty problem without handing clients the combat keys."*
+
+---
+
+## **⚔️ PART 1: MULTIPLAYER STOPPED LYING TO YOUR EYES**
+*"If the host saw fireworks and you saw polite silence, that was several bugs sharing an apartment. Evicted them."*
+
+• Damage numbers, combat FX, projectiles, beams, DoTs, and friends actually show up on clients now
+• Resync actually forces a full state instead of vibes
+• First enemy/boss after spawn stops being a ghost until something else ticks
+  *"Clients still don't own combat. They just get to watch the same movie."*
+
+---
+
+## **🕹️ PART 2: YOU PRESS W AND YOU MOVE**
+*"Wild concept for a host-authoritative game. Took a minute."*
+
+• Clients predict movement (and dodge when it won't explode the timeline) while the host stays boss
+• When the host correction arrives: soft blend for medium oopsies, hard snap only if you desynced into another zip code
+• Replay won't re-fire dodges or compound ability state into more rubber bands
+• Host dips? Someone else gets promoted without the lobby staring into the void
+• Bonus: if the game keeps drifting the same direction, a tiny self-correct layer notices and gently stops being wrong that way
+  *"Ctrl+D → MP Prediction if you want the receipts. Or \`DebugFlags.PREDICTION_DIVERGENCE = true\` if you like reading pain."*
+
+---
+
+## **🎯 FINAL WORDS**
+
+*TL;DR:* Multiplayer combat looks the same on every screen. Clients predict movement with rollback. Host migration is less of a cliff. Rubber bands got manners.*
+
+*P.S. - If your rubber band survives this patch, send me the MP Prediction numbers. I collect them now. you can find them in the debug pannel by hitting ctrl+d during a mp run.*
+`,
   },
 
   // Update type labels - can be: 'major', 'feature', 'minor', 'hotfix', 'bugfix', 'refactor', 'rebalance'
@@ -717,7 +750,8 @@ Room 200 is still gonna suck in the fun way i hope, but I'm not handing it to yo
     '0.6.0': ['major', 'feature', 'visuals'],
     '0.6.1': ['minor', 'feature', 'hotfix'],
     '0.7.0': ['major', 'feature', 'rebalance'],
-    '0.8.0': ['major', 'feature', 'rebalance', 'visuals']
+    '0.8.0': ['major', 'feature', 'rebalance', 'visuals'],
+    '0.8.1': ['minor', 'feature', 'hotfix']
   }
 };
 

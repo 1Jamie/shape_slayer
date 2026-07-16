@@ -1,5 +1,26 @@
 // Combat system - damage calculation and combat checks
 
+// Host → clients: floating damage numbers (display-only on clients)
+function hostBroadcastDamageNumber(x, y, damage, options = {}) {
+    if (typeof Game === 'undefined' || !Game.multiplayerEnabled) return;
+    if (typeof multiplayerManager === 'undefined' || !multiplayerManager || !multiplayerManager.isHost) return;
+    multiplayerManager.sendDamageNumber({
+        enemyId: options.enemyId || null,
+        x,
+        y,
+        damage,
+        isCrit: !!options.isCrit,
+        isWeakPoint: !!options.isWeakPoint
+    });
+}
+
+// Host → clients: particles / lightning / explosions (display-only on clients)
+function hostBroadcastCombatFx(fx) {
+    if (typeof Game === 'undefined' || !Game.multiplayerEnabled) return;
+    if (typeof multiplayerManager === 'undefined' || !multiplayerManager || !multiplayerManager.isHost) return;
+    multiplayerManager.sendCombatFx(fx);
+}
+
 // Circle collision detection helper
 function checkCircleCollision(x1, y1, r1, x2, y2, r2) {
     const dx = x2 - x1;
@@ -674,6 +695,13 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                         if (typeof createParticleBurst !== 'undefined') {
                             createParticleBurst(enemy.x, enemy.y, '#ff0000', 5);
                         }
+                        hostBroadcastCombatFx({
+                            kind: 'particle_burst',
+                            x: enemy.x,
+                            y: enemy.y,
+                            color: '#ff0000',
+                            count: 5
+                        });
                     }
                     
                     // Volatile Core: Chance to explode on hit
@@ -696,6 +724,9 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                                 if (typeof createDamageNumber !== 'undefined') {
                                     createDamageNumber(nearbyEnemy.x, nearbyEnemy.y, Math.floor(explosionDamage), false, false);
                                 }
+                                hostBroadcastDamageNumber(nearbyEnemy.x, nearbyEnemy.y, explosionDamage, {
+                                    enemyId: nearbyEnemy.id
+                                });
                             }
                         });
                         
@@ -704,6 +735,14 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                             createParticleBurst(enemy.x, enemy.y, '#ff6600', 15);
                             createParticleBurst(enemy.x, enemy.y, '#ff9900', 10);
                         }
+                        hostBroadcastCombatFx({
+                            kind: 'explosion',
+                            x: enemy.x,
+                            y: enemy.y,
+                            color: '#ff6600',
+                            radius: explosionRadius,
+                            count: 15
+                        });
                     }
                     
                 }
@@ -835,14 +874,8 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                     });
                 }
                 
-                // Multiplayer: Send damage event to host (clients send for host to process)
-                if (isClient) {
-                    const enemyIndex = Game.getEnemyIndex(enemy);
-                    if (enemyIndex !== -1) {
-                        // Send raw finalDamage, not capped by HP, so host can calculate correctly
-                        Game.sendEnemyDamageEvent(enemyIndex, finalDamage, hitbox.x, hitbox.y, hitbox.radius, hitWeakPoint);
-                    }
-                }
+                // Legacy thin-client enemy_damaged path removed: clients no longer run attack checks;
+                // host simulates all melee and syncs via game_state + damage_number / combat_fx.
                 
                 // Create damage number (host only - clients receive via damage_number event)
                 if (!isClient && typeof createDamageNumber !== 'undefined') {
@@ -858,23 +891,11 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                     createDamageNumber(damageX, damageY, damageDealt, isCrit, hitWeakPoint);
                     
                     // In multiplayer, send damage number event to clients
-                    if (typeof Game !== 'undefined' && Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
-                        if (typeof DebugFlags !== 'undefined' && DebugFlags.DAMAGE_NUMBERS) {
-                            console.log(`[Host/Melee] Sending damage_number to clients: enemyId=${enemy.id}, coords=(${damageX}, ${damageY}), damage=${Math.floor(damageDealt)}, isCrit=${isCrit}`);
-                        }
-                        
-                        multiplayerManager.send({
-                            type: 'damage_number',
-                            data: {
-                                enemyId: enemy.id,
-                                x: damageX,
-                                y: damageY,
-                                damage: Math.floor(damageDealt),
-                                isCrit: isCrit,
-                                isWeakPoint: hitWeakPoint
-                            }
-                        });
-                    }
+                    hostBroadcastDamageNumber(damageX, damageY, damageDealt, {
+                        enemyId: enemy.id,
+                        isCrit,
+                        isWeakPoint: hitWeakPoint
+                    });
                 }
                 
                 // Play impact sound based on hit type
@@ -1156,6 +1177,14 @@ function checkEnemiesVsClones(player, enemies) {
                                     if (typeof createParticleBurst !== 'undefined') {
                                         createParticleBurst(clone.x, clone.y, '#666666', 4);
                                     }
+                                    hostBroadcastDamageNumber(clone.x, clone.y, damageAmount);
+                                    hostBroadcastCombatFx({
+                                        kind: 'particle_burst',
+                                        x: clone.x,
+                                        y: clone.y,
+                                        color: '#666666',
+                                        count: 4
+                                    });
                                 }
                             }
                         }
@@ -1196,6 +1225,14 @@ function checkEnemiesVsClones(player, enemies) {
                             if (typeof createParticleBurst !== 'undefined') {
                                 createParticleBurst(p.blinkDecoyX, p.blinkDecoyY, '#96c8ff', 4);
                             }
+                            hostBroadcastDamageNumber(p.blinkDecoyX, p.blinkDecoyY, damageAmount);
+                            hostBroadcastCombatFx({
+                                kind: 'particle_burst',
+                                x: p.blinkDecoyX,
+                                y: p.blinkDecoyY,
+                                color: '#96c8ff',
+                                count: 4
+                            });
                             
                             if (p.blinkDecoyHealth <= 0) {
                                 p.blinkDecoyActive = false;
@@ -1294,11 +1331,21 @@ function chainLightningAttack(player, sourceEnemy, effect, damage) {
             if (typeof createLightningArc !== 'undefined') {
                 createLightningArc(currentTarget.x, currentTarget.y, nearestEnemy.x, nearestEnemy.y);
             }
+            hostBroadcastCombatFx({
+                kind: 'lightning_arc',
+                x1: currentTarget.x,
+                y1: currentTarget.y,
+                x2: nearestEnemy.x,
+                y2: nearestEnemy.y
+            });
             
             // Damage number
             if (typeof createDamageNumber !== 'undefined') {
                 createDamageNumber(nearestEnemy.x, nearestEnemy.y, Math.floor(chainDamage), false, false);
             }
+            hostBroadcastDamageNumber(nearestEnemy.x, nearestEnemy.y, chainDamage, {
+                enemyId: nearestEnemy.id
+            });
             
             currentTarget = nearestEnemy;
         } else {
@@ -1441,11 +1488,21 @@ function chainLightningAffix(player, sourceEnemy, chainCount, damage, enemies) {
             if (typeof createLightningArc !== 'undefined') {
                 createLightningArc(currentTarget.x, currentTarget.y, nearestEnemy.x, nearestEnemy.y);
             }
+            hostBroadcastCombatFx({
+                kind: 'lightning_arc',
+                x1: currentTarget.x,
+                y1: currentTarget.y,
+                x2: nearestEnemy.x,
+                y2: nearestEnemy.y
+            });
             
             // Damage number
             if (typeof createDamageNumber !== 'undefined') {
                 createDamageNumber(nearestEnemy.x, nearestEnemy.y, Math.floor(chainDamage), false, false);
             }
+            hostBroadcastDamageNumber(nearestEnemy.x, nearestEnemy.y, chainDamage, {
+                enemyId: nearestEnemy.id
+            });
             
             currentTarget = nearestEnemy;
         } else {
@@ -1465,6 +1522,14 @@ function createExplosion(x, y, radius, damage, player, enemies) {
     if (typeof createParticleBurst !== 'undefined') {
         createParticleBurst(x, y, '#ff9900', 12);
     }
+    hostBroadcastCombatFx({
+        kind: 'explosion',
+        x,
+        y,
+        color: '#ff9900',
+        radius,
+        count: 12
+    });
     
     // Damage all enemies in radius
     enemies.forEach(enemy => {
@@ -1505,6 +1570,7 @@ function createExplosion(x, y, radius, damage, player, enemies) {
             if (typeof createDamageNumber !== 'undefined') {
                 createDamageNumber(enemy.x, enemy.y, Math.floor(damage), false, false);
             }
+            hostBroadcastDamageNumber(enemy.x, enemy.y, damage, { enemyId: enemy.id });
         }
     });
 }

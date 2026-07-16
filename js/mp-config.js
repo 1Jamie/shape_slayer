@@ -73,7 +73,25 @@ const MultiplayerConfig = {
     SMOOTHING_FACTOR: 0.15, // Exponential smoothing factor (0-1, lower = smoother)
     VELOCITY_SMOOTHING: 0.8, // Smooth velocity changes (0-1, higher = more smoothing)
     MAX_EXTRAPOLATION_DISTANCE: 50, // Max pixels to extrapolate from last known position
-    POSITION_HISTORY_SIZE: 3 // Number of recent positions to track for velocity calculation
+    POSITION_HISTORY_SIZE: 3, // Number of recent positions to track for velocity calculation
+
+    // Client movement prediction / rollback
+    PREDICTION_ENABLED: true,
+    INPUT_HISTORY_SIZE: 90, // ~1.5s at 60fps
+    RECONCILE_SNAP_DISTANCE: 80, // Hard snap if error exceeds this (px)
+    RECONCILE_SOFT_DISTANCE: 5, // Ignore tiny errors (px)
+    RECONCILE_BLEND_FACTOR: 0.35, // Medium-error: pull toward auth before replay (0-1)
+    PREDICTION_CORRECTION_DECAY: 0.85, // Per-frame decay of visual correction offset (higher = linger longer)
+    PREDICTION_DIVERGENCE_THRESHOLD: 8, // px — count as significant when reconcile moves pose by more than this
+    PREDICTION_MAX_REPLAY_STEPS: 45, // Cap rewind/replay length to limit compounding
+    // Systematic drift self-correction (client-side bias from reconcile patterns)
+    PREDICTION_DRIFT_WINDOW: 12, // Recent reconcile samples for pattern detection
+    PREDICTION_DRIFT_COHERENCE: 0.62, // Mean/avgMagnitude — how consistent direction must be
+    PREDICTION_DRIFT_MIN_MEAN: 4, // px mean correction before engaging bias
+    PREDICTION_DRIFT_STRENGTH: 0.45, // How strongly to adopt detected mean into bias
+    PREDICTION_DRIFT_APPLY: 2.5, // Bias velocity scale (px/s per px of bias) during live predict
+    PREDICTION_DRIFT_MAX: 28, // Cap bias magnitude (px)
+    PREDICTION_DRIFT_DECAY: 0.92 // Per-reconcile decay when pattern breaks
 };
 
 if (typeof window !== 'undefined') {

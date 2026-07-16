@@ -1459,10 +1459,22 @@ class EnemyBase {
                 if (typeof createParticleBurst !== 'undefined') {
                     createParticleBurst(this.x, this.y, '#ff0000', 5);
                 }
+                if (typeof hostBroadcastCombatFx === 'function') {
+                    hostBroadcastCombatFx({
+                        kind: 'particle_burst',
+                        x: this.x,
+                        y: this.y,
+                        color: '#ff0000',
+                        count: 5
+                    });
+                }
 
                 // Create damage number for bleed tick
                 if (typeof createDamageNumber !== 'undefined') {
                     createDamageNumber(this.x, this.y, Math.floor(tickDamage), false, false);
+                }
+                if (typeof hostBroadcastDamageNumber === 'function') {
+                    hostBroadcastDamageNumber(this.x, this.y, tickDamage, { enemyId: this.id });
                 }
 
                 this.bleedTickTimer = 0;
@@ -1517,6 +1529,9 @@ class EnemyBase {
                 // Create damage number for burn tick
                 if (typeof createDamageNumber !== 'undefined') {
                     createDamageNumber(this.x, this.y, Math.floor(tickDamage), false, false);
+                }
+                if (typeof hostBroadcastDamageNumber === 'function') {
+                    hostBroadcastDamageNumber(this.x, this.y, tickDamage, { enemyId: this.id });
                 }
             }
 

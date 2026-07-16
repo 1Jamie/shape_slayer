@@ -157,6 +157,12 @@ class WorkerProcess {
             case 'damage_number':
                 this.handleDamageNumber(ws, data);
                 break;
+            case 'combat_fx':
+                this.handleCombatFx(ws, data);
+                break;
+            case 'resync_request':
+                this.handleResyncRequest(ws, data);
+                break;
             case 'player_leveled_up':
                 this.handlePlayerLeveledUp(ws, data);
                 break;
@@ -544,10 +550,28 @@ class WorkerProcess {
         player.disconnectedAt = Date.now();
         this.playerToLobby.delete(ws);
         
-        const wasHost = lobby.host === ws;
+        const wasHost = lobby.host === ws || lobby.hostPlayerId === player.id;
         if (wasHost) {
-            lobby.host = null;
-            lobby.hostPlayerId = player.id;
+            // Immediately assign a provisional host so game_state keeps flowing during reconnect grace
+            const provisional = lobby.players.find(p =>
+                p.id !== player.id && p.ws && p.ws.readyState === WebSocket.OPEN
+            );
+            if (provisional) {
+                lobby.hostPlayerId = provisional.id;
+                lobby.host = provisional.ws;
+                this.broadcastToLobby(lobby, {
+                    type: 'host_migrated',
+                    data: {
+                        newHostId: provisional.id,
+                        previousHostId: player.id,
+                        provisional: true
+                    }
+                });
+                console.log(`[Worker ${this.getWorkerId()}] Provisional host ${provisional.name} after disconnect of ${player.name} in lobby ${code}`);
+            } else {
+                lobby.host = null;
+                lobby.hostPlayerId = player.id;
+            }
         }
         
         const graceMs = config.lobby.disconnectGraceMs || 15000;
@@ -1006,17 +1030,49 @@ class WorkerProcess {
     handleDamageNumber(ws, data) {
         const code = this.playerToLobby.get(ws);
         if (!code) return;
-        
+
         const lobby = this.lobbies.get(code);
         if (!lobby || lobby.host !== ws) return;
-        
+
         // Broadcast damage number to all clients (not host)
         this.broadcastToLobby(lobby, {
             type: 'damage_number',
             data
         }, ws);
     }
-    
+
+    handleCombatFx(ws, data) {
+        const code = this.playerToLobby.get(ws);
+        if (!code) return;
+
+        const lobby = this.lobbies.get(code);
+        if (!lobby || lobby.host !== ws) return;
+
+        this.broadcastToLobby(lobby, {
+            type: 'combat_fx',
+            data
+        }, ws);
+    }
+
+    handleResyncRequest(ws, data) {
+        const code = this.playerToLobby.get(ws);
+        if (!code) return;
+
+        const lobby = this.lobbies.get(code);
+        if (!lobby) return;
+
+        // Forward to host only (same routing as player_state)
+        if (lobby.host && lobby.host !== ws && lobby.host.readyState === WebSocket.OPEN) {
+            lobby.host.send(JSON.stringify({
+                type: 'resync_request',
+                data: {
+                    ...(data || {}),
+                    playerId: (data && data.playerId) || (ws.playerId || null)
+                }
+            }));
+        }
+    }
+
     handlePlayerLeveledUp(ws, data) {
         const code = this.playerToLobby.get(ws);
         if (!code) return;

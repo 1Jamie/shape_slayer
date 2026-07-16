@@ -353,15 +353,7 @@ class PlayerBase {
         this.resolveWorldCollision(previousX, previousY);
 
         // Calculate rotation to face aim direction (mouse or joystick)
-        if (input.getAimDirection) {
-            this.rotation = input.getAimDirection();
-        } else if (input.mouse.x !== undefined && input.mouse.y !== undefined) {
-            // Use world coordinates for mouse position
-            const worldMouse = input.getWorldMousePos ? input.getWorldMousePos() : input.mouse;
-            const dx = worldMouse.x - this.x;
-            const dy = worldMouse.y - this.y;
-            this.rotation = Math.atan2(dy, dx);
-        }
+        this.applyAimFromInput(input);
 
         // Handle attacks
         const room0Action = (typeof Room0Tutorial !== 'undefined' && Room0Tutorial.isActive && Room0Tutorial.isActive())
@@ -602,6 +594,214 @@ class PlayerBase {
     // Check if player is in special movement state (override by subclass)
     isInSpecialMovement() {
         return false;
+    }
+
+    applyAimFromInput(input) {
+        if (!input) return;
+        if (input.getAimDirection) {
+            this.rotation = input.getAimDirection();
+        } else if (input.mouse && input.mouse.x !== undefined && input.mouse.y !== undefined) {
+            const worldMouse = input.getWorldMousePos ? input.getWorldMousePos() : input.mouse;
+            const dx = worldMouse.x - this.x;
+            const dy = worldMouse.y - this.y;
+            this.rotation = Math.atan2(dy, dx);
+        }
+    }
+
+    /**
+     * Movement-only simulation step for client prediction / rollback replay.
+     * Does not run attacks, abilities, items, or combat side effects.
+     * @param {number} deltaTime
+     * @param {object} input - Input or remote input adapter
+     * @param {object} [options]
+     * @param {number} [options.moveSpeedOverride] - Nexus etc.
+     * @param {object} [options.bounds] - { width, height } clamp instead of world collision
+     * @param {boolean} [options.allowPredictedDodge=true]
+     */
+    predictMovementStep(deltaTime, input, options = {}) {
+        if (this.dead) {
+            this.alive = false;
+            return;
+        }
+
+        // Decay visual correction offset (hides remaining reconcile error)
+        if (this._predictionCorrectionX || this._predictionCorrectionY) {
+            const decay = (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.PREDICTION_CORRECTION_DECAY != null)
+                ? MultiplayerConfig.PREDICTION_CORRECTION_DECAY
+                : 0.85;
+            this._predictionCorrectionX = (this._predictionCorrectionX || 0) * decay;
+            this._predictionCorrectionY = (this._predictionCorrectionY || 0) * decay;
+            if (Math.abs(this._predictionCorrectionX) < 0.15) this._predictionCorrectionX = 0;
+            if (Math.abs(this._predictionCorrectionY) < 0.15) this._predictionCorrectionY = 0;
+        }
+
+        // Live predict only — never start a new dodge during rewind/replay
+        const allowPredictedDodge = options.allowPredictedDodge === true;
+        if (allowPredictedDodge && input) {
+            this.tryBeginPredictedDodge(input);
+        }
+
+        // Advance dodge timer without combat/hit tracking side effects
+        if (this.isDodging) {
+            this.dodgeElapsed = (this.dodgeElapsed || 0) + deltaTime;
+            const dodgeDuration = this.dodgeDuration || 0.2;
+            if (this.dodgeElapsed >= dodgeDuration) {
+                this.isDodging = false;
+                this.dodgeElapsed = 0;
+                this.dodgeVx = 0;
+                this.dodgeVy = 0;
+                if (this._predictedDodgeActive) {
+                    this.invulnerable = false;
+                    this._predictedDodgeActive = false;
+                }
+            }
+        }
+
+        const moveSpeed = (options.moveSpeedOverride != null) ? options.moveSpeedOverride : this.moveSpeed;
+
+        if (!this.isDodging && !this.isInSpecialMovement()) {
+            const moveInput = input && input.getMovementInput ? input.getMovementInput() : { x: 0, y: 0 };
+            this.vx = moveInput.x * moveSpeed;
+            this.vy = moveInput.y * moveSpeed;
+        } else if (this.isDodging) {
+            this.vx = this.dodgeVx;
+            this.vy = this.dodgeVy;
+        }
+
+        if (this.guardBreakMovementScalar !== 1) {
+            this.vx *= this.guardBreakMovementScalar;
+            this.vy *= this.guardBreakMovementScalar;
+        }
+
+        // Skip host-only forces during replay unless explicitly enabled (avoids double-applying)
+        if (options.applyForces !== false) {
+            this.processDamageKnockback(deltaTime);
+            this.processPullForces(deltaTime);
+        }
+
+        const previousX = this.x;
+        const previousY = this.y;
+
+        if (!this.isInSpecialMovement()) {
+            this.x += this.vx * deltaTime;
+            this.y += this.vy * deltaTime;
+        }
+
+        // Live-only: gentle pull from detected systematic drift (never during reconcile replay)
+        if (options.applyDriftBias !== false && options.allowPredictedDodge === true &&
+            typeof multiplayerManager !== 'undefined' && multiplayerManager &&
+            (multiplayerManager.driftBiasX || multiplayerManager.driftBiasY)) {
+            const apply = (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.PREDICTION_DRIFT_APPLY != null)
+                ? MultiplayerConfig.PREDICTION_DRIFT_APPLY
+                : 2.5;
+            this.x += (multiplayerManager.driftBiasX || 0) * apply * deltaTime;
+            this.y += (multiplayerManager.driftBiasY || 0) * apply * deltaTime;
+        }
+
+        if (options.bounds) {
+            const size = this.size || 20;
+            const clampFn = typeof clamp === 'function' ? clamp : (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+            this.x = clampFn(this.x, size, options.bounds.width - size);
+            this.y = clampFn(this.y, size, options.bounds.height - size);
+        } else {
+            this.resolveWorldCollision(previousX, previousY);
+        }
+
+        if (options.applyAim !== false) {
+            this.applyAimFromInput(input);
+        }
+
+        if (this.dashAnimActive && typeof this.advanceDashAnimation === 'function') {
+            this.advanceDashAnimation(deltaTime, 'predict');
+        }
+    }
+
+    /**
+     * Align local movement-critical flags with host before reconcile/predict.
+     * Clears stale predicted dodges the host rejected.
+     */
+    syncPredictedMovementFromHost(hostState) {
+        if (!hostState) return;
+
+        const hostDodging = !!hostState.isDodging;
+        if (this._predictedDodgeActive && !hostDodging) {
+            // Host never confirmed our predicted dodge — cancel it
+            this._predictedDodgeActive = false;
+            this.isDodging = false;
+            this.dodgeElapsed = 0;
+            this.dodgeVx = 0;
+            this.dodgeVy = 0;
+        } else if (hostDodging) {
+            this.isDodging = true;
+            if (hostState.dodgeElapsed !== undefined) this.dodgeElapsed = hostState.dodgeElapsed;
+            if (hostState.dodgeVx !== undefined) this.dodgeVx = hostState.dodgeVx;
+            if (hostState.dodgeVy !== undefined) this.dodgeVy = hostState.dodgeVy;
+            this._predictedDodgeActive = false; // host owns the dodge now
+        }
+
+        if (hostState.thrustActive !== undefined) {
+            this.thrustActive = hostState.thrustActive;
+        }
+        if (hostState.thrustElapsed !== undefined) {
+            this.thrustElapsed = hostState.thrustElapsed;
+        }
+        if (hostState.guardBreakLockout !== undefined) {
+            this.guardBreakLockout = hostState.guardBreakLockout;
+        }
+        if (hostState.guardBreakMovementScalar !== undefined) {
+            this.guardBreakMovementScalar = hostState.guardBreakMovementScalar;
+        }
+        if (hostState.moveSpeed !== undefined) {
+            this.moveSpeed = hostState.moveSpeed;
+        }
+        if (hostState.dodgeCooldown !== undefined) {
+            this.dodgeCooldown = hostState.dodgeCooldown;
+        }
+        if (hostState.dodgeCharges !== undefined) {
+            this.dodgeCharges = hostState.dodgeCharges;
+        }
+        if (hostState.dodgeChargeCooldowns !== undefined) {
+            this.dodgeChargeCooldowns = hostState.dodgeChargeCooldowns;
+        }
+    }
+
+    /** Visual pose including decaying reconcile correction (for camera/render). */
+    getPredictedRenderPosition() {
+        return {
+            x: this.x + (this._predictionCorrectionX || 0),
+            y: this.y + (this._predictionCorrectionY || 0)
+        };
+    }
+
+    tryBeginPredictedDodge(input) {
+        if (this.isDodging || this._predictedDodgeActive) return false;
+        if (this.guardBreakLockout > 0) return false;
+
+        let dodgeJustPressed = false;
+        if (input.isTouchMode && typeof input.isTouchMode === 'function' && input.isTouchMode()) {
+            const button = input.touchButtons && input.touchButtons.dodge;
+            dodgeJustPressed = !!(button && (button.justReleased || button.justPressed));
+        } else if (input.keys) {
+            const shift = input.keys['Shift'] || input.keys['shift'];
+            dodgeJustPressed = !!(shift && (shift.justPressed || shift.justReleased));
+        } else if (input.getKeyJustPressed) {
+            dodgeJustPressed = input.getKeyJustPressed('Shift') || input.getKeyJustPressed('shift');
+        }
+
+        if (!dodgeJustPressed) return false;
+
+        const usesChargeDodge = this.usesChargeBasedDodge && this.usesChargeBasedDodge();
+        let canDodge = false;
+        if (usesChargeDodge) {
+            canDodge = this.getReadyDodgeCharges() > 0;
+        } else {
+            canDodge = this.dodgeCooldown <= 0;
+        }
+        if (!canDodge) return false;
+
+        this.startDodge(input, { predictOnly: true });
+        this._predictedDodgeActive = true;
+        return true;
     }
 
     // Update class-specific abilities (override by subclass)
@@ -847,14 +1047,13 @@ class PlayerBase {
         }
     }
 
-    startDodge(input) {
-        console.log(`[DODGE START] playerClass: ${this.playerClass}, rotation: ${this.rotation}`);
-        console.log(`[DODGE START] input object:`, input);
-        console.log(`[DODGE START] input.touchButtons:`, input.touchButtons);
-        console.log(`[DODGE START] input.touchButtons.dodge:`, input.touchButtons?.dodge);
-        console.log(`[DODGE START] isTouchMode:`, input.isTouchMode ? input.isTouchMode() : 'NO FUNCTION');
+    startDodge(input, options = {}) {
+        const predictOnly = !!options.predictOnly;
+        if (!predictOnly) {
+            console.log(`[DODGE START] playerClass: ${this.playerClass}, rotation: ${this.rotation}`);
+        }
 
-        if (typeof Room0Tutorial !== 'undefined' && Room0Tutorial.notifyCombatAction) {
+        if (!predictOnly && typeof Room0Tutorial !== 'undefined' && Room0Tutorial.notifyCombatAction) {
             Room0Tutorial.notifyCombatAction('dash');
         }
 
@@ -864,40 +1063,27 @@ class PlayerBase {
 
         // Triangle (Rogue) uses joystick for directional dash on mobile
         if (this.playerClass === 'triangle') {
-            console.log(`[DODGE] Triangle path - checking touch mode`);
-
             if (input.isTouchMode && input.isTouchMode()) {
-                console.log(`[DODGE] Touch mode confirmed!`);
-                // On mobile: use dodge joystick direction if available
                 const button = input.touchButtons && input.touchButtons.dodge;
-                console.log(`[DODGE] button:`, button, 'finalJoystickState:', button?.finalJoystickState);
 
                 if (button && button.finalJoystickState) {
-                    // Use stored joystick state from button release
                     const state = button.finalJoystickState;
-                    console.log(`[${this.playerClass}] Using finalJoystickState - mag: ${state.magnitude}, dir: (${state.direction.x.toFixed(2)}, ${state.direction.y.toFixed(2)}), angle: ${state.angle}`);
-
                     if (state.magnitude > 0.1) {
                         dodgeDirX = state.direction.x * this.dodgeSpeedBoost;
                         dodgeDirY = state.direction.y * this.dodgeSpeedBoost;
-                        console.log(`[${this.playerClass}] Dodge direction from finalState: (${dodgeDirX.toFixed(2)}, ${dodgeDirY.toFixed(2)})`);
-                        // Clear the stored state after using it
-                        button.finalJoystickState = null;
+                        if (!predictOnly) {
+                            button.finalJoystickState = null;
+                        }
                     } else {
-                        // Magnitude too low, use facing direction
                         dodgeDirX = Math.cos(this.rotation) * this.dodgeSpeedBoost;
                         dodgeDirY = Math.sin(this.rotation) * this.dodgeSpeedBoost;
-                        console.log(`[${this.playerClass}] Magnitude too low, using rotation: ${this.rotation}`);
                     }
                 } else if (input.touchJoysticks && input.touchJoysticks.dodge && input.touchJoysticks.dodge.active) {
-                    // Joystick is still active (fallback)
                     const joystick = input.touchJoysticks.dodge;
-                    const dir = joystick.getDirection();
+                    const dir = joystick.getDirection ? joystick.getDirection() : (joystick.direction || { x: 0, y: 0 });
                     dodgeDirX = dir.x * this.dodgeSpeedBoost;
                     dodgeDirY = dir.y * this.dodgeSpeedBoost;
-                    console.log(`[${this.playerClass}] Using active joystick: (${dodgeDirX.toFixed(2)}, ${dodgeDirY.toFixed(2)})`);
                 } else {
-                    // Fallback: use movement joystick direction
                     const moveInput = input.getMovementInput ? input.getMovementInput() : { x: 0, y: 0 };
                     const inputLength = Math.sqrt(moveInput.x * moveInput.x + moveInput.y * moveInput.y);
 
@@ -910,53 +1096,45 @@ class PlayerBase {
                     }
                 }
             } else {
-                // Desktop: always dash in facing direction
                 dodgeDirX = Math.cos(this.rotation) * this.dodgeSpeedBoost;
                 dodgeDirY = Math.sin(this.rotation) * this.dodgeSpeedBoost;
             }
         } else {
-            // Other classes dodge based on movement input
             const moveInput = input.getMovementInput ? input.getMovementInput() : { x: 0, y: 0 };
             const inputLength = Math.sqrt(moveInput.x * moveInput.x + moveInput.y * moveInput.y);
 
             if (inputLength > 0) {
-                // If player is moving, dodge in movement direction
                 dodgeDirX = moveInput.x * this.dodgeSpeedBoost;
                 dodgeDirY = moveInput.y * this.dodgeSpeedBoost;
             } else {
-                // If standing still, dodge forward (toward mouse/aiming direction)
                 dodgeDirX = Math.cos(this.rotation) * this.dodgeSpeedBoost;
                 dodgeDirY = Math.sin(this.rotation) * this.dodgeSpeedBoost;
             }
         }
 
-        // Store dodge velocity
         this.dodgeVx = dodgeDirX;
         this.dodgeVy = dodgeDirY;
 
-        this.beginDashAnimation(dodgeDirX, dodgeDirY, { seedTrail: true });
+        this.beginDashAnimation(dodgeDirX, dodgeDirY, { seedTrail: !predictOnly });
 
-        // Update rotation to face dodge direction
         if (dodgeDirX !== 0 || dodgeDirY !== 0) {
             this.rotation = Math.atan2(dodgeDirY, dodgeDirX);
-            this.lastAimAngle = this.rotation; // Store for mobile aim retention
+            this.lastAimAngle = this.rotation;
         }
 
-        // Set dodge state
         this.isDodging = true;
         this.invulnerable = true;
-
-        // NOTE: We no longer track dodge usage here - instead we track successful dodges
-        // (when an attack would have hit but the player was dodging) in checkEnemiesVsPlayer()
         this.dodgeElapsed = 0;
-        this.dodgeHitEnemies.clear(); // Reset hit tracking for new dodge
-
-        // Play dodge sound (generic whoosh - can be overridden by subclasses)
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-            AudioManager.sounds.dodge();
+        if (this.dodgeHitEnemies && this.dodgeHitEnemies.clear) {
+            this.dodgeHitEnemies.clear();
         }
 
-        this.consumeDodgeCharge();
+        if (!predictOnly) {
+            if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+                AudioManager.sounds.dodge();
+            }
+            this.consumeDodgeCharge();
+        }
     }
 
     beginDashAnimation(dirX, dirY, options = {}) {
@@ -3488,6 +3666,13 @@ class PlayerBase {
 
         ctx.save();
 
+        // Smooth out reconcile snaps visually without changing sim pose
+        const corrX = this._predictionCorrectionX || 0;
+        const corrY = this._predictionCorrectionY || 0;
+        if (corrX || corrY) {
+            ctx.translate(corrX, corrY);
+        }
+
         if (this.isDodging) {
             ctx.globalAlpha = 0.5;
         }
@@ -3990,6 +4175,8 @@ class PlayerBase {
             // Animation states
             isDodging: this.isDodging,
             dodgeElapsed: this.dodgeElapsed,
+            dodgeVx: this.dodgeVx,
+            dodgeVy: this.dodgeVy,
             isAttacking: this.isAttacking,
             isChargingHeavy: this.isChargingHeavy,
             heavyChargeElapsed: this.heavyChargeElapsed,
@@ -4047,7 +4234,10 @@ class PlayerBase {
                 type: h.type,
                 heavy: h.heavy,
                 trail: h.trail || [],
-                hitEnemies: h.hitEnemies ? Array.from(h.hitEnemies) : []
+                // Serialize enemy ids (not object refs) so clients can rebuild a Set for hit-confirm VFX
+                hitEnemies: h.hitEnemies
+                    ? Array.from(h.hitEnemies).map(e => (e && typeof e === 'object' ? e.id : e)).filter(id => id != null)
+                    : []
             })),
 
             // Life state
@@ -4057,12 +4247,20 @@ class PlayerBase {
             invulnerabilityTime: this.invulnerabilityTime,
 
             // Items (for multiplayer sync)
-            items: this.itemManager ? this.itemManager.serialize() : {}
+            items: this.itemManager ? this.itemManager.serialize() : {},
+
+            // Client prediction ack (host echoes last input seq processed for this player)
+            lastProcessedInputSeq: this.lastProcessedInputSeq != null ? this.lastProcessedInputSeq : null,
+            vx: this.vx,
+            vy: this.vy
         };
     }
 
     // Apply state from host/network (base properties)
-    applyState(state) {
+    // options.skipTransform: when true, do not overwrite x/y/rotation/vx/vy (prediction owns pose)
+    applyState(state, options = {}) {
+        const skipTransform = !!options.skipTransform;
+
         // Check if we're a multiplayer client (not host, not solo)
         const isMultiplayerClient = typeof Game !== 'undefined' &&
             Game.multiplayerEnabled &&
@@ -4078,7 +4276,7 @@ class PlayerBase {
         const prevDashAnimActive = this.dashAnimActive;
 
         // Position and movement - use interpolation for clients, direct update for host/solo
-        if (state.x !== undefined && state.y !== undefined) {
+        if (!skipTransform && state.x !== undefined && state.y !== undefined) {
             if (isMultiplayerClient) {
                 // Add state to interpolation buffer for smooth rendering
                 if (typeof interpolationManager !== 'undefined' && interpolationManager && this.playerId) {
@@ -4100,7 +4298,7 @@ class PlayerBase {
             }
         }
 
-        if (state.rotation !== undefined) {
+        if (!skipTransform && state.rotation !== undefined) {
             if (isMultiplayerClient) {
                 this.targetRotation = state.rotation;
             } else {
@@ -4338,6 +4536,8 @@ class PlayerBase {
         // Animation states
         if (state.isDodging !== undefined) this.isDodging = state.isDodging;
         if (state.dodgeElapsed !== undefined) this.dodgeElapsed = state.dodgeElapsed;
+        if (state.dodgeVx !== undefined) this.dodgeVx = state.dodgeVx;
+        if (state.dodgeVy !== undefined) this.dodgeVy = state.dodgeVy;
         if (state.isAttacking !== undefined) {
             this.isAttacking = state.isAttacking;
             this.attacking = state.isAttacking; // Alias
@@ -4380,8 +4580,16 @@ class PlayerBase {
         if (state.fortifyShield !== undefined) this.fortifyShield = state.fortifyShield;
         if (state.overchargeChance !== undefined) this.overchargeChance = state.overchargeChance;
 
-        // Attack hitboxes
-        if (state.attackHitboxes !== undefined) this.attackHitboxes = state.attackHitboxes;
+        // Attack hitboxes — rebuild hitEnemies as Set for render hit-confirm (.size checks)
+        if (state.attackHitboxes !== undefined) {
+            this.attackHitboxes = state.attackHitboxes.map(h => ({
+                ...h,
+                hitEnemies: new Set(
+                    Array.isArray(h.hitEnemies) ? h.hitEnemies :
+                    (h.hitEnemies instanceof Set ? Array.from(h.hitEnemies) : [])
+                )
+            }));
+        }
 
         // Life state (only for non-clients or if host is explicitly updating remote player instances)
         // Clients handle death status separately above to avoid flickering
@@ -4616,22 +4824,26 @@ class PlayerBase {
         // Default: subclasses can override for additional events
     }
 
-    // Get gameplay position (authoritative position for multiplayer clients, visual position otherwise)
-    // Use this for attack creation, collision detection, etc.
+    // Get gameplay position (predicted pose for local client; host auth for remote shadows)
     getGameplayPosition() {
-        // Check if we're a multiplayer client (not host, not solo)
         const isMultiplayerClient = typeof Game !== 'undefined' &&
             Game.multiplayerEnabled &&
             typeof multiplayerManager !== 'undefined' &&
             multiplayerManager &&
             !multiplayerManager.isHost;
 
+        const predictionOn = isMultiplayerClient &&
+            multiplayerManager.predictionEnabled &&
+            this === (typeof Game !== 'undefined' ? Game.player : null);
+
+        if (predictionOn) {
+            return { x: this.x, y: this.y };
+        }
+
         if (isMultiplayerClient && this.targetX !== null && this.targetY !== null) {
-            // Use authoritative position from host
             return { x: this.targetX, y: this.targetY };
         }
 
-        // Use current visual position
         return { x: this.x, y: this.y };
     }
 

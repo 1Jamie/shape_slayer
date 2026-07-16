@@ -750,6 +750,12 @@ class Rogue extends PlayerBase {
                         if (typeof createDamageNumber !== 'undefined') {
                             createDamageNumber(enemy.x, enemy.y, damageDealt, isCrit, false);
                         }
+                        if (typeof hostBroadcastDamageNumber === 'function') {
+                            hostBroadcastDamageNumber(enemy.x, enemy.y, damageDealt, {
+                                enemyId: enemy.id,
+                                isCrit
+                            });
+                        }
                         this.dodgeHitEnemies.add(enemy); // Mark as hit
                     }
                 }

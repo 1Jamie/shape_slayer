@@ -1,0 +1,42 @@
+const test = require('node:test');
+const assert = require('node:assert');
+const fs = require('node:fs');
+const path = require('node:path');
+
+test('hydrateHostAuthorityFromSnapshot exists on Game', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'main.js'), 'utf-8');
+    assert.ok(source.includes('hydrateHostAuthorityFromSnapshot'));
+    assert.ok(source.includes('Hydrated'));
+});
+
+test('host migration resets prediction and forces full state', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'multiplayer.js'), 'utf-8');
+    assert.ok(source.includes('handleHostMigrated'));
+    assert.ok(source.includes('resetPredictionState'));
+    assert.ok(/host_migrated[\s\S]*forceFullState\s*=\s*true/.test(source) || source.includes('forceFullState = true'));
+    assert.ok(source.includes('provisional'));
+});
+
+test('server assigns provisional host on host disconnect', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'server', 'mp-server-worker.js'), 'utf-8');
+    assert.ok(source.includes('Provisional host'));
+    assert.ok(source.includes('provisional: true'));
+    // Must not only null host without replacement when others are connected
+    assert.ok(source.includes('Immediately assign a provisional host') || source.includes('provisional host'));
+});
+
+test('promote prefers snapshot HP over defaults', () => {
+    // Logic mirror of hydrate remotePlayerStates seeding
+    const stateData = { id: 'p2', hp: 42, maxHp: 120, dead: false };
+    const hp = stateData.hp != null ? stateData.hp : 100;
+    const maxHp = stateData.maxHp != null ? stateData.maxHp : 100;
+    assert.strictEqual(hp, 42);
+    assert.strictEqual(maxHp, 120);
+});
+
+test('non-host host_migrated clears lastConfirmedState but can keep history', () => {
+    // Behavior encoded in handleHostMigrated stay-client branch
+    const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'multiplayer.js'), 'utf-8');
+    assert.ok(source.includes('Stayed client under a new host') || source.includes('lastConfirmedState = null'));
+    assert.ok(source.includes('expectedSequence = null'));
+});

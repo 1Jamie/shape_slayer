@@ -452,12 +452,28 @@ function updateNexus(ctx, deltaTime) {
                 });
             }
         } else {
-            // CLIENT: Interpolate positions for smooth rendering
-            // Local player interpolation (position comes from host)
-            if (Game.player && Game.player.alive && Game.player.interpolatePosition) {
-                Game.player.interpolatePosition(deltaTime);
+            // CLIENT: predict local movement; interpolate remotes
+            if (Game.player && Game.player.alive) {
+                const predictionOn = multiplayerManager.predictionEnabled;
+                const nexusBounds = { width: nexusRoom.width, height: nexusRoom.height };
+                const nexusSpeed = 300;
 
-                // Keep player in bounds (interpolation might push them slightly out)
+                if (predictionOn && typeof Game.player.predictMovementStep === 'function') {
+                    const inputSnap = multiplayerManager.serializeInput
+                        ? multiplayerManager.serializeInput()
+                        : null;
+                    multiplayerManager.recordPredictionFrame(deltaTime, inputSnap);
+                    Game.player.predictMovementStep(deltaTime, Input, {
+                        moveSpeedOverride: nexusSpeed,
+                        bounds: nexusBounds,
+                        allowPredictedDodge: false,
+                        applyForces: false,
+                        applyAim: true
+                    });
+                } else if (Game.player.interpolatePosition) {
+                    Game.player.interpolatePosition(deltaTime);
+                }
+
                 Game.player.x = clamp(Game.player.x, Game.player.size, nexusRoom.width - Game.player.size);
                 Game.player.y = clamp(Game.player.y, Game.player.size, nexusRoom.height - Game.player.size);
             }

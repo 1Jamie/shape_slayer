@@ -205,7 +205,7 @@ const Game = {
     // Game objects
     player: null,
     enemies: [],
-    projectiles: [],
+    projectiles: (typeof createProjectileList === 'function' ? createProjectileList() : []),
     _projectilePool: [],
     previousProjectiles: [], // Previous projectile state for interpolation (clients)
     particles: [],
@@ -1598,8 +1598,16 @@ const Game = {
         }
 
         // Calculate target camera position (player position + offset)
-        this.camera.targetX = targetPlayer.x + this.camera.offsetX;
-        this.camera.targetY = targetPlayer.y + this.camera.offsetY;
+        // Local predicted player: include decaying reconcile correction so camera doesn't pop
+        let followX = targetPlayer.x;
+        let followY = targetPlayer.y;
+        if (targetPlayer === this.player && typeof targetPlayer.getPredictedRenderPosition === 'function') {
+            const rp = targetPlayer.getPredictedRenderPosition();
+            followX = rp.x;
+            followY = rp.y;
+        }
+        this.camera.targetX = followX + this.camera.offsetX;
+        this.camera.targetY = followY + this.camera.offsetY;
 
         // Clamp camera to room boundaries (prevent showing outside room)
         // Account for zoom - with zoom, we see less world space, so bounds are tighter
@@ -2420,6 +2428,14 @@ const Game = {
         }
 
         this.remotePlayerInputs.set(playerId, inputState);
+
+        // Track latest input seq on the simulated instance for client reconcile acks
+        if (inputState && inputState.inputSeq != null && this.remotePlayerInstances) {
+            const instance = this.remotePlayerInstances.get(playerId);
+            if (instance) {
+                instance.lastProcessedInputSeq = inputState.inputSeq;
+            }
+        }
     },
 
     // Update shadow instance with host state (clients only)
@@ -2585,39 +2601,14 @@ const Game = {
             return;
         }
 
-        const localId = this.getLocalPlayerId ? this.getLocalPlayerId() : multiplayerManager.playerId;
-        const lobbyPlayers = multiplayerManager.players || [];
-        const statePlayers = (multiplayerManager.latestGameState && multiplayerManager.latestGameState.players) || [];
-
         if (isHost && !wasHost) {
             console.log(`[Host Migration] Promoted to host (was ${previousHostId || 'unknown'})`);
-
-            if (this.remotePlayerShadowInstances) {
-                this.remotePlayerShadowInstances.clear();
-            }
-
-            lobbyPlayers.forEach(player => {
-                if (!player || player.id === localId) return;
-
-                if (!this.playerCurrencies.has(player.id)) {
-                    this.playerCurrencies.set(player.id, player.currency || 0);
-                }
-                if (!this.playerUpgrades.has(player.id) && player.upgrades) {
-                    this.playerUpgrades.set(player.id, JSON.parse(JSON.stringify(player.upgrades)));
-                }
-
-                this.initializeRemotePlayerInstance(player.id, player.class);
-                this.initializeRemotePlayerState(player.id);
-
-                const stateData = statePlayers.find(p => p.id === player.id);
-                const remoteInstance = this.remotePlayerInstances.get(player.id);
-                if (remoteInstance && stateData && remoteInstance.applyState) {
-                    remoteInstance.applyState(stateData);
-                }
-            });
-
+            this.hydrateHostAuthorityFromSnapshot(multiplayerManager.latestGameState);
+            multiplayerManager.forceFullState = true;
+            multiplayerManager.lastSentGameState = null;
+            multiplayerManager.lastStateUpdate = 0;
             if (typeof multiplayerManager.sendGameState === 'function') {
-                setTimeout(() => multiplayerManager.sendGameState(), 50);
+                multiplayerManager.sendGameState();
             }
             return;
         }
@@ -2641,43 +2632,116 @@ const Game = {
         }
     },
 
+    /**
+     * Rebuild host simulation maps from a single game_state snapshot.
+     * Used on promote so remotes/economy match last known world instead of lobby defaults.
+     */
+    hydrateHostAuthorityFromSnapshot(snapshot) {
+        const localId = this.getLocalPlayerId ? this.getLocalPlayerId() : (multiplayerManager && multiplayerManager.playerId);
+        const lobbyPlayers = (multiplayerManager && multiplayerManager.players) || [];
+        const statePlayers = (snapshot && snapshot.players) || [];
+
+        if (this.remotePlayerShadowInstances) {
+            this.remotePlayerShadowInstances.clear();
+        }
+        if (this.remotePlayerInputs) {
+            this.remotePlayerInputs.clear();
+        }
+        if (this.remotePlayerInstances) {
+            this.remotePlayerInstances.clear();
+        }
+        if (this.remotePlayerStates) {
+            this.remotePlayerStates.clear();
+        }
+
+        const ensureInstance = (playerId, playerClass, stateData) => {
+            if (!playerId || playerId === localId) return;
+            const className = (stateData && stateData.class) || playerClass || 'square';
+            this.initializeRemotePlayerInstance(playerId, className);
+            const remoteInstance = this.remotePlayerInstances.get(playerId);
+            if (remoteInstance && stateData && remoteInstance.applyState) {
+                remoteInstance.applyState(stateData);
+                if (stateData.lastProcessedInputSeq != null) {
+                    remoteInstance.lastProcessedInputSeq = stateData.lastProcessedInputSeq;
+                }
+            }
+
+            // Mirror HP/life into remotePlayerStates from snapshot (not defaults)
+            const hp = stateData && stateData.hp != null ? stateData.hp : (remoteInstance ? remoteInstance.hp : 100);
+            const maxHp = stateData && stateData.maxHp != null ? stateData.maxHp : (remoteInstance ? remoteInstance.maxHp : 100);
+            this.remotePlayerStates.set(playerId, {
+                id: playerId,
+                hp,
+                maxHp,
+                invulnerable: !!(stateData && stateData.invulnerable),
+                invulnerabilityTime: (stateData && stateData.invulnerabilityTime) || 0,
+                size: (stateData && stateData.size) || (remoteInstance && remoteInstance.size) || 20,
+                dead: !!(stateData && (stateData.dead || stateData.hp <= 0))
+            });
+
+            if (stateData) {
+                if (stateData.currency !== undefined) {
+                    this.playerCurrencies.set(playerId, stateData.currency);
+                }
+                if (stateData.upgrades) {
+                    this.playerUpgrades.set(playerId, JSON.parse(JSON.stringify(stateData.upgrades)));
+                }
+            }
+        };
+
+        // Prefer snapshot players; fall back to lobby roster for anyone missing
+        const seen = new Set();
+        statePlayers.forEach(stateData => {
+            if (!stateData || !stateData.id || stateData.id === localId) return;
+            seen.add(stateData.id);
+            ensureInstance(stateData.id, stateData.class, stateData);
+        });
+
+        lobbyPlayers.forEach(player => {
+            if (!player || player.id === localId || seen.has(player.id)) return;
+            if (!this.playerCurrencies.has(player.id)) {
+                this.playerCurrencies.set(player.id, player.currency || 0);
+            }
+            if (!this.playerUpgrades.has(player.id) && player.upgrades) {
+                this.playerUpgrades.set(player.id, JSON.parse(JSON.stringify(player.upgrades)));
+            }
+            ensureInstance(player.id, player.class, null);
+        });
+
+        // Re-apply enemy snapshot fields for a clean handoff frame (keep existing objects)
+        if (snapshot && Array.isArray(snapshot.enemies) && this.enemies) {
+            snapshot.enemies.forEach(enemyUpdate => {
+                const enemy = this.enemies.find(e => e && e.id === enemyUpdate.id);
+                if (enemy && enemy.applyState) {
+                    enemy.applyState(enemyUpdate);
+                }
+            });
+        }
+
+        // Ensure projectile array keeps stable-id push wrapper
+        if (typeof createProjectileList === 'function' && this.projectiles && !this.projectiles._isProjectileList) {
+            this.projectiles = createProjectileList(this.projectiles);
+        }
+
+        console.log(`[Host Migration] Hydrated ${this.remotePlayerInstances.size} remote instances from snapshot`);
+    },
+
     // Get enemy index in the enemies array
     getEnemyIndex(enemy) {
         return this.enemies.indexOf(enemy);
     },
 
-    // Send enemy damage event to host (client only)
-    sendEnemyDamageEvent(enemyIndex, damage, hitboxX, hitboxY, hitboxRadius, hitWeakPoint) {
-        if (!this.isMultiplayerClient()) return;
-
-        if (typeof multiplayerManager !== 'undefined' && multiplayerManager) {
-            multiplayerManager.send({
-                type: 'enemy_damaged',
-                data: {
-                    enemyIndex: enemyIndex,
-                    damage: damage,
-                    attackerId: multiplayerManager.playerId,
-                    hitboxX: hitboxX,
-                    hitboxY: hitboxY,
-                    hitboxRadius: hitboxRadius,
-                    hitWeakPoint: hitWeakPoint
-                }
-            });
+    // DEPRECATED: Clients no longer send enemy_damaged (host simulates attacks).
+    sendEnemyDamageEvent(_enemyIndex, _damage, _hitboxX, _hitboxY, _hitboxRadius, _hitWeakPoint) {
+        if (typeof DebugFlags !== 'undefined' && DebugFlags.DAMAGE_NUMBERS) {
+            console.warn('[Multiplayer] sendEnemyDamageEvent is deprecated and ignored');
         }
     },
 
-    // Send player damage event to specific client (host only)
-    sendPlayerDamageEvent(targetPlayerId, damage) {
-        if (!this.isHost()) return;
-
-        if (typeof multiplayerManager !== 'undefined' && multiplayerManager) {
-            multiplayerManager.send({
-                type: 'player_damaged',
-                data: {
-                    targetPlayerId: targetPlayerId,
-                    damage: damage
-                }
-            });
+    // DEPRECATED: HP syncs via game_state; player_damaged is a no-op on clients.
+    sendPlayerDamageEvent(_targetPlayerId, _damage) {
+        if (typeof DebugFlags !== 'undefined' && DebugFlags.DAMAGE_NUMBERS) {
+            console.warn('[Multiplayer] sendPlayerDamageEvent is deprecated and ignored');
         }
     },
 
@@ -2932,6 +2996,9 @@ const Game = {
                             }
 
                             playerInstance.update(deltaTime, inputAdapter);
+                            if (rawInput.inputSeq != null) {
+                                playerInstance.lastProcessedInputSeq = rawInput.inputSeq;
+                            }
                         } else {
                             // No input received yet from this client
                             // This can happen during initial connection
@@ -2942,28 +3009,32 @@ const Game = {
                 // Update remote player invulnerability frames
                 this.updateRemotePlayerInvulnerability(deltaTime);
             } else {
-                // CLIENT: Update local player visuals/previews WITHOUT executing abilities
-                // Abilities are host-authoritative - client only shows previews
+                // CLIENT: Movement prediction + ability previews (no combat authority)
                 if (this.player && this.player.alive) {
-                    // Store host-authoritative state
-                    const savedX = this.player.x;
-                    const savedY = this.player.y;
-                    const savedVx = this.player.vx;
-                    const savedVy = this.player.vy;
-                    const savedRotation = this.player.rotation;
-                    const savedIsDodging = this.player.isDodging;
-                    const savedIsChargingHeavy = this.player.isChargingHeavy;
+                    const predictionOn = typeof multiplayerManager !== 'undefined' && multiplayerManager &&
+                        multiplayerManager.predictionEnabled;
 
-                    // Update visuals/previews but prevent ability execution
-                    // We'll manually update preview states based on input
+                    if (predictionOn && typeof this.player.predictMovementStep === 'function') {
+                        // Snapshot input before flags reset later in the frame
+                        const inputSnap = multiplayerManager.serializeInput
+                            ? multiplayerManager.serializeInput()
+                            : null;
+                        multiplayerManager.recordPredictionFrame(deltaTime, inputSnap);
+                        this.player.predictMovementStep(deltaTime, Input, {
+                            allowPredictedDodge: true,
+                            applyForces: true,
+                            applyAim: true,
+                            applyDriftBias: true
+                        });
+                    }
+
+                    // Ability previews / aim overlays (visual only)
                     if (Input.isTouchMode && Input.isTouchMode()) {
-                        // Clear all previews first, then activate based on current input
                         this.player.dashPreviewActive = false;
                         if (this.player.clearHeavyAttackPreview) {
                             this.player.clearHeavyAttackPreview();
                         }
 
-                        // Update dash preview for Rogue (triangle)
                         if (this.player.playerClass === 'triangle' && Input.touchButtons && Input.touchButtons.dodge) {
                             const button = Input.touchButtons.dodge;
                             if (button.pressed && Input.touchJoysticks && Input.touchJoysticks.dodge) {
@@ -2971,7 +3042,6 @@ const Game = {
                                 if (joystick.active && joystick.getMagnitude() > 0.1) {
                                     this.player.dashPreviewActive = true;
                                     this.player.rotation = joystick.getAngle();
-                                    // Update preview position (uses saved position which is host position)
                                     if (this.player.updateDashPreview) {
                                         this.player.updateDashPreview(Input);
                                     }
@@ -2979,7 +3049,6 @@ const Game = {
                             }
                         }
 
-                        // Update heavy attack preview for Warrior/Triangle/Mage
                         if ((this.player.playerClass === 'square' || this.player.playerClass === 'triangle' || this.player.playerClass === 'hexagon') &&
                             Input.touchButtons && Input.touchButtons.heavyAttack) {
                             const button = Input.touchButtons.heavyAttack;
@@ -2994,7 +3063,6 @@ const Game = {
                             }
                         }
 
-                        // Update rotation based on attack joysticks (priority: heavy > special > basic)
                         if (Input.touchJoysticks) {
                             const heavyAttack = Input.touchJoysticks.heavyAttack;
                             const specialAbility = Input.touchJoysticks.specialAbility;
@@ -3009,32 +3077,22 @@ const Game = {
                             }
                         }
                     } else {
-                        // Desktop mode: clear previews and update rotation from mouse
                         this.player.dashPreviewActive = false;
                         if (this.player.clearHeavyAttackPreview) {
                             this.player.clearHeavyAttackPreview();
                         }
 
-                        // Update rotation to face mouse cursor (using world coordinates with camera)
-                        if (Input.getWorldMousePos) {
+                        if (!predictionOn && Input.getWorldMousePos) {
                             const worldMouse = Input.getWorldMousePos();
-                            const dx = worldMouse.x - savedX; // Use saved (host-authoritative) position
-                            const dy = worldMouse.y - savedY;
+                            const dx = worldMouse.x - this.player.x;
+                            const dy = worldMouse.y - this.player.y;
                             this.player.rotation = Math.atan2(dy, dx);
                         }
+                        // When prediction is on, aim is already applied inside predictMovementStep
                     }
 
-                    // Restore host-authoritative state (abilities execute on host only)
-                    this.player.x = savedX;
-                    this.player.y = savedY;
-                    this.player.vx = savedVx;
-                    this.player.vy = savedVy;
-                    this.player.isDodging = savedIsDodging;
-                    this.player.isChargingHeavy = savedIsChargingHeavy;
-                    // Keep rotation for visual feedback, but interpolate will correct it
-
-                    // Interpolate to host position
-                    if (this.player.interpolatePosition) {
+                    // Without prediction, fall back to host interpolation
+                    if (!predictionOn && this.player.interpolatePosition) {
                         this.player.interpolatePosition(deltaTime);
                     }
                 }
@@ -4152,7 +4210,7 @@ const Game = {
             }
         }
         this.enemies = [];
-        this.projectiles = [];
+        this.projectiles = (typeof createProjectileList === 'function' ? createProjectileList() : []);
         this.gameOverMusicPlaying = false;
         this.updateMusicForCurrentRoom();
 
@@ -6318,7 +6376,7 @@ const Game = {
             console.log('[RunProfiler] Profile captured on return to Nexus:\n' + RunProfiler.getSummaryText());
         }
         this.enemies = [];
-        this.projectiles = [];
+        this.projectiles = (typeof createProjectileList === 'function' ? createProjectileList() : []);
         this.gameOverMusicPlaying = false;
         this.updateMusicForCurrentRoom();
 
@@ -6840,7 +6898,7 @@ const Game = {
 
         // Reset arrays
         this.enemies = [];
-        this.projectiles = [];
+        this.projectiles = (typeof createProjectileList === 'function' ? createProjectileList() : []);
         this.particles = [];
         this.damageNumbers = [];
 
@@ -7173,10 +7231,10 @@ const Game = {
                         let finalDamage = projectile.damage;
 
                         // Check for range bonus (Mage passive: increased damage at range)
-                        if (projectile.type === 'magic' && this.player && this.player.playerClass === 'hexagon') {
-                            // Calculate distance from player to enemy
-                            const dx = enemy.x - this.player.x;
-                            const dy = enemy.y - this.player.y;
+                        if (projectile.type === 'magic' && shooterPlayer && shooterPlayer.playerClass === 'hexagon') {
+                            // Calculate distance from shooter to enemy
+                            const dx = enemy.x - shooterPlayer.x;
+                            const dy = enemy.y - shooterPlayer.y;
                             const distance = Math.sqrt(dx * dx + dy * dy);
 
                             // Apply range-based damage multiplier
@@ -7334,23 +7392,10 @@ const Game = {
                         if (typeof createDamageNumber !== 'undefined') {
                             createDamageNumber(enemy.x, enemy.y, Math.floor(damageDealt), isCrit, false);
                         }
-
-                        // Multiplayer: Send damage number event to clients
-                        if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
-                            if (typeof DebugFlags !== 'undefined' && DebugFlags.DAMAGE_NUMBERS) {
-                                console.log(`[Host/Projectile] Sending damage_number to clients: enemyId=${enemy.id}, coords=(${enemy.x}, ${enemy.y}), damage=${Math.floor(damageDealt)}, isCrit=${isCrit}`);
-                            }
-
-                            multiplayerManager.send({
-                                type: 'damage_number',
-                                data: {
-                                    enemyId: enemy.id,
-                                    x: enemy.x,
-                                    y: enemy.y,
-                                    damage: Math.floor(damageDealt),
-                                    isCrit: isCrit,
-                                    isWeakPoint: false
-                                }
+                        if (typeof hostBroadcastDamageNumber === 'function') {
+                            hostBroadcastDamageNumber(enemy.x, enemy.y, damageDealt, {
+                                enemyId: enemy.id,
+                                isCrit
                             });
                         }
 
@@ -7411,13 +7456,13 @@ const Game = {
                         });
                     }
 
-                    // Add remote players (multiplayer only)
-                    if (this.remotePlayers) {
-                        this.remotePlayers.forEach(rp => {
-                            if (rp.hp > 0) {
+                    // Add remote players (multiplayer only) — use simulated instances, not lobby snapshots
+                    if (this.remotePlayerInstances && this.remotePlayerInstances.size > 0) {
+                        this.remotePlayerInstances.forEach((instance, id) => {
+                            if (instance && instance.alive && instance.hp > 0) {
                                 playersToCheck.push({
-                                    id: rp.id,
-                                    player: rp,
+                                    id,
+                                    player: instance,
                                     isLocal: false
                                 });
                             }
@@ -7458,10 +7503,10 @@ const Game = {
                     playersToCheck.forEach(({ id, player: p, isLocal }) => {
                         if (projectileHit) return; // Projectile already hit someone
 
-                        // Check shield blocking (local player only, remote players don't have shield logic)
+                        // Check shield blocking (local and remote tank instances)
                         let isBlocked = false;
 
-                        if (isLocal && p.shieldActive) {
+                        if (p.shieldActive) {
                             const shieldStart = p.size + 5;
                             const shieldDepth = 20;
                             const shieldWidth = 60;
@@ -7469,29 +7514,40 @@ const Game = {
                             const toPlayerX = projectile.x - p.x;
                             const toPlayerY = projectile.y - p.y;
                             const toPlayerDist = Math.sqrt(toPlayerX * toPlayerX + toPlayerY * toPlayerY);
-                            const toPlayerNormX = toPlayerX / toPlayerDist;
-                            const toPlayerNormY = toPlayerY / toPlayerDist;
+                            if (toPlayerDist > 0) {
+                                const toPlayerNormX = toPlayerX / toPlayerDist;
+                                const toPlayerNormY = toPlayerY / toPlayerDist;
 
-                            const playerDirX = Math.cos(p.rotation);
-                            const playerDirY = Math.sin(p.rotation);
+                                const playerDirX = Math.cos(p.rotation);
+                                const playerDirY = Math.sin(p.rotation);
 
-                            const dot = toPlayerNormX * playerDirX + toPlayerNormY * playerDirY;
+                                const dot = toPlayerNormX * playerDirX + toPlayerNormY * playerDirY;
 
-                            if (dot > 0 && toPlayerDist < shieldStart + shieldDepth) {
-                                const perpendicularX = -playerDirY;
-                                const perpendicularY = playerDirX;
-                                const lateralDist = Math.abs(toPlayerX * perpendicularX + toPlayerY * perpendicularY);
+                                if (dot > 0 && toPlayerDist < shieldStart + shieldDepth) {
+                                    const perpendicularX = -playerDirY;
+                                    const perpendicularY = playerDirX;
+                                    const lateralDist = Math.abs(toPlayerX * perpendicularX + toPlayerY * perpendicularY);
 
-                                if (lateralDist < shieldWidth) {
-                                    isBlocked = true;
+                                    if (lateralDist < shieldWidth) {
+                                        isBlocked = true;
 
-                                    // Play shield block sound
-                                    if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-                                        AudioManager.sounds.tankShieldHit();
-                                    }
+                                        // Play shield block sound (local feedback on host)
+                                        if (isLocal && typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+                                            AudioManager.sounds.tankShieldHit();
+                                        }
 
-                                    if (typeof createParticleBurst !== 'undefined') {
-                                        createParticleBurst(projectile.x, projectile.y, '#0099ff', 5);
+                                        if (typeof createParticleBurst !== 'undefined') {
+                                            createParticleBurst(projectile.x, projectile.y, '#0099ff', 5);
+                                        }
+                                        if (typeof hostBroadcastCombatFx === 'function') {
+                                            hostBroadcastCombatFx({
+                                                kind: 'particle_burst',
+                                                x: projectile.x,
+                                                y: projectile.y,
+                                                color: '#0099ff',
+                                                count: 5
+                                            });
+                                        }
                                     }
                                 }
                             }

@@ -463,7 +463,7 @@ Shape Slayer supports co-op multiplayer for up to 4 players using a lobby-based 
   - Receive full game state from host at 30 FPS
   - Render at 60 FPS using client-side interpolation
   - Handle their own visual effects and UI
-  - Local input prediction for responsive feel
+  - Local movement+aim prediction with host-acked rewind/replay (no client combat authority)
 
 #### State Synchronization
 - **Update Rate:** 30 updates/second (network), 60 FPS (client rendering)
@@ -679,7 +679,7 @@ The multiplayer server supports three deployment modes for different scale requi
 - `loot_pickup` - Broadcast to all players (including sender)
 - `player_joined` - Broadcast to all other players
 - `player_left` - Broadcast to all remaining players
-- `host_migrated` - Send to new host only
+- `host_migrated` - Broadcast to all lobby members (new host + clients)
 
 **Server-Generated Messages:**
 - `lobby_created` - Sent to creator
@@ -705,8 +705,10 @@ The multiplayer server supports three deployment modes for different scale requi
 6. Broadcast `player_joined` to all other players
 
 **Host Migration:**
-1. Triggered when host disconnects
-2. Next player in lobby.players array becomes host
+1. Triggered when host leaves, or immediately (provisional) when host disconnects
+2. Next connected player becomes host; `host_migrated` broadcast to all
+3. New host hydrates remote instances from last `latestGameState` snapshot
+4. Disconnect grace only retains the leaving player's seat for reconnect (as client)
 3. Update lobby.host reference
 4. Send `host_migrated` message to new host
 5. Log migration event
@@ -776,14 +778,13 @@ The multiplayer server supports three deployment modes for different scale requi
 10. Broadcast `enemy_state_update` after damage
 
 **Client (Every Frame):**
-1. Snapshot input BEFORE `Input.update()` (preserves flags)
-2. Update local player with `Input` object (for local prediction)
-3. Serialize player state (position, input, class)
-4. Send `player_state` to server (as needed)
-5. Receive `game_state` from host (every ~33ms)
-6. Apply game state (update enemies, projectiles, remote players)
-7. Use interpolation for smooth rendering
-8. Send `enemy_damaged` events when local player attacks
+1. Snapshot input for prediction/`player_state` (preserves justPressed flags)
+2. Run movement-only `predictMovementStep` + record `inputSeq` history
+3. Show ability previews (no combat execution)
+4. Send `player_state` / batch with `inputSeq` to host
+5. On `game_state`: apply non-transform fields, `reconcilePrediction` using `lastProcessedInputSeq`
+6. Interpolate remote shadows / enemies only (local player uses prediction)
+7. Combat damage is host-authoritative (clients do not send `enemy_damaged`)
 
 #### Message Flow Examples
 
@@ -962,7 +963,7 @@ DebugFlags.DAMAGE_NUMBERS = false  // Disable
 
 #### Client Performance
 - **Interpolation:** Smooth rendering despite network jitter
-- **Prediction:** Local input prediction for responsive controls
+- **Prediction:** Movement+aim client prediction with seq-acked rewind/replay; combat stays host-authoritative
 - **Cleanup:** Automatic cleanup of old state buffers
 - **Latency Handling:** Adaptive interpolation delay based on RTT
 - **Input Snapshotting:** Minimal overhead (just copying input state before update)

@@ -1132,7 +1132,19 @@ class BossBase extends EnemyBase {
             bossName: this.bossName,
             phase: this.phase,
             introComplete: this.introComplete,
-            environmentalHazards: hazardStates
+            environmentalHazards: hazardStates,
+            // Weak points for client display (clients do not run boss AI)
+            weakPoints: (this.weakPoints || []).map(wp => ({
+                offsetX: wp.offsetX,
+                offsetY: wp.offsetY,
+                x: wp.x,
+                y: wp.y,
+                radius: wp.radius,
+                hitRadius: wp.hitRadius,
+                angle: wp.angle,
+                visible: wp.visible !== false,
+                active: wp.active !== false
+            }))
         };
     }
     
@@ -1142,6 +1154,26 @@ class BossBase extends EnemyBase {
         // Boss-specific properties
         if (state.phase !== undefined) this.phase = state.phase;
         if (state.introComplete !== undefined) this.introComplete = state.introComplete;
+        if (state.weakPoints !== undefined && Array.isArray(state.weakPoints)) {
+            // Preserve existing weak point objects when possible; otherwise replace
+            if (this.weakPoints && this.weakPoints.length === state.weakPoints.length) {
+                for (let i = 0; i < state.weakPoints.length; i++) {
+                    const src = state.weakPoints[i];
+                    const dst = this.weakPoints[i];
+                    if (src.offsetX !== undefined) dst.offsetX = src.offsetX;
+                    if (src.offsetY !== undefined) dst.offsetY = src.offsetY;
+                    if (src.x !== undefined) dst.x = src.x;
+                    if (src.y !== undefined) dst.y = src.y;
+                    if (src.radius !== undefined) dst.radius = src.radius;
+                    if (src.hitRadius !== undefined) dst.hitRadius = src.hitRadius;
+                    if (src.angle !== undefined) dst.angle = src.angle;
+                    if (src.visible !== undefined) dst.visible = src.visible;
+                    if (src.active !== undefined) dst.active = src.active;
+                }
+            } else {
+                this.weakPoints = state.weakPoints.map(wp => ({ ...wp }));
+            }
+        }
         if (state.environmentalHazards !== undefined) {
             if (Array.isArray(state.environmentalHazards) && typeof createHazardFromState === 'function') {
                 this.environmentalHazards = state.environmentalHazards.map(hazardState => {

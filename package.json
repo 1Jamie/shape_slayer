@@ -21,7 +21,10 @@
     "metrics:install": "npm install --prefix metrics/server && npm install --prefix metrics/gui",
     "metrics:start": "node harness/index.js --only=metrics,gui",
     "test:path-security": "node --test tests/path-security.test.js",
-    "metrics:test": "npm test --prefix metrics/server && node --test tests/telemetry-client.test.js tests/path-security.test.js tests/mp-config.test.js"
+    "test:mp-config": "node --test tests/mp-config.test.js",
+    "test:mp-combat-relay": "node --test tests/mp-combat-relay.test.js",
+    "test:mp-prediction": "node --test tests/mp-prediction.test.js tests/mp-host-migration.test.js",
+    "metrics:test": "npm test --prefix metrics/server && node --test tests/telemetry-client.test.js tests/path-security.test.js tests/mp-config.test.js tests/mp-combat-relay.test.js tests/mp-prediction.test.js tests/mp-host-migration.test.js"
   },
   "keywords": [
     "game",

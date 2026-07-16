@@ -1942,7 +1942,7 @@ class BossVortex extends BossBase {
 
     spawnRadialBulletRing(options = {}) {
         if (!this.isAuthoritative() || typeof Game === 'undefined') return;
-        if (!Game.projectiles) Game.projectiles = [];
+        if (!Game.projectiles) Game.projectiles = (typeof createProjectileList === "function" ? createProjectileList() : []);
 
         const count = options.count || 14;
         const speed = options.speed || 200;
@@ -1974,7 +1974,7 @@ class BossVortex extends BossBase {
 
     spawnBladeSparkVolley() {
         if (!this.isAuthoritative() || typeof Game === 'undefined') return;
-        if (!Game.projectiles) Game.projectiles = [];
+        if (!Game.projectiles) Game.projectiles = (typeof createProjectileList === "function" ? createProjectileList() : []);
 
         const bladeCount = this.phase === 3 ? 8 : 6;
         const safeBlade = Math.floor(((this.lastTargetAngle - this.orbitBladeAngle - this.rotationAngle + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2 / bladeCount));
@@ -2000,7 +2000,7 @@ class BossVortex extends BossBase {
 
     spawnPredictiveShotgun() {
         if (!this.isAuthoritative() || typeof Game === 'undefined') return;
-        if (!Game.projectiles) Game.projectiles = [];
+        if (!Game.projectiles) Game.projectiles = (typeof createProjectileList === "function" ? createProjectileList() : []);
 
         const aimAngle = this.lanceTargetAngle;
 
@@ -2030,7 +2030,7 @@ class BossVortex extends BossBase {
 
     spawnSineWavePetals(burstIndex = 0) {
         if (!this.isAuthoritative() || typeof Game === 'undefined') return;
-        if (!Game.projectiles) Game.projectiles = [];
+        if (!Game.projectiles) Game.projectiles = (typeof createProjectileList === "function" ? createProjectileList() : []);
 
         const petalCount = this.phase === 3 ? 8 : 6;
         const speed = this.phase === 3 ? 215 : 195;
@@ -2064,7 +2064,7 @@ class BossVortex extends BossBase {
 
     spawnCrossingNetBurst(burstIndex = 0) {
         if (!this.isAuthoritative() || typeof Game === 'undefined') return;
-        if (!Game.projectiles) Game.projectiles = [];
+        if (!Game.projectiles) Game.projectiles = (typeof createProjectileList === "function" ? createProjectileList() : []);
 
         const streams = this.phase === 3 ? 9 : 8;
         const speed = this.phase === 3 ? 225 : 205;
@@ -2108,7 +2108,7 @@ class BossVortex extends BossBase {
 
     spawnCageSliceVolley() {
         if (!this.isAuthoritative() || typeof Game === 'undefined') return;
-        if (!Game.projectiles) Game.projectiles = [];
+        if (!Game.projectiles) Game.projectiles = (typeof createProjectileList === "function" ? createProjectileList() : []);
 
         const target = this.getForceTargets()[0] || null;
         const targetAngle = target ? Math.atan2(target.y - this.y, target.x - this.x) : this.lastTargetAngle;
@@ -2432,7 +2432,7 @@ class BossVortex extends BossBase {
 
     spawnWellCollapseShards(well) {
         if (typeof Game === 'undefined') return;
-        if (!Game.projectiles) Game.projectiles = [];
+        if (!Game.projectiles) Game.projectiles = (typeof createProjectileList === "function" ? createProjectileList() : []);
 
         const shardCount = this.panicMode ? 8 : 6;
         const baseAngle = this.rotationAngle + well.x * 0.001;
@@ -2499,7 +2499,7 @@ class BossVortex extends BossBase {
 
     spawnSpiralGateWave(waveIndex, finale = false) {
         if (!this.isAuthoritative() || typeof Game === 'undefined') return;
-        if (!Game.projectiles) Game.projectiles = [];
+        if (!Game.projectiles) Game.projectiles = (typeof createProjectileList === "function" ? createProjectileList() : []);
 
         const pattern = this.getSpiralPattern(waveIndex, finale);
 
