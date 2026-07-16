@@ -189,6 +189,19 @@ class WorkerProcess {
         }
     }
     
+    serializeLobbyPlayers(lobby) {
+        return lobby.players.map(p => ({
+            id: p.id,
+            name: p.name,
+            class: p.class,
+            ready: p.ready,
+            currency: p.currency,
+            upgrades: p.upgrades,
+            safeRoomMeta: p.safeRoomMeta || {},
+            disconnected: !!p.disconnected
+        }));
+    }
+
     handleCreateLobby(ws, data) {
         const code = this.generateLobbyCode();
         const playerId = this.generatePlayerId();
@@ -235,15 +248,7 @@ class WorkerProcess {
                 code,
                 playerId,
                 isHost: true,
-                players: lobby.players.map(p => ({
-                    id: p.id,
-                    name: p.name,
-                    class: p.class,
-                    ready: p.ready,
-                    currency: p.currency,
-                    upgrades: p.upgrades,
-                    safeRoomMeta: p.safeRoomMeta || {}
-                }))
+                players: this.serializeLobbyPlayers(lobby)
             }
         }));
     }
@@ -367,15 +372,7 @@ class WorkerProcess {
                 playerId,
                 isHost: isReconnection ? (lobby.hostPlayerId === playerId) : false,
                 isReconnection: isReconnection,
-                players: lobby.players.map(p => ({
-                    id: p.id,
-                    name: p.name,
-                    class: p.class,
-                    ready: p.ready,
-                    currency: p.currency,
-                    upgrades: p.upgrades,
-                    safeRoomMeta: p.safeRoomMeta || {}
-                }))
+                players: this.serializeLobbyPlayers(lobby)
             }
         }));
         
@@ -400,34 +397,20 @@ class WorkerProcess {
                         },
                         safeRoomMeta: data.safeRoomMeta || {}
                     },
-                    players: lobby.players.map(p => ({
-                        id: p.id,
-                        name: p.name,
-                        class: p.class,
-                        ready: p.ready,
-                        currency: p.currency,
-                        upgrades: p.upgrades,
-                        safeRoomMeta: p.safeRoomMeta || {}
-                    }))
+                    players: this.serializeLobbyPlayers(lobby)
                 }
             }, ws);
         } else {
-            // On reconnection, send updated player list to all players (including reconnecting player)
-            // This ensures everyone sees the reconnected player with updated info
+            // Reconnection: roster refresh + explicit signal so host restores run snapshot
+            const roster = this.serializeLobbyPlayers(lobby);
             this.broadcastToLobby(lobby, {
                 type: 'player_list_update',
-                data: {
-                    players: lobby.players.map(p => ({
-                        id: p.id,
-                        name: p.name,
-                        class: p.class,
-                        ready: p.ready,
-                        currency: p.currency,
-                        upgrades: p.upgrades,
-                        safeRoomMeta: p.safeRoomMeta || {}
-                    }))
-                }
+                data: { players: roster }
             });
+            this.broadcastToLobby(lobby, {
+                type: 'player_reconnected',
+                data: { playerId, players: roster }
+            }, ws);
         }
     }
     
@@ -450,15 +433,7 @@ class WorkerProcess {
         this.broadcastToLobby(lobby, {
             type: 'player_list_update',
             data: {
-                players: lobby.players.map(p => ({
-                    id: p.id,
-                    name: p.name,
-                    class: p.class,
-                    ready: p.ready,
-                    currency: p.currency,
-                    upgrades: p.upgrades,
-                    safeRoomMeta: p.safeRoomMeta || {}
-                }))
+                players: this.serializeLobbyPlayers(lobby)
             }
         });
         
@@ -574,37 +549,14 @@ class WorkerProcess {
             }
         }
         
-        const graceMs = config.lobby.disconnectGraceMs || 15000;
-        player.disconnectTimer = setTimeout(() => {
-            this.finalizeDisconnectedPlayer(code, player.id);
-        }, graceMs);
-        
-        if (config.logging.level === 'debug') {
-            console.log(`[Worker ${this.getWorkerId()}] ${player.name} disconnected from lobby ${code}, grace period ${graceMs}ms`);
-        }
-        
+        // Stay in lobby until host kicks — rejoin anytime; run continues without them
         this.broadcastToLobby(lobby, {
             type: 'player_disconnected',
             data: {
                 playerId: player.id,
-                graceMs
+                players: this.serializeLobbyPlayers(lobby)
             }
         });
-    }
-    
-    finalizeDisconnectedPlayer(code, playerId) {
-        const lobby = this.lobbies.get(code);
-        if (!lobby) return;
-        
-        const player = lobby.players.find(p => p.id === playerId);
-        if (!player) return;
-        
-        // Player reconnected during grace period
-        if (player.ws && player.ws.readyState === WebSocket.OPEN) {
-            return;
-        }
-        
-        this.removePlayerFromLobby(lobby, player);
     }
     
     removePlayerFromLobby(lobby, player) {
@@ -656,15 +608,7 @@ class WorkerProcess {
             type: 'player_left',
             data: {
                 playerId: playerId,
-                players: lobby.players.map(p => ({
-                    id: p.id,
-                    name: p.name,
-                    class: p.class,
-                    ready: p.ready,
-                    currency: p.currency,
-                    upgrades: p.upgrades,
-                    safeRoomMeta: p.safeRoomMeta || {}
-                }))
+                players: this.serializeLobbyPlayers(lobby)
             }
         });
     }

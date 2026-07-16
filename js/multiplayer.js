@@ -341,6 +341,9 @@ class MultiplayerManager {
                 case 'player_disconnected':
                     this.handlePlayerDisconnected(msg.data);
                     break;
+                case 'player_reconnected':
+                    this.handlePlayerReconnected(msg.data);
+                    break;
                 case 'heartbeat_ack':
                     // Heartbeat acknowledged
                     break;
@@ -1652,21 +1655,33 @@ class MultiplayerManager {
     // Handle player list update (for reconnections)
     handlePlayerListUpdate(data) {
         if (!data.players) return;
+
+        const prevDisconnected = new Set();
+        (this.players || []).forEach(p => {
+            if (p && p.disconnected) prevDisconnected.add(p.id);
+        });
         
         // Update players list
         this.players = data.players;
         this.updateRemotePlayers();
         
-        console.log('[Multiplayer] Player list updated:', this.players.map(p => `${p.name} (${p.id})`));
+        console.log('[Multiplayer] Player list updated:', this.players.map(p => `${p.name} (${p.id})${p.disconnected ? ' [offline]' : ''}`));
         if (typeof window !== 'undefined' && window.UIBus && UIBus.emit) {
             UIBus.emit('mp:lobby:players', { players: (this.players || []).slice() });
-            // Also emit a specific event for player list updates (name changes)
             UIBus.emit('mp:player_list_update', { players: (this.players || []).slice() });
         }
         
-        // Update Game.remotePlayers for rendering
         if (typeof Game !== 'undefined') {
             Game.remotePlayers = this.remotePlayers;
+        }
+
+        if (this.isHost && typeof Game !== 'undefined' && Game.state === 'PLAYING') {
+            data.players.forEach(p => {
+                if (!p || p.id === this.playerId) return;
+                if (prevDisconnected.has(p.id) && !p.disconnected && typeof Game.handlePlayerReconnectedMidRun === 'function') {
+                    Game.handlePlayerReconnectedMidRun(p.id);
+                }
+            });
         }
     }
     
@@ -1678,6 +1693,10 @@ class MultiplayerManager {
         console.log(`[Multiplayer] Player left`);
         if (typeof window !== 'undefined' && window.UIBus && UIBus.emit) {
             UIBus.emit('mp:lobby:players', { players: (this.players || []).slice() });
+        }
+
+        if (data && data.playerId && typeof Game !== 'undefined' && typeof Game.handlePlayerRemovedFromLobby === 'function') {
+            Game.handlePlayerRemovedFromLobby(data.playerId);
         }
         
         // Notify game
@@ -4475,7 +4494,38 @@ class MultiplayerManager {
     
     handlePlayerDisconnected(data) {
         if (!data || !data.playerId) return;
-        console.log(`[Multiplayer] Player ${data.playerId} disconnected (reconnect grace: ${data.graceMs || 0}ms)`);
+        const playerId = data.playerId;
+        console.log(`[Multiplayer] Player ${playerId} disconnected (kick-only lobby removal)`);
+
+        if (data.players) {
+            this.players = data.players;
+            this.updateRemotePlayers();
+            if (typeof Game !== 'undefined') {
+                Game.remotePlayers = this.remotePlayers;
+            }
+            if (typeof window !== 'undefined' && window.UIBus && UIBus.emit) {
+                UIBus.emit('mp:lobby:players', { players: (this.players || []).slice() });
+            }
+        } else {
+            const p = (this.players || []).find(pl => pl.id === playerId);
+            if (p) p.disconnected = true;
+        }
+
+        if (this.isHost && typeof Game !== 'undefined' && typeof Game.handlePlayerDisconnectedMidRun === 'function') {
+            Game.handlePlayerDisconnectedMidRun(playerId);
+        }
+    }
+
+    handlePlayerReconnected(data) {
+        if (!data) return;
+        if (data.players) {
+            this.handlePlayerListUpdate({ players: data.players });
+            return;
+        }
+        if (data.playerId && this.isHost && typeof Game !== 'undefined' &&
+            typeof Game.handlePlayerReconnectedMidRun === 'function') {
+            Game.handlePlayerReconnectedMidRun(data.playerId);
+        }
     }
     
     handleLobbyMigrating(data) {

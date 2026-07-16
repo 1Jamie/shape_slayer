@@ -1996,6 +1996,9 @@ function onPlayerJoined(data) {
 
 function onPlayerLeft(data) {
     console.log('[Multiplayer] Player left lobby');
+    if (data && data.playerId && typeof Game !== 'undefined' && typeof Game.handlePlayerRemovedFromLobby === 'function') {
+        Game.handlePlayerRemovedFromLobby(data.playerId);
+    }
 }
 
 function onHostMigrated(data, wasHost, isHost) {

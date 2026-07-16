@@ -620,8 +620,12 @@
 						displayName = `Player ${playerNumber}`;
 					}
 					
-					nameText.textContent = displayName;
-					if (mgr && mgr.playerId === p.id) {
+                    nameText.textContent = displayName;
+                    if (p.disconnected) {
+                        nameText.textContent += ' (Offline)';
+                        nameText.style.opacity = '0.65';
+                    }
+                    if (mgr && mgr.playerId === p.id) {
 						nameText.textContent += ' (You)';
 						nameText.style.fontWeight = '700';
 					}

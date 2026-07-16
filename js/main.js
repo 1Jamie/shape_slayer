@@ -224,6 +224,8 @@ const Game = {
     // Per-player stats tracking (new system)
     playerStats: new Map(), // Map<playerId, PlayerStats>
     deadPlayers: new Set(), // Set of dead player IDs
+    disconnectedPlayerIds: new Set(), // Mid-run disconnect (lobby seat kept until kick)
+    disconnectedRunSnapshots: new Map(), // Map<playerId, serialized run state for rejoin>
     allPlayersDead: false, // Flag for when all players are dead
     spectateMode: false, // Local player is spectating after death
     spectatedPlayerId: null, // ID of player being spectated (when dead in multiplayer)
@@ -2469,9 +2471,14 @@ const Game = {
             return this.player && this.player.dead;
         }
 
-        // Multiplayer - check if all players are dead
-        const totalPlayers = multiplayerManager.players ? multiplayerManager.players.length : 1;
-        return this.deadPlayers.size >= totalPlayers;
+        // Multiplayer - check if all connected players are dead (offline seats don't block)
+        const roster = multiplayerManager.players || [];
+        const connectedCount = roster.filter(p => p && !p.disconnected).length || roster.length;
+        if (connectedCount <= 0) {
+            return this.player && this.player.dead;
+        }
+        const deadConnected = Array.from(this.deadPlayers).filter(pid => this.isPlayerConnectedForMp(pid)).length;
+        return deadConnected >= connectedCount;
     },
 
     isBossRoom(roomNumber) {
@@ -2622,6 +2629,21 @@ const Game = {
             multiplayerManager.forceFullState = true;
             multiplayerManager.lastSentGameState = null;
             multiplayerManager.lastStateUpdate = 0;
+
+            // Respect lobby offline seats — don't sim ghosts that block doors
+            if (multiplayerManager.players) {
+                multiplayerManager.players.forEach(p => {
+                    if (!p || p.id === this.getLocalPlayerId()) return;
+                    if (p.disconnected && typeof this.handlePlayerDisconnectedMidRun === 'function') {
+                        if (!this.isPlayerDisconnectedMidRun(p.id)) {
+                            this.handlePlayerDisconnectedMidRun(p.id);
+                        } else if (this.remotePlayerInstances) {
+                            this.remotePlayerInstances.delete(p.id);
+                        }
+                    }
+                });
+            }
+
             if (typeof multiplayerManager.sendGameState === 'function') {
                 multiplayerManager.sendGameState();
             }
@@ -2708,12 +2730,14 @@ const Game = {
         const seen = new Set();
         statePlayers.forEach(stateData => {
             if (!stateData || !stateData.id || stateData.id === localId) return;
+            if (!this.isPlayerConnectedForMp(stateData.id)) return;
             seen.add(stateData.id);
             ensureInstance(stateData.id, stateData.class, stateData);
         });
 
         lobbyPlayers.forEach(player => {
             if (!player || player.id === localId || seen.has(player.id)) return;
+            if (player.disconnected || !this.isPlayerConnectedForMp(player.id)) return;
             if (!this.playerCurrencies.has(player.id)) {
                 this.playerCurrencies.set(player.id, player.currency || 0);
             }
@@ -2739,6 +2763,167 @@ const Game = {
         }
 
         console.log(`[Host Migration] Hydrated ${this.remotePlayerInstances.size} remote instances from snapshot`);
+    },
+
+    isPlayerConnectedForMp(playerId) {
+        if (!this.multiplayerEnabled || typeof multiplayerManager === 'undefined' || !multiplayerManager) {
+            return true;
+        }
+        const entry = (multiplayerManager.players || []).find(p => p.id === playerId);
+        return !!(entry && !entry.disconnected);
+    },
+
+    isPlayerDisconnectedMidRun(playerId) {
+        return this.disconnectedPlayerIds && this.disconnectedPlayerIds.has(playerId);
+    },
+
+    /**
+     * Host: player dropped mid-run — save run snapshot, mark dead, stop simulating.
+     * Lobby seat stays until host kicks from MP menu.
+     */
+    handlePlayerDisconnectedMidRun(playerId) {
+        if (!this.multiplayerEnabled || !this.isHost() || !playerId) return;
+        const localId = this.getLocalPlayerId ? this.getLocalPlayerId() : null;
+        if (playerId === localId) return;
+
+        if (!this.disconnectedPlayerIds) this.disconnectedPlayerIds = new Set();
+        if (!this.disconnectedRunSnapshots) this.disconnectedRunSnapshots = new Map();
+        this.disconnectedPlayerIds.add(playerId);
+
+        const instance = this.remotePlayerInstances && this.remotePlayerInstances.get(playerId);
+        if (instance) {
+            let snapshot = null;
+            if (typeof multiplayerManager !== 'undefined' && multiplayerManager &&
+                typeof multiplayerManager.serializePlayerInstance === 'function') {
+                snapshot = multiplayerManager.serializePlayerInstance(instance, playerId);
+            } else if (typeof instance.serialize === 'function') {
+                snapshot = Object.assign(
+                    { id: playerId, class: instance.playerClass, playerClass: instance.playerClass },
+                    instance.serialize()
+                );
+            }
+            if (snapshot) {
+                this.disconnectedRunSnapshots.set(playerId, JSON.parse(JSON.stringify(snapshot)));
+            }
+
+            this.deadPlayers.add(playerId);
+            if (this.remotePlayerStates && this.remotePlayerStates.has(playerId)) {
+                const st = this.remotePlayerStates.get(playerId);
+                st.dead = true;
+                st.hp = 0;
+            }
+
+            this.remotePlayerInstances.delete(playerId);
+        } else if (!this.deadPlayers.has(playerId)) {
+            this.deadPlayers.add(playerId);
+        }
+
+        if (this.remotePlayerInputs) {
+            this.remotePlayerInputs.delete(playerId);
+        }
+
+        console.log(`[MP Disconnect] Saved snapshot for ${playerId}, marked dead (kick to remove from lobby)`);
+
+        if (typeof multiplayerManager !== 'undefined' && multiplayerManager &&
+            typeof multiplayerManager.sendGameState === 'function') {
+            multiplayerManager.sendGameState();
+        }
+    },
+
+    /**
+     * Host: disconnected player rejoined — restore saved run state (not dead).
+     */
+    handlePlayerReconnectedMidRun(playerId) {
+        if (!this.multiplayerEnabled || !this.isHost() || !playerId) return;
+
+        this.disconnectedPlayerIds.delete(playerId);
+        this.deadPlayers.delete(playerId);
+
+        const snapshot = this.disconnectedRunSnapshots && this.disconnectedRunSnapshots.get(playerId);
+        const lobbyPlayer = (typeof multiplayerManager !== 'undefined' && multiplayerManager.players)
+            ? multiplayerManager.players.find(p => p.id === playerId)
+            : null;
+        const className = (snapshot && (snapshot.class || snapshot.playerClass))
+            || (lobbyPlayer && lobbyPlayer.class)
+            || 'square';
+
+        this.initializeRemotePlayerInstance(playerId, className);
+        const inst = this.remotePlayerInstances && this.remotePlayerInstances.get(playerId);
+        if (!inst) return;
+
+        if (snapshot && typeof inst.applyState === 'function') {
+            const restore = JSON.parse(JSON.stringify(snapshot));
+            restore.dead = false;
+            restore.alive = true;
+            if (!restore.hp || restore.hp <= 0) {
+                restore.hp = (restore.maxHp || inst.maxHp || 100) * 0.5;
+            }
+            inst.applyState(restore);
+            inst.dead = false;
+            inst.alive = true;
+        } else {
+            inst.dead = false;
+            inst.alive = true;
+            inst.hp = inst.maxHp * 0.5;
+        }
+
+        const spawnIndex = Math.max(1, Array.from(this.remotePlayerInstances.keys()).indexOf(playerId));
+        const spawn = this.getRoomSpawnPoint(
+            (typeof currentRoom !== 'undefined' ? currentRoom : null),
+            spawnIndex
+        );
+        inst.x = spawn.x;
+        inst.y = spawn.y;
+        inst.invulnerable = true;
+        inst.invulnerabilityTime = Math.max(inst.invulnerabilityTime || 0, 1.5);
+
+        if (this.remotePlayerStates) {
+            this.remotePlayerStates.set(playerId, {
+                id: playerId,
+                hp: inst.hp,
+                maxHp: inst.maxHp,
+                dead: false,
+                invulnerable: true,
+                invulnerabilityTime: Math.max(inst.invulnerabilityTime || 0, 1.5),
+                size: inst.size || 20
+            });
+        }
+
+        console.log(`[MP Reconnect] Restored ${playerId} from snapshot at ${Math.floor(inst.hp)}/${Math.floor(inst.maxHp)} HP`);
+
+        if (typeof multiplayerManager !== 'undefined' && multiplayerManager &&
+            typeof multiplayerManager.sendGameState === 'function') {
+            multiplayerManager.sendGameState();
+        }
+    },
+
+    /** Host kick / leave lobby — purge sim + saved snapshot for that player. */
+    handlePlayerRemovedFromLobby(playerId) {
+        if (!playerId) return;
+        if (this.disconnectedPlayerIds) this.disconnectedPlayerIds.delete(playerId);
+        if (this.disconnectedRunSnapshots) this.disconnectedRunSnapshots.delete(playerId);
+        if (this.deadPlayers) this.deadPlayers.delete(playerId);
+        if (this.remotePlayerInstances) this.remotePlayerInstances.delete(playerId);
+        if (this.remotePlayerInputs) this.remotePlayerInputs.delete(playerId);
+        if (this.remotePlayerStates) this.remotePlayerStates.delete(playerId);
+        if (this.remotePlayerShadowInstances) {
+            this.remotePlayerShadowInstances.delete(playerId);
+        }
+        console.log(`[MP Lobby] Purged run state for removed player ${playerId}`);
+    },
+
+    /** Revive offline players' saved snapshots (safe room / room transition). */
+    reviveDisconnectedSnapshots(hpFraction = 0.5) {
+        if (!this.disconnectedRunSnapshots || this.disconnectedRunSnapshots.size === 0) return;
+        this.disconnectedRunSnapshots.forEach((snap, playerId) => {
+            if (!snap) return;
+            snap.dead = false;
+            snap.alive = true;
+            const maxHp = snap.maxHp || 100;
+            const targetHp = Math.max(snap.hp || 0, maxHp * hpFraction);
+            snap.hp = Math.min(maxHp, targetHp);
+            if (this.deadPlayers) this.deadPlayers.delete(playerId);
+        });
     },
 
     // Get enemy index in the enemies array
@@ -3694,9 +3879,10 @@ const Game = {
                 alivePlayers.push({ player: this.player, id: this.getLocalPlayerId() });
             }
 
-            // Check remote player instances
+            // Check remote player instances (connected + alive only)
             if (this.remotePlayerInstances) {
                 this.remotePlayerInstances.forEach((playerInstance, playerId) => {
+                    if (!this.isPlayerConnectedForMp(playerId)) return;
                     if (playerInstance && playerInstance.alive && !playerInstance.dead) {
                         alivePlayers.push({ player: playerInstance, id: playerId });
                     }
@@ -3965,6 +4151,10 @@ const Game = {
             }
         }
 
+        if (reason === 'room_transition' || reason === 'room_clear' || reason === 'safe_room') {
+            this.reviveDisconnectedSnapshots(0.5);
+        }
+
         return Array.from(revived);
     },
 
@@ -4165,6 +4355,20 @@ const Game = {
             this.safeRoomUsedThisVisit = false;
         }
         this.setInSafeRoom(isSafe);
+
+        // Safe room: revive everyone (including offline snapshots for when they rejoin)
+        if (isSafe && this.multiplayerEnabled && this.isHost && this.isHost()) {
+            this.reviveDeadPlayers({
+                reason: 'safe_room',
+                broadcast: true,
+                respawnStrategy: 'safe'
+            });
+            this.reviveDisconnectedSnapshots(0.5);
+            if (typeof multiplayerManager !== 'undefined' && multiplayerManager &&
+                typeof multiplayerManager.sendGameState === 'function') {
+                multiplayerManager.sendGameState();
+            }
+        }
     },
 
     markSafeRoomMachineUsed() {
@@ -6317,6 +6521,8 @@ const Game = {
             typeof multiplayerManager.clearRunClassLocks === 'function') {
             multiplayerManager.clearRunClassLocks();
         }
+        if (this.disconnectedPlayerIds) this.disconnectedPlayerIds.clear();
+        if (this.disconnectedRunSnapshots) this.disconnectedRunSnapshots.clear();
 
         // Safety net: abandon/death clears any leftover solo checkpoint
         if (typeof SaveSystem !== 'undefined' && SaveSystem.clearActiveRunCheckpoint) {

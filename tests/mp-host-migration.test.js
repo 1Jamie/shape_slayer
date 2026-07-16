@@ -34,8 +34,34 @@ test('promote prefers snapshot HP over defaults', () => {
     assert.strictEqual(maxHp, 120);
 });
 
+test('server keeps disconnected players in lobby until kick', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'server', 'mp-server-worker.js'), 'utf-8');
+    assert.ok(source.includes('serializeLobbyPlayers'));
+    assert.ok(source.includes('disconnected: !!p.disconnected'));
+    assert.ok(source.includes('kick-only lobby removal') || source.includes('Stay in lobby until host kicks'));
+    assert.ok(!source.includes('finalizeDisconnectedPlayer(code, player.id)'));
+});
+
+test('host saves snapshot on disconnect and restores on reconnect', () => {
+    const mp = fs.readFileSync(path.join(__dirname, '..', 'js', 'multiplayer.js'), 'utf-8');
+    const main = fs.readFileSync(path.join(__dirname, '..', 'js', 'main.js'), 'utf-8');
+    assert.ok(mp.includes('handlePlayerDisconnectedMidRun'));
+    assert.ok(mp.includes('handlePlayerReconnectedMidRun'));
+    assert.ok(mp.includes('player_reconnected'));
+    assert.ok(main.includes('disconnectedRunSnapshots'));
+    assert.ok(main.includes('handlePlayerDisconnectedMidRun'));
+    assert.ok(main.includes('handlePlayerReconnectedMidRun'));
+    assert.ok(main.includes('isPlayerConnectedForMp'));
+    assert.ok(main.includes('reviveDisconnectedSnapshots'));
+});
+
+test('door quorum excludes disconnected players', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'main.js'), 'utf-8');
+    assert.ok(source.includes('isPlayerConnectedForMp(playerId)'));
+    assert.ok(/checkDoorCollision[\s\S]*isPlayerConnectedForMp/.test(source));
+});
+
 test('non-host host_migrated clears lastConfirmedState but can keep history', () => {
-    // Behavior encoded in handleHostMigrated stay-client branch
     const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'multiplayer.js'), 'utf-8');
     assert.ok(source.includes('Stayed client under a new host') || source.includes('lastConfirmedState = null'));
     assert.ok(source.includes('expectedSequence = null'));
