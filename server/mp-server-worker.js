@@ -727,6 +727,15 @@ class WorkerProcess {
         if (!player) return;
         
         if (!Array.isArray(data && data.frames) || data.frames.length === 0) return;
+
+        // Keep lobby roster class in sync (batches are the normal client path now)
+        for (let i = data.frames.length - 1; i >= 0; i--) {
+            const frame = data.frames[i];
+            if (frame && frame.class) {
+                player.class = frame.class;
+                break;
+            }
+        }
         
         // Add server receive timestamp
         const serverReceiveTime = Date.now();

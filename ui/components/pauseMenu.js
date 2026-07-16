@@ -1,5 +1,35 @@
 (function () {
-	let layer, modal, modalBody, updateModeButtons, skipGuideBtn;
+	let layer, modal, modalBody, updateModeButtons, skipGuideBtn, multiplayerBtn;
+
+	const MP_LOCK_HINT = 'Finish your first run (Room 0 tutorial) first';
+
+	function canOpenMultiplayer() {
+		if (typeof SaveSystem !== 'undefined' && SaveSystem.canAccessMultiplayer) {
+			return !!SaveSystem.canAccessMultiplayer();
+		}
+		if (typeof SaveSystem !== 'undefined' && SaveSystem.getOnboarding) {
+			const ob = SaveSystem.getOnboarding();
+			return !!(ob && ob.room0TutorialDone);
+		}
+		return false;
+	}
+
+	function getMultiplayerLockHint() {
+		if (typeof SaveSystem !== 'undefined' && SaveSystem.getMultiplayerLockHint) {
+			return SaveSystem.getMultiplayerLockHint() || MP_LOCK_HINT;
+		}
+		return MP_LOCK_HINT;
+	}
+
+	function setButtonDisabled(btn, disabled, tooltipText) {
+		if (!btn) return;
+		btn.disabled = !!disabled;
+		btn.style.opacity = disabled ? '0.5' : '';
+		btn.style.cursor = disabled ? 'not-allowed' : '';
+		btn.style.filter = disabled ? 'grayscale(50%)' : '';
+		btn.title = disabled ? (tooltipText || '') : '';
+		btn.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+	}
 
 	function createMenu() {
 		const rootLayer = document.createElement('div');
@@ -25,7 +55,18 @@
 
 		const actions = [
 			{ text: 'Resume', action: () => Game && Game.togglePause && Game.togglePause(), primary: true },
-			{ text: 'Multiplayer', action: () => { if (window.UIMultiplayer) { window.UIMultiplayer.open(); } } },
+			{
+				text: 'Multiplayer',
+				action: () => {
+					if (!canOpenMultiplayer()) {
+						if (typeof window.showToast === 'function') {
+							window.showToast(getMultiplayerLockHint(), 3200);
+						}
+						return;
+					}
+					if (window.UIMultiplayer) window.UIMultiplayer.open();
+				}
+			},
 			{ text: 'Restart', action: () => Game && Game.restart && Game.restart() },
 			{ text: 'Return to Nexus', action: () => Game && Game.returnToNexus && Game.returnToNexus() },
 			{ text: 'Audio', action: () => { if (window.UIAudio) window.UIAudio.open(); } },
@@ -135,7 +176,47 @@
 		}
 
 		for (const a of actions) {
-			appendActionButton(a);
+			const btn = appendActionButton(a);
+			if (a.text === 'Multiplayer') {
+				multiplayerBtn = btn;
+				// Tooltip on hover even when we toggle disabled at runtime
+				let tooltip = null;
+				let tooltipTimeout = null;
+				btn.addEventListener('mouseenter', () => {
+					if (!btn.disabled) return;
+					if (tooltipTimeout) clearTimeout(tooltipTimeout);
+					tooltipTimeout = setTimeout(() => {
+						tooltip = document.createElement('div');
+						tooltip.style.position = 'fixed';
+						tooltip.style.background = 'rgba(0, 0, 0, 0.95)';
+						tooltip.style.border = '2px solid #666';
+						tooltip.style.borderRadius = '6px';
+						tooltip.style.padding = '8px 12px';
+						tooltip.style.color = '#fff';
+						tooltip.style.fontSize = '12px';
+						tooltip.style.fontFamily = "'Orbitron', sans-serif";
+						tooltip.style.zIndex = '10003';
+						tooltip.style.pointerEvents = 'none';
+						tooltip.style.whiteSpace = 'nowrap';
+						tooltip.style.boxShadow = '0 4px 8px rgba(0,0,0,0.5)';
+						tooltip.textContent = getMultiplayerLockHint();
+						const rect = btn.getBoundingClientRect();
+						tooltip.style.left = rect.left + 'px';
+						tooltip.style.top = (rect.bottom + 8) + 'px';
+						document.body.appendChild(tooltip);
+					}, 200);
+				});
+				btn.addEventListener('mouseleave', () => {
+					if (tooltipTimeout) {
+						clearTimeout(tooltipTimeout);
+						tooltipTimeout = null;
+					}
+					if (tooltip) {
+						tooltip.remove();
+						tooltip = null;
+					}
+				});
+			}
 			if (a.text === 'Resume') {
 				skipGuideBtn = appendActionButton({
 					text: 'Skip Guide',
@@ -358,6 +439,8 @@
 		if (skipGuideBtn) {
 			skipGuideBtn.style.display = (canSkipOnboarding || canSkipFeature) ? '' : 'none';
 		}
+
+		setButtonDisabled(multiplayerBtn, !canOpenMultiplayer(), getMultiplayerLockHint());
 
 		// Update scroll indicator when menu becomes visible
 		if (isPauseVisible() && modalBody) {

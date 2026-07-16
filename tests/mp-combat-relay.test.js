@@ -91,6 +91,21 @@ test('multiplayer client sends resync_request and handles combat_fx', () => {
     assert.ok(source.includes('sendDamageNumber'));
 });
 
+test('applySyncedRoomLayout skips re-enter when layout hash unchanged', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'multiplayer.js'), 'utf-8');
+    assert.ok(source.includes('sameLayout'));
+    assert.ok(source.includes('beginClientRoomEnterTransition'));
+    // Layout should also serialize during ENTERING_ROOM so clients can prepare early
+    assert.ok(source.includes("Game.state === 'ENTERING_ROOM'"));
+});
+
+test('server player_state_batch updates lobby player class', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'server', 'mp-server-worker.js'), 'utf-8');
+    assert.ok(source.includes('handlePlayerStateBatch'));
+    assert.ok(source.includes('Keep lobby roster class in sync'));
+    assert.ok(source.includes('player.class = frame.class'));
+});
+
 test('boss-base serializes weakPoints', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'bosses', 'boss-base.js'), 'utf-8');
     assert.ok(source.includes('weakPoints:'));

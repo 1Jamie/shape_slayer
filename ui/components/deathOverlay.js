@@ -352,31 +352,22 @@
 			statsContainer.appendChild(statEl);
 		});
 
-		// Calculate breakdown of shards and credits
-		const shardsEarned = Game.shardsEarned || 0;
-		const creditsEarned = Game.currencyEarned || 0;
-		const isGearMode = Game.gameMode === 'gear';
-		
-		// Shard breakdown: base (9 per room), bonus (1.8 per enemy), level bonus (0.9 per level)
-		const shardBase = Math.floor(9 * roomsCleared);
-		const shardBonus = Math.floor(1.8 * enemiesKilled);
-		const shardLevelBonus = Math.floor(0.9 * levelReached);
-		
-		// Credit breakdown calculations
-		const creditElites = 15 * elitesKilled;
-		const creditBosses = 50 * bossesKilled;
-		
-		// In gear mode, calculate credit breakdown from shard conversion (0.75x scale)
-		let creditBase = 0;
-		let creditBonus = 0;
-		let creditLevelBonus = 0;
-		if (isGearMode) {
-			creditBase = Math.floor(9 * roomsCleared * 0.75); // 6.75 per room
-			creditBonus = Math.floor(1.8 * enemiesKilled * 0.75); // 1.35 per enemy
-			creditLevelBonus = Math.floor(0.9 * levelReached * 0.75); // 0.675 per level
+		// Shards = end-of-run meta; credits = mid-run combat banking
+		let shardsEarned = Game.shardsEarned || 0;
+		if (shardsEarned <= 0 && typeof Game.calculateShards === 'function') {
+			shardsEarned = Game.calculateShards() || 0;
+			Game.shardsEarned = shardsEarned;
 		}
-		
-		// Show breakdown if there are any rewards
+		const creditsEarned = Game.currencyEarned || 0;
+
+		// Match Game.calculateShards / CombatEconomy.estimateShardsGear
+		const roomScale = 12;
+		const killScale = 2.4;
+		const lvlScale = 1.2;
+		const shardBase = Math.floor(roomScale * roomsCleared);
+		const shardBonus = Math.floor(killScale * enemiesKilled);
+		const shardLevelBonus = Math.floor(lvlScale * levelReached);
+
 		if (shardsEarned > 0 || creditsEarned > 0) {
 			const breakdownEl = document.createElement('div');
 			breakdownEl.style.marginTop = '16px';
@@ -384,52 +375,31 @@
 			breakdownEl.style.background = 'rgba(0, 0, 0, 0.3)';
 			breakdownEl.style.borderRadius = '6px';
 			breakdownEl.style.fontSize = '14px';
-			
-			if (isGearMode && creditsEarned > 0) {
-				// In gear mode, show credits breakdown (converted from shards)
+
+			if (shardsEarned > 0) {
+				const shardBreakdown = document.createElement('div');
+				shardBreakdown.style.color = '#ffd700';
+				shardBreakdown.style.marginBottom = creditsEarned > 0 ? '8px' : '0';
+				shardBreakdown.innerHTML = `<strong>Shards Breakdown:</strong><br>` +
+					`&nbsp;&nbsp;Rooms (${roomsCleared} × ${roomScale}): ${shardBase}<br>` +
+					`&nbsp;&nbsp;Enemies (${enemiesKilled} × ${killScale}): ${shardBonus}<br>` +
+					`&nbsp;&nbsp;Level (${levelReached} × ${lvlScale}): ${shardLevelBonus}<br>` +
+					`<strong>Total: ${shardsEarned}</strong>`;
+				breakdownEl.appendChild(shardBreakdown);
+			}
+
+			if (creditsEarned > 0) {
 				const creditBreakdown = document.createElement('div');
 				creditBreakdown.style.color = '#00ffff';
-				creditBreakdown.style.marginBottom = '8px';
-				creditBreakdown.innerHTML = `<strong>Credits Breakdown:</strong><br>` +
-					`&nbsp;&nbsp;Rooms (${roomsCleared} × 6.75): ${creditBase}<br>` +
-					`&nbsp;&nbsp;Enemies (${enemiesKilled} × 1.35): ${creditBonus}<br>` +
-					`&nbsp;&nbsp;Level (${levelReached} × 0.675): ${creditLevelBonus}<br>` +
-					(elitesKilled > 0 || bossesKilled > 0 ? 
-						`&nbsp;&nbsp;Elites (${elitesKilled} × 15): ${creditElites}<br>` +
-						`&nbsp;&nbsp;Bosses (${bossesKilled} × 50): ${creditBosses}<br>` : '') +
-					`<strong>Total: ${creditsEarned}</strong>`;
+				creditBreakdown.innerHTML = `<strong>Credits from combat:</strong> ${creditsEarned.toLocaleString()}` +
+					`<br><span style="opacity:0.75;font-size:12px;">Banked on kills during the run</span>`;
 				breakdownEl.appendChild(creditBreakdown);
-			} else {
-				// Card mode: show shards breakdown if earned
-				if (shardsEarned > 0) {
-					const shardBreakdown = document.createElement('div');
-					shardBreakdown.style.color = '#ffd700';
-					shardBreakdown.style.marginBottom = '8px';
-					shardBreakdown.innerHTML = `<strong>Shards Breakdown:</strong><br>` +
-						`&nbsp;&nbsp;Rooms (${roomsCleared} × 9): ${shardBase}<br>` +
-						`&nbsp;&nbsp;Enemies (${enemiesKilled} × 1.8): ${shardBonus}<br>` +
-						`&nbsp;&nbsp;Level (${levelReached} × 0.9): ${shardLevelBonus}<br>` +
-						`<strong>Total: ${shardsEarned}</strong>`;
-					breakdownEl.appendChild(shardBreakdown);
-				}
-				
-				// Card mode: show credits breakdown if earned (elites/bosses only)
-				if (creditsEarned > 0) {
-					const creditBreakdown = document.createElement('div');
-					creditBreakdown.style.color = '#00ffff';
-					creditBreakdown.innerHTML = `<strong>Credits Breakdown:</strong><br>` +
-						`&nbsp;&nbsp;Elites (${elitesKilled} × 15): ${creditElites}<br>` +
-						`&nbsp;&nbsp;Bosses (${bossesKilled} × 50): ${creditBosses}<br>` +
-						`<strong>Total: ${creditsEarned}</strong>`;
-					breakdownEl.appendChild(creditBreakdown);
-				}
 			}
-			
+
 			statsContainer.appendChild(breakdownEl);
 		}
 
-		// Show shards earned (only in card mode, hide in gear mode)
-		if (!isGearMode && shardsEarned > 0) {
+		if (shardsEarned > 0) {
 			const shardsLabel = document.createElement('div');
 			shardsLabel.style.fontSize = '18px';
 			shardsLabel.style.fontWeight = '600';
@@ -446,7 +416,6 @@
 			shardsEl.appendChild(shardsValue);
 		}
 
-		// Credits earned - always show
 		if (creditsEarned > 0) {
 			const creditsLabel = document.createElement('div');
 			creditsLabel.style.fontSize = '18px';
@@ -588,12 +557,7 @@
 		tableWrapper.appendChild(table);
 		statsContainer.appendChild(tableWrapper);
 
-		// Show rewards for each player
-		const isGearMode = Game.gameMode === 'gear';
-		const roomsCleared = Math.max(0, Game.roomNumber - 1);
-		const elitesKilled = Game.elitesKilled || 0;
-		const bossesKilled = Game.bossesKilled || 0;
-
+		// Show rewards for each player (shards = meta end-of-run; credits = mid-run combat)
 		allStats.forEach(entry => {
 			const playerRewardSection = document.createElement('div');
 			playerRewardSection.style.marginTop = '16px';
@@ -610,20 +574,10 @@
 			playerName.textContent = `${entry.playerName}${entry.playerId === localPlayerId ? ' (You)' : ''} - Rewards:`;
 			playerRewardSection.appendChild(playerName);
 
-			// Calculate rewards for this player
-			let levelReached = 1;
-			if (entry.playerId === localPlayerId) {
-				levelReached = Game.player ? (Game.player.level || 1) : 1;
-			} else if (Game.remotePlayerInstances && Game.remotePlayerInstances.has(entry.playerId)) {
-				const remotePlayer = Game.remotePlayerInstances.get(entry.playerId);
-				levelReached = remotePlayer.level || 1;
-			}
-
 			const shardsEarned = Game.calculateShardsForPlayer ? Game.calculateShardsForPlayer(entry.playerId) : 0;
 			const creditsEarned = Game.calculateCurrencyForPlayer ? Game.calculateCurrencyForPlayer(entry.playerId) : 0;
 
-			// Show shards (card mode only)
-			if (!isGearMode && shardsEarned > 0) {
+			if (shardsEarned > 0) {
 				const shardsDiv = document.createElement('div');
 				shardsDiv.style.color = '#ffd700';
 				shardsDiv.style.marginTop = '4px';
@@ -631,7 +585,6 @@
 				playerRewardSection.appendChild(shardsDiv);
 			}
 
-			// Show credits
 			if (creditsEarned > 0) {
 				const creditsDiv = document.createElement('div');
 				creditsDiv.style.color = '#00ffff';

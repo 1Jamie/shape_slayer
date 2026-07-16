@@ -678,7 +678,7 @@ class MultiplayerManager {
             roomNumber: Game.roomNumber || 1,
             doorOpen: (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.doorOpen : false,
             roomType: (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.type : 'normal',
-            roomLayout: (Game.state === 'PLAYING' && typeof currentRoom !== 'undefined' && currentRoom && currentRoom.layout && typeof RoomLayoutGenerator !== 'undefined')
+            roomLayout: ((Game.state === 'PLAYING' || Game.state === 'ENTERING_ROOM') && typeof currentRoom !== 'undefined' && currentRoom && currentRoom.layout && typeof RoomLayoutGenerator !== 'undefined')
                 ? RoomLayoutGenerator.serializeLayout(currentRoom.layout)
                 : null,
             
@@ -3746,11 +3746,23 @@ class MultiplayerManager {
             }
         }
 
-        let room = (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.number === roomNumber)
-            ? currentRoom
-            : new Room(roomNumber);
+        const targetRoomNumber = roomNumber || (typeof Game !== 'undefined' ? Game.roomNumber : null) || 1;
+        const existing = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom : null;
+        const sameRoom = existing && existing.number === targetRoomNumber;
+        const sameLayout = sameRoom && (
+            (layout.hash && existing.layoutHash === layout.hash) ||
+            (existing.layout && existing.layout.hash && existing.layout.hash === layout.hash)
+        );
+
+        // Full/delta game_state always carries roomLayout once known — only re-enter on real changes
+        if (sameLayout) {
+            return;
+        }
+
+        let room = sameRoom ? existing : new Room(targetRoomNumber);
 
         room.type = roomType || layout.roomType || room.type || 'normal';
+        room.number = targetRoomNumber;
         room.seed = layout.seed;
         room.biomeId = layout.biomeId;
         room.bossTheme = layout.bossTheme;
@@ -3782,7 +3794,7 @@ class MultiplayerManager {
         if (typeof Game !== 'undefined' && typeof Game.syncInSafeRoomFromCurrentRoom === 'function') {
             Game.syncInSafeRoomFromCurrentRoom(currentRoom);
         }
-        this.beginClientRoomEnterTransition(roomNumber);
+        this.beginClientRoomEnterTransition(targetRoomNumber);
     }
 
     applyGameState(state) {
@@ -3972,8 +3984,8 @@ class MultiplayerManager {
             }
         }
         
-        // Only update enemies/projectiles/loot if in PLAYING state
-        if (Game.state === 'PLAYING') {
+        // Only update enemies/projectiles/loot if in PLAYING or preparing the room
+        if (Game.state === 'PLAYING' || Game.state === 'ENTERING_ROOM') {
             // Update enemies - ID-based sync (robust and clean)
             if (state.enemies && Game.enemies) {
                 // Build set of current enemy IDs from host

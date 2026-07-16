@@ -630,3 +630,42 @@ describe('FeatureTutorials skip escape', () => {
         assert.equal(FeatureTutorials.allowsInteraction('portal'), true);
     });
 });
+
+
+describe('FeatureTutorials gear machine interact gate', () => {
+    it('allows category probe and only the spotlighted machine id', () => {
+        const sandbox = loadSandbox({
+            seedSave: {
+                privacyAcknowledged: true,
+                hasSeenLaunchModal: true,
+                highestRoomCleared: 5,
+                bossesDefeated: { 'Swarm King': true },
+                onboarding: {
+                    complete: true,
+                    tutorialVersion: 1,
+                    selectClassDone: true,
+                    launchRunDone: true,
+                    classUpgradesDone: true,
+                    firstRunStarted: true
+                },
+                featureTutorials: {
+                    initialized: true,
+                    completed: {},
+                    toasted: { rarityChance: true },
+                    queue: ['rarityChance']
+                }
+            }
+        });
+        const { FeatureTutorials, Game } = sandbox;
+        Game.state = 'NEXUS';
+        FeatureTutorials.onNexusEnter();
+        assert.equal(FeatureTutorials.getCurrentId(), 'rarityChance');
+
+        // Outer nexus probe (no station detail) must not hard-block the interact loop
+        assert.equal(FeatureTutorials.allowsInteraction('gearUpgrade'), true);
+        assert.equal(FeatureTutorials.allowsInteraction('gearUpgrade', 'rarityChance'), true);
+        assert.equal(FeatureTutorials.allowsInteraction('gearUpgrade', 'affixSlots'), false);
+        assert.equal(FeatureTutorials.allowsInteraction('portal'), false);
+        assert.equal(FeatureTutorials.allowsInteraction('upgrade'), false);
+    });
+});

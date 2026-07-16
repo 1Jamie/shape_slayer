@@ -405,6 +405,23 @@
 
 	async function show() {
 		if (!layer) return;
+
+		// Room 0 tutorial must be finished before MP lobby create/join
+		const mpAllowed = typeof SaveSystem !== 'undefined' && SaveSystem.canAccessMultiplayer
+			? SaveSystem.canAccessMultiplayer()
+			: (typeof SaveSystem !== 'undefined' && SaveSystem.getOnboarding
+				? !!(SaveSystem.getOnboarding().room0TutorialDone)
+				: false);
+		if (!mpAllowed) {
+			const hint = (typeof SaveSystem !== 'undefined' && SaveSystem.getMultiplayerLockHint)
+				? (SaveSystem.getMultiplayerLockHint() || 'Finish your first run (Room 0 tutorial) first')
+				: 'Finish your first run (Room 0 tutorial) first';
+			if (typeof window.showToast === 'function') {
+				window.showToast(hint, 3200);
+			}
+			console.log('[MultiplayerMenu] Blocked — Room 0 tutorial not finished');
+			return;
+		}
 		
 		// Load saved name into input field when menu opens
 		if (nameInput && typeof SaveSystem !== 'undefined' && SaveSystem.getPlayerName) {

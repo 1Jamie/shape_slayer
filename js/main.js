@@ -2025,7 +2025,17 @@ const Game = {
                     // Host: Initialize remote player state tracking AND player instances
                     if (this.isHost() && player.id !== localId) {
                         this.initializeRemotePlayerState(player.id);
-                        this.initializeRemotePlayerInstance(player.id, player.class);
+                        const existing = this.remotePlayerInstances.get(player.id);
+                        const remoteMeta = (typeof multiplayerManager !== 'undefined' && multiplayerManager.remotePlayers)
+                            ? multiplayerManager.remotePlayers.find(rp => rp.id === player.id)
+                            : null;
+                        const className = (existing && existing.playerClass)
+                            || (remoteMeta && remoteMeta.class)
+                            || player.class
+                            || 'square';
+                        if (!existing || existing.playerClass !== className) {
+                            this.initializeRemotePlayerInstance(player.id, className);
+                        }
                     }
                 });
             } else {

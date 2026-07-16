@@ -329,9 +329,12 @@ const FeatureTutorials = {
             return true;
         }
 
-        // Hard-gate: only the spotlighted gear machine
-        // Escape: Skip Guide overlay + Pause → Skip Machine Guide
+        // Hard-gate: only the spotlighted gear machine.
+        // Outer nexus probes call allowsInteraction('gearUpgrade') with no detail before
+        // iterating stations — allow that probe so the per-station check can run.
+        // Escape: Skip Guide overlay + Pause → Skip Guide
         if (type === 'gearUpgrade') {
+            if (detail == null || detail === '') return true;
             return detail === currentId;
         }
         return false;

@@ -615,7 +615,8 @@ function updateNexus(ctx, deltaTime) {
         }
 
         // Check gear upgrade station interactions
-        if (!interactionHandled && nexusAllows('gearUpgrade')) {
+        // Per-station allow check only — FeatureTutorials gates by machine id (detail).
+        if (!interactionHandled) {
             gearUpgradeStations.forEach(station => {
                 const lock = getGearStationLockState(station);
                 if (lock.locked) return;

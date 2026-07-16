@@ -2051,6 +2051,16 @@ function onGameStart(data) {
                 Game.startGame();
             }
         }
+
+        // Force a class-bearing player_state so host doesn't rebuild us as default square
+        if (typeof multiplayerManager !== 'undefined' && multiplayerManager && !multiplayerManager.isHost) {
+            multiplayerManager.lastPlayerStateSnapshot = null;
+            setTimeout(() => {
+                if (multiplayerManager && !multiplayerManager.isHost && typeof multiplayerManager.sendPlayerState === 'function') {
+                    multiplayerManager.sendPlayerState();
+                }
+            }, 50);
+        }
     }
 }
 

@@ -498,6 +498,24 @@ const SaveSystem = {
         };
     },
 
+    /** True after the solo Room 0 combat tutorial has been finished (or grandfathered). */
+    hasFinishedRoom0Tutorial() {
+        const ob = this.getOnboarding();
+        return !!(ob && ob.room0TutorialDone);
+    },
+
+    /**
+     * Multiplayer requires Room 0 done so the first-run coach cannot interrupt lobby/create.
+     */
+    canAccessMultiplayer() {
+        return this.hasFinishedRoom0Tutorial();
+    },
+
+    getMultiplayerLockHint() {
+        if (this.canAccessMultiplayer()) return null;
+        return 'Finish your first run (Room 0 tutorial) first';
+    },
+
     // Get last run version
     getLastRunVersion() {
         const save = this.load();

@@ -380,3 +380,37 @@ describe('CoachTransition framing', () => {
         assert.ok(Math.abs(framed.y - 360) <= halfH - 40, `player Y offscreen: cam=${framed.y}`);
     });
 });
+
+
+describe('Multiplayer Room 0 gate', () => {
+    it('blocks multiplayer until room0TutorialDone', () => {
+        const { SaveSystem } = loadSandbox();
+        assert.equal(SaveSystem.hasFinishedRoom0Tutorial(), false);
+        assert.equal(SaveSystem.canAccessMultiplayer(), false);
+        assert.match(SaveSystem.getMultiplayerLockHint(), /Room 0|first run/i);
+    });
+
+    it('allows multiplayer after Room 0 is marked done', () => {
+        const { SaveSystem, Room0Tutorial } = loadSandbox();
+        Room0Tutorial.markDone();
+        assert.equal(SaveSystem.hasFinishedRoom0Tutorial(), true);
+        assert.equal(SaveSystem.canAccessMultiplayer(), true);
+        assert.equal(SaveSystem.getMultiplayerLockHint(), null);
+    });
+
+    it('allows multiplayer for grandfathered veterans', () => {
+        const { SaveSystem } = loadSandbox({
+            seedSave: {
+                onboarding: {
+                    selectClassDone: true,
+                    launchRunDone: true,
+                    classUpgradesDone: true,
+                    firstRunStarted: true,
+                    complete: true,
+                    tutorialVersion: 1
+                }
+            }
+        });
+        assert.equal(SaveSystem.canAccessMultiplayer(), true);
+    });
+});
