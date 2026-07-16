@@ -700,6 +700,7 @@ Room 200 is still gonna suck in the fun way i hope, but I'm not handing it to yo
 *P.P.P.P.S. - These notes are too long. I think most README.md are shorter, I know. I'm tired. Send coffee or a Room 200 screenshot.*
 `,
     '0.8.1': `**🌐 UPDATE 0.8.1: THE "STOP TELEPORTING, PLEASE" UPDATE** (07/15/2026)
+*" After the huges gameplay changes in 0.8.0, I was like "we need to fix the multiplayer" so I did. This is the result."*
 *"Clients used to wait politely for the host before they moved. Honest. Also rubber-band city. I fixed the honesty problem without handing clients the combat keys."*
 
 ---
