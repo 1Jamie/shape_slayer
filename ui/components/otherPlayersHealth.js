@@ -106,11 +106,25 @@
 		shieldBar.style.borderRadius = '4px';
 		shieldBar.style.overflow = 'hidden';
 		shieldBar.style.display = 'none'; // Hidden by default
+		shieldBar.style.position = 'relative';
 		const shieldBarFill = document.createElement('div');
 		shieldBarFill.style.height = '100%';
 		shieldBarFill.style.width = '0%';
 		shieldBarFill.style.background = 'linear-gradient(to bottom, #66ccff, #0099cc)';
 		shieldBar.appendChild(shieldBarFill);
+		const shieldBarText = document.createElement('div');
+		shieldBarText.style.position = 'absolute';
+		shieldBarText.style.left = '50%';
+		shieldBarText.style.top = '50%';
+		shieldBarText.style.transform = 'translate(-50%, -50%)';
+		shieldBarText.style.color = '#ffffff';
+		shieldBarText.style.fontSize = '9px';
+		shieldBarText.style.fontWeight = 'bold';
+		shieldBarText.style.pointerEvents = 'none';
+		shieldBarText.style.textShadow = '0 0 3px rgba(0,0,0,0.8)';
+		shieldBarText.style.zIndex = '1';
+		shieldBarText.style.whiteSpace = 'nowrap';
+		shieldBar.appendChild(shieldBarText);
 
 		// HP bar
 		const hpBar = document.createElement('div');
@@ -153,6 +167,7 @@
 		wrap._hpText = hpText;
 		wrap._shieldBar = shieldBar;
 		wrap._shieldBarFill = shieldBarFill;
+		wrap._shieldBarText = shieldBarText;
 
 		return wrap;
 	}
@@ -185,6 +200,24 @@
 		// Update shield bar
 		const shieldBar = barElement._shieldBar;
 		const shieldBarFill = barElement._shieldBarFill;
+		let shieldBarText = barElement._shieldBarText;
+		if (shieldBar && shieldBarFill && !shieldBarText) {
+			shieldBarText = document.createElement('div');
+			shieldBarText.style.position = 'absolute';
+			shieldBarText.style.left = '50%';
+			shieldBarText.style.top = '50%';
+			shieldBarText.style.transform = 'translate(-50%, -50%)';
+			shieldBarText.style.color = '#ffffff';
+			shieldBarText.style.fontSize = '9px';
+			shieldBarText.style.fontWeight = 'bold';
+			shieldBarText.style.pointerEvents = 'none';
+			shieldBarText.style.textShadow = '0 0 3px rgba(0,0,0,0.8)';
+			shieldBarText.style.zIndex = '1';
+			shieldBarText.style.whiteSpace = 'nowrap';
+			shieldBar.style.position = 'relative';
+			shieldBar.appendChild(shieldBarText);
+			barElement._shieldBarText = shieldBarText;
+		}
 		if (shieldBar && shieldBarFill) {
 			const shieldHealth = Math.max(0, playerInstance.shieldHealth || 0);
 			const maxShieldHealth = Math.max(0, playerInstance.maxShieldHealth || 0);
@@ -193,8 +226,14 @@
 				shieldBar.style.display = 'block';
 				const shieldPercent = Math.max(0, Math.min(100, (shieldHealth / maxShieldHealth) * 100));
 				shieldBarFill.style.width = shieldPercent + '%';
+				if (shieldBarText) {
+					shieldBarText.textContent = `Shield: ${Math.floor(shieldHealth)}/${Math.floor(maxShieldHealth)}`;
+				}
 			} else {
 				shieldBar.style.display = 'none';
+				if (shieldBarText) {
+					shieldBarText.textContent = '';
+				}
 			}
 		}
 

@@ -346,6 +346,7 @@ function renderOtherPlayersHealthBars(ctx) {
     const barX = 30;
     const barWidth = Math.floor(240 * mobileScale); // Smaller than local bar
     const barHeight = Math.floor(28 * mobileScale); // Smaller than local bar
+    const shieldBarHeight = Math.floor(22 * mobileScale);
     const barSpacing = Math.floor(40 * mobileScale); // Space between bars
     const shapeSize = 12; // Size of shape indicator
 
@@ -369,6 +370,8 @@ function renderOtherPlayersHealthBars(ctx) {
         // Get HP values from the player instance (authoritative source)
         let hp = playerInstance.hp;
         let maxHp = playerInstance.maxHp;
+        let shieldHealth = playerInstance.shieldHealth;
+        let maxShieldHealth = playerInstance.maxShieldHealth;
         let dead = playerInstance.dead || false;
 
         // Fallback to remotePlayerStates if instance doesn't have HP (shouldn't happen, but safety)
@@ -378,12 +381,16 @@ function renderOtherPlayersHealthBars(ctx) {
                 hp = state.hp;
                 maxHp = state.maxHp;
                 dead = state.dead || false;
+                if (shieldHealth == null) shieldHealth = state.shieldHealth;
+                if (maxShieldHealth == null) maxShieldHealth = state.maxShieldHealth;
             }
         }
 
         // Default values if still undefined
         if (hp === undefined || hp === null) hp = 0;
         if (maxHp === undefined || maxHp === null) maxHp = 100;
+        if (shieldHealth === undefined || shieldHealth === null) shieldHealth = 0;
+        if (maxShieldHealth === undefined || maxShieldHealth === null) maxShieldHealth = 0;
 
         // Skip if no valid health data
         if (maxHp <= 0) return;
@@ -403,36 +410,76 @@ function renderOtherPlayersHealthBars(ctx) {
 
         // Calculate alpha for dead players
         const alpha = dead ? 0.5 : 1.0;
+        const hasShield = maxShieldHealth > 0;
+        let healthBarY = currentY;
 
         // Shape indicator position (left of health bar)
         const shapeX = barX - shapeSize - 8;
-        const shapeY = currentY + barHeight / 2;
+        const shapeY = (hasShield ? currentY + shieldBarHeight / 2 : currentY + barHeight / 2);
 
         // Panel background
         ctx.save();
         ctx.globalAlpha = alpha;
 
-        const panelGradient = ctx.createLinearGradient(barX - 8, currentY - 8, barX - 8, currentY + barHeight + 8);
+        const panelTop = currentY - 8;
+        const panelHeight = (hasShield ? shieldBarHeight + 4 : 0) + barHeight + 16;
+        const panelGradient = ctx.createLinearGradient(barX - 8, panelTop, barX - 8, panelTop + panelHeight);
         panelGradient.addColorStop(0, 'rgba(20, 20, 30, 0.85)');
         panelGradient.addColorStop(1, 'rgba(10, 10, 20, 0.85)');
         ctx.fillStyle = panelGradient;
-        ctx.fillRect(barX - 8, currentY - 8, barWidth + 16, barHeight + 16);
+        ctx.fillRect(barX - 8, panelTop, barWidth + 16, panelHeight);
 
         // Panel border
         ctx.strokeStyle = 'rgba(100, 150, 255, 0.4)';
         ctx.lineWidth = 2;
-        ctx.strokeRect(barX - 8, currentY - 8, barWidth + 16, barHeight + 16);
+        ctx.strokeRect(barX - 8, panelTop, barWidth + 16, panelHeight);
+
+        if (hasShield) {
+            const shieldBarY = currentY;
+
+            const shieldBgGradient = ctx.createLinearGradient(barX, shieldBarY, barX, shieldBarY + shieldBarHeight);
+            shieldBgGradient.addColorStop(0, '#1a1a2a');
+            shieldBgGradient.addColorStop(1, '#0a0a1a');
+            ctx.fillStyle = shieldBgGradient;
+            ctx.fillRect(barX, shieldBarY, barWidth, shieldBarHeight);
+
+            const shieldPercent = Math.max(0, Math.min(1, shieldHealth / maxShieldHealth));
+            const shieldGradient = ctx.createLinearGradient(barX, shieldBarY, barX, shieldBarY + shieldBarHeight);
+            shieldGradient.addColorStop(0, '#66ccff');
+            shieldGradient.addColorStop(1, '#0099cc');
+            ctx.fillStyle = shieldGradient;
+            ctx.fillRect(barX + 2, shieldBarY + 2, (barWidth - 4) * shieldPercent, shieldBarHeight - 4);
+
+            ctx.strokeStyle = '#00ccff';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(barX, shieldBarY, barWidth, shieldBarHeight);
+
+            ctx.fillStyle = '#ffffff';
+            ctx.font = `bold ${Math.floor(11 * mobileScale)}px Orbitron`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowBlur = 3;
+            ctx.shadowColor = '#000000';
+            ctx.fillText(
+                `Shield: ${Math.floor(shieldHealth)}/${Math.floor(maxShieldHealth)}`,
+                barX + barWidth / 2,
+                shieldBarY + shieldBarHeight / 2
+            );
+            ctx.shadowBlur = 0;
+
+            healthBarY += shieldBarHeight + 4;
+        }
 
         // Background with gradient
-        const bgGradient = ctx.createLinearGradient(barX, currentY, barX, currentY + barHeight);
+        const bgGradient = ctx.createLinearGradient(barX, healthBarY, barX, healthBarY + barHeight);
         bgGradient.addColorStop(0, '#2a1a1a');
         bgGradient.addColorStop(1, '#1a0a0a');
         ctx.fillStyle = bgGradient;
-        ctx.fillRect(barX, currentY, barWidth, barHeight);
+        ctx.fillRect(barX, healthBarY, barWidth, barHeight);
 
         // Draw foreground (green/orange/red) scaled by HP/maxHP with gradient
         const hpPercent = Math.max(0, Math.min(1, hp / maxHp));
-        const hpGradient = ctx.createLinearGradient(barX, currentY, barX, currentY + barHeight);
+        const hpGradient = ctx.createLinearGradient(barX, healthBarY, barX, healthBarY + barHeight);
 
         if (hpPercent > 0.5) {
             hpGradient.addColorStop(0, '#66ff66');
@@ -446,18 +493,18 @@ function renderOtherPlayersHealthBars(ctx) {
         }
 
         ctx.fillStyle = hpGradient;
-        ctx.fillRect(barX + 2, currentY + 2, (barWidth - 4) * hpPercent, barHeight - 4);
+        ctx.fillRect(barX + 2, healthBarY + 2, (barWidth - 4) * hpPercent, barHeight - 4);
 
         // Inner highlight
         if (hpPercent > 0) {
             ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-            ctx.fillRect(barX + 2, currentY + 2, (barWidth - 4) * hpPercent, (barHeight - 4) * 0.4);
+            ctx.fillRect(barX + 2, healthBarY + 2, (barWidth - 4) * hpPercent, (barHeight - 4) * 0.4);
         }
 
         // Draw border
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 2;
-        ctx.strokeRect(barX, currentY, barWidth, barHeight);
+        ctx.strokeRect(barX, healthBarY, barWidth, barHeight);
 
         // Draw text centered on bar with shadow
         ctx.fillStyle = '#ffffff';
@@ -467,7 +514,7 @@ function renderOtherPlayersHealthBars(ctx) {
         ctx.shadowBlur = 3;
         ctx.shadowColor = '#000000';
         const healthText = `${Math.floor(hp)}/${Math.floor(maxHp)}`;
-        ctx.fillText(healthText, barX + barWidth / 2, currentY + barHeight / 2);
+        ctx.fillText(healthText, barX + barWidth / 2, healthBarY + barHeight / 2);
         ctx.shadowBlur = 0;
         ctx.textAlign = 'left'; // Reset alignment
         ctx.textBaseline = 'alphabetic'; // Reset baseline
@@ -481,7 +528,7 @@ function renderOtherPlayersHealthBars(ctx) {
         ctx.restore();
 
         // Move to next position
-        currentY += barHeight + barSpacing;
+        currentY += (hasShield ? shieldBarHeight + 4 : 0) + barHeight + barSpacing;
         playerCount++;
     });
 }
@@ -1449,7 +1496,11 @@ function getInteractionLabel(interaction) {
         return interaction.unlockHint || 'Locked';
     }
     if (interaction.type === 'indexMachine') return 'Open Index';
-    if (interaction.type === 'exitDoor') return 'Enter Door';
+    if (interaction.type === 'exitDoor') {
+        const localId = typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
+        const isReady = localId && typeof Game.isPlayerDoorReady === 'function' && Game.isPlayerDoorReady(localId);
+        return isReady ? 'Cancel Ready' : 'Ready — Enter Room';
+    }
     return 'Interact';
 }
 
@@ -1709,8 +1760,8 @@ function performCurrentInteraction() {
                 console.log("[Healer] Restored 25% HP to player", _healLocalId);
             }
         } else if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'exitDoor') {
-            if (typeof Game.advanceToNextRoom === 'function') {
-                Game.advanceToNextRoom();
+            if (typeof Game.toggleDoorReadyAtExit === 'function') {
+                Game.toggleDoorReadyAtExit();
             }
         } else if (Game && Game.state === 'NEXUS') {
             // Handle specific nexus interaction types

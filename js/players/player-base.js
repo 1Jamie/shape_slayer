@@ -3914,7 +3914,6 @@ class PlayerBase {
         ctx.fill();
 
         ctx.restore();
-        ctx.restore();
         const orbitSpeedFactor = 0.2;
 
         // Draw weapon orbiting visual (simple indicator, not the wave rings)
@@ -3951,6 +3950,8 @@ class PlayerBase {
 
         // Render class-specific visuals (override by subclass)
         this.renderClassVisuals(ctx);
+
+        ctx.restore();
     }
 
     // Render status effect indicators above player

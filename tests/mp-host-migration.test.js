@@ -61,6 +61,16 @@ test('door quorum excludes disconnected players', () => {
     assert.ok(/checkDoorCollision[\s\S]*isPlayerConnectedForMp/.test(source));
 });
 
+test('exit door uses toggle ready instead of hold-to-advance', () => {
+    const main = fs.readFileSync(path.join(__dirname, '..', 'js', 'main.js'), 'utf-8');
+    const ui = fs.readFileSync(path.join(__dirname, '..', 'js', 'ui.js'), 'utf-8');
+    assert.ok(main.includes('toggleDoorReadyForPlayer'));
+    assert.ok(main.includes('didPlayerRequestDoorInteract'));
+    assert.ok(main.includes('tryAdvanceWhenAllDoorReady'));
+    assert.ok(!/checkDoorCollision[\s\S]*Input\.keys\['g'\]\)\s*\{\s*\n\s*this\.advanceToNextRoom/.test(main));
+    assert.ok(ui.includes('toggleDoorReadyAtExit'));
+});
+
 test('non-host host_migrated clears lastConfirmedState but can keep history', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'multiplayer.js'), 'utf-8');
     assert.ok(source.includes('Stayed client under a new host') || source.includes('lastConfirmedState = null'));

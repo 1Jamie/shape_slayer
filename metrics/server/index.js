@@ -11,7 +11,119 @@ const db = require('./db');
 
 const PORT = process.env.METRICS_PORT ? Number(process.env.METRICS_PORT) : 4001;
 const INGEST_TOKEN = process.env.METRICS_INGEST_TOKEN || null;
-const ALLOWED_ORIGIN = process.env.METRICS_ALLOWED_ORIGIN || '*';
+
+// Known play surfaces. Used when METRICS_ALLOWED_ORIGIN is unset or set to "default".
+// Override with "*" (allow all) or a comma-separated allowlist / patterns.
+const DEFAULT_PLAY_ORIGIN_PATTERNS = [
+    'https://shape-slayer.gpe.pet',
+    'https://*.gpe.pet',
+    'https://1jamie.github.io',
+    'https://*.github.io',
+    'http://localhost:*',
+    'http://127.0.0.1:*',
+    'http://[::1]:*',
+    'null' // Electron file:// and some custom-protocol shells
+];
+
+function parseAllowedOrigins(raw) {
+    if (raw === undefined || raw === null || String(raw).trim() === '' || String(raw).trim().toLowerCase() === 'default') {
+        return DEFAULT_PLAY_ORIGIN_PATTERNS.slice();
+    }
+    const value = String(raw).trim();
+    if (value === '*') {
+        return ['*'];
+    }
+    return value
+        .split(',')
+        .map(entry => entry.trim())
+        .filter(Boolean);
+}
+
+const ALLOWED_ORIGINS = parseAllowedOrigins(process.env.METRICS_ALLOWED_ORIGIN);
+
+function originMatchesPattern(origin, pattern) {
+    if (!origin || !pattern) {
+        return false;
+    }
+    if (pattern === '*' || pattern === origin) {
+        return true;
+    }
+
+    // Electron / file:// send the literal Origin header "null"
+    if (pattern === 'null' && origin === 'null') {
+        return true;
+    }
+
+    // http://localhost:* or https://127.0.0.1:*
+    if (pattern.endsWith(':*')) {
+        const prefix = pattern.slice(0, -1); // keep trailing colon
+        if (!origin.startsWith(prefix)) {
+            return false;
+        }
+        const remainder = origin.slice(prefix.length);
+        return /^\d+$/.test(remainder);
+    }
+
+    if (pattern.includes('://*.')) {
+        const [scheme, rest] = pattern.split('://*.');
+        if (!rest) {
+            return false;
+        }
+        try {
+            const url = new URL(origin);
+            if (url.protocol !== `${scheme}:`) {
+                return false;
+            }
+            return url.hostname === rest || url.hostname.endsWith(`.${rest}`);
+        } catch (_error) {
+            return false;
+        }
+    }
+
+    return false;
+}
+
+function resolveCorsOrigin(requestOrigin, allowedOrigins = ALLOWED_ORIGINS) {
+    const origins = Array.isArray(allowedOrigins) && allowedOrigins.length
+        ? allowedOrigins
+        : DEFAULT_PLAY_ORIGIN_PATTERNS;
+
+    if (origins.includes('*')) {
+        return '*';
+    }
+
+    if (!requestOrigin) {
+        return null;
+    }
+
+    for (const pattern of origins) {
+        if (originMatchesPattern(requestOrigin, pattern)) {
+            // Reflect the concrete request origin (required for allowlists / null).
+            return requestOrigin;
+        }
+    }
+
+    return null;
+}
+
+function applyCorsHeaders(req, res) {
+    const requestOrigin = req.get('origin');
+    const allowed = resolveCorsOrigin(requestOrigin, ALLOWED_ORIGINS);
+
+    if (allowed) {
+        res.header('Access-Control-Allow-Origin', allowed);
+        if (allowed !== '*') {
+            res.header('Vary', 'Origin');
+        }
+    }
+
+    res.header(
+        'Access-Control-Allow-Headers',
+        'Content-Type, Authorization, X-Metrics-Token, x-metrics-token'
+    );
+    res.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    res.header('Access-Control-Max-Age', '86400');
+}
 
 const ajv = new Ajv({ allErrors: true, strict: false });
 
@@ -328,19 +440,19 @@ function requireAuth(req, res, next) {
 function buildApp() {
     const app = express();
 
-    app.use(helmet());
+    // Allow cross-origin browser uploads from the game host. Helmet's default
+    // Cross-Origin-Resource-Policy: same-origin blocks readable cross-origin responses.
+    app.use(helmet({
+        crossOriginResourcePolicy: { policy: 'cross-origin' },
+        crossOriginEmbedderPolicy: false
+    }));
     app.use(rejectTraversalRequests);
     app.use(express.json({ limit: '2mb' }));
     app.use(morgan('combined'));
     app.use((req, res, next) => {
-        res.header('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
-        res.header(
-            'Access-Control-Allow-Headers',
-            'Content-Type, Authorization, X-Metrics-Token, x-metrics-token'
-        );
-        res.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+        applyCorsHeaders(req, res);
         if (req.method === 'OPTIONS') {
-            return res.sendStatus(200);
+            return res.sendStatus(204);
         }
         return next();
     });
@@ -353,7 +465,11 @@ function buildApp() {
         return res.json({
             status: 'ok',
             uptimeSeconds: Math.round(process.uptime()),
-            version: process.env.METRICS_VERSION || 'unknown'
+            version: process.env.METRICS_VERSION || 'unknown',
+            cors: {
+                mode: ALLOWED_ORIGINS.includes('*') ? 'open' : 'allowlist',
+                allowedOrigins: ALLOWED_ORIGINS
+            }
         });
     });
 
@@ -499,5 +615,11 @@ if (require.main === module) {
     createServer();
 }
 
-module.exports = { createServer };
+module.exports = {
+    createServer,
+    parseAllowedOrigins,
+    resolveCorsOrigin,
+    originMatchesPattern,
+    DEFAULT_PLAY_ORIGIN_PATTERNS
+};
 

@@ -153,14 +153,14 @@
 				const localPlayerOnDoor = localPlayerId !== null && playersOnDoor.includes(localPlayerId);
 				
 				if (localPlayerOnDoor) {
-					// Player on door sees: "Waiting for other players"
+					// Player ready at door sees: "Waiting for other players"
 					statusEl.textContent = 'Waiting for other players';
 					statusEl.style.color = '#ffaa00';
 				} else {
-					// Player NOT on door sees: "Player(s) are waiting for them at the door"
+					// Player NOT ready sees who is ready at the door
 					const waitingCount = playersOnDoor.length;
 					const playerText = waitingCount === 1 ? 'player' : 'players';
-					statusEl.textContent = `${waitingCount} ${playerText} ${waitingCount === 1 ? 'is' : 'are'} waiting for you at the door`;
+					statusEl.textContent = `${waitingCount} ${playerText} ${waitingCount === 1 ? 'is' : 'are'} ready at the door`;
 					statusEl.style.color = '#ff4444';
 				}
 				

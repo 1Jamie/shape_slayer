@@ -253,8 +253,12 @@ const Game = {
     resumeSkipSafeSoftHeal: false,
 
     // Door waiting state (for multiplayer)
-    playersOnDoor: [], // Array of player IDs currently on door
+    playersOnDoor: [], // Player IDs toggled ready at the exit door
+    doorReadyPlayers: null, // Set<playerId> — host authoritative ready toggles
     totalAlivePlayers: 0, // Total number of alive players
+    _doorGKeyPrevLocal: false,
+    _doorGKeyPrevByPlayer: null, // Map<playerId, boolean>
+    pendingDoorReadyToggle: false, // Client one-shot door ready request
 
     // Screen shake system
     screenShakeOffset: { x: 0, y: 0 },
@@ -1740,6 +1744,151 @@ const Game = {
         return 'local'; // Solo mode
     },
 
+    /** Visual position for local player (includes MP prediction correction). */
+    getLocalPlayerRenderPosition() {
+        if (!this.player) return null;
+        if (typeof this.player.getPredictedRenderPosition === 'function') {
+            return this.player.getPredictedRenderPosition();
+        }
+        return { x: this.player.x, y: this.player.y };
+    },
+
+    getExitDoorNearRange(player) {
+        const size = (player && player.size) || 28;
+        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
+        return size * (isMobile ? 3.2 : 1.8);
+    },
+
+    isPlayerNearExitDoor(player) {
+        if (!player || typeof getDoorPosition === 'undefined') return false;
+        if (typeof currentRoom === 'undefined' || !currentRoom || !currentRoom.doorOpen) return false;
+        const doorPos = getDoorPosition();
+        const dx = player.x - Math.max(doorPos.x, Math.min(player.x, doorPos.x + doorPos.width));
+        const dy = player.y - Math.max(doorPos.y, Math.min(player.y, doorPos.y + doorPos.height));
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        return distance <= this.getExitDoorNearRange(player);
+    },
+
+    ensureDoorReadySet() {
+        if (!this.doorReadyPlayers) {
+            this.doorReadyPlayers = new Set(Array.isArray(this.playersOnDoor) ? this.playersOnDoor : []);
+        }
+        return this.doorReadyPlayers;
+    },
+
+    isPlayerDoorReady(playerId) {
+        return this.ensureDoorReadySet().has(playerId);
+    },
+
+    toggleDoorReadyForPlayer(playerId) {
+        const ready = this.ensureDoorReadySet();
+        if (ready.has(playerId)) {
+            ready.delete(playerId);
+        } else {
+            ready.add(playerId);
+        }
+        this.syncPlayersOnDoorFromReady();
+    },
+
+    syncPlayersOnDoorFromReady() {
+        this.playersOnDoor = Array.from(this.ensureDoorReadySet());
+    },
+
+    clearDoorReadyState() {
+        if (this.doorReadyPlayers) {
+            this.doorReadyPlayers.clear();
+        }
+        this.playersOnDoor = [];
+        this.totalAlivePlayers = 0;
+        this._doorGKeyPrevLocal = false;
+        if (this._doorGKeyPrevByPlayer) {
+            this._doorGKeyPrevByPlayer.clear();
+        }
+        this.pendingDoorReadyToggle = false;
+    },
+
+    toggleDoorReadyAtExit() {
+        if (!this.player || !this.player.alive) return false;
+        if (!this.isPlayerNearExitDoor(this.player)) return false;
+
+        const localId = this.getLocalPlayerId();
+        const inMultiplayer = this.multiplayerEnabled &&
+            typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+
+        if (inMultiplayer && !this.isHost()) {
+            this.pendingDoorReadyToggle = true;
+            return true;
+        }
+
+        this.toggleDoorReadyForPlayer(localId);
+
+        if (!inMultiplayer) {
+            this.tryAdvanceWhenAllDoorReady();
+        }
+        return true;
+    },
+
+    didPlayerRequestDoorInteract(playerId, isLocal, inputState) {
+        if (isLocal) {
+            if (this.pendingDoorReadyToggle) {
+                this.pendingDoorReadyToggle = false;
+                return true;
+            }
+            const gDown = !!(Input && Input.keys && Input.keys['g']);
+            const justPressed = gDown && !this._doorGKeyPrevLocal;
+            this._doorGKeyPrevLocal = gDown;
+            return justPressed;
+        }
+
+        if (!inputState) return false;
+        if (inputState.doorInteractJustPressed) return true;
+        if (inputState.touchButtons && inputState.touchButtons.interact && inputState.touchButtons.interact.justPressed) {
+            return true;
+        }
+
+        if (!this._doorGKeyPrevByPlayer) {
+            this._doorGKeyPrevByPlayer = new Map();
+        }
+        const gDown = !!(inputState.keys && inputState.keys['g']);
+        const prev = this._doorGKeyPrevByPlayer.get(playerId) || false;
+        this._doorGKeyPrevByPlayer.set(playerId, gDown);
+        return gDown && !prev;
+    },
+
+    tryAdvanceWhenAllDoorReady() {
+        if (typeof currentRoom === 'undefined' || !currentRoom || !currentRoom.doorOpen) return;
+
+        const alivePlayers = [];
+        const inMultiplayer = this.multiplayerEnabled &&
+            typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+
+        if (inMultiplayer) {
+            if (!this.isHost()) return;
+
+            if (this.player && this.player.alive) {
+                alivePlayers.push(this.getLocalPlayerId());
+            }
+            if (this.remotePlayerInstances) {
+                this.remotePlayerInstances.forEach((playerInstance, playerId) => {
+                    if (!this.isPlayerConnectedForMp(playerId)) return;
+                    if (playerInstance && playerInstance.alive && !playerInstance.dead) {
+                        alivePlayers.push(playerId);
+                    }
+                });
+            }
+        } else if (this.player && this.player.alive) {
+            alivePlayers.push(this.getLocalPlayerId());
+        }
+
+        if (alivePlayers.length === 0) return;
+
+        const ready = this.ensureDoorReadySet();
+        const allReady = alivePlayers.every(id => ready.has(id));
+        if (allReady && ready.size > 0) {
+            this.advanceToNextRoom();
+        }
+    },
+
     // Get or create player stats
     getPlayerStats(playerId) {
         if (!this.playerStats.has(playerId)) {
@@ -2822,6 +2971,14 @@ const Game = {
             this.remotePlayerInputs.delete(playerId);
         }
 
+        if (this.doorReadyPlayers) {
+            this.doorReadyPlayers.delete(playerId);
+            this.syncPlayersOnDoorFromReady();
+        }
+        if (this._doorGKeyPrevByPlayer) {
+            this._doorGKeyPrevByPlayer.delete(playerId);
+        }
+
         console.log(`[MP Disconnect] Saved snapshot for ${playerId}, marked dead (kick to remove from lobby)`);
 
         if (typeof multiplayerManager !== 'undefined' && multiplayerManager &&
@@ -2908,6 +3065,13 @@ const Game = {
         if (this.remotePlayerStates) this.remotePlayerStates.delete(playerId);
         if (this.remotePlayerShadowInstances) {
             this.remotePlayerShadowInstances.delete(playerId);
+        }
+        if (this.doorReadyPlayers) {
+            this.doorReadyPlayers.delete(playerId);
+            this.syncPlayersOnDoorFromReady();
+        }
+        if (this._doorGKeyPrevByPlayer) {
+            this._doorGKeyPrevByPlayer.delete(playerId);
         }
         console.log(`[MP Lobby] Purged run state for removed player ${playerId}`);
     },
@@ -3862,85 +4026,68 @@ const Game = {
 
     // Check door collision
     checkDoorCollision() {
-        const doorPos = getDoorPosition();
-        this.nearExitDoor = false; // Reset flag each frame
+        this.nearExitDoor = false;
 
-        // Multiplayer: Check if ALL ALIVE players are on the door
-        if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
-            // Only host can trigger room advancement
-            if (!this.isHost()) return;
+        if (typeof currentRoom === 'undefined' || !currentRoom || !currentRoom.doorOpen) {
+            return;
+        }
 
-            // Collect all alive players (host may be dead, but remote players can still advance)
-            const alivePlayers = [];
-            const playersOnDoor = [];
+        // Proximity hint for local player (all peers, including MP clients)
+        if (this.player && this.player.alive && this.isPlayerNearExitDoor(this.player)) {
+            this.nearExitDoor = true;
+        }
 
-            // Check local player
-            if (this.player && this.player.alive) {
-                alivePlayers.push({ player: this.player, id: this.getLocalPlayerId() });
-            }
+        const inMultiplayer = this.multiplayerEnabled &&
+            typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
 
-            // Check remote player instances (connected + alive only)
-            if (this.remotePlayerInstances) {
-                this.remotePlayerInstances.forEach((playerInstance, playerId) => {
-                    if (!this.isPlayerConnectedForMp(playerId)) return;
-                    if (playerInstance && playerInstance.alive && !playerInstance.dead) {
-                        alivePlayers.push({ player: playerInstance, id: playerId });
-                    }
-                });
-            }
+        if (inMultiplayer && !this.isHost()) {
+            return;
+        }
 
-            // If no alive players, can't advance
-            if (alivePlayers.length === 0) return;
+        const ready = this.ensureDoorReadySet();
+        const alivePlayers = [];
 
-            // Check which players are on the door
-            alivePlayers.forEach(({ player, id }) => {
-                const dx = player.x - Math.max(doorPos.x, Math.min(player.x, doorPos.x + doorPos.width));
-                const dy = player.y - Math.max(doorPos.y, Math.min(player.y, doorPos.y + doorPos.height));
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
-                const nearRange = (player.size || 28) * (isMobile ? 3.2 : 1.8);
-                if (distance <= nearRange) {
-                    if (id === this.getLocalPlayerId()) {
-                        this.nearExitDoor = true;
-                    }
-                    const isLocal = id === this.getLocalPlayerId();
-                    const isInteracting = isLocal
-                        ? (Input.keys && Input.keys['g'])
-                        : (typeof Game.getRemotePlayerInput === 'function' &&
-                           Game.getRemotePlayerInput(id) &&
-                           Game.getRemotePlayerInput(id).keys &&
-                           Game.getRemotePlayerInput(id).keys['g']);
-                    if (isInteracting) {
-                        playersOnDoor.push(id);
-                    }
+        if (this.player && this.player.alive) {
+            alivePlayers.push({ player: this.player, id: this.getLocalPlayerId(), isLocal: true });
+        }
+
+        if (inMultiplayer && this.remotePlayerInstances) {
+            this.remotePlayerInstances.forEach((playerInstance, playerId) => {
+                if (!this.isPlayerConnectedForMp(playerId)) return;
+                if (playerInstance && playerInstance.alive && !playerInstance.dead) {
+                    alivePlayers.push({ player: playerInstance, id: playerId, isLocal: false });
                 }
             });
-
-            // Store door waiting state for UI
-            this.playersOnDoor = playersOnDoor;
-            this.totalAlivePlayers = alivePlayers.length;
-
-            // All alive players on door → advance
-            if (playersOnDoor.length === alivePlayers.length && playersOnDoor.length > 0) {
-                this.advanceToNextRoom();
-            }
-        } else {
-            // Solo: Just check local player
-            if (!this.player || !this.player.alive) return;
-
-            const dx = this.player.x - Math.max(doorPos.x, Math.min(this.player.x, doorPos.x + doorPos.width));
-            const dy = this.player.y - Math.max(doorPos.y, Math.min(this.player.y, doorPos.y + doorPos.height));
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
-            const nearRange = (this.player.size || 28) * (isMobile ? 3.2 : 1.8);
-
-            if (distance <= nearRange) {
-                this.nearExitDoor = true;
-                if (Input.keys && Input.keys['g']) {
-                    this.advanceToNextRoom();
-                }
-            }
         }
+
+        if (alivePlayers.length === 0) {
+            this.syncPlayersOnDoorFromReady();
+            this.totalAlivePlayers = 0;
+            return;
+        }
+
+        alivePlayers.forEach(({ player, id, isLocal }) => {
+            const nearDoor = this.isPlayerNearExitDoor(player);
+            const inputState = isLocal ? null : this.getRemotePlayerInput(id);
+
+            if (!nearDoor) {
+                if (ready.has(id)) {
+                    ready.delete(id);
+                }
+                if (!isLocal && this._doorGKeyPrevByPlayer) {
+                    this._doorGKeyPrevByPlayer.delete(id);
+                }
+                return;
+            }
+
+            if (this.didPlayerRequestDoorInteract(id, isLocal, inputState)) {
+                this.toggleDoorReadyForPlayer(id);
+            }
+        });
+
+        this.syncPlayersOnDoorFromReady();
+        this.totalAlivePlayers = alivePlayers.length;
+        this.tryAdvanceWhenAllDoorReady();
     },
 
     getRoomSpawnPoint(room = null, index = 0) {
@@ -4128,6 +4275,9 @@ const Game = {
 
             if (this.playersOnDoor && this.playersOnDoor.length > 0) {
                 this.playersOnDoor = this.playersOnDoor.filter(id => !revived.has(id));
+                if (this.doorReadyPlayers) {
+                    revived.forEach(id => this.doorReadyPlayers.delete(id));
+                }
             }
 
             if (this.isHost() && inMultiplayer && broadcast) {
@@ -4606,8 +4756,7 @@ const Game = {
         }
 
         // Reset door waiting state
-        this.playersOnDoor = [];
-        this.totalAlivePlayers = 0;
+        this.clearDoorReadyState();
         
         // Reset item drop counter for new room
         this.itemsDroppedThisRoom = 0;
@@ -5524,7 +5673,10 @@ const Game = {
 
         // Player Light (Local Player)
         if (this.player && this.player.alive) {
-            drawLight(vCtx, this.player.x, this.player.y, 400); // Reduced from 600 for stealth gameplay
+            const renderPos = this.getLocalPlayerRenderPosition();
+            if (renderPos) {
+                drawLight(vCtx, renderPos.x, renderPos.y, 400); // Reduced from 600 for stealth gameplay
+            }
         }
 
         // Remote Players Lights (Multiplayer)
@@ -5861,10 +6013,11 @@ const Game = {
 
             // Draw a radial gradient larger than the player
             const glowSize = playerSize * 2.5;
+            const renderPos = this.getLocalPlayerRenderPosition();
 
             // Use cached glow if available, otherwise draw gradient
-            if (isVisible(this.player, glowSize)) {
-                drawGlow(this.player.x, this.player.y, glowSize, playerColor);
+            if (renderPos && isVisible({ x: renderPos.x, y: renderPos.y, size: this.player.size }, glowSize)) {
+                drawGlow(renderPos.x, renderPos.y, glowSize, playerColor);
             }
         }
 
@@ -6236,7 +6389,9 @@ const Game = {
                 ctx.shadowOffsetY = 1;
                 const promptX = door.x + door.width / 2;
                 const promptY = door.y + door.height + 35;
-                Input.drawInteractionPrompt(ctx, 'enter next room', promptX, promptY);
+                const localId = this.getLocalPlayerId();
+                const isReady = typeof this.isPlayerDoorReady === 'function' && this.isPlayerDoorReady(localId);
+                Input.drawInteractionPrompt(ctx, isReady ? 'cancel ready' : 'ready — enter next room', promptX, promptY);
                 ctx.restore();
             }
         }

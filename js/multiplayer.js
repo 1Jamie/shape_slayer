@@ -1201,6 +1201,10 @@ class MultiplayerManager {
         // Use cached input snapshot if available (preserves justPressed/justReleased flags)
         // Otherwise serialize fresh input (for initial states)
         const inputState = this.cachedInputSnapshot || this.serializeInput();
+        if (typeof Game !== 'undefined' && Game.pendingDoorReadyToggle) {
+            inputState.doorInteractJustPressed = true;
+            Game.pendingDoorReadyToggle = false;
+        }
         
         // Store input history for rollback (client-side prediction) — also recorded in predict loop with dt
         // Serialize still tags seq for host ack; history with dt is owned by recordPredictionFrame()
@@ -3006,41 +3010,56 @@ class MultiplayerManager {
             pylon.interactedPlayers = [];
         }
         
-        if (!pylon.interactedPlayers.includes(playerId)) {
+        const isLocalPlayer = playerId === this.playerId;
+        const alreadyInteracted = pylon.interactedPlayers.includes(playerId);
+        
+        if (!alreadyInteracted) {
             pylon.interactedPlayers.push(playerId);
-            
-            // If this is the local player, add the random item and show feedback
-            if (playerId === this.playerId && Game.player && Game.player.itemManager) {
-                const success = Game.player.itemManager.addItem(itemId);
-                if (success) {
-                    // Show pickup message
-                    if (typeof showItemPickupMessage === 'function') {
-                        let itemName = 'Item';
-                        let itemRarity = 'common';
-                        if (typeof ITEM_DEFINITIONS !== 'undefined' && ITEM_DEFINITIONS[itemId]) {
-                            itemName = ITEM_DEFINITIONS[itemId].name || 'Item';
-                            itemRarity = ITEM_DEFINITIONS[itemId].rarity || 'common';
-                        }
-                        showItemPickupMessage(itemName, itemRarity);
-                    }
-                    
-                    // Play sound
-                    if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.sounds.gearPickup) {
-                        AudioManager.sounds.gearPickup();
-                    }
-                    
-                    console.log(`[Client] Received random item ${itemId} from pylon ${pylonId}`);
-                }
-            }
-            
-            // Check if all players have interacted
-            const totalPlayers = this.players ? this.players.length : 1;
-            if (pylon.interactedPlayers.length >= totalPlayers) {
-                // Start disappear animation
-                pylon.disappearing = true;
-                pylon.disappearProgress = 0;
-            }
         }
+        
+        // Local player feedback — game_state can sync interactedPlayers before this
+        // broadcast arrives, so always show pickup UI when the grant message is for us.
+        if (isLocalPlayer && Game.player && Game.player.itemManager) {
+            if (!alreadyInteracted) {
+                Game.player.itemManager.addItem(itemId);
+            }
+            this.notifyItemPylonPickup(itemId, pylonId, playerId);
+        }
+        
+        // Check if all players have interacted
+        const totalPlayers = this.players ? this.players.length : 1;
+        if (pylon.interactedPlayers.length >= totalPlayers) {
+            pylon.disappearing = true;
+            pylon.disappearProgress = 0;
+        }
+    }
+    
+    notifyItemPylonPickup(itemId, pylonId, playerId) {
+        if (!this._pylonPickupNotified) {
+            this._pylonPickupNotified = new Set();
+        }
+        const notifyKey = `${pylonId}:${playerId}`;
+        if (this._pylonPickupNotified.has(notifyKey)) {
+            return;
+        }
+        this._pylonPickupNotified.add(notifyKey);
+        
+        let itemName = 'Item';
+        let itemRarity = 'common';
+        if (typeof ITEM_DEFINITIONS !== 'undefined' && ITEM_DEFINITIONS[itemId]) {
+            itemName = ITEM_DEFINITIONS[itemId].name || 'Item';
+            itemRarity = ITEM_DEFINITIONS[itemId].rarity || 'common';
+        }
+        
+        if (typeof showItemPickupMessage === 'function') {
+            showItemPickupMessage(itemName, itemRarity);
+        }
+        
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.sounds.gearPickup) {
+            AudioManager.sounds.gearPickup();
+        }
+        
+        console.log(`[Multiplayer] Pylon pickup: ${itemId} from ${pylonId}`);
     }
     
     // Handle item pylon interaction request (from client to host)
@@ -3126,13 +3145,7 @@ class MultiplayerManager {
             
             // If this is the local player, show pickup message and play sound
             if (playerId === this.playerId) {
-                if (typeof showItemPickupMessage === 'function') {
-                    showItemPickupMessage(randomItemDef.name || 'Item', randomItemDef.rarity || 'common');
-                }
-                
-                if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.sounds.gearPickup) {
-                    AudioManager.sounds.gearPickup();
-                }
+                this.notifyItemPylonPickup(randomItemId, pylonId, playerId);
             }
             
             // Check if all players have interacted
@@ -3971,6 +3984,9 @@ class MultiplayerManager {
         // Update door waiting state (for UI)
         if (state.playersOnDoor !== undefined) {
             Game.playersOnDoor = state.playersOnDoor;
+            if (typeof Game.ensureDoorReadySet === 'function') {
+                Game.doorReadyPlayers = new Set(state.playersOnDoor);
+            }
         }
         if (state.totalAlivePlayers !== undefined) {
             Game.totalAlivePlayers = state.totalAlivePlayers;

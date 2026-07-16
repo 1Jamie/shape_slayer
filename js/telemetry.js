@@ -253,6 +253,46 @@
         };
     }
 
+    function collectClientSourceContext() {
+        const loc = typeof window !== 'undefined' ? window.location : null;
+        const nav = (typeof window !== 'undefined' && window.navigator)
+            || (typeof navigator !== 'undefined' ? navigator : null);
+        const ua = nav && typeof nav.userAgent === 'string' ? nav.userAgent : '';
+
+        const electronViaProcess = typeof process !== 'undefined'
+            && process.versions
+            && typeof process.versions.electron === 'string';
+        const electronViaUa = /Electron/i.test(ua);
+        const isElectron = !!(electronViaProcess || electronViaUa);
+
+        const protocol = loc && loc.protocol ? loc.protocol : null;
+        const hostname = loc && typeof loc.hostname === 'string' ? loc.hostname : null;
+        const origin = loc && typeof loc.origin === 'string' ? loc.origin : null;
+
+        let runtime = 'web';
+        if (isElectron) {
+            runtime = 'electron';
+        } else if (!loc || protocol === 'file:') {
+            runtime = 'file';
+        } else if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]') {
+            runtime = 'local';
+        } else if (hostname && hostname.endsWith('github.io')) {
+            runtime = 'github-pages';
+        } else if (hostname && hostname.endsWith('gpe.pet')) {
+            runtime = 'gpe';
+        }
+
+        return {
+            runtime,
+            origin: origin && origin !== 'null' ? origin : (protocol === 'file:' ? 'null' : origin),
+            host: hostname,
+            path: loc && typeof loc.pathname === 'string' ? loc.pathname : null,
+            protocol,
+            href: loc && typeof loc.href === 'string' ? loc.href : null,
+            isElectron
+        };
+    }
+
     function collectInputContext() {
         if (typeof Input !== 'undefined' && Input.getInputContext) {
             return Input.getInputContext();
@@ -406,7 +446,8 @@
                 difficulty,
                 metadata: {
                     ...metadata,
-                    input: collectInputContext()
+                    input: collectInputContext(),
+                    client: collectClientSourceContext()
                 },
                 affixPool,
                 rooms: new Map(),
@@ -677,6 +718,9 @@
                 mergedMetadata.performance = RunProfiler.buildReport();
             }
 
+            // Refresh client source at submit time so Electron/path changes are accurate.
+            mergedMetadata.client = collectClientSourceContext();
+
             state.activeRun.metadata = mergedMetadata;
 
             this.recordRoomsCleared(roomsClearedByPlayer);
@@ -758,24 +802,28 @@
                 headers['x-metrics-token'] = token;
             }
 
-            if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function' && !token) {
-                try {
-                    const blob = new Blob([body], { type: 'application/json' });
-                    if (navigator.sendBeacon(endpoint, blob)) {
-                        return;
-                    }
-                } catch (beaconError) {
-                    console.warn('[Telemetry] sendBeacon failed, falling back to fetch:', beaconError);
-                }
-            }
-
+            // Prefer fetch+keepalive. Browser beacon APIs with application/json are
+            // unreliable for cross-origin ingest: they may queue successfully (return true)
+            // without ever delivering the request, which skipped the fetch fallback.
+            //
+            // Works across play surfaces (gpe.pet, GitHub Pages, localhost, Electron) as
+            // long as the metrics server reflects/allows that Origin. No cookies/credentials.
             try {
-                await fetch(endpoint, {
+                const response = await fetch(endpoint, {
                     method: 'POST',
                     headers,
                     body,
-                    keepalive: true
+                    keepalive: true,
+                    mode: 'cors',
+                    credentials: 'omit'
                 });
+                if (!response.ok) {
+                    const details = await response.text().catch(() => '');
+                    console.error(
+                        `[Telemetry] Metrics ingest failed (${response.status}):`,
+                        details || response.statusText
+                    );
+                }
             } catch (error) {
                 console.error('[Telemetry] Failed to submit metrics:', error);
             }

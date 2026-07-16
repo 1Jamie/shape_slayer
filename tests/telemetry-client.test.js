@@ -128,8 +128,56 @@ test('Telemetry serializes run metrics', () => {
     assert.strictEqual(submits.length, 1);
     assert.strictEqual(submits[0].run.result, 'success');
     assert.ok(submits[0].run.metadata.finalPlayerStats, 'final player stats captured');
+    assert.ok(submits[0].run.metadata.client, 'client source metadata present');
+    assert.ok(submits[0].run.metadata.client.runtime, 'client runtime tagged');
 });
 
+test('Telemetry tags github pages / electron-like client sources', () => {
+    const Telemetry = loadTelemetry();
+
+    // Simulate GitHub Pages
+    global.window.location = {
+        protocol: 'https:',
+        hostname: '1jamie.github.io',
+        origin: 'https://1jamie.github.io',
+        pathname: '/shape_slayer/',
+        href: 'https://1jamie.github.io/shape_slayer/'
+    };
+    Telemetry.startRun({
+        mode: 'singleplayer',
+        hostPlayerId: 'local',
+        players: []
+    });
+    let payload = Telemetry.serialize();
+    assert.strictEqual(payload.run.metadata.client.runtime, 'github-pages');
+    assert.strictEqual(payload.run.metadata.client.host, '1jamie.github.io');
+    Telemetry.reset();
+
+    // Simulate Electron / file shell (Origin null)
+    global.window.location = {
+        protocol: 'file:',
+        hostname: '',
+        origin: 'null',
+        pathname: '/tmp/shape_slayer/index.html',
+        href: 'file:///tmp/shape_slayer/index.html'
+    };
+    const previousElectron = process.versions.electron;
+    process.versions.electron = '33.0.0';
+    Telemetry.startRun({
+        mode: 'singleplayer',
+        hostPlayerId: 'local',
+        players: []
+    });
+    payload = Telemetry.serialize();
+    if (previousElectron === undefined) {
+        delete process.versions.electron;
+    } else {
+        process.versions.electron = previousElectron;
+    }
+    assert.strictEqual(payload.run.metadata.client.runtime, 'electron');
+    assert.strictEqual(payload.run.metadata.client.isElectron, true);
+    Telemetry.reset();
+});
 test('Telemetry does not capture without opt-in', () => {
     const Telemetry = loadTelemetry();
     Game.telemetryOptIn = false;
