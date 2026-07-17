@@ -251,6 +251,16 @@
     }
   },
   "special": {
+    "title": {
+      "tracks": [
+        "neon-rising-336846.mp3",
+        "enchanted-waveform-287282.mp3"
+      ],
+      "selection": {
+        "mode": "shuffle",
+        "avoidImmediateRepeat": true
+      }
+    },
     "nexus": {
       "tracks": [
         "waiting-time-175800.mp3"

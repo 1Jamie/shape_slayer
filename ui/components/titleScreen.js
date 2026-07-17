@@ -11,6 +11,24 @@
 		return typeof Game !== 'undefined' && Game.state === 'TITLE';
 	}
 
+	function isExiting() {
+		return !!(layer && layer.classList.contains('title-screen--exiting'));
+	}
+
+	function beginExit(durationSec) {
+		if (!layer) create();
+		if (!layer) return;
+		const ms = Math.max(120, Math.round((durationSec != null ? durationSec : 0.45) * 1000));
+		layer.style.setProperty('--title-exit-ms', ms + 'ms');
+		layer.classList.add('title-screen--exiting');
+	}
+
+	function resetExit() {
+		if (!layer) return;
+		layer.classList.remove('title-screen--exiting');
+		layer.style.removeProperty('--title-exit-ms');
+	}
+
 	function getPatchSubtitle() {
 		if (typeof Game === 'undefined') return '';
 		const version = Game.VERSION || '';
@@ -70,6 +88,7 @@
 	}
 
 	function dismiss() {
+		if (isExiting()) return;
 		if (typeof Game !== 'undefined' && typeof Game.dismissTitleScreen === 'function') {
 			Game.dismissTitleScreen();
 		}
@@ -152,10 +171,13 @@
 		}
 
 		const visible = isTitleVisible();
-		layer.style.display = visible ? 'flex' : 'none';
-		setChromeHidden(visible);
-
-		if (!visible) {
+		if (visible) {
+			layer.style.display = 'flex';
+			setChromeHidden(true);
+		} else {
+			layer.style.display = 'none';
+			resetExit();
+			setChromeHidden(false);
 			wasVisible = false;
 			requestAnimationFrame(refresh);
 			return;
@@ -208,4 +230,9 @@
 			renderStartPrompt();
 		}
 	});
+
+	window.TitleScreen = {
+		beginExit: beginExit,
+		isExiting: isExiting
+	};
 })();

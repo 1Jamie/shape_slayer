@@ -13,7 +13,7 @@ const MusicManager = {
     fallbackWarmQueued: new Set(),
     fallbackWarmRunning: false,
     currentSetId: null,
-    currentCategory: null, // 'normal', 'boss', 'pause', 'nexus', 'gameOver'
+    currentCategory: null, // 'normal', 'boss', 'pause', 'title', 'nexus', 'gameOver'
     lastNonPauseSetId: null,
     lastNonPauseCategory: null,
     currentTrack: null,
@@ -376,6 +376,26 @@ const MusicManager = {
         return resumed;
     },
     
+    async setTitle() {
+        await this.init();
+        this.ensureInitialized();
+
+        const titleSet = this.getSpecialSet('title');
+        if (!titleSet) {
+            console.warn('[MusicManager] No title playlist defined.');
+            return;
+        }
+
+        if (this.currentCategory === 'title' && this.currentSetId === titleSet.id) {
+            this.resumeIfNeeded();
+            return;
+        }
+
+        await this.playSet(titleSet, 'title');
+        this.lastNonPauseCategory = 'title';
+        this.lastNonPauseSetId = titleSet.id;
+    },
+
     async setNexus() {
         await this.init();
         this.ensureInitialized();

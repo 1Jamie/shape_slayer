@@ -1625,6 +1625,13 @@ body {
   padding: clamp(16px, 4vh, 48px) clamp(16px, 4vw, 48px);
   background: transparent;
   font-family: "Orbitron", sans-serif;
+  opacity: 1;
+  transition: opacity var(--title-exit-ms, 450ms) ease-in;
+}
+
+.title-screen--exiting {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .title-screen__top {

@@ -124,6 +124,7 @@ const Game = {
     // Game state
     state: 'TITLE', // 'TITLE', 'NEXUS', 'PLAYING', 'PAUSED', 'ENTERING_ROOM'
     pendingBootModals: null, // { privacy, launch, update } deferred until title dismiss
+    titleExitTransition: null, // fade title → nexus handoff
     // Title attract is a visual sim — no feats, discoveries, currency, or lifetime stats
     allowsMetaProgression() {
         return this.state !== 'TITLE';
@@ -779,6 +780,55 @@ const Game = {
 
     dismissTitleScreen() {
         if (this.state !== 'TITLE') return;
+        if (this.titleExitTransition) return;
+
+        this.titleExitTransition = {
+            phase: 'fadeOut',
+            elapsed: 0,
+            fadeOutSec: 0.45,
+            holdSec: 0.14,
+            fadeInSec: 0.55,
+            swapped: false
+        };
+
+        if (typeof window !== 'undefined' && window.TitleScreen && typeof window.TitleScreen.beginExit === 'function') {
+            window.TitleScreen.beginExit(this.titleExitTransition.fadeOutSec);
+        }
+    },
+
+    updateTitleExitTransition(dt) {
+        const tr = this.titleExitTransition;
+        if (!tr) return;
+
+        tr.elapsed += dt;
+
+        if (tr.phase === 'fadeOut') {
+            if (tr.elapsed >= tr.fadeOutSec) {
+                this.swapTitleToNexus();
+                tr.phase = 'hold';
+                tr.elapsed = 0;
+            }
+            return;
+        }
+
+        if (tr.phase === 'hold') {
+            if (tr.elapsed >= tr.holdSec) {
+                tr.phase = 'fadeIn';
+                tr.elapsed = 0;
+            }
+            return;
+        }
+
+        if (tr.phase === 'fadeIn' && tr.elapsed >= tr.fadeInSec) {
+            this.titleExitTransition = null;
+            this.applyDeferredBootModals();
+        }
+    },
+
+    swapTitleToNexus() {
+        const tr = this.titleExitTransition;
+        if (tr && tr.swapped) return;
+        if (tr) tr.swapped = true;
 
         if (typeof TitleAttract !== 'undefined' && TitleAttract.dispose) {
             TitleAttract.dispose();
@@ -788,8 +838,36 @@ const Game = {
         if (typeof initNexus !== 'undefined') {
             initNexus();
         }
-        this.applyDeferredBootModals();
         this.updateMusicForCurrentRoom();
+    },
+
+    getTitleExitFadeAlpha() {
+        const tr = this.titleExitTransition;
+        if (!tr) return 0;
+
+        const easeInOut = (t) => {
+            const x = Math.max(0, Math.min(1, t));
+            return x * x * (3 - 2 * x);
+        };
+
+        if (tr.phase === 'fadeOut') {
+            return easeInOut(tr.elapsed / Math.max(0.0001, tr.fadeOutSec));
+        }
+        if (tr.phase === 'hold') return 1;
+        if (tr.phase === 'fadeIn') {
+            return 1 - easeInOut(tr.elapsed / Math.max(0.0001, tr.fadeInSec));
+        }
+        return 0;
+    },
+
+    renderTitleExitOverlay(ctx) {
+        const alpha = this.getTitleExitFadeAlpha();
+        if (!ctx || alpha <= 0.001) return;
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, alpha);
+        ctx.fillStyle = '#05070f';
+        ctx.fillRect(0, 0, this.config.width, this.config.height);
+        ctx.restore();
     },
 
     // Setup responsive canvas sizing - dynamic viewport to match screen
@@ -1278,11 +1356,13 @@ const Game = {
                 if (typeof TitleAttract !== 'undefined' && TitleAttract.update) {
                     TitleAttract.update(this.fixedTimestep);
                 }
+                this.updateTitleExitTransition(this.fixedTimestep);
             } else if (this.state === 'NEXUS') {
                 if (typeof updateNexus !== 'undefined') {
                     updateNexus(this.ctx, this.fixedTimestep);
                 }
                 this.tickNexusPrewarm();
+                this.updateTitleExitTransition(this.fixedTimestep);
             }
             if (typeof updateVoxelParticles === 'function') {
                 updateVoxelParticles(this.fixedTimestep);
@@ -2840,7 +2920,20 @@ const Game = {
         if (this.gameOverMusicPlaying) {
             return;
         }
-        if (this.state === 'TITLE' || this.state === 'NEXUS' || (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'safe')) {
+        if (this.state === 'TITLE') {
+            if (typeof MusicManager.setTitle === 'function') {
+                MusicManager.setTitle().catch(err => {
+                    console.error('[Music] Failed to set title music:', err);
+                });
+            } else {
+                // Fallback: early combat energy, never the calm nexus loop
+                MusicManager.setRoom(1).catch(err => {
+                    console.error('[Music] Failed to set title fallback music:', err);
+                });
+            }
+            return;
+        }
+        if (this.state === 'NEXUS' || (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'safe')) {
             MusicManager.setNexus().catch(err => {
                 console.error('[Music] Failed to set nexus music:', err);
             });
@@ -5189,10 +5282,12 @@ const Game = {
             } else {
                 Renderer.clear(this.ctx, this.config.width, this.config.height, '#0a0e1a');
             }
+            this.renderTitleExitOverlay(this.ctx);
         } else if (this.state === 'NEXUS') {
             if (typeof renderNexus !== 'undefined') {
                 renderNexus(this.ctx);
             }
+            this.renderTitleExitOverlay(this.ctx);
 
             // In multiplayer, show pause menu overlay if showPauseMenu is true
             if (inMultiplayer && this.showPauseMenu && !window.USE_DOM_UI) {
