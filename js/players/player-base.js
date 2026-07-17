@@ -206,22 +206,75 @@ class PlayerBase {
         this.heavyChargeEffectElapsed = 0;
         this.heavyChargeEffectDuration = 0.3;
 
-        // Pull force system (for boss effects like Vortex)
-        this.pullForceVx = 0;
-        this.pullForceVy = 0;
-        this.pullDecay = 0.85; // Per second decay rate
+        // Unified impulse system (knockback + pull share one velocity)
+        this.impulseVx = 0;
+        this.impulseVy = 0;
+        this.impulseDecay = 0.2125; // ~78.75% reduction per second
+        this.impulseMaxSpeed = 800;
+        this.impulseCutoff = 12.0;
+        this.impulseMaxDuration = 2.0;
+        this.impulseTimer = 0;
+        this.lastImpulseSourceId = null;
+        this.knockbackResistance = 1.0; // Higher = less displacement from hits
+        this.hasKnockbackImmunity = false;
+
+        // Pull damp helpers (still applied during impulse integrate)
+        this.pullDecay = 0.85;
         this.pullForceDampFrames = 0;
         this.pullForceDampFactor = 0.85;
         this.pullForceDampThreshold = 0.1;
 
-        // Damage knockback system (receiving knockback from enemies)
-        this.damageKnockbackVx = 0;
-        this.damageKnockbackVy = 0;
-        this.damageKnockbackDecay = 0.2125; // 15% faster decay than previous 0.25 (~78.75% reduction per second)
-        this.knockbackResistance = 1.0; // Higher = less displacement from hits
-        this.damageKnockbackMaxVelocity = 800; // Maximum knockback velocity (pixels per second)
-        this.damageKnockbackMaxDuration = 2.0; // Maximum duration in seconds before forced stop
-        this.damageKnockbackTimer = 0; // Track how long knockback has been active
+        // Legacy aliases kept for call sites / serialization that still use old names
+        Object.defineProperties(this, {
+            pullForceVx: {
+                get() { return this.impulseVx; },
+                set(v) { this.impulseVx = v || 0; },
+                enumerable: true,
+                configurable: true
+            },
+            pullForceVy: {
+                get() { return this.impulseVy; },
+                set(v) { this.impulseVy = v || 0; },
+                enumerable: true,
+                configurable: true
+            },
+            damageKnockbackVx: {
+                get() { return this.impulseVx; },
+                set(v) { this.impulseVx = v || 0; },
+                enumerable: true,
+                configurable: true
+            },
+            damageKnockbackVy: {
+                get() { return this.impulseVy; },
+                set(v) { this.impulseVy = v || 0; },
+                enumerable: true,
+                configurable: true
+            },
+            damageKnockbackDecay: {
+                get() { return this.impulseDecay; },
+                set(v) { this.impulseDecay = v; },
+                enumerable: true,
+                configurable: true
+            },
+            damageKnockbackMaxVelocity: {
+                get() { return this.impulseMaxSpeed; },
+                set(v) { this.impulseMaxSpeed = v; },
+                enumerable: true,
+                configurable: true
+            },
+            damageKnockbackMaxDuration: {
+                get() { return this.impulseMaxDuration; },
+                set(v) { this.impulseMaxDuration = v; },
+                enumerable: true,
+                configurable: true
+            },
+            damageKnockbackTimer: {
+                get() { return this.impulseTimer; },
+                set(v) { this.impulseTimer = v || 0; },
+                enumerable: true,
+                configurable: true
+            }
+        });
 
         // Interpolation targets (for multiplayer client smoothing)
         this.targetX = null;
@@ -341,11 +394,9 @@ class PlayerBase {
             this.vy *= this.guardBreakMovementScalar;
         }
 
-        // Apply knockback from enemy hits before normal movement handling
-        this.processDamageKnockback(deltaTime);
-
-        // Process pull forces (apply before normal movement)
-        this.processPullForces(deltaTime);
+        // Apply unified impulses (knockback + pull) before normal movement
+        this._impulsesProcessedFrame = false;
+        this.processImpulses(deltaTime);
 
         const previousX = this.x;
         const previousY = this.y;
@@ -356,7 +407,6 @@ class PlayerBase {
             this.y += this.vy * deltaTime;
         }
 
-        // Note: Mage blink knockback moved to player-mage.js updateClassAbilities()
         // Note: Rogue dodge collision damage moved to player-rogue.js updateClassAbilities()
 
         // Keep player within room bounds and generated scenery.
@@ -735,8 +785,8 @@ class PlayerBase {
 
         // Skip host-only forces during replay unless explicitly enabled (avoids double-applying)
         if (options.applyForces !== false) {
-            this.processDamageKnockback(deltaTime);
-            this.processPullForces(deltaTime);
+            this._impulsesProcessedFrame = false;
+            this.processImpulses(deltaTime);
         }
 
         const previousX = this.x;
@@ -2669,20 +2719,20 @@ class PlayerBase {
         return oldGear;
     }
 
-    // Apply pull force from boss/environmental hazard
+    // Apply pull force from boss/environmental hazard into the shared impulse vector
     applyPullForce(sourceX, sourceY, strength, radius) {
         const dx = sourceX - this.x;
         const dy = sourceY - this.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
 
         if (distance < radius && distance > 0) {
-            // Inverse square law: stronger when closer
             const pullPower = strength * (1 - (distance / radius));
             const dirX = dx / distance;
             const dirY = dy / distance;
-
-            this.pullForceVx += dirX * pullPower;
-            this.pullForceVy += dirY * pullPower;
+            this.applyImpulse(dirX * pullPower, dirY * pullPower, {
+                resistance: 1,
+                maxSpeed: this.impulseMaxSpeed
+            });
         }
     }
 
@@ -2693,101 +2743,104 @@ class PlayerBase {
     }
 
     snapDampPullForce(maxVelocity = 45, frames = 4, factor = 0.4, threshold = 0.5) {
-        const currentSpeed = Math.sqrt((this.pullForceVx || 0) * (this.pullForceVx || 0) + (this.pullForceVy || 0) * (this.pullForceVy || 0));
+        const currentSpeed = Math.hypot(this.impulseVx || 0, this.impulseVy || 0);
         if (currentSpeed > maxVelocity && currentSpeed > 0) {
             const scale = maxVelocity / currentSpeed;
-            this.pullForceVx *= scale;
-            this.pullForceVy *= scale;
+            this.impulseVx *= scale;
+            this.impulseVy *= scale;
         }
         this.pullForceDampFrames = Math.max(this.pullForceDampFrames || 0, frames);
         this.pullForceDampFactor = factor;
         this.pullForceDampThreshold = threshold;
     }
 
-    // Process pull forces each frame (similar to knockback)
-    processPullForces(deltaTime) {
-        if (this.pullForceVx !== 0 || this.pullForceVy !== 0) {
-            this.x += this.pullForceVx * deltaTime;
-            this.y += this.pullForceVy * deltaTime;
-
-            // Decay pull forces over time
-            this.pullForceVx *= Math.pow(this.pullDecay, deltaTime);
-            this.pullForceVy *= Math.pow(this.pullDecay, deltaTime);
-
-            if (this.pullForceDampFrames > 0) {
-                this.pullForceVx *= this.pullForceDampFactor;
-                this.pullForceVy *= this.pullForceDampFactor;
-                this.pullForceDampFrames--;
-            }
-
-            // Stop if very small
-            const stopThreshold = this.pullForceDampFrames > 0 ? (this.pullForceDampThreshold || 0.5) : 0.1;
-            if (Math.abs(this.pullForceVx) < stopThreshold) this.pullForceVx = 0;
-            if (Math.abs(this.pullForceVy) < stopThreshold) this.pullForceVy = 0;
-            if (this.pullForceVx === 0 && this.pullForceVy === 0) {
-                this.pullForceDampFrames = 0;
-            }
+    applyImpulse(forceX, forceY, options = {}) {
+        if (typeof ImpulsePhysics === 'undefined') {
+            this.impulseVx = (this.impulseVx || 0) + (forceX || 0);
+            this.impulseVy = (this.impulseVy || 0) + (forceY || 0);
+            return true;
         }
+        return ImpulsePhysics.apply(this, forceX, forceY, {
+            resistance: options.resistance != null ? options.resistance : this.knockbackResistance,
+            maxSpeed: options.maxSpeed != null ? options.maxSpeed : this.impulseMaxSpeed,
+            replace: !!options.replace,
+            sourceId: options.sourceId
+        });
     }
 
     // Apply immediate knockback impulse from enemy damage
-    applyDamageKnockback(forceX, forceY) {
-        // Higher resistance = less knockback received
-        const resistance = Math.max(0.1, this.knockbackResistance || 1.0);
-        const newVx = this.damageKnockbackVx + (forceX || 0) / resistance;
-        const newVy = this.damageKnockbackVy + (forceY || 0) / resistance;
+    applyDamageKnockback(forceX, forceY, sourceId = null) {
+        return this.applyImpulse(forceX, forceY, {
+            resistance: this.knockbackResistance,
+            maxSpeed: this.impulseMaxSpeed,
+            sourceId
+        });
+    }
 
-        // Clamp to maximum velocity to prevent extreme launches
-        const maxVel = this.damageKnockbackMaxVelocity || 800;
-        const currentSpeed = Math.sqrt(newVx * newVx + newVy * newVy);
-        if (currentSpeed > maxVel) {
-            const scale = maxVel / currentSpeed;
-            this.damageKnockbackVx = newVx * scale;
-            this.damageKnockbackVy = newVy * scale;
-        } else {
-            this.damageKnockbackVx = newVx;
-            this.damageKnockbackVy = newVy;
+    processImpulses(deltaTime) {
+        if (typeof ImpulsePhysics === 'undefined') {
+            if (this.impulseVx || this.impulseVy) {
+                this.x += (this.impulseVx || 0) * deltaTime;
+                this.y += (this.impulseVy || 0) * deltaTime;
+            }
+            this._impulsesProcessedFrame = true;
+            return;
         }
 
-        // Reset timer when new knockback is applied
-        this.damageKnockbackTimer = 0;
+        ImpulsePhysics.integrate(this, deltaTime, {
+            decay: this.impulseDecay,
+            cutoff: this.impulseCutoff,
+            maxDuration: this.impulseMaxDuration,
+            moveFn: (dx, dy) => {
+                const startX = this.x;
+                const startY = this.y;
+                this.x += dx;
+                this.y += dy;
+                const collided = this.resolveWorldCollision(startX, startY);
+                const actualDx = this.x - startX;
+                const actualDy = this.y - startY;
+                const actualMoved = Math.hypot(actualDx, actualDy);
+                const intendedMoved = Math.hypot(dx, dy);
+                const blocked = !!collided && actualMoved < intendedMoved * 0.3;
+                // Also treat significant axis clamping as contact even if resolve returned false
+                // (e.g. room-bound clamp that still left some progress).
+                const lostContact = intendedMoved > 0.001 && actualMoved < intendedMoved * 0.92;
+                return {
+                    ok: !collided || actualMoved > 0.001,
+                    blocked: blocked || (collided && lostContact),
+                    actualMoved,
+                    intendedMoved,
+                    actualDx,
+                    actualDy
+                };
+            },
+            afterDecay: (entity) => {
+                if (entity.pullForceDampFrames > 0) {
+                    entity.impulseVx *= entity.pullForceDampFactor || 0.85;
+                    entity.impulseVy *= entity.pullForceDampFactor || 0.85;
+                    entity.pullForceDampFrames--;
+                    const stopThreshold = entity.pullForceDampThreshold || 0.5;
+                    if (Math.abs(entity.impulseVx) < stopThreshold) entity.impulseVx = 0;
+                    if (Math.abs(entity.impulseVy) < stopThreshold) entity.impulseVy = 0;
+                    if (entity.impulseVx === 0 && entity.impulseVy === 0) {
+                        entity.pullForceDampFrames = 0;
+                    }
+                }
+            }
+        });
+        this._impulsesProcessedFrame = true;
+    }
+
+    // Compatibility wrappers — prefer processImpulses(); these exist for older callers.
+    // They intentionally no-op on velocity integration if impulses were already processed this frame.
+    processPullForces(deltaTime) {
+        if (this._impulsesProcessedFrame === true) return;
+        this.processImpulses(deltaTime);
     }
 
     processDamageKnockback(deltaTime) {
-        if (this.damageKnockbackVx !== 0 || this.damageKnockbackVy !== 0) {
-            // Update timer
-            this.damageKnockbackTimer += deltaTime;
-
-            // Force stop if knockback has been active too long
-            const maxDuration = this.damageKnockbackMaxDuration || 2.0;
-            if (this.damageKnockbackTimer >= maxDuration) {
-                this.damageKnockbackVx = 0;
-                this.damageKnockbackVy = 0;
-                this.damageKnockbackTimer = 0;
-                return;
-            }
-
-            this.x += this.damageKnockbackVx * deltaTime;
-            this.y += this.damageKnockbackVy * deltaTime;
-
-            // Decay knockback over time (faster decay = quicker recovery)
-            const decayFactor = Math.pow(this.damageKnockbackDecay, deltaTime);
-            this.damageKnockbackVx *= decayFactor;
-            this.damageKnockbackVy *= decayFactor;
-
-            // Stop if knockback is below threshold (higher threshold prevents drift)
-            const cutoffThreshold = 12.0; // Increased to reduce low-speed drift before stopping
-            if (Math.abs(this.damageKnockbackVx) < cutoffThreshold) this.damageKnockbackVx = 0;
-            if (Math.abs(this.damageKnockbackVy) < cutoffThreshold) this.damageKnockbackVy = 0;
-
-            // Reset timer if knockback has stopped
-            if (this.damageKnockbackVx === 0 && this.damageKnockbackVy === 0) {
-                this.damageKnockbackTimer = 0;
-            }
-        } else {
-            // Reset timer when no knockback is active
-            this.damageKnockbackTimer = 0;
-        }
+        if (this._impulsesProcessedFrame === true) return;
+        this.processImpulses(deltaTime);
     }
 
     // Get current stats as object

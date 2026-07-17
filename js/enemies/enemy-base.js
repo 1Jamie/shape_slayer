@@ -84,10 +84,38 @@ class EnemyBase {
         this.rotationBaselineTime = Date.now();
         this.movementHeading = this.rotation;
 
-        // Knockback system
-        this.knockbackVx = 0;
-        this.knockbackVy = 0;
-        this.knockbackDecay = 0.5; // Per second decay rate (faster decay = shorter knockback)
+        // Unified impulse / knockback system
+        this.impulseVx = 0;
+        this.impulseVy = 0;
+        this.impulseDecay = 0.5; // Per second decay rate (faster decay = shorter knockback)
+        this.impulseMaxSpeed = 900;
+        this.impulseCutoff = 1;
+        this.impulseMaxDuration = 2.0;
+        this.impulseTimer = 0;
+        this.lastImpulseSourceId = null;
+        this.wallSlamCooldown = 0;
+        this._impulseIntegrating = false;
+
+        Object.defineProperties(this, {
+            knockbackVx: {
+                get() { return this.impulseVx; },
+                set(v) { this.impulseVx = v || 0; },
+                enumerable: true,
+                configurable: true
+            },
+            knockbackVy: {
+                get() { return this.impulseVy; },
+                set(v) { this.impulseVy = v || 0; },
+                enumerable: true,
+                configurable: true
+            },
+            knockbackDecay: {
+                get() { return this.impulseDecay; },
+                set(v) { this.impulseDecay = v; },
+                enumerable: true,
+                configurable: true
+            }
+        });
 
         // Stun system
         this.stunned = false;
@@ -593,18 +621,50 @@ class EnemyBase {
         return null;
     }
 
-    tryMoveBy(deltaX, deltaY) {
-        if (!Number.isFinite(deltaX) || !Number.isFinite(deltaY)) return false;
-        if (deltaX === 0 && deltaY === 0) return false;
+    tryMoveBy(deltaX, deltaY, options = {}) {
+        if (!Number.isFinite(deltaX) || !Number.isFinite(deltaY)) {
+            return options.detail ? { ok: false, blocked: false, actualMoved: 0, intendedMoved: 0 } : false;
+        }
+        if (deltaX === 0 && deltaY === 0) {
+            return options.detail ? { ok: false, blocked: false, actualMoved: 0, intendedMoved: 0 } : false;
+        }
+
+        // Scale non-impulse movement while under strong knockback so AI cannot cancel it same frame
+        if (!this._impulseIntegrating && !options.skipImpulseDamp && typeof ImpulsePhysics !== 'undefined') {
+            const scale = ImpulsePhysics.getAiMoveScale(this);
+            if (scale < 1) {
+                deltaX *= scale;
+                deltaY *= scale;
+            }
+        }
+
         const previousX = this.x;
         const previousY = this.y;
         const nextX = this.x + deltaX;
         const nextY = this.y + deltaY;
+        const intendedMoved = Math.hypot(deltaX, deltaY);
+
+        const finish = (ok, blocked) => {
+            const actualDx = this.x - previousX;
+            const actualDy = this.y - previousY;
+            const actualMoved = Math.hypot(actualDx, actualDy);
+            if (options.detail) {
+                return {
+                    ok,
+                    blocked: !!blocked,
+                    actualMoved,
+                    intendedMoved,
+                    actualDx,
+                    actualDy
+                };
+            }
+            return ok;
+        };
 
         if (this.ignoreSceneryCollision) {
             this.x = nextX;
             this.y = nextY;
-            return true;
+            return finish(true, false);
         }
 
         if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.layout && typeof RoomLayoutGenerator !== 'undefined') {
@@ -615,7 +675,7 @@ class EnemyBase {
                 this.lastSafeX = this.x;
                 this.lastSafeY = this.y;
                 this.blockedMoveCount = Math.max(0, (this.blockedMoveCount || 0) - 1);
-                return true;
+                return finish(true, false);
             }
 
             const resolved = RoomLayoutGenerator.resolveCircleCollision(
@@ -630,14 +690,13 @@ class EnemyBase {
             this.y = resolved.y;
 
             const actualMoved = Math.hypot(this.x - previousX, this.y - previousY);
-            const intendedMoved = Math.hypot(deltaX, deltaY);
             const isProgressing = intendedMoved > 0.001 && actualMoved >= Math.min(0.15, intendedMoved * 0.12);
 
             if (!resolved.collided || isProgressing) {
                 this.lastSafeX = this.x;
                 this.lastSafeY = this.y;
                 this.blockedMoveCount = Math.max(0, (this.blockedMoveCount || 0) - 1);
-                return true;
+                return finish(true, !!resolved.collided && !isProgressing);
             }
 
             this.blockedMoveCount = (this.blockedMoveCount || 0) + 1;
@@ -664,12 +723,12 @@ class EnemyBase {
                     this.navigationRepathTimer = 0;
                 }
             }
-            return false;
+            return finish(false, true);
         }
 
         this.x = nextX;
         this.y = nextY;
-        return true;
+        return finish(true, false);
     }
 
     getNavigationTargetForHeading(preferredHeading) {
@@ -1300,10 +1359,157 @@ class EnemyBase {
         return role;
     }
 
-    // Apply knockback force
-    applyKnockback(forceX, forceY) {
-        this.knockbackVx = forceX;
-        this.knockbackVy = forceY;
+    // Apply knockback / impulse force (accumulates with other impulses)
+    applyImpulse(forceX, forceY, options = {}) {
+        if (typeof ImpulsePhysics === 'undefined') {
+            this.impulseVx = (this.impulseVx || 0) + (forceX || 0);
+            this.impulseVy = (this.impulseVy || 0) + (forceY || 0);
+            if (options.sourceId != null) this.lastImpulseSourceId = options.sourceId;
+            return true;
+        }
+        return ImpulsePhysics.apply(this, forceX, forceY, {
+            resistance: options.resistance != null ? options.resistance : 1,
+            maxSpeed: options.maxSpeed != null ? options.maxSpeed : this.impulseMaxSpeed,
+            replace: !!options.replace,
+            sourceId: options.sourceId
+        });
+    }
+
+    applyKnockback(forceX, forceY, sourceId = null) {
+        return this.applyImpulse(forceX, forceY, { sourceId });
+    }
+
+    // Process knockback / impulses (should be called before AI movement in update)
+    processImpulses(deltaTime) {
+        if (typeof ImpulsePhysics === 'undefined') {
+            if (this.impulseVx || this.impulseVy) {
+                this.tryMoveBy(this.impulseVx * deltaTime, this.impulseVy * deltaTime, { skipImpulseDamp: true });
+                this.impulseVx *= Math.pow(this.impulseDecay || 0.5, deltaTime);
+                this.impulseVy *= Math.pow(this.impulseDecay || 0.5, deltaTime);
+            }
+            return;
+        }
+
+        this._impulseIntegrating = true;
+        ImpulsePhysics.integrate(this, deltaTime, {
+            decay: this.impulseDecay,
+            cutoff: this.impulseCutoff,
+            maxDuration: this.impulseMaxDuration,
+            enableWallSlam: !this.ignoreSceneryCollision && !this.phasingActive,
+            moveFn: (dx, dy) => this.tryMoveBy(dx, dy, { detail: true, skipImpulseDamp: true }),
+            onWallSlam: (slam) => {
+                if (!slam || !(slam.damage > 0)) return;
+                if (typeof this.takeDamage !== 'function') return;
+                const attackerId = slam.sourceId || this.lastImpulseSourceId || this.lastAttacker || null;
+                if (this.isBoss) {
+                    this.takeDamage(slam.damage, this.x, this.y, this.size || 20, attackerId, 'wall_slam');
+                } else {
+                    this.takeDamage(slam.damage, attackerId, this.x, this.y, 'wall_slam');
+                }
+                this.playWallSlamJuice(slam);
+            }
+        });
+        this._impulseIntegrating = false;
+    }
+
+    /**
+     * Light feedback when an enemy is slammed into scenery hard enough to take damage.
+     * Kept subtle — readable hit, not a boss-impact spectacle.
+     */
+    playWallSlamJuice(slam) {
+        if (!slam) return;
+
+        const damageShown = Math.max(1, Math.round(slam.damage || 0));
+        const speed = slam.speed || 0;
+        const intensity = Math.min(1, Math.max(0.35, (speed - 180) / 320));
+
+        // Bounce direction: opposite current / last into-wall motion
+        let dirX = -(this.impulseVx || 0);
+        let dirY = -(this.impulseVy || 0);
+        if (Math.hypot(dirX, dirY) < 0.001 && this.lastImpulseSourceId != null) {
+            // Fall back to away from room center-ish random if velocity already cleared
+            dirX = (Math.random() - 0.5);
+            dirY = (Math.random() - 0.5);
+        }
+        const dirLen = Math.hypot(dirX, dirY);
+        if (dirLen > 0.001) {
+            dirX /= dirLen;
+            dirY /= dirLen;
+        } else {
+            dirX = 1;
+            dirY = 0;
+        }
+
+        // Brief white flash so the hit reads even without looking at the number
+        this.damageFlashUntil = Date.now() + (55 + Math.round(intensity * 40));
+        this.damageFlashAlpha = 0.55 + intensity * 0.25;
+
+        if (typeof createDamageNumber !== 'undefined') {
+            createDamageNumber(this.x, this.y - (this.size || 16) * 0.35, damageShown, false, false);
+        }
+        if (typeof hostBroadcastDamageNumber === 'function') {
+            hostBroadcastDamageNumber(this.x, this.y, damageShown, { enemyId: this.id });
+        }
+
+        const impactColor = '#ffcc88';
+        const bodyColor = this.color || '#ff6666';
+        const sparkCount = Math.round(5 + intensity * 5);
+        const dustCount = Math.round(4 + intensity * 4);
+
+        if (typeof createDirectionalParticleBurst === 'function') {
+            createDirectionalParticleBurst(this.x, this.y, dirX, dirY, impactColor, {
+                count: sparkCount,
+                spread: Math.PI / 3.2,
+                speed: 140 + intensity * 90,
+                size: 2,
+                life: 0.22 + intensity * 0.08
+            });
+            createDirectionalParticleBurst(this.x, this.y, dirX, dirY, bodyColor, {
+                count: Math.max(3, Math.round(sparkCount * 0.55)),
+                spread: Math.PI / 2.6,
+                speed: 90 + intensity * 60,
+                size: 2.4,
+                life: 0.28
+            });
+        } else if (typeof createParticleBurst === 'function') {
+            createParticleBurst(this.x, this.y, impactColor, sparkCount);
+            createParticleBurst(this.x, this.y, bodyColor, dustCount);
+        }
+
+        if (typeof hostBroadcastCombatFx === 'function') {
+            hostBroadcastCombatFx({
+                kind: 'particle_burst',
+                x: this.x,
+                y: this.y,
+                color: impactColor,
+                count: sparkCount
+            });
+            hostBroadcastCombatFx({
+                kind: 'particle_burst',
+                x: this.x,
+                y: this.y,
+                color: bodyColor,
+                count: dustCount
+            });
+        }
+
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.sounds.hitNormal) {
+            AudioManager.sounds.hitNormal(0.4 + intensity * 0.35);
+        }
+
+        if (typeof Game !== 'undefined' && typeof Game.triggerScreenShake === 'function') {
+            const shake = this.isBoss ? (1.2 + intensity * 1.2) : (0.9 + intensity * 1.1);
+            Game.triggerScreenShake(shake, 0.07 + intensity * 0.04, this.isBoss ? 'boss' : null);
+        }
+
+        // Tiny freeze — just enough to sell the impact without stalling combat
+        if (typeof Game !== 'undefined' && typeof Game.triggerHitPause === 'function' && !this.isBoss) {
+            Game.triggerHitPause(0.018 + intensity * 0.012);
+        }
+    }
+
+    processKnockback(deltaTime) {
+        this.processImpulses(deltaTime);
     }
 
     // Apply stun effect
@@ -1871,21 +2077,6 @@ class EnemyBase {
         this.targetLockTimer = this.targetLockDuration;
 
         return { x: targetX, y: targetY };
-    }
-
-    // Process knockback (should be called before AI movement in update)
-    processKnockback(deltaTime) {
-        if (this.knockbackVx !== 0 || this.knockbackVy !== 0) {
-            this.tryMoveBy(this.knockbackVx * deltaTime, this.knockbackVy * deltaTime);
-
-            // Decay knockback over time
-            this.knockbackVx *= Math.pow(this.knockbackDecay, deltaTime);
-            this.knockbackVy *= Math.pow(this.knockbackDecay, deltaTime);
-
-            // Stop if knockback is very small
-            if (Math.abs(this.knockbackVx) < 1) this.knockbackVx = 0;
-            if (Math.abs(this.knockbackVy) < 1) this.knockbackVy = 0;
-        }
     }
 
     getFlashDrawColor(drawColor) {

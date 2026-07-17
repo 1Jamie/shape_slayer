@@ -468,7 +468,13 @@ function resolveEnemyPlayerOverlap(enemy, player, extraBuffer = 0) {
         }
     }
 
-    if (enemy.knockbackVx !== undefined && enemy.knockbackVy !== undefined) {
+    if (enemy.impulseVx !== undefined && enemy.impulseVy !== undefined) {
+        const relativeKnockback = enemy.impulseVx * normalX + enemy.impulseVy * normalY;
+        if (relativeKnockback < 0) {
+            enemy.impulseVx -= relativeKnockback * normalX;
+            enemy.impulseVy -= relativeKnockback * normalY;
+        }
+    } else if (enemy.knockbackVx !== undefined && enemy.knockbackVy !== undefined) {
         const relativeKnockback = enemy.knockbackVx * normalX + enemy.knockbackVy * normalY;
         if (relativeKnockback < 0) {
             enemy.knockbackVx -= relativeKnockback * normalX;
@@ -1115,11 +1121,17 @@ function processMeleeHitOnEnemy(player, enemies, hitbox, enemy, playerId, bodyHi
                     const knockbackDist = Math.sqrt(knockbackDx * knockbackDx + knockbackDy * knockbackDy);
                     
                     if (knockbackDist > 0) {
-                        // Moderate knockback force (120-150) with player's knockback multiplier
-                        const knockbackForce = 135 * (player.knockbackMultiplier || 1.0);
+                        const weaponKb = typeof getWeaponKnockbackMult === 'function' ? getWeaponKnockbackMult(player) : 1.0;
+                        const hammerKb = player.hammerKnockbackMultiplier || 1.0;
+                        const knockbackForce = 135 * (player.knockbackMultiplier || 1.0) * weaponKb * hammerKb;
                         const knockbackX = (knockbackDx / knockbackDist) * knockbackForce;
                         const knockbackY = (knockbackDy / knockbackDist) * knockbackForce;
-                        enemy.applyKnockback(knockbackX, knockbackY);
+                        const sourceId = player.playerId || player.id || attackerId || null;
+                        if (typeof enemy.applyImpulse === 'function') {
+                            enemy.applyImpulse(knockbackX, knockbackY, { sourceId });
+                        } else if (typeof enemy.applyKnockback === 'function') {
+                            enemy.applyKnockback(knockbackX, knockbackY, sourceId);
+                        }
                     }
                     
                     // Apply light stun (0.5-0.8 seconds)
@@ -1471,7 +1483,11 @@ function checkEnemiesVsPlayer(player, enemies) {
                         }
                         
                         const knockbackStrength = enemy.contactKnockback || 120;
-                        p.applyDamageKnockback(impactDirX * knockbackStrength, impactDirY * knockbackStrength);
+                        p.applyDamageKnockback(
+                            impactDirX * knockbackStrength,
+                            impactDirY * knockbackStrength,
+                            enemy.id || null
+                        );
                     }
                 }
                 

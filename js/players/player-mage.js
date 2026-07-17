@@ -832,7 +832,12 @@ class Mage extends PlayerBase {
                         const pushForce = MAGE_CONFIG.blinkExplosionKnockback;
                         const pushDirX = (enemy.x - this.x) / distance;
                         const pushDirY = (enemy.y - this.y) / distance;
-                        enemy.applyKnockback(pushDirX * pushForce, pushDirY * pushForce);
+                        const sourceId = this.playerId || this.id || null;
+                        if (typeof enemy.applyImpulse === 'function') {
+                            enemy.applyImpulse(pushDirX * pushForce, pushDirY * pushForce, { sourceId });
+                        } else if (typeof enemy.applyKnockback === 'function') {
+                            enemy.applyKnockback(pushDirX * pushForce, pushDirY * pushForce, sourceId);
+                        }
                     }
                 }
             });
@@ -1019,17 +1024,13 @@ class Mage extends PlayerBase {
             }
         }
 
-        // Apply blink knockback if active
-        if (this.blinkKnockbackVx !== 0 || this.blinkKnockbackVy !== 0) {
-            this.x += this.blinkKnockbackVx * deltaTime;
-            this.y += this.blinkKnockbackVy * deltaTime;
-
-            // Decay knockback
-            this.blinkKnockbackVx *= 0.85;
-            this.blinkKnockbackVy *= 0.85;
-
-            if (Math.abs(this.blinkKnockbackVx) < 1) this.blinkKnockbackVx = 0;
-            if (Math.abs(this.blinkKnockbackVy) < 1) this.blinkKnockbackVy = 0;
+        // Blink self-knockback (if any) feeds the shared impulse channel
+        if (this.blinkKnockbackVx || this.blinkKnockbackVy) {
+            if (typeof this.applyImpulse === 'function') {
+                this.applyImpulse(this.blinkKnockbackVx || 0, this.blinkKnockbackVy || 0, { resistance: 1 });
+            }
+            this.blinkKnockbackVx = 0;
+            this.blinkKnockbackVy = 0;
         }
 
         // Update all active beams

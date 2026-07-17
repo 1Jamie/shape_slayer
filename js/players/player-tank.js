@@ -53,6 +53,10 @@ const TANK_CONFIG = {
     shieldDepth: 20,               // Forward extent of shield (pixels)
     shieldWidth: 120,              // Lateral width of shield (pixels)
     shieldKnockbackDistance: 15,   // Knockback distance per frame (pixels)
+    // Sustained crush while pressing an enemy into scenery (modest, tick-based)
+    shieldCrushDamageMult: 0.22,   // Fraction of tank damage per crush tick
+    shieldCrushTickInterval: 0.18, // Seconds between crush ticks while pinned
+    shieldCrushBlockedFraction: 0.4, // Intended push progress below this = crushing
     
     // Passive Ability (Retaliatory Knockback)
     passiveKnockbackRadius: 80,    // Radius for passive knockback (small)
@@ -238,7 +242,12 @@ class Tank extends PlayerBase {
                     // Push enemy away from tank
                     const pushDirX = dx / distance;
                     const pushDirY = dy / distance;
-                    enemy.applyKnockback(pushDirX * knockbackForce, pushDirY * knockbackForce);
+                    const sourceId = this.playerId || this.id || null;
+                    if (typeof enemy.applyImpulse === 'function') {
+                        enemy.applyImpulse(pushDirX * knockbackForce, pushDirY * knockbackForce, { sourceId });
+                    } else {
+                        enemy.applyKnockback(pushDirX * knockbackForce, pushDirY * knockbackForce, sourceId);
+                    }
                 }
             }
         });
@@ -246,6 +255,188 @@ class Tank extends PlayerBase {
         // Visual feedback
         if (typeof createParticleBurst !== 'undefined') {
             createParticleBurst(this.x, this.y, '#ff6666', 8);
+        }
+    }
+
+    /**
+     * Shared shield slab in player-local forward distance (matches renderClassVisuals).
+     * Returns distances from player center along facing.
+     */
+    getShieldGeometry() {
+        const depth = TANK_CONFIG.shieldDepth;
+        const width = TANK_CONFIG.shieldWidth * (this.shieldWidthMultiplier || 1.0);
+        // Same formula as the drawn rect: start inset by half depth around shieldDistance
+        const near = this.size + TANK_CONFIG.shieldDistance - (depth / 2);
+        const far = near + depth;
+        return {
+            near,
+            far,
+            depth,
+            width,
+            halfWidth: width / 2
+        };
+    }
+
+    /**
+     * While the shield is held: solid physical block/push only (no knockback impulse).
+     * Knockback comes from the release wave. Wall pins still tick modest crush damage.
+     * Contact plane matches the drawn shield front face.
+     */
+    updateShieldEnemyContacts(deltaTime) {
+        if (!Game || !Game.enemies) return;
+
+        const playerDirX = Math.cos(this.rotation);
+        const playerDirY = Math.sin(this.rotation);
+        const perpendicularX = -playerDirY;
+        const perpendicularY = playerDirX;
+
+        const geom = this.getShieldGeometry();
+        const blockedFraction = TANK_CONFIG.shieldCrushBlockedFraction || 0.4;
+        const sourceId = this.playerId || this.id || null;
+        const probeDistance = Math.max(6, (this.moveSpeed || 160) * deltaTime * 1.15);
+
+        if (!this._shieldCrushCooldowns) {
+            this._shieldCrushCooldowns = new Map();
+        }
+
+        this._shieldCrushCooldowns.forEach((remaining, id) => {
+            const next = remaining - deltaTime;
+            if (next <= 0) this._shieldCrushCooldowns.delete(id);
+            else this._shieldCrushCooldowns.set(id, next);
+        });
+
+        Game.enemies.forEach(enemy => {
+            if (!enemy || !enemy.alive) return;
+
+            const dx = enemy.x - this.x;
+            const dy = enemy.y - this.y;
+            const forward = dx * playerDirX + dy * playerDirY;
+            const lateral = dx * perpendicularX + dy * perpendicularY;
+            const enemyRadius = enemy.collisionRadius || enemy.size || 20;
+
+            // Overlap the drawn shield slab (near→far), plus enemy radius so edges catch
+            const minForward = geom.near - enemyRadius * 0.35;
+            const maxForward = geom.far + enemyRadius + 8;
+            if (forward < minForward || forward > maxForward) return;
+            if (Math.abs(lateral) > geom.halfWidth + enemyRadius) return;
+
+            // Rest so the enemy's near edge sits on the visual front face
+            const desiredForward = geom.far + enemyRadius * 0.9;
+            const penetration = desiredForward - forward;
+            let crushBlocked = false;
+
+            if (penetration > 0.5) {
+                // Physically resolve them onto the shield face (no impulse/knockback)
+                const pushX = playerDirX * penetration;
+                const pushY = playerDirY * penetration;
+                let moveResult = null;
+                if (typeof enemy.tryMoveBy === 'function') {
+                    moveResult = enemy.tryMoveBy(pushX, pushY, {
+                        detail: true,
+                        skipImpulseDamp: true
+                    });
+                } else {
+                    enemy.x += pushX;
+                    enemy.y += pushY;
+                    moveResult = {
+                        ok: true,
+                        blocked: false,
+                        actualMoved: penetration,
+                        intendedMoved: penetration
+                    };
+                }
+
+                const intended = moveResult && moveResult.intendedMoved != null
+                    ? moveResult.intendedMoved
+                    : penetration;
+                const actual = moveResult && moveResult.actualMoved != null
+                    ? moveResult.actualMoved
+                    : 0;
+                crushBlocked = !!(moveResult && (moveResult.blocked || actual < intended * blockedFraction));
+            } else if (typeof enemy.tryMoveBy === 'function') {
+                // Already on the face — advance with the shield if space allows
+                const beforeX = enemy.x;
+                const beforeY = enemy.y;
+                const probeResult = enemy.tryMoveBy(playerDirX * probeDistance, playerDirY * probeDistance, {
+                    detail: true,
+                    skipImpulseDamp: true
+                });
+                const actual = probeResult && probeResult.actualMoved != null ? probeResult.actualMoved : 0;
+                const intended = probeResult && probeResult.intendedMoved != null ? probeResult.intendedMoved : probeDistance;
+                if (probeResult && (probeResult.blocked || actual < intended * blockedFraction)) {
+                    crushBlocked = true;
+                    enemy.x = beforeX;
+                    enemy.y = beforeY;
+                }
+            }
+
+            // Held shield is a solid barrier: kill forward knockback so they don't get flung
+            const along = ((enemy.impulseVx || 0) * playerDirX) + ((enemy.impulseVy || 0) * playerDirY);
+            if (along > 0) {
+                enemy.impulseVx = (enemy.impulseVx || 0) - along * playerDirX;
+                enemy.impulseVy = (enemy.impulseVy || 0) - along * playerDirY;
+            }
+
+            // Slow AI so they don't walk through the shield face
+            enemy.vx *= 0.35;
+            enemy.vy *= 0.35;
+
+            if (crushBlocked) {
+                this.applyShieldCrushTick(enemy, sourceId);
+            }
+        });
+    }
+
+    applyShieldCrushTick(enemy, sourceId) {
+        if (!enemy || !enemy.alive) return;
+        const enemyId = enemy.id || enemy;
+        if (!this._shieldCrushCooldowns) this._shieldCrushCooldowns = new Map();
+        if (this._shieldCrushCooldowns.has(enemyId)) return;
+
+        const interval = TANK_CONFIG.shieldCrushTickInterval || 0.18;
+        this._shieldCrushCooldowns.set(enemyId, interval);
+
+        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+        const damage = Math.max(1, (this.damage || 12) * (TANK_CONFIG.shieldCrushDamageMult || 0.22));
+
+        if (!isClient && typeof enemy.takeDamage === 'function') {
+            if (enemy.isBoss) {
+                enemy.takeDamage(damage, enemy.x, enemy.y, enemy.size || 20, sourceId, 'shield_crush');
+            } else {
+                enemy.takeDamage(damage, sourceId, enemy.x, enemy.y, 'shield_crush');
+            }
+        }
+
+        // Light juice — readable crush, not a full slam every tick
+        if (typeof createDamageNumber !== 'undefined') {
+            createDamageNumber(enemy.x, enemy.y - (enemy.size || 16) * 0.25, Math.round(damage), false, false);
+        }
+        if (typeof hostBroadcastDamageNumber === 'function') {
+            hostBroadcastDamageNumber(enemy.x, enemy.y, Math.round(damage), { enemyId: enemy.id });
+        }
+
+        enemy.damageFlashUntil = Date.now() + 45;
+        enemy.damageFlashAlpha = 0.5;
+
+        if (typeof createParticleBurst === 'function') {
+            createParticleBurst(enemy.x, enemy.y, '#ffcc88', 4);
+            createParticleBurst(enemy.x, enemy.y, enemy.color || '#ff6666', 3);
+        }
+        if (typeof hostBroadcastCombatFx === 'function') {
+            hostBroadcastCombatFx({
+                kind: 'particle_burst',
+                x: enemy.x,
+                y: enemy.y,
+                color: '#ffcc88',
+                count: 4
+            });
+        }
+
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.sounds.hitNormal) {
+            AudioManager.sounds.hitNormal(0.35);
+        }
+        if (typeof Game !== 'undefined' && typeof Game.triggerScreenShake === 'function') {
+            Game.triggerScreenShake(0.7, 0.05, null);
         }
     }
     
@@ -545,54 +736,9 @@ class Tank extends PlayerBase {
             // Store shield direction for wave (captured when shield ends)
             this.shieldDirection = this.rotation;
             
-            // Block enemies from passing through shield
+            // Block / shove / crush enemies with the active shield
             if (typeof Game !== 'undefined' && Game.enemies) {
-                const shieldDistance = this.size + TANK_CONFIG.shieldDistance;
-                const shieldDepth = TANK_CONFIG.shieldDepth;
-                const shieldWidth = TANK_CONFIG.shieldWidth * (this.shieldWidthMultiplier || 1.0);
-                const shieldVisualStart = this.size + TANK_CONFIG.shieldDistance - (shieldDepth / 2);
-                
-                Game.enemies.forEach(enemy => {
-                    if (enemy.alive) {
-                        // Calculate relative position to player
-                        const dx = enemy.x - this.x;
-                        const dy = enemy.y - this.y;
-                        const distance = Math.sqrt(dx * dx + dy * dy);
-                        
-                        if (distance < shieldDistance + shieldDepth + enemy.size) {
-                            // Check if enemy is in front of player
-                            const relX = dx / distance;
-                            const relY = dy / distance;
-                            const playerDirX = Math.cos(this.rotation);
-                            const playerDirY = Math.sin(this.rotation);
-                            
-                            const dot = relX * playerDirX + relY * playerDirY;
-                            
-                            if (dot > 0 && distance > shieldDistance) {
-                                // Enemy is in front, check if within shield bounds
-                                const perpendicularX = -playerDirY;
-                                const perpendicularY = playerDirX;
-                                const lateralDist = Math.abs(dx * perpendicularX + dy * perpendicularY);
-                                
-                                if (lateralDist < shieldWidth / 2 + enemy.size) {
-                                    // Enemy is hitting the shield, push them back
-                                    const knockbackDistance = TANK_CONFIG.shieldKnockbackDistance;
-                                    const knockbackDir = {
-                                        x: (enemy.x - this.x) / distance,
-                                        y: (enemy.y - this.y) / distance
-                                    };
-                                    
-                                    enemy.x += knockbackDir.x * knockbackDistance * deltaTime * 10;
-                                    enemy.y += knockbackDir.y * knockbackDistance * deltaTime * 10;
-                                    
-                                    // Reduce enemy movement speed
-                                    enemy.vx *= 0.5;
-                                    enemy.vy *= 0.5;
-                                }
-                            }
-                        }
-                    }
-                });
+                this.updateShieldEnemyContacts(deltaTime);
             }
             
             // End shield and start wave animation after duration
@@ -627,7 +773,7 @@ class Tank extends PlayerBase {
                     const waveWidth = TANK_CONFIG.shieldWaveWidth;
                     
                     // Calculate shield visual start position (same as in renderClassVisuals)
-                    const shieldVisualStart = this.size + TANK_CONFIG.shieldDistance - (TANK_CONFIG.shieldDepth / 2);
+                    const shieldVisualStart = this.getShieldGeometry().near;
                     
                     // Calculate current wave front distance
                     const waveProgress = this.shieldWaveElapsed / this.shieldWaveDuration;
@@ -707,7 +853,12 @@ class Tank extends PlayerBase {
                                     });
                                 }
                                 const knockbackForce = TANK_CONFIG.shieldWaveKnockback;
-                                enemy.applyKnockback(playerDirX * knockbackForce, playerDirY * knockbackForce);
+                                const sourceId = this.playerId || this.id || null;
+                                if (typeof enemy.applyImpulse === 'function') {
+                                    enemy.applyImpulse(playerDirX * knockbackForce, playerDirY * knockbackForce, { sourceId });
+                                } else if (typeof enemy.applyKnockback === 'function') {
+                                    enemy.applyKnockback(playerDirX * knockbackForce, playerDirY * knockbackForce, sourceId);
+                                }
                             }
                             break;
                         }
@@ -719,9 +870,10 @@ class Tank extends PlayerBase {
     
     // Override renderClassVisuals for Tank-specific visuals
     renderClassVisuals(ctx) {
-        const shieldVisualStart = this.size + TANK_CONFIG.shieldDistance - (TANK_CONFIG.shieldDepth / 2);
-        const shieldVisualDepth = TANK_CONFIG.shieldDepth;
-        const shieldVisualHalfWidth = (TANK_CONFIG.shieldWidth * (this.shieldWidthMultiplier || 1.0)) / 2;
+        const geom = this.getShieldGeometry();
+        const shieldVisualStart = geom.near;
+        const shieldVisualDepth = geom.depth;
+        const shieldVisualHalfWidth = geom.halfWidth;
         
         // Draw hammer attack hitboxes with trail
         this.attackHitboxes.forEach(hitbox => {

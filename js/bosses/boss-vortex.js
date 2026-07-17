@@ -2266,16 +2266,31 @@ class BossVortex extends BossBase {
         const dirX = (dx / distance) * direction;
         const dirY = (dy / distance) * direction;
         const deltaTime = options.deltaTime || 0.016;
-
-        target.pullForceVx = (target.pullForceVx || 0) + dirX * strength * deltaTime;
-        target.pullForceVy = (target.pullForceVy || 0) + dirY * strength * deltaTime;
-
+        const forceX = dirX * strength * deltaTime;
+        const forceY = dirY * strength * deltaTime;
         const maxVelocity = options.maxVelocity || 260;
-        const velocity = Math.hypot(target.pullForceVx, target.pullForceVy);
-        if (velocity > maxVelocity) {
-            const scale = maxVelocity / velocity;
-            target.pullForceVx *= scale;
-            target.pullForceVy *= scale;
+
+        if (typeof target.applyImpulse === 'function') {
+            target.applyImpulse(forceX, forceY, {
+                resistance: 1,
+                maxSpeed: Math.max(target.impulseMaxSpeed || 0, maxVelocity)
+            });
+            // Cap gravity contribution relative to continuous field strength
+            const velocity = Math.hypot(target.impulseVx || 0, target.impulseVy || 0);
+            if (velocity > maxVelocity) {
+                const scale = maxVelocity / velocity;
+                target.impulseVx *= scale;
+                target.impulseVy *= scale;
+            }
+        } else {
+            target.pullForceVx = (target.pullForceVx || 0) + forceX;
+            target.pullForceVy = (target.pullForceVy || 0) + forceY;
+            const velocity = Math.hypot(target.pullForceVx, target.pullForceVy);
+            if (velocity > maxVelocity) {
+                const scale = maxVelocity / velocity;
+                target.pullForceVx *= scale;
+                target.pullForceVy *= scale;
+            }
         }
     }
 

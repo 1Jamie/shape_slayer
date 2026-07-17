@@ -632,11 +632,14 @@ class Warrior extends PlayerBase {
             hitPerpDist = Math.sqrt(hitPerpX * hitPerpX + hitPerpY * hitPerpY);
         }
         const kbMult = typeof getWeaponKnockbackMult === 'function' ? getWeaponKnockbackMult(this) : 1.0;
-        const pushForce = WARRIOR_CONFIG.thrustKnockback * kbMult;
+        const pushForce = WARRIOR_CONFIG.thrustKnockback * kbMult * (this.knockbackMultiplier || 1.0);
         const perpXNorm = hitPerpX / (hitPerpDist + 0.001);
         const perpYNorm = hitPerpY / (hitPerpDist + 0.001);
-        if (enemy.applyKnockback) {
-            enemy.applyKnockback(perpXNorm * pushForce, perpYNorm * pushForce);
+        const sourceId = this.playerId || this.id || null;
+        if (typeof enemy.applyImpulse === 'function') {
+            enemy.applyImpulse(perpXNorm * pushForce, perpYNorm * pushForce, { sourceId });
+        } else if (enemy.applyKnockback) {
+            enemy.applyKnockback(perpXNorm * pushForce, perpYNorm * pushForce, sourceId);
         }
     }
 

@@ -902,17 +902,20 @@ class BossFortress extends BossBase {
                         player.takeDamage(this.damage);
                         this.hitPlayers.add(key);
                     }
-                    if (player.applyDamageKnockback) {
+                    if (player.applyDamageKnockback || player.applyImpulse) {
                         const norm = distance > 0 ? 1 / distance : 0;
                         const falloff = Math.max(0.35, 1 - distance / Math.max(1, this.maxRadius || this.radius));
                         const pushForce = this.force * (1.2 + Math.sqrt(falloff) * 2.4);
-                        player.applyDamageKnockback(dx * norm * pushForce, dy * norm * pushForce);
-                        const effectiveForce = pushForce / Math.max(0.1, player.knockbackResistance || 1);
-                        if (typeof player.damageKnockbackVx === 'number' && typeof player.damageKnockbackVy === 'number') {
-                            player.damageKnockbackVx += dx * norm * effectiveForce;
-                            player.damageKnockbackVy += dy * norm * effectiveForce;
+                        const fx = dx * norm * pushForce;
+                        const fy = dy * norm * pushForce;
+                        if (typeof player.applyImpulse === 'function') {
+                            player.applyImpulse(fx, fy);
+                        } else {
+                            player.applyDamageKnockback(fx, fy);
                         }
+                        // Small intentional input-velocity nudge so pulse feels snappy without double-counting impulse
                         if (typeof player.vx === 'number' && typeof player.vy === 'number') {
+                            const effectiveForce = pushForce / Math.max(0.1, player.knockbackResistance || 1);
                             player.vx += dx * norm * effectiveForce * 0.35;
                             player.vy += dy * norm * effectiveForce * 0.35;
                         }

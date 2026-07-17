@@ -503,7 +503,11 @@ class DiamondEnemy extends EnemyBase {
                             // Apply knockback
                             if (typeof p.applyDamageKnockback === 'function') {
                                 const knockbackStrength = this.contactKnockback || 120;
-                                p.applyDamageKnockback(normalX * knockbackStrength, normalY * knockbackStrength);
+                                p.applyDamageKnockback(
+                                    normalX * knockbackStrength,
+                                    normalY * knockbackStrength,
+                                    this.id || null
+                                );
                             }
                         }
 

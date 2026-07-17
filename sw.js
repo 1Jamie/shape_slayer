@@ -66,6 +66,7 @@ const PRECACHE_URLS = [
   './js/items/item-pylon.js',
   './js/items/item-effects.js',
   './js/items/item-visuals.js',
+  './js/impulse-physics.js',
   './js/players/player-base.js',
   './js/players/player-warrior.js',
   './js/players/player-rogue.js',
