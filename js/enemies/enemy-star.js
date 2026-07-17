@@ -883,7 +883,9 @@ class StarEnemy extends EnemyBase {
         let dirY = dy / distance;
 
         // Add slight spread variation (reduced for predictive aiming, increased under panic)
-        const spreadMultiplier = (options.spreadMult || 1) * (this.usePredictiveAiming ? (1 - this.intelligenceLevel * 0.5) : 1.0);
+        const spreadMultiplier = (options.spreadMult || 1)
+            * (this.biomeProjectileSpreadMult || 1)
+            * (this.usePredictiveAiming ? (1 - this.intelligenceLevel * 0.5) : 1.0);
         const spreadAngle = (Math.random() - 0.5) * STAR_CONFIG.projectileSpreadAngle * spreadMultiplier;
         const cos = Math.cos(spreadAngle);
         const sin = Math.sin(spreadAngle);
@@ -1012,7 +1014,11 @@ class StarEnemy extends EnemyBase {
         }
 
         const baseAngle = Math.atan2(dy, dx);
-        const spread = STAR_CONFIG.volleySpread * (options.spreadMult || 1);
+        const spread = STAR_CONFIG.volleySpread * (options.spreadMult || 1) * (this.biomeProjectileSpreadMult || 1);
+        let volleyCount = STAR_CONFIG.volleyCount;
+        if (this.eliteAffix && this.eliteAffix.type === 'multishot') {
+            volleyCount += (this.eliteAffix.value && this.eliteAffix.value.extraProjectiles) || 1;
+        }
 
         // Play projectile shoot sound
         if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
@@ -1020,8 +1026,9 @@ class StarEnemy extends EnemyBase {
         }
 
         // Fire multiple projectiles in spread pattern
-        for (let i = 0; i < STAR_CONFIG.volleyCount; i++) {
-            const offsetAngle = (i / (STAR_CONFIG.volleyCount - 1) - 0.5) * spread;
+        for (let i = 0; i < volleyCount; i++) {
+            const denom = Math.max(1, volleyCount - 1);
+            const offsetAngle = (i / denom - 0.5) * spread;
             const angle = baseAngle + offsetAngle;
 
             Game.projectiles.push({
@@ -1050,6 +1057,10 @@ class StarEnemy extends EnemyBase {
         }
 
         drawColor = this.getFlashDrawColor(drawColor);
+
+        const phaseAlpha = (typeof this.getDrawAlpha === 'function') ? this.getDrawAlpha() : 1;
+        ctx.save();
+        ctx.globalAlpha = phaseAlpha;
 
         // Voxel damage: draw body to offscreen canvas, punch destroyed cells out, blit back
         const _h2 = this.size * 1.5 * scaleMultiplier;
@@ -1086,6 +1097,8 @@ class StarEnemy extends EnemyBase {
             ctx.stroke();
             ctx.restore();
         }
+
+        ctx.restore();
 
         // Draw status effects (burn, freeze)
         if (typeof renderBurnEffect !== 'undefined') {

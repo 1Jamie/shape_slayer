@@ -21,6 +21,263 @@ function hostBroadcastCombatFx(fx) {
     multiplayerManager.sendCombatFx(fx);
 }
 
+// --- Weapon-type on-hit policy (0.8.2) ---
+function getPlayerWeaponTypeDef(player) {
+    if (!player || !player.weapon || !player.weapon.weaponType) return null;
+    if (typeof WEAPON_TYPES === 'undefined') return null;
+    return WEAPON_TYPES[player.weapon.weaponType] || null;
+}
+
+function getWeaponOnHitPolicy(player) {
+    const type = getPlayerWeaponTypeDef(player);
+    return (type && type.onHitPolicy) || { status: 'perSwing', proc: 'perSwing', sustain: 'perSwing' };
+}
+
+function getWeaponPerHitDamageShare(player) {
+    const type = getPlayerWeaponTypeDef(player);
+    if (!type) return 1.0;
+    return Number.isFinite(type.perHitDamageShare) ? type.perHitDamageShare : 1.0;
+}
+
+function getWeaponDualStaggerSec(player) {
+    const type = getPlayerWeaponTypeDef(player);
+    if (!type || !type.dualStaggerMs) return 0;
+    return type.dualStaggerMs / 1000;
+}
+
+function getWeaponHitpauseScale(player) {
+    const type = getPlayerWeaponTypeDef(player);
+    return (type && type.hitpauseScale != null) ? type.hitpauseScale : 1.0;
+}
+
+function shouldApplyWeaponStatusOnHit(player, hitbox) {
+    const policy = getWeaponOnHitPolicy(player);
+    if (policy.status === 'perContact') return true;
+    return !hitbox || !hitbox.isParallelSecond;
+}
+
+function shouldRollWeaponProcOnHit(player, hitbox) {
+    const policy = getWeaponOnHitPolicy(player);
+    if (policy.proc === 'perContact') return true;
+    return !hitbox || !hitbox.isParallelSecond;
+}
+
+function shouldApplyWeaponSustainOnHit(player, hitbox) {
+    const policy = getWeaponOnHitPolicy(player);
+    if (policy.sustain === 'perContact') return true;
+    return !hitbox || !hitbox.isParallelSecond;
+}
+
+function getEnemyStableId(enemy) {
+    if (!enemy) return null;
+    if (enemy.id != null) return enemy.id;
+    if (enemy.enemyId != null) return enemy.enemyId;
+    return null;
+}
+
+function findEnemyByStableId(enemies, id) {
+    if (id == null || !enemies) return null;
+    for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (!e) continue;
+        if (e.id === id || e.enemyId === id) return e;
+    }
+    return null;
+}
+
+function isEnemyAliveForParallel(enemy) {
+    return !!(enemy && enemy.alive !== false && !enemy.isDead && !enemy.dead && (enemy.hp == null || enemy.hp > 0));
+}
+
+function playerWeaponIsParallel(player) {
+    if (player && (player.weaponHitCount || 1) >= 2) return true;
+    const type = getPlayerWeaponTypeDef(player);
+    return !!(type && (type.hitCount || 1) >= 2);
+}
+
+/**
+ * Half damage on primary + delayed twin projectile for Parallel ranged weapons.
+ * Returns twin to push, or null. Mutates projectile damage in place.
+ */
+function configureParallelPlayerProjectile(player, projectile) {
+    if (!player || !projectile || !playerWeaponIsParallel(player)) return null;
+    if (projectile.isParallelSecond || projectile.skipParallelTwin) return null;
+    const share = getWeaponPerHitDamageShare(player);
+    projectile.damage *= share;
+    projectile.isParallelPrimary = true;
+    const twin = Object.assign({}, projectile);
+    twin.isParallelSecond = true;
+    twin.isParallelPrimary = false;
+    twin.skipParallelTwin = true;
+    twin.activateAfter = getWeaponDualStaggerSec(player);
+    twin.elapsed = 0;
+    twin.hasChainedLegendary = false;
+    // Must not share the primary's networked id (clients key projectiles by id)
+    delete twin.id;
+    if (twin.hitEnemies) delete twin.hitEnemies;
+    return twin;
+}
+
+function projectileHitboxProxy(projectile) {
+    return { isParallelSecond: !!(projectile && projectile.isParallelSecond) };
+}
+
+/** Melee / dash / beam reach (Vector: 1.5). */
+function getWeaponMeleeReachMult(player) {
+    return (player && player.weaponRangeMultiplier) || 1.0;
+}
+
+/**
+ * Projectile / travel reach. Vector uses the larger of rangeMultiplier and 1+projectileRangeBonus.
+ */
+function getWeaponProjectileReachMult(player) {
+    if (!player) return 1.0;
+    const range = player.weaponRangeMultiplier || 1.0;
+    const bonus = player.weaponProjectileRangeBonus || 0;
+    return Math.max(range, 1 + bonus);
+}
+
+function getWeaponKnockbackMult(player) {
+    const bonus = (player && player.weaponKnockbackBonus) || 0;
+    return 1 + bonus;
+}
+
+/** Brief freeze on heavy fire — scaled by weapon feel (Acute soft / Obtuse heavy). */
+function applyHeavyAttackHitpause(player) {
+    if (typeof Game === 'undefined' || typeof Game.triggerHitPause !== 'function') return;
+    const scale = (player && player.weaponHitpauseScale != null) ? player.weaponHitpauseScale : 1.0;
+    Game.triggerHitPause(0.08 * scale);
+}
+
+function tryPerfectInterrupt(player, enemy, hitbox) {
+    if (!enemy || !player) return { forcedCrit: false, staggered: false };
+    // Strict spool window: active telegraph object or explicit telegraph state / remaining timers
+    const telegraphing = !!(enemy.activeTelegraph
+        || (enemy.telegraphController && enemy.telegraphController.activeTelegraph)
+        || enemy.state === 'telegraph');
+    const spooling = telegraphing
+        || (enemy.chargeTelegraphRemaining != null && enemy.chargeTelegraphRemaining > 0)
+        || (enemy.spinTelegraphRemaining != null && enemy.spinTelegraphRemaining > 0);
+    if (!spooling) return { forcedCrit: false, staggered: false };
+
+    // Don't re-trigger interrupt spam on the same telegraph / multi-hitbox swing
+    const telegraphKey = enemy.activeTelegraph
+        ? (enemy.activeTelegraph.type || 'tele')
+        : (enemy.state || 'spool');
+    const ikey = `${getEnemyStableId(enemy) || 'e'}_${telegraphKey}`;
+    if (enemy._lastPerfectInterruptKey === ikey && (Date.now() - (enemy._lastPerfectInterruptAt || 0)) < 400) {
+        return { forcedCrit: false, staggered: false };
+    }
+    enemy._lastPerfectInterruptKey = ikey;
+    enemy._lastPerfectInterruptAt = Date.now();
+
+    const result = { forcedCrit: true, staggered: false };
+    const isBossOrElite = !!(enemy.isBoss || enemy.isElite || enemy.eliteAffix);
+    const now = Date.now();
+    const lockoutMs = 5000;
+    if (enemy.lastInterruptTime == null) enemy.lastInterruptTime = 0;
+
+    if (!isBossOrElite || (now - enemy.lastInterruptTime > lockoutMs)) {
+        if (typeof enemy.applyStun === 'function') {
+            enemy.applyStun(0.75);
+        }
+        if (typeof enemy.cancelTelegraph === 'function') {
+            enemy.cancelTelegraph({ reason: 'perfect_interrupt' });
+        } else if (enemy.telegraphController && typeof enemy.telegraphController.cancel === 'function') {
+            enemy.telegraphController.cancel({ reason: 'perfect_interrupt' });
+        }
+        enemy.lastInterruptTime = now;
+        result.staggered = true;
+        if (typeof createParticleBurst !== 'undefined') {
+            createParticleBurst(enemy.x, enemy.y, '#ffe066', 10);
+        }
+        hostBroadcastCombatFx({
+            kind: 'particle_burst',
+            x: enemy.x,
+            y: enemy.y,
+            color: '#ffe066',
+            count: 10
+        });
+    } else {
+        enemy.hyperArmorFlashUntil = now + 250;
+        if (typeof createParticleBurst !== 'undefined') {
+            createParticleBurst(enemy.x, enemy.y, '#aaaaaa', 6);
+        }
+        hostBroadcastCombatFx({
+            kind: 'particle_burst',
+            x: enemy.x,
+            y: enemy.y,
+            color: '#aaaaaa',
+            count: 6
+        });
+    }
+    return result;
+}
+
+function grantPerfectDodgeCooldown(player) {
+    if (!player) return;
+    const usesCharges = typeof player.usesChargeBasedDodge === 'function' && player.usesChargeBasedDodge();
+    if (usesCharges && player.dodgeChargeCooldowns && player.dodgeChargeCooldowns.length) {
+        // Halve the largest remaining charge cooldown (the one just spent)
+        let maxIdx = 0;
+        let maxVal = player.dodgeChargeCooldowns[0] || 0;
+        for (let i = 1; i < player.dodgeChargeCooldowns.length; i++) {
+            const v = player.dodgeChargeCooldowns[i] || 0;
+            if (v > maxVal) {
+                maxVal = v;
+                maxIdx = i;
+            }
+        }
+        if (maxVal > 0) {
+            player.dodgeChargeCooldowns[maxIdx] = maxVal * 0.5;
+        }
+        if (typeof player.getNextChargeReadyTime === 'function') {
+            player.dodgeCooldown = player.getNextChargeReadyTime(player.dodgeChargeCooldowns);
+        }
+        let ready = 0;
+        for (let i = 0; i < player.dodgeChargeCooldowns.length; i++) {
+            if ((player.dodgeChargeCooldowns[i] || 0) <= 0) ready++;
+        }
+        player.dodgeCharges = ready;
+    } else if (player.dodgeCooldown > 0) {
+        player.dodgeCooldown *= 0.5;
+        if (player.dodgeChargeCooldowns && player.dodgeChargeCooldowns.length > 0) {
+            player.dodgeChargeCooldowns[0] = player.dodgeCooldown;
+        }
+    }
+    if (typeof createParticleBurst !== 'undefined') {
+        createParticleBurst(player.x, player.y, '#66ffcc', 8);
+    }
+    hostBroadcastCombatFx({
+        kind: 'particle_burst',
+        x: player.x,
+        y: player.y,
+        color: '#66ffcc',
+        count: 8
+    });
+}
+
+function tryRegisterPerfectDodge(player, enemy, playerId) {
+    if (!player || !enemy) return;
+    // Only active dodge frames count — not post-hit / post-dodge invuln leftovers
+    if (!player.isDodging) return;
+    const threatActive = enemy.state === 'dash' || enemy.state === 'lunge' || enemy.state === 'spin'
+        || enemy.state === 'charge' || enemy.state === 'slam' || enemy.state === 'telegraph'
+        || !!enemy.activeTelegraph
+        || (enemy.chargeTelegraphRemaining != null && enemy.chargeTelegraphRemaining > 0)
+        || (enemy.spinTelegraphRemaining != null && enemy.spinTelegraphRemaining > 0)
+        || (enemy.attacking === true);
+    if (!threatActive) return;
+    if (!player._perfectDodgeThreatKeys) player._perfectDodgeThreatKeys = new Set();
+    const key = `${getEnemyStableId(enemy) || enemy.x}_${enemy.state || 'atk'}`;
+    if (player._perfectDodgeThreatKeys.has(key)) return;
+    player._perfectDodgeThreatKeys.add(key);
+    // Clear stale keys periodically
+    if (player._perfectDodgeThreatKeys.size > 32) player._perfectDodgeThreatKeys.clear();
+
+    grantPerfectDodgeCooldown(player);
+}
+
 // Circle collision detection helper
 function checkCircleCollision(x1, y1, r1, x2, y2, r2) {
     const dx = x2 - x1;
@@ -496,6 +753,8 @@ function applyLegendaryEffects(player, enemy, damageDealt, attackerId) {
     if (isClient) return;
     
     if (!player || !player.activeLegendaryEffects || !enemy) return;
+    // Parallel contact-2 may still apply status legendaries when policy is perContact;
+    // callers should pass hitbox via options when available — default allow.
     
     player.activeLegendaryEffects.forEach(effect => {
         if (effect.type === 'incendiary') {
@@ -518,6 +777,29 @@ function applyLegendaryEffects(player, enemy, damageDealt, attackerId) {
 
 // Check attacks vs enemies and handle collisions
 function checkAttacksVsEnemies(player, enemies, playerId = null) {
+    const perHitShare = getWeaponPerHitDamageShare(player);
+    const dualStagger = getWeaponDualStaggerSec(player);
+    const isDual = (player.weaponHitCount || 1) >= 2 && dualStagger > 0;
+
+    // Parallel: only ONE hitbox per swing runs contact-2 (warrior cleave has multiple boxes)
+    let parallelPrimaryHitbox = null;
+    if (isDual && player.attackHitboxes && player.attackHitboxes.length) {
+        for (let i = 0; i < player.attackHitboxes.length; i++) {
+            const hb = player.attackHitboxes[i];
+            if (hb && !hb.parallelSuppressContact2) {
+                parallelPrimaryHitbox = hb;
+                break;
+            }
+        }
+        for (let i = 0; i < player.attackHitboxes.length; i++) {
+            const hb = player.attackHitboxes[i];
+            if (!hb || hb === parallelPrimaryHitbox) continue;
+            hb.parallelSuppressContact2 = true;
+            hb.parallelSecondFired = true; // never fire contact-2 on secondary cleave boxes
+            if (hb.parallelCachedIds == null) hb.parallelCachedIds = [];
+        }
+    }
+
     player.attackHitboxes.forEach((hitbox) => {
         // Initialize hitEnemies set if it doesn't exist (for existing hitboxes created before this change)
         if (!hitbox.hitEnemies) {
@@ -526,17 +808,63 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
         
         // Store original damage for pierce calculations (if not already stored)
         if (!hitbox.originalDamage) {
-            hitbox.originalDamage = hitbox.damage;
+            // Parallel: each contact deals perHitDamageShare of swing damage
+            const share = ((player.weaponHitCount || 1) >= 2) ? perHitShare : 1.0;
+            hitbox.originalDamage = hitbox.damage * share;
+            hitbox.damage = hitbox.originalDamage;
+        }
+        if (isDual && hitbox.parallelCachedIds == null) {
+            hitbox.parallelCachedIds = [];
+            hitbox.parallelSecondFired = !!hitbox.parallelSuppressContact2;
+            hitbox.isParallelSecond = false;
+        }
+
+        // Parallel contact 2: cached IDs only (alive check); no fresh spatial query
+        // Only primary hitbox fires contact-2 to avoid cleave × dual multiplicative damage
+        if (isDual && hitbox === parallelPrimaryHitbox && !hitbox.parallelSecondFired
+            && hitbox.elapsed >= dualStagger && hitbox.parallelCachedIds.length > 0) {
+            hitbox.parallelSecondFired = true;
+            hitbox.isParallelSecond = true;
+            hitbox.hitEnemies = new Set();
+            hitbox.parallelCachedIds.forEach(id => {
+                const enemy = findEnemyByStableId(enemies, id);
+                if (!isEnemyAliveForParallel(enemy)) return;
+                processMeleeHitOnEnemy(player, enemies, hitbox, enemy, playerId);
+            });
+            hitbox.isParallelSecond = false;
         }
         
         enemies.forEach(enemy => {
             if (!enemy.alive || hitbox.hitEnemies.has(enemy)) return;
+            if (enemy.phasingActive) return;
             
             // Check body collision first (supports multi-part bosses and exposed weak points)
             const bodyHit = resolveEnemyAttackHit(hitbox.x, hitbox.y, hitbox.radius, enemy);
             const bodyCollision = bodyHit.hit;
             
             if (bodyCollision) {
+                processMeleeHitOnEnemy(player, enemies, hitbox, enemy, playerId, bodyHit);
+                // Aggregate cache onto primary hitbox so contact-2 covers whole cleave swing
+                if (isDual && !hitbox.parallelSecondFired) {
+                    const sid = getEnemyStableId(enemy);
+                    const cacheHb = parallelPrimaryHitbox || hitbox;
+                    if (sid != null && cacheHb.parallelCachedIds
+                        && cacheHb.parallelCachedIds.indexOf(sid) === -1) {
+                        cacheHb.parallelCachedIds.push(sid);
+                    }
+                }
+            }
+        });
+    });
+}
+
+function processMeleeHitOnEnemy(player, enemies, hitbox, enemy, playerId, bodyHit) {
+                if (!hitbox.hitEnemies) hitbox.hitEnemies = new Set();
+                if (hitbox.hitEnemies.has(enemy)) return;
+                const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+                if (!bodyHit) {
+                    bodyHit = resolveEnemyAttackHit(hitbox.x, hitbox.y, hitbox.radius, enemy);
+                }
                 // Check for weak point hit (for bosses only)
                 let hitWeakPoint = bodyHit.hitWeakPoint;
                 if (!hitWeakPoint && enemy.isBoss && enemy.checkWeakPointHit) {
@@ -567,10 +895,12 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                     }
                 }
                 
+                const interrupt = tryPerfectInterrupt(player, enemy, hitbox);
+
                 // Apply crit multiplier if applicable
                 let critMultiplier = 1.0;
                 let isCrit = false;
-                if (hitbox.crit || (player.critChance && Math.random() < player.critChance)) {
+                if (hitbox.crit || interrupt.forcedCrit || (shouldRollWeaponProcOnHit(player, hitbox) && player.critChance && Math.random() < player.critChance)) {
                     critMultiplier = 2.0 * (player.critDamageMultiplier || 1.0); // Use affix crit damage
                     hitbox.displayCrit = true;
                     isCrit = true;
@@ -645,7 +975,6 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                 
                 // Only apply damage if we're the host or in solo mode
                 // Clients send damage events and wait for host's authoritative response
-                const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
                 
                 // Calculate actual damage dealt BEFORE applying damage (accounting for weak point multiplier)
                 const weakPointMultiplier = enemy.weakPointDamageMultiplier || 3;
@@ -681,7 +1010,7 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                     }
                     
                     // Bleeding Edge: Apply bleed debuff on hit
-                    if (player.itemBleedDamagePercent > 0 && enemy && typeof enemy.applyDebuff === 'function') {
+                    if (shouldApplyWeaponStatusOnHit(player, hitbox) && player.itemBleedDamagePercent > 0 && enemy && typeof enemy.applyDebuff === 'function') {
                         const enemyMaxHp = enemy.maxHp || enemy.hp;
                         const bleedDPS = enemyMaxHp * (player.itemBleedDamagePercent / 100);
                         enemy.applyDebuff({
@@ -705,7 +1034,7 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                     }
                     
                     // Volatile Core: Chance to explode on hit
-                    if (player.itemVolatileChance > 0 && Math.random() < player.itemVolatileChance) {
+                    if (shouldRollWeaponProcOnHit(player, hitbox) && player.itemVolatileChance > 0 && Math.random() < player.itemVolatileChance) {
                         const explosionDamage = damageDealt * (player.itemVolatileDamagePercent / 100);
                         const explosionRadius = player.itemVolatileRadius;
                         
@@ -784,8 +1113,16 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                     enemy.applyStun(stunDuration);
                     
                     // Tank heal on hit (host/solo only) - shares sustain cap with lifesteal
-                    if (!isClient && player.playerClass === 'pentagon') {
+                    if (!isClient && shouldApplyWeaponSustainOnHit(player, hitbox) && player.playerClass === 'pentagon') {
                         applyHammerHeal(player, damageDealt, { enemy });
+                    }
+                }
+
+                // Weapon-feel hitpause (scaled by type; skip on parallel second to avoid stutter)
+                if (!isClient && !hitbox.isParallelSecond && typeof Game !== 'undefined' && typeof Game.triggerHitPause === 'function') {
+                    const scale = getWeaponHitpauseScale(player);
+                    if (scale > 0) {
+                        Game.triggerHitPause(0.035 * scale);
                     }
                 }
                 
@@ -832,7 +1169,7 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                 }
                 
                 // Apply lifesteal once per enemy per melee swing (host/solo only)
-                if (!isClient) {
+                if (!isClient && shouldApplyWeaponSustainOnHit(player, hitbox)) {
                     applyLifesteal(player, damageDealt, {
                         enemy,
                         source: getMeleeHitboxSustainSource(hitbox)
@@ -840,7 +1177,7 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                 }
                 
                 // Fortify: Convert damage to shield (host/solo only, capped)
-                if (!isClient) {
+                if (!isClient && shouldApplyWeaponSustainOnHit(player, hitbox)) {
                     applyFortifyGain(player, damageDealt, { enemy });
                 }
                 
@@ -854,18 +1191,18 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                 }
                 
                 // Chain Lightning affix (host/solo only) - legacy affix
-                if (!isClient && player.chainLightningCount && player.chainLightningCount > 0 && !hitbox.hasChainedAffix) {
+                if (!isClient && shouldRollWeaponProcOnHit(player, hitbox) && player.chainLightningCount && player.chainLightningCount > 0 && !hitbox.hasChainedAffix) {
                     chainLightningAffix(player, enemy, player.chainLightningCount, hitbox.damage * 0.5, enemies);
                     hitbox.hasChainedAffix = true;
                 }
                 
                 // Explosive Attacks: Chance to create AoE (host/solo only) - legacy affix
-                if (!isClient && player.explosiveChance && player.explosiveChance > 0 && Math.random() < player.explosiveChance) {
+                if (!isClient && shouldRollWeaponProcOnHit(player, hitbox) && player.explosiveChance && player.explosiveChance > 0 && Math.random() < player.explosiveChance) {
                     createExplosion(enemy.x, enemy.y, 40, hitbox.damage * 0.5, player, enemies);
                 }
                 
                 // Check for chain lightning legendary effect (host/solo only)
-                if (!isClient && player.activeLegendaryEffects && !hitbox.hasChained) {
+                if (!isClient && shouldRollWeaponProcOnHit(player, hitbox) && player.activeLegendaryEffects && !hitbox.hasChained) {
                     player.activeLegendaryEffects.forEach(effect => {
                         if (effect.type === 'chain_lightning') {
                             chainLightningAttack(player, enemy, effect, hitbox.damage);
@@ -922,12 +1259,19 @@ function checkAttacksVsEnemies(player, enemies, playerId = null) {
                         }, 50);
                     }
                 }
+
+                if (!isClient && shouldApplyWeaponStatusOnHit(player, hitbox) && typeof applyLegendaryEffects === 'function') {
+                    applyLegendaryEffects(player, enemy, damageDealt, attackerId);
+                }
+
+                // Fractal/endless echo: only from real weapon hits (not DoT / echo recursion)
+                if (!isClient && enemy.biomeFlags && enemy.biomeFlags.echoOnHit
+                    && typeof BiomeEnemyMods !== 'undefined' && BiomeEnemyMods.scheduleEcho) {
+                    BiomeEnemyMods.scheduleEcho(enemy, enemy.biomeEchoDelay || 0.28);
+                }
                 
                 // Track that we hit this enemy so we don't hit it again with this hitbox
                 hitbox.hitEnemies.add(enemy);
-            }
-        });
-    });
 }
 
 // Check enemies vs player (and all remote players in multiplayer)
@@ -1010,6 +1354,10 @@ function checkEnemiesVsPlayer(player, enemies) {
                             checkEnemiesVsPlayer.dodgeTrackCooldowns.set(dodgeTrackKey, currentTime);
                         }
                     }
+                    // Perfect dodge: action-dependent cooldown relief (client-predict OK for feel)
+                    if (p.isDodging) {
+                        tryRegisterPerfectDodge(p, enemy, id);
+                    }
                     // Skip damage application but still resolve overlap
                     resolveEnemyPlayerOverlap(enemy, p);
                     return; // Skip to next player
@@ -1034,16 +1382,26 @@ function checkEnemiesVsPlayer(player, enemies) {
                     }
                     // Get local player ID for comparison
                     const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local';
+
+                    let contactDmg = enemy.damage * contactDamageMultiplier;
+                    if (typeof EliteEnemyAffixes !== 'undefined') {
+                        if (EliteEnemyAffixes.maybeEliteExecuteDamage) {
+                            contactDmg = EliteEnemyAffixes.maybeEliteExecuteDamage(enemy, p, contactDmg);
+                        }
+                        if (EliteEnemyAffixes.triggerEliteRampage) {
+                            EliteEnemyAffixes.triggerEliteRampage(enemy);
+                        }
+                    }
                     
                     // Distinguish between local and remote players
                     if (id === localPlayerId) {
                         // Local player: call takeDamage directly (pass enemy for thorns)
-                        p.takeDamage(enemy.damage * contactDamageMultiplier, enemy);
+                        p.takeDamage(contactDmg, enemy);
                     } else {
                         // Remote player: use damageRemotePlayer to track on host
                         // HP syncs to clients via game_state, not individual damage events
                         if (typeof Game !== 'undefined' && Game.damageRemotePlayer) {
-                            Game.damageRemotePlayer(id, enemy.damage * contactDamageMultiplier);
+                            Game.damageRemotePlayer(id, contactDmg);
                         }
                     }
                     

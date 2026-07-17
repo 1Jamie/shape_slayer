@@ -359,6 +359,7 @@ class Mage extends PlayerBase {
             damageMultiplier = MAGE_CONFIG.multishotDamageMultiplier;
         }
         const rangeMultiplier = isMultishot ? MAGE_CONFIG.multishotRangeMultiplier : 1.0;
+        const weaponReach = typeof getWeaponProjectileReachMult === 'function' ? getWeaponProjectileReachMult(this) : 1.0;
 
         for (let i = 0; i < numProjectiles; i++) {
             // Calculate angle for this projectile
@@ -374,7 +375,7 @@ class Mage extends PlayerBase {
                 vy: projDirY * MAGE_CONFIG.boltSpeed * (this.projectileSpeedMultiplier || 1.0),
                 damage: this.damage * damageMultiplier,
                 size: MAGE_CONFIG.boltSize,
-                lifetime: MAGE_CONFIG.boltLifetime * rangeMultiplier,
+                lifetime: MAGE_CONFIG.boltLifetime * rangeMultiplier * weaponReach,
                 elapsed: 0,
                 type: 'magic',
                 color: this.color,
@@ -395,6 +396,10 @@ class Mage extends PlayerBase {
             }
 
             Game.projectiles.push(projectile);
+            if (typeof configureParallelPlayerProjectile === 'function') {
+                const twin = configureParallelPlayerProjectile(this, projectile);
+                if (twin) Game.projectiles.push(twin);
+            }
         }
     }
 
@@ -410,6 +415,14 @@ class Mage extends PlayerBase {
 
         // Create a new beam object
         if (this._beamIdCounter == null) this._beamIdCounter = 0;
+        const isParallel = typeof playerWeaponIsParallel === 'function' && playerWeaponIsParallel(this);
+        const damageShare = isParallel
+            ? (typeof getWeaponPerHitDamageShare === 'function' ? getWeaponPerHitDamageShare(this) : 0.5)
+            : 1.0;
+        const reachMult = typeof getWeaponMeleeReachMult === 'function'
+            ? getWeaponMeleeReachMult(this)
+            : (this.weaponRangeMultiplier || 1.0);
+
         const newBeam = {
             beamId: ++this._beamIdCounter,
             elapsed: 0,
@@ -421,20 +434,50 @@ class Mage extends PlayerBase {
                 y: Math.sin(this.rotation)
             },
             hitEnemies: new Map(), // Track hit count per enemy for this beam
-            playerId: this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null) // For damage attribution
+            playerId: this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null), // For damage attribution
+            damageShare,
+            beamRangeMult: reachMult,
+            isParallelSecond: false,
+            activateAfter: 0
         };
 
         // Add to active beams array
         this.activeBeams.push(newBeam);
+
+        // Parallel: delayed twin beam at half tick damage (parity total, denser status ticks)
+        if (isParallel) {
+            const twinDelay = typeof getWeaponDualStaggerSec === 'function' ? getWeaponDualStaggerSec(this) : 0.055;
+            this.activeBeams.push({
+                beamId: ++this._beamIdCounter,
+                elapsed: 0,
+                lastTickTime: 0,
+                damageTickCount: 0,
+                origin: { x: pos.x, y: pos.y },
+                direction: {
+                    x: Math.cos(this.rotation),
+                    y: Math.sin(this.rotation)
+                },
+                hitEnemies: new Map(),
+                playerId: newBeam.playerId,
+                damageShare,
+                beamRangeMult: reachMult,
+                isParallelSecond: true,
+                activateAfter: twinDelay,
+                hasChainedLegendary: false
+            });
+        }
 
         this.isAttacking = true;
 
         // NOTE: applyHeavyAttackCooldown is called by the base class after createHeavyAttack returns
         // Do NOT call it here or it will be called twice!
 
-        // Trigger screen shake
+        // Trigger screen shake / weapon-scaled hitpause
         if (typeof Game !== 'undefined') {
             Game.triggerScreenShake(0.3, 0.15);
+            if (typeof applyHeavyAttackHitpause === 'function') {
+                applyHeavyAttackHitpause(this);
+            }
         }
     }
 
@@ -987,6 +1030,13 @@ class Mage extends PlayerBase {
         // Update all active beams
         for (let i = this.activeBeams.length - 1; i >= 0; i--) {
             const beam = this.activeBeams[i];
+
+            // Parallel twin: wait before becoming active (doesn't consume duration yet)
+            if (beam.activateAfter != null && beam.activateAfter > 0) {
+                beam.activateAfter -= deltaTime;
+                continue;
+            }
+
             beam.elapsed += deltaTime;
             beam.lastTickTime += deltaTime;
 
@@ -1012,15 +1062,15 @@ class Mage extends PlayerBase {
 
     // Calculate visual endpoint for beam based on penetration
     calculateBeamVisualEndpoint(beam) {
+        const beamRange = MAGE_CONFIG.beamRange * (beam.beamRangeMult || this.weaponRangeMultiplier || 1.0);
         if (typeof Game === 'undefined' || !Game.enemies) {
             return {
-                endX: beam.origin.x + beam.direction.x * MAGE_CONFIG.beamRange,
-                endY: beam.origin.y + beam.direction.y * MAGE_CONFIG.beamRange,
+                endX: beam.origin.x + beam.direction.x * beamRange,
+                endY: beam.origin.y + beam.direction.y * beamRange,
                 enemiesHit: 0
             };
         }
 
-        const beamRange = MAGE_CONFIG.beamRange;
         const beamWidth = MAGE_CONFIG.beamWidth;
         const maxPenetration = this.effectiveBeamMaxPenetration || MAGE_CONFIG.beamMaxPenetration;
 
@@ -1077,10 +1127,16 @@ class Mage extends PlayerBase {
         beam.damageTickCount = (beam.damageTickCount || 0) + 1;
         const beamPulseKey = `${beam.beamId}:${beam.damageTickCount}`;
 
-        const beamRange = MAGE_CONFIG.beamRange;
+        const beamRange = MAGE_CONFIG.beamRange * (beam.beamRangeMult || this.weaponRangeMultiplier || 1.0);
         const beamWidth = MAGE_CONFIG.beamWidth;
         const maxPenetration = this.effectiveBeamMaxPenetration || MAGE_CONFIG.beamMaxPenetration;
-        const baseTickDamage = this.damage * MAGE_CONFIG.beamDamagePerTick;
+        const share = (beam.damageShare != null) ? beam.damageShare : 1.0;
+        const baseTickDamage = this.damage * MAGE_CONFIG.beamDamagePerTick * share;
+        const hitProxy = { isParallelSecond: !!beam.isParallelSecond };
+        const allowProc = typeof shouldRollWeaponProcOnHit !== 'function'
+            || shouldRollWeaponProcOnHit(this, hitProxy);
+        const allowStatus = typeof shouldApplyWeaponStatusOnHit !== 'function'
+            || shouldApplyWeaponStatusOnHit(this, hitProxy);
 
         // Find enemies in beam path, sorted by distance
         const hitCandidates = [];
@@ -1126,7 +1182,7 @@ class Mage extends PlayerBase {
             const tickDamage = baseTickDamage * Math.max(0.1, damageFalloff); // Minimum 10% damage at max range
 
             // Check for crit
-            const isCrit = Math.random() < this.critChance;
+            const isCrit = allowProc && Math.random() < (this.critChance || 0);
             const critMultiplier = isCrit ? (2.0 * (this.critDamageMultiplier || 1.0)) : 1.0;
             const finalDamage = tickDamage * critMultiplier;
 
@@ -1170,11 +1226,11 @@ class Mage extends PlayerBase {
             }
 
             // Apply legendary effects (burn, freeze) and chain lightning
-            if (typeof applyLegendaryEffects !== 'undefined') {
+            if (allowStatus && typeof applyLegendaryEffects !== 'undefined') {
                 applyLegendaryEffects(this, enemy, damageDealt, attackerId);
             }
             // Chain lightning (separate check to prevent multiple chains per beam)
-            if (this.activeLegendaryEffects && !beam.hasChainedLegendary) {
+            if (allowStatus && this.activeLegendaryEffects && !beam.hasChainedLegendary) {
                 this.activeLegendaryEffects.forEach(effect => {
                     if (effect.type === 'chain_lightning' && typeof chainLightningAttack !== 'undefined') {
                         chainLightningAttack(this, enemy, effect, finalDamage);
@@ -1344,6 +1400,7 @@ class Mage extends PlayerBase {
 
         // Draw all active energy beams
         this.activeBeams.forEach(beam => {
+            if (beam.activateAfter != null && beam.activateAfter > 0) return;
             ctx.save();
 
             const beamWidth = MAGE_CONFIG.beamWidth;
@@ -1444,7 +1501,11 @@ class Mage extends PlayerBase {
                 damageTickCount: b.damageTickCount,
                 origin: b.origin ? { x: b.origin.x, y: b.origin.y } : null,
                 direction: b.direction ? { x: b.direction.x, y: b.direction.y } : null,
-                playerId: b.playerId || null
+                playerId: b.playerId || null,
+                activateAfter: b.activateAfter || 0,
+                beamRangeMult: b.beamRangeMult || 1,
+                damageShare: b.damageShare != null ? b.damageShare : 1,
+                isParallelSecond: !!b.isParallelSecond
             })),
             beamCharges: this.beamCharges,
             beamChargeCooldowns: this.beamChargeCooldowns

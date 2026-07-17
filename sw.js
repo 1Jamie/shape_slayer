@@ -3,7 +3,7 @@
  * Shell is precached on install. Audio warms in the background so playback can start ASAP
  * while the library fills for full offline use.
  */
-const CACHE_VERSION = '0.8.1';
+const CACHE_VERSION = '0.8.2';
 const SHELL_CACHE = `shape-slayer-shell-v${CACHE_VERSION}`;
 const RUNTIME_CACHE = `shape-slayer-runtime-v${CACHE_VERSION}`;
 const AUDIO_WARM_CONCURRENCY = 2;
@@ -74,6 +74,9 @@ const PRECACHE_URLS = [
   './js/enemies/telegraph/telegraph-manager.js',
   './js/voxel-fracture.js',
   './js/enemies/enemy-base.js',
+  './js/enemies/biome-enemy-mods.js',
+  './js/enemies/elite-enemy-affixes.js',
+  './js/enemies/enemy-index-catalog.js',
   './js/enemies/enemy-basic.js',
   './js/enemies/enemy-star.js',
   './js/enemies/enemy-diamond.js',

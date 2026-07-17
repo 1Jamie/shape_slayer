@@ -1275,6 +1275,9 @@ class Enemy extends EnemyBase {
 
         drawColor = this.getFlashDrawColor(drawColor);
 
+        ctx.save();
+        ctx.globalAlpha = (typeof this.getDrawAlpha === 'function') ? this.getDrawAlpha() : 1;
+
         // Voxel damage: draw body to offscreen canvas, punch destroyed cells out, blit back
         const _ds = drawSize;
         const bodyDrawn = typeof renderVoxelDamage === 'function' && renderVoxelDamage(
@@ -1292,6 +1295,8 @@ class Enemy extends EnemyBase {
             ctx.arc(this.x, this.y, drawSize, 0, Math.PI * 2);
             ctx.fill();
         }
+
+        ctx.restore();
 
         // Draw status effects (burn, freeze)
         if (typeof renderBurnEffect !== 'undefined') {

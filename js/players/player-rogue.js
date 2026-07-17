@@ -248,7 +248,7 @@ class Rogue extends PlayerBase {
             vy: dirY * ROGUE_CONFIG.knifeSpeed * (this.projectileSpeedMultiplier || 1.0),
             damage: this.damage,
             size: ROGUE_CONFIG.knifeSize,
-            lifetime: ROGUE_CONFIG.knifeLifetime,
+            lifetime: ROGUE_CONFIG.knifeLifetime * (typeof getWeaponProjectileReachMult === 'function' ? getWeaponProjectileReachMult(this) : 1.0),
             elapsed: 0,
             type: 'knife',
             color: this.color,
@@ -288,6 +288,10 @@ class Rogue extends PlayerBase {
         }
         
         Game.projectiles.push(baseProjectile);
+        if (typeof configureParallelPlayerProjectile === 'function') {
+            const twin = configureParallelPlayerProjectile(this, baseProjectile);
+            if (twin) Game.projectiles.push(twin);
+        }
         
         // Multishot/Volley: Create additional projectiles at angles
         if (totalExtraProjectiles > 0) {
@@ -316,6 +320,10 @@ class Rogue extends PlayerBase {
                 }
                 
                 Game.projectiles.push(extraProjectile);
+                if (typeof configureParallelPlayerProjectile === 'function') {
+                    const twin = configureParallelPlayerProjectile(this, extraProjectile);
+                    if (twin) Game.projectiles.push(twin);
+                }
             }
         }
     }
@@ -339,7 +347,11 @@ class Rogue extends PlayerBase {
         // Trigger screen shake for heavy attacks
         if (typeof Game !== 'undefined') {
             Game.triggerScreenShake(0.5, 0.2);
-            Game.triggerHitPause(0.08); // Brief freeze on heavy attack
+            if (typeof applyHeavyAttackHitpause === 'function') {
+                applyHeavyAttackHitpause(this);
+            } else {
+                Game.triggerHitPause(0.08);
+            }
         }
         
         // Apply standardized heavy cooldown for UI parity
@@ -362,6 +374,9 @@ class Rogue extends PlayerBase {
         const numKnives = ROGUE_CONFIG.fanKnifeCount + this.knifeCountBonus + (this.fanCountBonus || 0); // Apply class modifier
         const spreadAngle = ROGUE_CONFIG.fanSpreadAngle;
         const knifeSpeed = ROGUE_CONFIG.fanKnifeSpeed;
+        const reachMult = typeof getWeaponProjectileReachMult === 'function'
+            ? getWeaponProjectileReachMult(this)
+            : 1.0;
         
         // Get gameplay position (authoritative position in multiplayer)
         const pos = this.getGameplayPosition();
@@ -374,22 +389,29 @@ class Rogue extends PlayerBase {
                 const dirY = Math.sin(angle);
                 
                 // Create knife projectile
-                Game.projectiles.push({
+                const knife = {
                     x: pos.x,
                     y: pos.y,
                     vx: dirX * knifeSpeed * (this.projectileSpeedMultiplier || 1.0),
                     vy: dirY * knifeSpeed * (this.projectileSpeedMultiplier || 1.0),
                     damage: knifeDamage,
                     size: ROGUE_CONFIG.fanKnifeSize,
-                    lifetime: ROGUE_CONFIG.fanKnifeLifetime,
+                    lifetime: ROGUE_CONFIG.fanKnifeLifetime * reachMult,
                     elapsed: 0,
                     type: 'knife',
                     color: this.color,
                     playerX: this.x, // Store for backstab detection
                     playerY: this.y,
                     playerClass: this.playerClass,
+                    playerId: this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null),
                     lifestealBatchId: this._lifestealSwingId || 0
-                });
+                };
+                Game.projectiles.push(knife);
+                // Parallel: each blade is half damage + delayed twin (parity damage, denser status)
+                if (typeof configureParallelPlayerProjectile === 'function') {
+                    const twin = configureParallelPlayerProjectile(this, knife);
+                    if (twin) Game.projectiles.push(twin);
+                }
             }
         }
     }

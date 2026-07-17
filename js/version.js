@@ -3,7 +3,7 @@
 
 const GameVersion = {
   // Keep sw.js CACHE_VERSION in sync when bumping this.
-  VERSION: '0.8.1',
+  VERSION: '0.8.2',
 
   UPDATE_MESSAGES: {
     '0.2.1': 'Initial early access release! Please report any bugs you find at https://github.com/1jamie/shape_slayer/issues',
@@ -470,7 +470,7 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 
 *TL;DR:* Mobile works again, Regen Matrix no longer makes you God, Damage Aura is fair now and doesnt feel useless, enemies multiply faster, bosses are infinite, and time is now actually time. Touch grass? No, touch screen.*
 `,
-    '0.7.0': `**🗺️ UPDATE 0.7.0: THE "TOUCH GRASS PROCEDURALLY" UPDATE** (07/03/2026)
+    '0.7.0': `**🗺️ UPDATE 0.7.0: THE "TOUCH GRASS PROCEDURALLY" UPDATE** 
 *"Rooms used to be rectangles. Enemies walked through walls like Force ghosts. Scaling math lived in twelve files with twelve conflicting opinions. Vortex's entire personality was 'spinny, hurts.' None of that is true anymore. I did not sleep. Ask me how I know."*
 
 ---
@@ -566,7 +566,7 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 
 *P.P.S. - Yes, Vortex might be a bit much now. No, I'm not nerfing it before you've all had a proper chance to suffer.*
 `,
-    '0.8.0': `**🗑️ UPDATE 0.8.0: THE "UNDECK YOURSELF" UPDATE** (07/14/2026)
+    '0.8.0': `**🗑️ UPDATE 0.8.0: THE "UNDECK YOURSELF" UPDATE** 
 *"Remember Update 0.6.0 when we put a card game inside the bullet hell? Yeah. About that. We looked at the dual-mode spaghetti, made eye contact with our own commit history, and hit delete. Gear Mode is the game now. Card Mode went to live on a farm upstate where the decks are green and the mulligans never end."*
 
 ---
@@ -699,7 +699,7 @@ Room 200 is still gonna suck in the fun way i hope, but I'm not handing it to yo
 
 *P.P.P.P.S. - These notes are too long. I think most README.md are shorter, I know. I'm tired. Send coffee or a Room 200 screenshot.*
 `,
-    '0.8.1': `**🌐 UPDATE 0.8.1: THE "STOP TELEPORTING, PLEASE" UPDATE** (07/15/2026)
+    '0.8.1': `**🌐 UPDATE 0.8.1: THE "STOP TELEPORTING, PLEASE" UPDATE** 
 *" After the huges gameplay changes in 0.8.0, I was like "we need to fix the multiplayer" so I did. This is the result."*
 *"Clients used to wait politely for the host before they moved. Honest. Also rubber-band city. I fixed the honesty problem without handing clients the combat keys."*
 
@@ -733,6 +733,31 @@ Room 200 is still gonna suck in the fun way i hope, but I'm not handing it to yo
 
 *P.S. - If your rubber band survives this patch, send me the MP Prediction numbers. I collect them now. you can find them in the debug pannel by hitting ctrl+d during a mp run.*
 `,
+    '0.8.2': `**⚖️ UPDATE 0.8.2: WEIGHT, TIMING & BIOME GEOMETRY** 
+*"Weapons should feel different. Dodges should reward reads. Biomes should remix the same shapes without inventing twelve new classes."*
+
+---
+
+## **🗡️ WEAPON TYPES**
+• **Acute** — fast & light (snappy hitpause, quick recovery, leans speed/crit)
+• **Obtuse** — slow & heavy (chunky hits, more knockback, leans execute/explosions)
+• **Vector** — long reach (melee arcs, projectiles, beams/thrusts/shouts stretch farther)
+• **Parallel** — twin staggered contacts at ~half damage each (same total DPS, denser status/procs) — basics *and* heavies
+• Affixes: basics stay universal but weighted by type; purple/orange get type accent pools
+• Pickup tooltips show a one-liner; full Feel / Pitch / Leans Toward lives in the Nexus **Index → Weapons** tab
+
+## **⏱️ RECOVERY & PERFECT TIMING**
+• Soft turn-rate recovery after swings (dodge-cancelable; short dodge buffer so you aren't stuck)
+• Perfect dodge on a real attack → half dodge cooldown (VFX only, no shards)
+• Perfect interrupt during telegraph → forced crit + stagger (bosses/elites: interrupt lockout + hyper-armor flash)
+
+## **🌍 BIOMES & ELITES**
+• Same five enemy bases, remixed per biome (swarm pressure, prism volleys, fortress braces, fractal echoes, vortex pull)
+• Some mid/late enemies roll one elite affix + jagged threat ring; phasing goes translucent
+• Nexus **Index** now has **Enemies** (bases + biome chips) and **Elite Affixes** (separate from your gear affixes)
+
+*TL;DR: weapons have weight you can read, timing has payoff, biomes remix geometry, elites telegraph their cheat codes. Check the Index if you forget which type does what.*
+`,
   },
 
   // Update type labels - can be: 'major', 'feature', 'minor', 'hotfix', 'bugfix', 'refactor', 'rebalance'
@@ -752,7 +777,8 @@ Room 200 is still gonna suck in the fun way i hope, but I'm not handing it to yo
     '0.6.1': ['minor', 'feature', 'hotfix'],
     '0.7.0': ['major', 'feature', 'rebalance'],
     '0.8.0': ['major', 'feature', 'rebalance', 'visuals'],
-    '0.8.1': ['minor', 'feature', 'hotfix']
+    '0.8.1': ['minor', 'feature', 'hotfix'],
+    '0.8.2': ['minor', 'feature', 'rebalance', 'visuals']
   }
 };
 

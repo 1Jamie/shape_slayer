@@ -3513,6 +3513,11 @@ const Game = {
                 }
             });
 
+            if (typeof BiomeEnemyMods !== 'undefined' && BiomeEnemyMods.updateEchoes) {
+                const players = this.getAllAlivePlayers ? this.getAllAlivePlayers() : this.player;
+                BiomeEnemyMods.updateEchoes(deltaTime, players);
+            }
+
             // Drain up to 2 queued A* requests per frame
             if (typeof RoomLayoutGenerator !== 'undefined' && RoomLayoutGenerator.processPathfindingQueue) {
                 RoomLayoutGenerator.processPathfindingQueue(2);
@@ -3524,6 +3529,11 @@ const Game = {
                     enemy.interpolateToTarget(deltaTime);
                 }
             });
+
+            // Animate synced biome echoes between host snapshots (no damage)
+            if (typeof BiomeEnemyMods !== 'undefined' && BiomeEnemyMods.updateEchoes) {
+                BiomeEnemyMods.updateEchoes(deltaTime, null);
+            }
         }
 
         // Update projectiles
@@ -4786,6 +4796,9 @@ const Game = {
             if (this.multiplayerEnabled && !this.isHost()) {
                 // Client: Don't generate room/enemies - wait for host
                 this.enemies = [];
+                if (typeof BiomeEnemyMods !== 'undefined' && BiomeEnemyMods.clearEchoes) {
+                    BiomeEnemyMods.clearEchoes();
+                }
 
                 // Clear ground loot (will be synced from host)
                 if (typeof groundLoot !== 'undefined') {
@@ -4834,6 +4847,9 @@ const Game = {
 
                 // Update enemies array
                 this.enemies = newRoom.enemies;
+                if (typeof BiomeEnemyMods !== 'undefined' && BiomeEnemyMods.clearEchoes) {
+                    BiomeEnemyMods.clearEchoes();
+                }
 
                 // No longer pre-assign targets - proximity detection and damage-based aggro handle targeting
                 if (typeof groundLoot !== 'undefined') {
@@ -6261,6 +6277,9 @@ const Game = {
         frameLists.enemies.forEach(enemy => {
             enemy.render(ctx);
         });
+        if (typeof BiomeEnemyMods !== 'undefined' && BiomeEnemyMods.renderEchoes) {
+            BiomeEnemyMods.renderEchoes(ctx);
+        }
 
         // Draw projectiles (Solid bodies)
         frameLists.projectiles.forEach(projectile => {
@@ -6657,6 +6676,10 @@ const Game = {
 
         if (typeof Game !== 'undefined' && Game.itemPylons && Array.isArray(Game.itemPylons)) {
             Game.itemPylons.length = 0;
+        }
+
+        if (typeof BiomeEnemyMods !== 'undefined' && BiomeEnemyMods.clearEchoes) {
+            BiomeEnemyMods.clearEchoes();
         }
     },
 
@@ -7618,6 +7641,14 @@ const Game = {
             const previousY = projectile.y;
             let keep = true;
 
+            // Parallel twin: stay dormant until activateAfter elapses
+            if (projectile.activateAfter != null && projectile.activateAfter > 0) {
+                projectile.activateAfter -= deltaTime;
+                if (writeIndex !== readIndex) projectiles[writeIndex] = projectile;
+                writeIndex++;
+                continue;
+            }
+
             if (projectile.waveAmplitude && projectile.baseAngle !== undefined) {
                 projectile.waveClock = (projectile.waveClock || 0) + deltaTime;
                 const baseSpeed = projectile.baseSpeed || Math.sqrt(projectile.vx * projectile.vx + projectile.vy * projectile.vy) || 1;
@@ -7716,6 +7747,9 @@ const Game = {
             // ONLY HOST checks player projectile collisions (thin client architecture)
             if ((projectile.type === 'knife' || projectile.type === 'magic') &&
                 (this.isHost() || !this.multiplayerEnabled)) {
+                if (projectile.activateAfter != null && projectile.activateAfter > 0) {
+                    return;
+                }
                 let hitEnemy = false;
 
                 // Get projectile owner ID and shooter player ONCE (outside enemy loop)
@@ -7889,8 +7923,12 @@ const Game = {
                             });
                         }
 
-                        // Apply legendary effects if shooter has them
-                        if (shooterPlayer && shooterPlayer.activeLegendaryEffects) {
+                        // Apply legendary effects if shooter has them (Parallel: respect on-hit policy)
+                        const projHitProxy = typeof projectileHitboxProxy === 'function'
+                            ? projectileHitboxProxy(projectile)
+                            : { isParallelSecond: !!projectile.isParallelSecond };
+                        if (shooterPlayer && shooterPlayer.activeLegendaryEffects
+                            && (!shouldApplyWeaponStatusOnHit || shouldApplyWeaponStatusOnHit(shooterPlayer, projHitProxy))) {
                             shooterPlayer.activeLegendaryEffects.forEach(effect => {
                                 if (effect.type === 'incendiary') {
                                     // Apply burn DoT
@@ -7911,6 +7949,12 @@ const Game = {
                                     }
                                 }
                             });
+                        }
+
+                        // Fractal/endless echo from real projectile hits only
+                        if (enemy.biomeFlags && enemy.biomeFlags.echoOnHit
+                            && typeof BiomeEnemyMods !== 'undefined' && BiomeEnemyMods.scheduleEcho) {
+                            BiomeEnemyMods.scheduleEcho(enemy, enemy.biomeEchoDelay || 0.28);
                         }
 
                         // Damage numbers for player projectiles (rogue knives, mage bolts)

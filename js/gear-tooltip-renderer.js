@@ -99,6 +99,13 @@ function renderGearTooltips(ctx, player) {
         }
         leftLines.push({ text: currentTitle, color: currentGear.color || '#ffffff', font: 'bold 14px Arial' });
 
+        if (currentGear.weaponType && typeof getWeaponTypePickupInfo === 'function') {
+            const info = getWeaponTypePickupInfo(currentGear.weaponType);
+            if (info && info.blurb) {
+                leftLines.push({ text: info.blurb, color: info.color || '#aaaaaa', font: '10px Arial' });
+            }
+        }
+
         if (currentGear.stats && currentGear.stats.damage) {
             leftLines.push({ text: `+${currentGear.stats.damage.toFixed(1)} Dmg`, color: '#ff8888', font: '12px Arial' });
         }
@@ -150,6 +157,13 @@ function renderGearTooltips(ctx, player) {
         newTitle = `${ARMOR_TYPES[gear.armorType].name}`;
     }
     rightLines.push({ text: newTitle, color: gear.color || '#ffffff', font: 'bold 14px Arial' });
+
+    if (gear.weaponType && typeof getWeaponTypePickupInfo === 'function') {
+        const info = getWeaponTypePickupInfo(gear.weaponType);
+        if (info && info.blurb) {
+            rightLines.push({ text: info.blurb, color: info.color || '#aaaaaa', font: '10px Arial' });
+        }
+    }
 
     if (gear.name) {
         rightLines.push({ text: gear.name, color: '#ffffff', font: '12px Arial' });

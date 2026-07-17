@@ -288,6 +288,16 @@ class EnemyBase {
         this.damageFlashAlpha = 0.6;
         this.deathJuiceVisibleUntil = 0;
         this.lastKillContext = null;
+
+        // 0.8.2: perfect interrupt DR + elite/biome hooks
+        this.lastInterruptTime = 0;
+        this.hyperArmorFlashUntil = 0;
+        this.eliteAffix = null;
+        this.isElite = false;
+        this.phasingActive = false;
+        this.phasingRemaining = 0;
+        this.biomeFlags = null;
+        this.biomeMods = null;
     }
 
     // Calculate if this enemy should be stealth based on room number
@@ -327,7 +337,12 @@ class EnemyBase {
     }
 
     updateTelegraph(deltaTime) {
+        const hadTelegraph = !!(this.activeTelegraph || (this.telegraphController && this.telegraphController.activeTelegraph));
         this.telegraphController.update(deltaTime);
+        const hasTelegraph = !!(this.activeTelegraph || (this.telegraphController && this.telegraphController.activeTelegraph));
+        if (hadTelegraph && !hasTelegraph && typeof EliteEnemyAffixes !== 'undefined' && EliteEnemyAffixes.onEliteAttackCommit) {
+            EliteEnemyAffixes.onEliteAttackCommit(this);
+        }
     }
 
     // =====================
@@ -1413,6 +1428,16 @@ class EnemyBase {
 
     // Process debuffs (should be called in update)
     processDebuffs(deltaTime) {
+        // Shared elite/biome tick (all subclasses that call processDebuffs get this)
+        if (typeof EliteEnemyAffixes !== 'undefined' && EliteEnemyAffixes.updateEliteAffix) {
+            EliteEnemyAffixes.updateEliteAffix(this, deltaTime);
+        }
+        if (typeof BiomeEnemyMods !== 'undefined' && BiomeEnemyMods.applyVortexPullToPlayers) {
+            const players = (typeof Game !== 'undefined' && Game.getAllAlivePlayers)
+                ? Game.getAllAlivePlayers()
+                : (typeof Game !== 'undefined' ? Game.player : null);
+            BiomeEnemyMods.applyVortexPullToPlayers(this, players, deltaTime);
+        }
         if (this.vulnerable && this.vulnerabilityDuration > 0) {
             this.vulnerabilityElapsed += deltaTime;
             if (this.vulnerabilityElapsed >= this.vulnerabilityDuration) {
@@ -1872,6 +1897,14 @@ class EnemyBase {
 
     // Take damage
     takeDamage(damage, attackerId = null, impactX = null, impactY = null, weaponArchetype = null) {
+        if (this.phasingActive) {
+            return; // Unhittable while phased
+        }
+
+        if (typeof EliteEnemyAffixes !== 'undefined' && EliteEnemyAffixes.getEliteDamageTakenMultiplier) {
+            damage *= EliteEnemyAffixes.getEliteDamageTakenMultiplier(this);
+        }
+
         // Check if enemy has shield (Shielded Brood modifier)
         if (this.hasShield && this.shieldHealth > 0) {
             // Shield blocks damage
@@ -1907,6 +1940,11 @@ class EnemyBase {
         }
 
         this.hp -= damage;
+
+        // Index discovery (host combat path — backup for sighting via render)
+        if (typeof EnemyIndexCatalog !== 'undefined' && EnemyIndexCatalog.discoverFromEnemy) {
+            EnemyIndexCatalog.discoverFromEnemy(this);
+        }
 
         // Record damage for combo detection
         this.recordDamage(damage);
@@ -1997,6 +2035,16 @@ class EnemyBase {
     die() {
         this.alive = false;
         this.deathTime = Date.now(); // Track when enemy died (for delayed removal)
+
+        if (this.biomeFlags && this.biomeFlags.echoOnDeath && typeof BiomeEnemyMods !== 'undefined') {
+            BiomeEnemyMods.scheduleEcho(this, 0.05, { force: true });
+        }
+        if (typeof EliteEnemyAffixes !== 'undefined' && EliteEnemyAffixes.triggerEliteExplosion) {
+            const players = (typeof Game !== 'undefined' && Game.getAllAlivePlayers)
+                ? Game.getAllAlivePlayers()
+                : (typeof Game !== 'undefined' ? Game.player : null);
+            EliteEnemyAffixes.triggerEliteExplosion(this, players);
+        }
 
         if (this.isTutorialDummy && typeof Room0Tutorial !== 'undefined' && Room0Tutorial.onDummyDied) {
             Room0Tutorial.onDummyDied();
@@ -3761,6 +3809,14 @@ class EnemyBase {
         if (hostData.bleedDuration !== undefined) this.bleedDuration = hostData.bleedDuration;
         if (hostData.vulnerable !== undefined) this.vulnerable = hostData.vulnerable;
         if (hostData.vulnerabilityDuration !== undefined) this.vulnerabilityDuration = hostData.vulnerabilityDuration;
+        if (hostData.eliteAffix !== undefined) this.eliteAffix = hostData.eliteAffix;
+        if (hostData.isElite !== undefined) this.isElite = hostData.isElite;
+        if (hostData.phasingActive !== undefined) this.phasingActive = hostData.phasingActive;
+        if (hostData.phasingRemaining !== undefined) this.phasingRemaining = hostData.phasingRemaining;
+        if (hostData.biomeId !== undefined) this.biomeId = hostData.biomeId;
+        if (hostData.lastInterruptTime !== undefined) this.lastInterruptTime = hostData.lastInterruptTime;
+        if (hostData.hyperArmorFlashUntil !== undefined) this.hyperArmorFlashUntil = hostData.hyperArmorFlashUntil;
+        if (hostData.eliteRampageRemaining !== undefined) this.eliteRampageRemaining = hostData.eliteRampageRemaining;
 
         // Apply animation states (for visual consistency)
         if (hostData.state !== undefined) this.state = hostData.state;
@@ -4073,8 +4129,13 @@ class EnemyBase {
 
     // Render shield (call this from subclass render functions after drawing the enemy)
     renderShield(ctx) {
-        if (!this.hasShield || this.shieldHealth <= 0) return;
+        // First time this enemy is drawn → unlock Index entries (enemy / elite / biome)
+        if (!this._indexDiscovered && typeof EnemyIndexCatalog !== 'undefined'
+            && EnemyIndexCatalog.discoverFromEnemy) {
+            EnemyIndexCatalog.discoverFromEnemy(this);
+        }
 
+        if (this.hasShield && this.shieldHealth > 0) {
         ctx.save();
         ctx.translate(this.x, this.y);
 
@@ -4104,6 +4165,43 @@ class EnemyBase {
         ctx.stroke();
 
         ctx.restore();
+        }
+        this.renderStatusOverlays(ctx);
+    }
+
+    renderStatusOverlays(ctx) {
+        if (!ctx) return;
+        if (typeof EliteEnemyAffixes !== 'undefined' && EliteEnemyAffixes.drawEliteThreatRing) {
+            EliteEnemyAffixes.drawEliteThreatRing(ctx, this, Date.now() / 1000);
+        }
+        // Phasing: undeniable wireframe ring
+        if (this.phasingActive) {
+            ctx.save();
+            ctx.globalAlpha = 0.85;
+            ctx.strokeStyle = '#c8c8ff';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, (this.size || 20) + 4, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.restore();
+        }
+        // Hyper-armor flash after denied perfect interrupt
+        if (this.hyperArmorFlashUntil && Date.now() < this.hyperArmorFlashUntil) {
+            ctx.save();
+            ctx.globalAlpha = 0.5;
+            ctx.strokeStyle = '#cccccc';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, (this.size || 20) + 6, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
+
+    getDrawAlpha() {
+        return this.phasingActive ? 0.3 : 1.0;
     }
 
     // Serialize enemy state for multiplayer sync
@@ -4161,7 +4259,15 @@ class EnemyBase {
             bleedStacks: this.bleedStacks || 0,
             bleedDuration: this.bleedDuration || 0,
             vulnerable: this.vulnerable || false,
-            vulnerabilityDuration: this.vulnerabilityDuration || 0
+            vulnerabilityDuration: this.vulnerabilityDuration || 0,
+            eliteAffix: this.eliteAffix || null,
+            isElite: !!this.isElite,
+            phasingActive: !!this.phasingActive,
+            phasingRemaining: this.phasingRemaining || 0,
+            biomeId: this.biomeId || null,
+            lastInterruptTime: this.lastInterruptTime || 0,
+            hyperArmorFlashUntil: this.hyperArmorFlashUntil || 0,
+            eliteRampageRemaining: this.eliteRampageRemaining || 0
         };
     }
 

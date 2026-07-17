@@ -1,9 +1,52 @@
 (function () {
 	let layer, modal, body, previewSection;
 	let open = false;
-	let currentTab = 'affixes'; // 'affixes', 'items'
+	let currentTab = 'affixes'; // 'affixes', 'eliteAffixes', 'enemies', 'items', 'weapons'
 	let selectedEntry = null; // Currently selected entry for preview
+	let previewAnimId = null;
+	let previewAnimCanvas = null;
+	let previewAnimKind = null; // 'eliteAffix' | 'enemy'
+	let previewAnimKey = null;
 
+	function stopPreviewAnimation() {
+		if (previewAnimId != null) {
+			cancelAnimationFrame(previewAnimId);
+			previewAnimId = null;
+		}
+		previewAnimCanvas = null;
+		previewAnimKind = null;
+		previewAnimKey = null;
+	}
+
+	function startPreviewAnimation(canvas, kind, key) {
+		stopPreviewAnimation();
+		if (!canvas) return;
+		previewAnimCanvas = canvas;
+		previewAnimKind = kind;
+		previewAnimKey = key;
+
+		function tick() {
+			if (!open || !previewAnimCanvas || previewAnimCanvas !== canvas) return;
+			const t = Date.now() / 1000;
+			if (kind === 'eliteAffix' && typeof EliteEnemyAffixes !== 'undefined' && EliteEnemyAffixes.paintEliteAffixPreview) {
+				EliteEnemyAffixes.paintEliteAffixPreview(canvas, key, t);
+			} else if (kind === 'enemy' && typeof EnemyIndexCatalog !== 'undefined' && EnemyIndexCatalog.paintEnemyPreview) {
+				EnemyIndexCatalog.paintEnemyPreview(canvas, key, t);
+			}
+			previewAnimId = requestAnimationFrame(tick);
+		}
+		previewAnimId = requestAnimationFrame(tick);
+	}
+
+	function appendIndexVisual(parent, canvas) {
+		if (!parent || !canvas) return;
+		const wrap = document.createElement('div');
+		wrap.style.display = 'flex';
+		wrap.style.justifyContent = 'center';
+		wrap.style.marginBottom = '10px';
+		wrap.appendChild(canvas);
+		parent.appendChild(wrap);
+	}
 	function createIndexMachine() {
 		const rootLayer = document.createElement('div');
 		rootLayer.className = 'ui-layer ui-layer--modal';
@@ -117,14 +160,18 @@
 		// Tab navigation
 		const tabContainer = document.createElement('div');
 		tabContainer.style.display = 'flex';
+		tabContainer.style.flexWrap = 'wrap';
 		tabContainer.style.gap = '10px';
 		tabContainer.style.padding = '10px 20px';
 		tabContainer.style.borderBottom = '1px solid #333';
 		tabContainer.style.backgroundColor = '#1a1a1a';
 
 		const tabs = [
-			{ key: 'affixes', label: 'Affixes', icon: '⚔' },
-			{ key: 'items', label: 'Items', icon: '📦' }
+			{ key: 'affixes', label: 'Gear Affixes', icon: '⚔' },
+			{ key: 'eliteAffixes', label: 'Elite Affixes', icon: '💀' },
+			{ key: 'enemies', label: 'Enemies', icon: '⬡' },
+			{ key: 'items', label: 'Items', icon: '📦' },
+			{ key: 'weapons', label: 'Weapons', icon: '🗡️' }
 		];
 
 		tabs.forEach(tab => {
@@ -208,6 +255,7 @@
 	function switchTab(tab) {
 		currentTab = tab;
 		selectedEntry = null;
+		stopPreviewAnimation();
 		refresh();
 		updatePreview(null);
 		// Update tab button styles
@@ -237,8 +285,14 @@
 
 		if (currentTab === 'affixes') {
 			renderAffixes(discoveries.affixes || []);
+		} else if (currentTab === 'eliteAffixes') {
+			renderEliteAffixes(discoveries.eliteAffixes || []);
+		} else if (currentTab === 'enemies') {
+			renderEnemies(discoveries.enemies || [], discoveries.biomes || []);
 		} else if (currentTab === 'items') {
 			renderItems(discoveries.items || []);
+		} else if (currentTab === 'weapons') {
+			renderWeaponTypes();
 		}
 	}
 
@@ -405,6 +459,318 @@
 		}
 	}
 
+	function renderWeaponTypes() {
+		if (typeof WEAPON_TYPES === 'undefined') {
+			body.innerHTML = '<p style="color: #aaa;">Weapon type data not available</p>';
+			return;
+		}
+
+		const intro = document.createElement('p');
+		intro.style.color = '#888';
+		intro.style.fontSize = '13px';
+		intro.style.margin = '0 0 16px 0';
+		intro.style.lineHeight = '1.5';
+		intro.textContent = 'Every weapon rolls one type. Types change feel (timing, reach, twin strikes) and gently bias which affixes show up — equal-value tradeoffs, not strict power tiers.';
+		body.appendChild(intro);
+
+		const order = ['fast', 'heavy', 'reach', 'dual'];
+		const container = document.createElement('div');
+		container.style.display = 'grid';
+		container.style.gridTemplateColumns = 'repeat(auto-fill, minmax(250px, 1fr))';
+		container.style.gap = '15px';
+
+		container.addEventListener('click', (e) => {
+			const card = e.target.closest('[data-weapon-type]');
+			if (!card) return;
+			const weaponTypeKey = card.dataset.weaponType;
+			const weaponData = WEAPON_TYPES[weaponTypeKey];
+			if (!weaponData) return;
+			selectedEntry = { type: 'weapon', weaponTypeKey, weaponData };
+			updatePreview(selectedEntry);
+			container.querySelectorAll('[data-weapon-type]').forEach(el => {
+				el.style.borderColor = '#444';
+			});
+			card.style.borderColor = weaponData.color || '#9c27b0';
+		});
+
+		order.forEach(key => {
+			const weaponData = WEAPON_TYPES[key];
+			if (!weaponData) return;
+
+			const card = document.createElement('div');
+			card.style.padding = '15px';
+			card.style.borderRadius = '8px';
+			card.style.border = `2px solid ${weaponData.color || '#444'}`;
+			card.style.backgroundColor = '#2a2a2a';
+			card.style.cursor = 'pointer';
+			card.dataset.weaponType = key;
+
+			const name = document.createElement('div');
+			name.style.fontSize = '16px';
+			name.style.fontWeight = 'bold';
+			name.style.color = weaponData.color || '#fff';
+			name.style.marginBottom = '8px';
+			name.textContent = weaponData.name;
+
+			const blurb = document.createElement('div');
+			blurb.style.fontSize = '12px';
+			blurb.style.color = '#aaa';
+			blurb.textContent = weaponData.pickupBlurb || weaponData.accentHint || '';
+
+			card.appendChild(name);
+			card.appendChild(blurb);
+			container.appendChild(card);
+		});
+
+		body.appendChild(container);
+
+		if (selectedEntry && selectedEntry.type === 'weapon' && selectedEntry.weaponTypeKey) {
+			const selectedCard = container.querySelector(`[data-weapon-type="${selectedEntry.weaponTypeKey}"]`);
+			if (selectedCard) {
+				selectedCard.style.borderColor = selectedEntry.weaponData.color || '#9c27b0';
+			}
+		}
+	}
+
+	function renderEliteAffixes(discovered) {
+		if (typeof EliteEnemyAffixes === 'undefined' || !EliteEnemyAffixes.index) {
+			body.innerHTML = '<p style="color: #aaa;">Elite affix data not available</p>';
+			return;
+		}
+		discovered = Array.isArray(discovered) ? discovered : [];
+
+		const intro = document.createElement('p');
+		intro.style.color = '#888';
+		intro.style.fontSize = '13px';
+		intro.style.margin = '0 0 16px 0';
+		intro.style.lineHeight = '1.5';
+		intro.textContent = 'Mid/late rooms can roll elites with exactly one threat affix (jagged ring). Entries unlock the first time you see that threat in a run.';
+		body.appendChild(intro);
+
+		const order = EliteEnemyAffixes.indexOrder || Object.keys(EliteEnemyAffixes.index);
+		const container = document.createElement('div');
+		container.style.display = 'grid';
+		container.style.gridTemplateColumns = 'repeat(auto-fill, minmax(250px, 1fr))';
+		container.style.gap = '15px';
+
+		container.addEventListener('click', (e) => {
+			const card = e.target.closest('[data-elite-affix]');
+			if (!card) return;
+			const affixKey = card.dataset.eliteAffix;
+			const affixData = EliteEnemyAffixes.index[affixKey];
+			if (!affixData) return;
+			selectedEntry = { type: 'eliteAffix', affixKey, affixData };
+			updatePreview(selectedEntry);
+			container.querySelectorAll('[data-elite-affix]').forEach(el => {
+				el.style.borderColor = '#444';
+			});
+			card.style.borderColor = discovered.includes(affixKey) ? '#ff9800' : '#666';
+		});
+
+		order.forEach(key => {
+			const affixData = EliteEnemyAffixes.index[key];
+			if (!affixData) return;
+			const isDiscovered = discovered.includes(key);
+
+			const card = document.createElement('div');
+			card.style.padding = '15px';
+			card.style.borderRadius = '8px';
+			card.style.border = '2px solid #444';
+			card.style.backgroundColor = isDiscovered ? '#2a2a2a' : '#1a1a1a';
+			card.style.opacity = isDiscovered ? '1' : '0.55';
+			card.style.cursor = 'pointer';
+			card.dataset.eliteAffix = key;
+
+			if (isDiscovered && typeof EliteEnemyAffixes.createEliteAffixPreviewCanvas === 'function') {
+				const thumb = EliteEnemyAffixes.createEliteAffixPreviewCanvas(key, 88, 88);
+				thumb.style.margin = '0 auto 10px auto';
+				thumb.style.pointerEvents = 'none';
+				card.appendChild(thumb);
+			} else {
+				const locked = document.createElement('div');
+				locked.style.width = '88px';
+				locked.style.height = '88px';
+				locked.style.margin = '0 auto 10px auto';
+				locked.style.borderRadius = '8px';
+				locked.style.background = '#0e0e12';
+				locked.style.display = 'flex';
+				locked.style.alignItems = 'center';
+				locked.style.justifyContent = 'center';
+				locked.style.color = '#555';
+				locked.style.fontSize = '28px';
+				locked.textContent = '?';
+				card.appendChild(locked);
+			}
+
+			const name = document.createElement('div');
+			name.style.fontSize = '16px';
+			name.style.fontWeight = 'bold';
+			name.style.color = isDiscovered ? '#ff9800' : '#666';
+			name.style.marginBottom = '8px';
+			name.style.textAlign = 'center';
+			name.textContent = isDiscovered ? affixData.name : '???';
+
+			const blurb = document.createElement('div');
+			blurb.style.fontSize = '12px';
+			blurb.style.color = isDiscovered ? '#aaa' : '#555';
+			blurb.style.textAlign = 'center';
+			blurb.textContent = isDiscovered ? (affixData.blurb || '') : 'Not yet encountered';
+
+			card.appendChild(name);
+			card.appendChild(blurb);
+			container.appendChild(card);
+		});
+
+		body.appendChild(container);
+
+		if (selectedEntry && selectedEntry.type === 'eliteAffix' && selectedEntry.affixKey) {
+			const selectedCard = container.querySelector(`[data-elite-affix="${selectedEntry.affixKey}"]`);
+			if (selectedCard) {
+				selectedCard.style.borderColor = discovered.includes(selectedEntry.affixKey) ? '#ff9800' : '#666';
+			}
+		}
+	}
+
+	function renderEnemies(discoveredEnemies, discoveredBiomes) {
+		if (typeof EnemyIndexCatalog === 'undefined' || !EnemyIndexCatalog.enemies) {
+			body.innerHTML = '<p style="color: #aaa;">Enemy catalog not available</p>';
+			return;
+		}
+		discoveredEnemies = Array.isArray(discoveredEnemies) ? discoveredEnemies : [];
+		discoveredBiomes = Array.isArray(discoveredBiomes) ? discoveredBiomes : [];
+
+		const intro = document.createElement('p');
+		intro.style.color = '#888';
+		intro.style.fontSize = '13px';
+		intro.style.margin = '0 0 12px 0';
+		intro.style.lineHeight = '1.5';
+		intro.textContent = 'Five base shapes remixed by biome. Entries unlock the first time you see that shape (or biome) in a run.';
+		body.appendChild(intro);
+
+		if (EnemyIndexCatalog.biomes) {
+			const biomeRow = document.createElement('div');
+			biomeRow.style.display = 'flex';
+			biomeRow.style.flexWrap = 'wrap';
+			biomeRow.style.gap = '8px';
+			biomeRow.style.marginBottom = '16px';
+			(EnemyIndexCatalog.biomeOrder || Object.keys(EnemyIndexCatalog.biomes)).forEach(id => {
+				const b = EnemyIndexCatalog.biomes[id];
+				if (!b) return;
+				const isDiscovered = discoveredBiomes.includes(id);
+				const chip = document.createElement('div');
+				chip.style.padding = '6px 10px';
+				chip.style.borderRadius = '6px';
+				chip.style.border = `1px solid ${isDiscovered ? (b.color || '#555') : '#444'}`;
+				chip.style.fontSize = '11px';
+				chip.style.color = isDiscovered ? '#ccc' : '#555';
+				chip.style.cursor = 'pointer';
+				chip.style.opacity = isDiscovered ? '1' : '0.55';
+				chip.textContent = isDiscovered ? b.name : '???';
+				chip.title = isDiscovered ? (b.blurb || '') : 'Not yet encountered';
+				chip.addEventListener('click', () => {
+					selectedEntry = { type: 'biome', biomeId: id, biomeData: b };
+					updatePreview(selectedEntry);
+				});
+				biomeRow.appendChild(chip);
+			});
+			body.appendChild(biomeRow);
+		}
+
+		const container = document.createElement('div');
+		container.style.display = 'grid';
+		container.style.gridTemplateColumns = 'repeat(auto-fill, minmax(250px, 1fr))';
+		container.style.gap = '15px';
+
+		container.addEventListener('click', (e) => {
+			const card = e.target.closest('[data-enemy-id]');
+			if (!card) return;
+			const enemyId = card.dataset.enemyId;
+			const enemyData = EnemyIndexCatalog.enemies[enemyId];
+			if (!enemyData) return;
+			selectedEntry = { type: 'enemy', enemyId, enemyData };
+			updatePreview(selectedEntry);
+			container.querySelectorAll('[data-enemy-id]').forEach(el => {
+				el.style.borderColor = '#444';
+			});
+			const unlocked = discoveredEnemies.includes(enemyId);
+			card.style.borderColor = unlocked ? (enemyData.color || '#9c27b0') : '#666';
+		});
+
+		(EnemyIndexCatalog.enemyOrder || Object.keys(EnemyIndexCatalog.enemies)).forEach(id => {
+			const enemyData = EnemyIndexCatalog.enemies[id];
+			if (!enemyData) return;
+			const isDiscovered = discoveredEnemies.includes(id);
+
+			const card = document.createElement('div');
+			card.style.padding = '15px';
+			card.style.borderRadius = '8px';
+			card.style.border = `2px solid ${isDiscovered ? (enemyData.color || '#444') : '#444'}`;
+			card.style.backgroundColor = isDiscovered ? '#2a2a2a' : '#1a1a1a';
+			card.style.opacity = isDiscovered ? '1' : '0.55';
+			card.style.cursor = 'pointer';
+			card.dataset.enemyId = id;
+
+			if (isDiscovered && typeof EnemyIndexCatalog.createEnemyPreviewCanvas === 'function') {
+				const thumb = EnemyIndexCatalog.createEnemyPreviewCanvas(id, 88, 88);
+				thumb.style.margin = '0 auto 10px auto';
+				thumb.style.pointerEvents = 'none';
+				card.appendChild(thumb);
+			} else {
+				const locked = document.createElement('div');
+				locked.style.width = '88px';
+				locked.style.height = '88px';
+				locked.style.margin = '0 auto 10px auto';
+				locked.style.borderRadius = '8px';
+				locked.style.background = '#0e0e12';
+				locked.style.display = 'flex';
+				locked.style.alignItems = 'center';
+				locked.style.justifyContent = 'center';
+				locked.style.color = '#555';
+				locked.style.fontSize = '28px';
+				locked.textContent = '?';
+				card.appendChild(locked);
+			}
+
+			const name = document.createElement('div');
+			name.style.fontSize = '16px';
+			name.style.fontWeight = 'bold';
+			name.style.color = isDiscovered ? (enemyData.color || '#fff') : '#666';
+			name.style.marginBottom = '4px';
+			name.style.textAlign = 'center';
+			name.textContent = isDiscovered ? enemyData.name : '???';
+
+			const role = document.createElement('div');
+			role.style.fontSize = '11px';
+			role.style.color = isDiscovered ? '#888' : '#555';
+			role.style.marginBottom = '8px';
+			role.style.textAlign = 'center';
+			role.textContent = isDiscovered ? (enemyData.role || '') : 'Unknown';
+
+			const blurb = document.createElement('div');
+			blurb.style.fontSize = '12px';
+			blurb.style.color = isDiscovered ? '#aaa' : '#555';
+			blurb.style.textAlign = 'center';
+			blurb.textContent = isDiscovered ? (enemyData.blurb || '') : 'Not yet encountered';
+
+			card.appendChild(name);
+			card.appendChild(role);
+			card.appendChild(blurb);
+			container.appendChild(card);
+		});
+
+		body.appendChild(container);
+
+		if (selectedEntry && selectedEntry.type === 'enemy' && selectedEntry.enemyId) {
+			const selectedCard = container.querySelector(`[data-enemy-id="${selectedEntry.enemyId}"]`);
+			if (selectedCard) {
+				const unlocked = discoveredEnemies.includes(selectedEntry.enemyId);
+				selectedCard.style.borderColor = unlocked
+					? (selectedEntry.enemyData.color || '#9c27b0')
+					: '#666';
+			}
+		}
+	}
+
 	function formatAffixName(affixType) {
 		return affixType
 			.replace(/([A-Z])/g, ' $1')
@@ -434,6 +800,7 @@
 	function updatePreview(entry) {
 		if (!previewSection) return;
 
+		stopPreviewAnimation();
 		previewSection.innerHTML = '';
 
 		if (!entry) {
@@ -460,6 +827,34 @@
 		content.style.fontSize = '14px';
 		content.style.lineHeight = '1.6';
 
+		// Large visual for enemies / elite affixes (animated where it matters)
+		if (entry.type === 'eliteAffix' && typeof EliteEnemyAffixes !== 'undefined'
+			&& EliteEnemyAffixes.createEliteAffixPreviewCanvas) {
+			const unlocked = typeof SaveSystem !== 'undefined' && SaveSystem.hasDiscoveredEliteAffix
+				&& SaveSystem.hasDiscoveredEliteAffix(entry.affixKey);
+			if (unlocked) {
+				const viz = EliteEnemyAffixes.createEliteAffixPreviewCanvas(entry.affixKey, 220, 160);
+				viz.style.width = '100%';
+				viz.style.maxWidth = '280px';
+				viz.style.height = 'auto';
+				viz.style.marginBottom = '12px';
+				appendIndexVisual(content, viz);
+				startPreviewAnimation(viz, 'eliteAffix', entry.affixKey);
+			}
+		} else if (entry.type === 'enemy' && typeof EnemyIndexCatalog !== 'undefined'
+			&& EnemyIndexCatalog.createEnemyPreviewCanvas) {
+			const unlocked = typeof SaveSystem !== 'undefined' && SaveSystem.hasDiscoveredEnemy
+				&& SaveSystem.hasDiscoveredEnemy(entry.enemyId);
+			if (unlocked) {
+				const viz = EnemyIndexCatalog.createEnemyPreviewCanvas(entry.enemyId, 220, 160);
+				viz.style.width = '100%';
+				viz.style.maxWidth = '280px';
+				viz.style.height = 'auto';
+				viz.style.marginBottom = '12px';
+				appendIndexVisual(content, viz);
+				startPreviewAnimation(viz, 'enemy', entry.enemyId);
+			}
+		}
 		if (entry.type === 'affix') {
 			const isDiscovered = typeof SaveSystem !== 'undefined' && SaveSystem.hasDiscoveredAffix && SaveSystem.hasDiscoveredAffix(entry.affixType);
 			title.textContent = isDiscovered ? formatAffixName(entry.affixType) : '???';
@@ -721,6 +1116,185 @@
 			} else {
 				content.textContent = 'This item has not been discovered yet.';
 			}
+		} else if (entry.type === 'weapon') {
+			const wt = entry.weaponData || {};
+			title.textContent = wt.name || 'Weapon Type';
+			title.style.color = wt.color || '#fff';
+
+			const tag = document.createElement('div');
+			tag.style.color = wt.color || '#aaa';
+			tag.style.marginBottom = '12px';
+			tag.style.fontSize = '13px';
+			tag.textContent = wt.pickupBlurb || '';
+			content.appendChild(tag);
+
+			function addBlock(label, text) {
+				if (!text) return;
+				const block = document.createElement('div');
+				block.style.marginBottom = '12px';
+				block.style.padding = '10px';
+				block.style.backgroundColor = '#2a2a2a';
+				block.style.borderRadius = '4px';
+				const lab = document.createElement('div');
+				lab.style.color = '#fff';
+				lab.style.fontWeight = 'bold';
+				lab.style.marginBottom = '6px';
+				lab.style.fontSize = '12px';
+				lab.textContent = label;
+				const bodyText = document.createElement('div');
+				bodyText.style.color = '#bbb';
+				bodyText.style.fontSize = '13px';
+				bodyText.style.lineHeight = '1.5';
+				bodyText.textContent = text;
+				block.appendChild(lab);
+				block.appendChild(bodyText);
+				content.appendChild(block);
+			}
+
+			addBlock('Feel', wt.feel);
+			addBlock('Pitch', wt.pitch);
+			addBlock('Leans toward', wt.leansToward);
+
+			const note = document.createElement('div');
+			note.style.marginTop = '8px';
+			note.style.fontSize = '11px';
+			note.style.color = '#666';
+			note.style.fontStyle = 'italic';
+			note.textContent = 'Pickup tooltips only show the short line. This Index has the full read.';
+			content.appendChild(note);
+		} else if (entry.type === 'eliteAffix') {
+			const ea = entry.affixData || {};
+			const unlocked = typeof SaveSystem !== 'undefined' && SaveSystem.hasDiscoveredEliteAffix
+				&& SaveSystem.hasDiscoveredEliteAffix(entry.affixKey);
+			title.textContent = unlocked ? (ea.name || 'Elite Affix') : '???';
+			title.style.color = unlocked ? '#ff9800' : '#666';
+
+			if (!unlocked) {
+				content.textContent = 'This elite threat has not been encountered yet.';
+			} else {
+				const tag = document.createElement('div');
+				tag.style.color = '#ffcc80';
+				tag.style.marginBottom = '12px';
+				tag.style.fontSize = '13px';
+				tag.textContent = ea.blurb || '';
+				content.appendChild(tag);
+
+				function addEliteBlock(label, text) {
+					if (!text) return;
+					const block = document.createElement('div');
+					block.style.marginBottom = '12px';
+					block.style.padding = '10px';
+					block.style.backgroundColor = '#2a2a2a';
+					block.style.borderRadius = '4px';
+					const lab = document.createElement('div');
+					lab.style.color = '#fff';
+					lab.style.fontWeight = 'bold';
+					lab.style.marginBottom = '6px';
+					lab.style.fontSize = '12px';
+					lab.textContent = label;
+					const bodyText = document.createElement('div');
+					bodyText.style.color = '#bbb';
+					bodyText.style.fontSize = '13px';
+					bodyText.style.lineHeight = '1.5';
+					bodyText.textContent = text;
+					block.appendChild(lab);
+					block.appendChild(bodyText);
+					content.appendChild(block);
+				}
+
+				addEliteBlock('What it does', ea.description);
+				addEliteBlock('Tell', ea.tell);
+
+				if (typeof EliteEnemyAffixes !== 'undefined' && EliteEnemyAffixes.getBiomesForEliteAffix) {
+					const biomes = EliteEnemyAffixes.getBiomesForEliteAffix(entry.affixKey) || [];
+					if (biomes.length) {
+						const names = biomes.map(id => {
+							const known = typeof SaveSystem !== 'undefined' && SaveSystem.hasDiscoveredBiome
+								&& SaveSystem.hasDiscoveredBiome(id);
+							if (typeof EnemyIndexCatalog !== 'undefined' && EnemyIndexCatalog.biomes && EnemyIndexCatalog.biomes[id]) {
+								return known ? EnemyIndexCatalog.biomes[id].name : '???';
+							}
+							return known ? id : '???';
+						});
+						addEliteBlock('Biome pools', names.join(', '));
+					}
+				}
+			}
+		} else if (entry.type === 'enemy') {
+			const en = entry.enemyData || {};
+			const unlocked = typeof SaveSystem !== 'undefined' && SaveSystem.hasDiscoveredEnemy
+				&& SaveSystem.hasDiscoveredEnemy(entry.enemyId);
+			title.textContent = unlocked ? (en.name || 'Enemy') : '???';
+			title.style.color = unlocked ? (en.color || '#fff') : '#666';
+
+			if (!unlocked) {
+				content.textContent = 'This enemy has not been encountered yet.';
+			} else {
+				const role = document.createElement('div');
+				role.style.color = '#888';
+				role.style.marginBottom = '8px';
+				role.style.fontSize = '13px';
+				role.textContent = en.role || '';
+				content.appendChild(role);
+
+				const tag = document.createElement('div');
+				tag.style.color = '#ccc';
+				tag.style.marginBottom = '12px';
+				tag.style.fontSize = '13px';
+				tag.textContent = en.blurb || '';
+				content.appendChild(tag);
+
+				function addEnemyBlock(label, text) {
+					if (!text) return;
+					const block = document.createElement('div');
+					block.style.marginBottom = '12px';
+					block.style.padding = '10px';
+					block.style.backgroundColor = '#2a2a2a';
+					block.style.borderRadius = '4px';
+					const lab = document.createElement('div');
+					lab.style.color = '#fff';
+					lab.style.fontWeight = 'bold';
+					lab.style.marginBottom = '6px';
+					lab.style.fontSize = '12px';
+					lab.textContent = label;
+					const bodyText = document.createElement('div');
+					bodyText.style.color = '#bbb';
+					bodyText.style.fontSize = '13px';
+					bodyText.style.lineHeight = '1.5';
+					bodyText.textContent = text;
+					block.appendChild(lab);
+					block.appendChild(bodyText);
+					content.appendChild(block);
+				}
+
+				addEnemyBlock('Behavior', en.description);
+				addEnemyBlock('Tells', en.tells);
+			}
+		} else if (entry.type === 'biome') {
+			const b = entry.biomeData || {};
+			const unlocked = typeof SaveSystem !== 'undefined' && SaveSystem.hasDiscoveredBiome
+				&& SaveSystem.hasDiscoveredBiome(entry.biomeId);
+			title.textContent = unlocked ? (b.name || 'Biome') : '???';
+			title.style.color = unlocked ? (b.color || '#fff') : '#666';
+
+			if (!unlocked) {
+				content.textContent = 'This biome has not been encountered yet.';
+			} else {
+				const tag = document.createElement('div');
+				tag.style.color = '#ccc';
+				tag.style.marginBottom = '12px';
+				tag.style.fontSize = '13px';
+				tag.style.lineHeight = '1.5';
+				tag.textContent = b.blurb || '';
+				content.appendChild(tag);
+
+				const note = document.createElement('div');
+				note.style.fontSize = '12px';
+				note.style.color = '#666';
+				note.style.lineHeight = '1.5';
+				note.textContent = 'Biomes modulate the five base enemies. Elite affix pools also change by biome — see Elite Affixes.';
+				content.appendChild(note);
+			}
 		}
 
 		previewSection.appendChild(title);
@@ -750,6 +1324,8 @@
 			if (show) {
 				refresh();
 				switchTab(currentTab); // Update tab button styles
+			} else {
+				stopPreviewAnimation();
 			}
 		}
 	}

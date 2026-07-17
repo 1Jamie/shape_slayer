@@ -278,7 +278,10 @@ class Tank extends PlayerBase {
         
         // Tank: Hammer swing in arc
         const hammerDamage = this.damage;
-        const hammerDistance = TANK_CONFIG.hammerDistance;
+        const reachMult = typeof getWeaponMeleeReachMult === 'function'
+            ? getWeaponMeleeReachMult(this)
+            : (this.weaponRangeMultiplier || 1.0);
+        const hammerDistance = TANK_CONFIG.hammerDistance * reachMult;
         const arcWidth = (TANK_CONFIG.hammerArcWidth * Math.PI) / 180; // Convert degrees to radians
         const arcHalf = arcWidth / 2;
         
@@ -336,7 +339,11 @@ class Tank extends PlayerBase {
         // Trigger screen shake for heavy attacks
         if (typeof Game !== 'undefined') {
             Game.triggerScreenShake(0.5, 0.2);
-            Game.triggerHitPause(0.08); // Brief freeze on heavy attack
+            if (typeof applyHeavyAttackHitpause === 'function') {
+                applyHeavyAttackHitpause(this);
+            } else {
+                Game.triggerHitPause(0.08);
+            }
         }
         
         // Apply standardized heavy cooldown for UI parity
@@ -353,16 +360,23 @@ class Tank extends PlayerBase {
         
         // Tank shout - AoE around player that stuns, slows, and generates massive aggro
         const shoutDamage = this.damage * TANK_CONFIG.shoutDamage;
-        const shoutRadius = TANK_CONFIG.shoutRadius + this.shoutRadiusBonus; // Apply class modifier
+        const reachMult = typeof getWeaponMeleeReachMult === 'function'
+            ? getWeaponMeleeReachMult(this)
+            : (this.weaponRangeMultiplier || 1.0);
+        const shoutRadius = (TANK_CONFIG.shoutRadius + this.shoutRadiusBonus) * reachMult;
+        const obtuseStunBonus = (this.weaponStunChance || 0) > 0
+            ? (this.weaponStunChance * 0.5) // Obtuse: +~0.075s stun
+            : 0;
         
         // Get gameplay position (authoritative position in multiplayer)
         const pos = this.getGameplayPosition();
         
         // Create hitboxes in a ring around the player
         const numHitboxes = TANK_CONFIG.shoutHitboxCount;
+        const ringDistance = (this.size + TANK_CONFIG.shoutHitboxDistance) * reachMult;
         for (let i = 0; i < numHitboxes; i++) {
             const angle = (Math.PI * 2 / numHitboxes) * i;
-            const distance = this.size + TANK_CONFIG.shoutHitboxDistance;
+            const distance = ringDistance;
             
             const hitboxX = pos.x + Math.cos(angle) * distance;
             const hitboxY = pos.y + Math.sin(angle) * distance;
@@ -370,7 +384,7 @@ class Tank extends PlayerBase {
             this.attackHitboxes.push({
                 x: hitboxX,
                 y: hitboxY,
-                radius: TANK_CONFIG.shoutHitboxRadius,
+                radius: TANK_CONFIG.shoutHitboxRadius * Math.min(1.25, reachMult),
                 damage: shoutDamage,
                 duration: this.attackDuration,
                 elapsed: 0,
@@ -381,36 +395,52 @@ class Tank extends PlayerBase {
         }
         
         // Apply stun, slow, and aggro spike to enemies in range
-        if (typeof Game !== 'undefined' && Game.enemies) {
-            // Get player ID for aggro attribution
-            const attackerId = this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null);
-            
-            Game.enemies.forEach(enemy => {
-                if (enemy.alive) {
-                    const dx = enemy.x - this.x;
-                    const dy = enemy.y - this.y;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
-                    
-                    if (distance < shoutRadius) {
-                        // Apply stun
-                        if (enemy.applyStun) {
-                            enemy.applyStun(TANK_CONFIG.shoutStunDuration + (this.shoutStunBonus || 0));
-                        }
-                        
-                        // Apply slow (will activate after stun expires)
-                        if (enemy.applySlow) {
-                            enemy.applySlow(TANK_CONFIG.shoutSlowAmount, TANK_CONFIG.shoutSlowDuration);
-                        }
-                        
-                        // Add massive aggro spike (false damage for threat)
-                        if (enemy.addThreat && attackerId) {
-                            const aggroSpike = shoutDamage * TANK_CONFIG.shoutAggroMultiplier;
-                            enemy.addThreat(attackerId, aggroSpike);
-                        }
-                    }
+        this.applyShoutCrowdControl(shoutRadius, shoutDamage, obtuseStunBonus);
+        
+        // Parallel: readable second shout pulse (CC refresh) after dual stagger —
+        // damage twin already comes from melee contact-2 on shout hitboxes
+        if (typeof playerWeaponIsParallel === 'function' && playerWeaponIsParallel(this)) {
+            const delayMs = (typeof getWeaponDualStaggerSec === 'function' ? getWeaponDualStaggerSec(this) : 0.055) * 1000;
+            const self = this;
+            setTimeout(() => {
+                if (!self.alive) return;
+                self.applyShoutCrowdControl(shoutRadius, shoutDamage * 0.5, obtuseStunBonus * 0.5, {
+                    softPulse: true
+                });
+                if (typeof createParticleBurst !== 'undefined') {
+                    createParticleBurst(self.x, self.y, '#ff00ff', 14);
                 }
-            });
+            }, delayMs);
         }
+    }
+
+    applyShoutCrowdControl(shoutRadius, shoutDamage, obtuseStunBonus, options) {
+        options = options || {};
+        if (typeof Game === 'undefined' || !Game.enemies) return;
+        const attackerId = this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null);
+        const stunDur = TANK_CONFIG.shoutStunDuration + (this.shoutStunBonus || 0) + (obtuseStunBonus || 0);
+        const aggroMult = options.softPulse ? (TANK_CONFIG.shoutAggroMultiplier * 0.5) : TANK_CONFIG.shoutAggroMultiplier;
+
+        Game.enemies.forEach(enemy => {
+            if (!enemy.alive) return;
+            const dx = enemy.x - this.x;
+            const dy = enemy.y - this.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance >= shoutRadius) return;
+
+            if (enemy.applyStun) {
+                enemy.applyStun(stunDur * (options.softPulse ? 0.5 : 1));
+            }
+            if (enemy.applySlow) {
+                enemy.applySlow(
+                    TANK_CONFIG.shoutSlowAmount,
+                    TANK_CONFIG.shoutSlowDuration * (options.softPulse ? 0.5 : 1)
+                );
+            }
+            if (enemy.addThreat && attackerId) {
+                enemy.addThreat(attackerId, shoutDamage * aggroMult);
+            }
+        });
     }
     
     // Override handleSpecialAbility for shield press-and-hold behavior

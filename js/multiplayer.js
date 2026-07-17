@@ -779,36 +779,15 @@ class MultiplayerManager {
             
             // Serialize projectiles (only if in PLAYING state)
             // Ensure stable IDs on the live objects so clients can match across snapshots
-            projectiles: (Game.state === 'PLAYING') ? Game.projectiles.map(proj => {
-                if (typeof ensureProjectileId === 'function') {
-                    ensureProjectileId(proj);
-                } else if (!proj.id) {
-                    console.warn('[Multiplayer] Projectile missing id during serialize');
-                }
-                return {
-                    id: proj.id,
-                    x: proj.x,
-                    y: proj.y,
-                    vx: proj.vx,
-                    vy: proj.vy,
-                    size: proj.size,
-                    type: proj.type,
-                    color: proj.color,
-                    damage: proj.damage,
-                    lifetime: proj.lifetime,
-                    elapsed: proj.elapsed,
-                    trailLength: proj.trailLength,
-                    trailColor: proj.trailColor,
-                    baseAngle: proj.baseAngle,
-                    baseSpeed: proj.baseSpeed,
-                    waveAmplitude: proj.waveAmplitude,
-                    waveFrequency: proj.waveFrequency,
-                    wavePhase: proj.wavePhase,
-                    waveClock: proj.waveClock,
-                    playerId: proj.playerId || proj.ownerId || null,
-                    ownerId: proj.ownerId || proj.playerId || null
-                };
-            }) : [],
+            projectiles: (Game.state === 'PLAYING')
+                ? Game.projectiles.map(proj => serializeProjectileForNetwork(proj))
+                : [],
+
+            // Fractal/endless biome echo hitboxes (display sync; host owns damage)
+            biomeEchoes: (Game.state === 'PLAYING' && typeof BiomeEnemyMods !== 'undefined'
+                && typeof BiomeEnemyMods.serializeEchoes === 'function')
+                ? BiomeEnemyMods.serializeEchoes()
+                : [],
             
             // Serialize ground loot (only if in PLAYING state)
             groundLoot: (Game.state === 'PLAYING' && typeof groundLoot !== 'undefined')
@@ -817,15 +796,9 @@ class MultiplayerManager {
             
             // Serialize item pylons (only if in PLAYING state and multiplayer)
             // Each player gets a random item of the pylon's rarity
-            itemPylons: (Game.state === 'PLAYING') ? ((Game.itemPylons && Array.isArray(Game.itemPylons)) ? Game.itemPylons.map(pylon => ({
-                id: pylon.id,
-                x: pylon.x,
-                y: pylon.y,
-                rarity: pylon.rarity || 'common', // Store the rarity - all players get items of this rarity
-                interactedPlayers: pylon.interactedPlayers ? pylon.interactedPlayers.slice() : [],
-                disappearing: pylon.disappearing || false,
-                disappearProgress: pylon.disappearProgress || 0
-            })) : []) : []
+            itemPylons: (Game.state === 'PLAYING' && Game.itemPylons && Array.isArray(Game.itemPylons))
+                ? Game.itemPylons.map(pylon => serializeItemPylonForNetwork(pylon))
+                : []
         };
         
         return this.roundDeep(state, 2);
@@ -914,6 +887,12 @@ class MultiplayerManager {
             hasChanges = true;
             this.lastProjectileBroadcast = now;
             this.lastProjectileSnapshot = this.deepClone(state.projectiles || []);
+        }
+
+        // Biome echoes (full replace when changed; short-lived VFX)
+        if (!this.valuesEqual(state.biomeEchoes, baseline.biomeEchoes, 0.1)) {
+            payload.biomeEchoes = state.biomeEchoes || [];
+            hasChanges = true;
         }
         
         // Player stats (send only when changed)
@@ -3272,39 +3251,7 @@ class MultiplayerManager {
     }
 
     serializeGearForNetwork(gear) {
-        if (!gear) return null;
-        if (typeof normalizeGearProgressFields === 'function') {
-            normalizeGearProgressFields(gear);
-        } else if (typeof window !== 'undefined' && typeof window.normalizeGearProgressFields === 'function') {
-            window.normalizeGearProgressFields(gear);
-        }
-        return {
-            id: gear.id,
-            x: gear.x,
-            y: gear.y,
-            slot: gear.slot,
-            tier: gear.tier,
-            color: gear.color,
-            size: gear.size || 15,
-            bonus: gear.bonus,
-            stats: gear.stats,
-            affixes: gear.affixes || [],
-            classModifier: gear.classModifier || null,
-            weaponType: gear.weaponType || null,
-            armorType: gear.armorType || null,
-            legendaryEffect: gear.legendaryEffect || null,
-            name: gear.name,
-            roomNumber: gear.roomNumber,
-            scaling: gear.scaling,
-            pulse: gear.pulse || 0,
-            level: gear.level != null ? gear.level : (gear.roomNumber || 1),
-            upgradesApplied: gear.upgradesApplied != null ? gear.upgradesApplied : 0,
-            originalTier: gear.originalTier || gear.tier,
-            rarityStepsApplied: gear.rarityStepsApplied != null ? gear.rarityStepsApplied : 0,
-            rarityUpgradedThisVisit: !!gear.rarityUpgradedThisVisit,
-            rerollIndex: gear.rerollIndex != null ? gear.rerollIndex : -1,
-            rerollCount: gear.rerollCount != null ? gear.rerollCount : 0
-        };
+        return window.serializeGearForNetwork(gear, { includeWorld: true });
     }
 
     hydrateGearFromNetwork(data) {
@@ -3849,6 +3796,10 @@ class MultiplayerManager {
         if (delta.projectiles) {
             base.projectiles = this.deepClone(delta.projectiles);
         }
+
+        if (delta.biomeEchoes) {
+            base.biomeEchoes = this.deepClone(delta.biomeEchoes);
+        }
         
         if (delta.timestamp) {
             base.timestamp = delta.timestamp;
@@ -4264,6 +4215,9 @@ class MultiplayerManager {
                         matchingProj.waveClock = hostProj.waveClock;
                         if (hostProj.playerId != null) matchingProj.playerId = hostProj.playerId;
                         if (hostProj.ownerId != null) matchingProj.ownerId = hostProj.ownerId;
+                        if (hostProj.activateAfter !== undefined) matchingProj.activateAfter = hostProj.activateAfter;
+                        if (hostProj.isParallelSecond !== undefined) matchingProj.isParallelSecond = !!hostProj.isParallelSecond;
+                        if (hostProj.isParallelPrimary !== undefined) matchingProj.isParallelPrimary = !!hostProj.isParallelPrimary;
                         
                         // Only update velocity if it's significantly different (prevent rewinds)
                         const currentSpeed = Math.sqrt(matchingProj.vx * matchingProj.vx + matchingProj.vy * matchingProj.vy);
@@ -4342,6 +4296,13 @@ class MultiplayerManager {
                 Game.projectiles = (typeof createProjectileList === 'function')
                     ? createProjectileList(newProjectiles)
                     : newProjectiles;
+            }
+
+            // Biome echo VFX (host-authoritative; clients display only)
+            if (state.biomeEchoes !== undefined
+                && typeof BiomeEnemyMods !== 'undefined'
+                && typeof BiomeEnemyMods.applyEchoesFromHost === 'function') {
+                BiomeEnemyMods.applyEchoesFromHost(state.biomeEchoes);
             }
             
             // Update ground loot (authoritative from host)

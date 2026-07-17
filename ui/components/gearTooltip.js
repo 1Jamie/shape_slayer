@@ -186,6 +186,21 @@ const GearTooltipUI = {
             }
         }
 
+        // Weapon type — short pickup blurb only
+        if (gear.slot === 'weapon' && gear.weaponType) {
+            const info = typeof getWeaponTypePickupInfo === 'function'
+                ? getWeaponTypePickupInfo(gear.weaponType)
+                : (typeof WEAPON_TYPES !== 'undefined' && WEAPON_TYPES[gear.weaponType]
+                    ? { name: WEAPON_TYPES[gear.weaponType].name, color: WEAPON_TYPES[gear.weaponType].color, blurb: WEAPON_TYPES[gear.weaponType].pickupBlurb || '' }
+                    : null);
+            if (info) {
+                html += `<div style="margin-top: 6px; color: ${info.color || '#fff'}; font-weight: bold; font-size: 13px;">${info.name}</div>`;
+                if (info.blurb) {
+                    html += `<div style="color: #bbb; font-size: 11px; margin-bottom: 4px;">${info.blurb}</div>`;
+                }
+            }
+        }
+
         // Affixes
         if (gear.affixes && gear.affixes.length > 0) {
             html += `<div style="margin-top: 5px;">`;

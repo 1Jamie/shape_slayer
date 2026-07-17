@@ -192,33 +192,156 @@ const WEAPON_TYPES = {
     fast: {
         name: 'Acute',
         damageMultiplier: 0.95,
-        cooldownMultiplier: 0.7,  // 30% faster attacks
+        cooldownMultiplier: 0.7,
         movementSpeedBonus: 0.15,
-        color: '#00ffff'
+        color: '#00ffff',
+        hitpauseScale: 0.55,
+        recoveryScale: 0.65,
+        trailStyle: 'snap',
+        dualStaggerMs: 0,
+        perHitDamageShare: 1.0,
+        hitCount: 1,
+        onHitPolicy: { status: 'perSwing', proc: 'perSwing', sustain: 'perSwing' },
+        basicWeights: { attackSpeed: 1.4, projectileSpeed: 1.0, knockbackPower: 0.45 },
+        basicValueScale: { attackSpeed: 1.2, projectileSpeed: 1.0, knockbackPower: 0.55 },
+        // Short line for pickup / gear tooltips (keep brief)
+        pickupBlurb: 'Fast & light — snappy swings, leans speed',
+        accentHint: 'Favors attack speed, crit chance & rampage',
+        // Index machine copy
+        feel: 'Light hitpause, quick recovery, shorter commitment after each swing.',
+        pitch: 'Built for tempo. Basics and heavies come out sooner; you stay mobile between hits.',
+        leansToward: 'Attack speed, crit chance, rampage, and other density tools.'
     },
     heavy: {
         name: 'Obtuse',
         damageMultiplier: 1.25,
-        cooldownMultiplier: 1.1,  // 10% slower attacks
+        cooldownMultiplier: 1.15,
         knockbackBonus: 0.5,
         stunChance: 0.15,
-        color: '#ff8800'
+        color: '#ff8800',
+        hitpauseScale: 1.35,
+        recoveryScale: 1.45,
+        trailStyle: 'heavy',
+        dualStaggerMs: 0,
+        perHitDamageShare: 1.0,
+        hitCount: 1,
+        onHitPolicy: { status: 'perSwing', proc: 'perSwing', sustain: 'perSwing' },
+        basicWeights: { attackSpeed: 0.55, projectileSpeed: 0.5, knockbackPower: 1.6 },
+        basicValueScale: { attackSpeed: 0.65, projectileSpeed: 0.75, knockbackPower: 1.25 },
+        pickupBlurb: 'Slow & heavy — hard hits, leans knockback',
+        accentHint: 'Favors knockback, crit damage, execute & explosions',
+        feel: 'Chunky hitpause and longer recovery — each connect feels like a commit.',
+        pitch: 'Trades speed for punch. Stronger per-hit damage and shove; heavies hit like a statement.',
+        leansToward: 'Knockback, crit damage, execute, and explosive finishers.'
     },
     reach: {
         name: 'Vector',
         damageMultiplier: 1.0,
         rangeMultiplier: 1.5,
         projectileRangeBonus: 0.3,
-        color: '#8800ff'
+        color: '#8800ff',
+        hitpauseScale: 0.85,
+        recoveryScale: 1.0,
+        trailStyle: 'elongated',
+        dualStaggerMs: 0,
+        perHitDamageShare: 1.0,
+        hitCount: 1,
+        onHitPolicy: { status: 'perSwing', proc: 'perSwing', sustain: 'perSwing' },
+        basicWeights: { attackSpeed: 1.0, projectileSpeed: 1.6, knockbackPower: 0.4 },
+        basicValueScale: { attackSpeed: 1.0, projectileSpeed: 1.25, knockbackPower: 0.6 },
+        pickupBlurb: 'Long reach — space control, leans range',
+        accentHint: 'Favors range, pierce, chain & volleys',
+        feel: 'Extended melee arcs, longer projectile travel, and farther beams / shouts / thrusts.',
+        pitch: 'Keep distance or cover more ground per swing. Identity is geometry, not raw DPS.',
+        leansToward: 'Range, pierce, chain lightning, multishot, and volley tools.'
     },
     dual: {
         name: 'Parallel',
-        damageMultiplier: 0.80,
+        // Full connect ≈ 1.0x baseline (0.5 share × 2 contacts × ~1.0 type mult)
+        damageMultiplier: 1.0,
         hitCount: 2,
-        critBonus: 0.10,
-        color: '#ff00ff'
+        critBonus: 0.05,
+        color: '#ff00ff',
+        hitpauseScale: 0.7,
+        recoveryScale: 1.15,
+        trailStyle: 'twin',
+        dualStaggerMs: 55,
+        perHitDamageShare: 0.5,
+        onHitPolicy: { status: 'perContact', proc: 'perContact', sustain: 'perSwing' },
+        basicWeights: { attackSpeed: 1.25, projectileSpeed: 1.0, knockbackPower: 0.4 },
+        basicValueScale: { attackSpeed: 1.1, projectileSpeed: 1.0, knockbackPower: 0.5 },
+        pickupBlurb: 'Twin strikes — same damage, denser procs',
+        accentHint: 'Twin strikes: status & proc density at parity damage',
+        feel: 'Two staggered contacts (~55ms apart). Total damage matches a normal weapon; status and procs can roll twice.',
+        pitch: 'Not double DPS — double tick density. Basics, heavies, beams, fans, and thrusts all twin in their own way.',
+        leansToward: 'Attack speed, status/proc density, and tools that love hitting more often.'
     }
 };
+
+/** One-line player copy for pickup / tooltip (name + short blurb). */
+function getWeaponTypePickupInfo(weaponTypeKey) {
+    if (!weaponTypeKey || typeof WEAPON_TYPES === 'undefined') return null;
+    const wt = WEAPON_TYPES[weaponTypeKey];
+    if (!wt) return null;
+    return {
+        key: weaponTypeKey,
+        name: wt.name,
+        color: wt.color || '#ffffff',
+        blurb: wt.pickupBlurb || wt.accentHint || ''
+    };
+}
+
+// Purple/orange weapon advanced+rare accent pools (basics stay universal with weights)
+const WEAPON_TYPE_AFFIX_POOLS = {
+    fast: {
+        advanced: ['critChance', 'lifesteal', 'areaOfEffect', 'thrustSpeed', 'whirlwindRadius', 'beamTickRate'],
+        rare: ['rampage', 'pierce', 'chainLightning', 'multishot', 'fanCount', 'beamCharges'],
+        exclude: ['critDamage', 'execute', 'explosiveAttacks', 'cleaveArea', 'shoutStun', 'hammerHeal']
+    },
+    heavy: {
+        advanced: ['critDamage', 'lifesteal', 'areaOfEffect', 'whirlwindRadius'],
+        rare: ['execute', 'explosiveAttacks', 'cleaveArea', 'shoutStun', 'hammerHeal'],
+        exclude: ['multishot', 'pierce', 'rampage', 'critChance', 'fanCount', 'beamCharges', 'beamPenetration']
+    },
+    reach: {
+        advanced: ['critChance', 'lifesteal', 'areaOfEffect', 'thrustSpeed', 'beamDuration'],
+        rare: ['pierce', 'chainLightning', 'multishot', 'beamPenetration', 'fanCount'],
+        exclude: ['execute', 'explosiveAttacks', 'rampage', 'shoutStun', 'hammerHeal', 'cleaveArea']
+    },
+    dual: {
+        advanced: ['critChance', 'lifesteal', 'areaOfEffect', 'beamTickRate', 'whirlwindRadius'],
+        rare: ['chainLightning', 'rampage', 'pierce', 'fanCount', 'beamCharges'],
+        exclude: ['multishot', 'execute', 'explosiveAttacks', 'critDamage', 'cleaveArea', 'shoutStun', 'hammerHeal', 'beamPenetration']
+    }
+};
+
+// Honest rare-tier safety net when class ∩ type pool is too narrow (never promote advanced→rare)
+const WEAPON_RARE_SAFETY_SET = ['pierce', 'chainLightning', 'rampage'];
+
+function getWeaponTypeAffixAllowlist(weaponType, affixTier) {
+    if (!weaponType || !WEAPON_TYPE_AFFIX_POOLS[weaponType]) return null;
+    const pool = WEAPON_TYPE_AFFIX_POOLS[weaponType];
+    if (affixTier === 'advanced') return pool.advanced;
+    if (affixTier === 'rare') return pool.rare;
+    return null;
+}
+
+function isAffixExcludedForWeaponType(weaponType, affixType) {
+    if (!weaponType || !WEAPON_TYPE_AFFIX_POOLS[weaponType]) return false;
+    return (WEAPON_TYPE_AFFIX_POOLS[weaponType].exclude || []).includes(affixType);
+}
+
+function getWeaponBasicWeight(weaponType, affixType) {
+    const type = weaponType && WEAPON_TYPES[weaponType];
+    if (!type || !type.basicWeights) return 1.0;
+    return type.basicWeights[affixType] != null ? type.basicWeights[affixType] : 1.0;
+}
+
+function getWeaponBasicValueScale(weaponType, affixType) {
+    const type = weaponType && WEAPON_TYPES[weaponType];
+    if (!type || !type.basicValueScale) return 1.0;
+    return type.basicValueScale[affixType] != null ? type.basicValueScale[affixType] : 1.0;
+}
 
 // Armor type definitions
 const ARMOR_TYPES = {
@@ -267,7 +390,10 @@ const LEGENDARY_EFFECTS = {
 };
 
 // Generate affixes using tiered slot system
-function generateAffixes(gearTier, slot) {
+// options.weaponType: when slot is weapon, applies basic weights + purple/orange accent pools
+function generateAffixes(gearTier, slot, options = {}) {
+    const weaponType = options.weaponType || null;
+    const useAccentPools = slot === 'weapon' && weaponType && (gearTier === 'purple' || gearTier === 'orange');
     const upgrades = (typeof SaveSystem !== 'undefined' && SaveSystem.getGearUpgrades)
         ? SaveSystem.getGearUpgrades()
         : {};
@@ -290,42 +416,68 @@ function generateAffixes(gearTier, slot) {
     
     const selectedAffixes = [];
     const usedAffixTypes = new Set(); // Prevent duplicates across all tiers
+
+    function buildCompatibleList(affixTier) {
+        const compatible = [];
+        const tierAffixes = AFFIX_TIERS[affixTier] || [];
+        const allowlist = useAccentPools ? getWeaponTypeAffixAllowlist(weaponType, affixTier) : null;
+
+        for (const affixType of tierAffixes) {
+            const affixData = AFFIX_POOL[affixType];
+            if (!affixData || !affixData.slot.includes(slot) || usedAffixTypes.has(affixType)) continue;
+            if (isAffixExcludedForWeaponType(weaponType, affixType) && useAccentPools && affixTier !== 'basic') {
+                continue;
+            }
+            if (allowlist && affixTier !== 'basic' && !allowlist.includes(affixType)) {
+                continue;
+            }
+
+            let weight = affixData.weight || 1.0;
+            if (affixData.class) {
+                if (activeClasses.has(affixData.class)) {
+                    weight *= 4.0;
+                } else {
+                    continue;
+                }
+            }
+            if (slot === 'weapon' && weaponType && affixTier === 'basic') {
+                weight *= getWeaponBasicWeight(weaponType, affixType);
+            }
+
+            compatible.push({ type: affixType, data: affixData, weight: weight });
+        }
+
+        // Starvation fallback for purple/orange rare/advanced: widen with honest rare safety set
+        if (useAccentPools && (affixTier === 'rare' || affixTier === 'advanced') && compatible.length < 2) {
+            if (typeof console !== 'undefined' && console.log) {
+                console.log(`[AFFIX POOL] Starvation fallback for ${weaponType} ${affixTier} (had ${compatible.length})`);
+            }
+            const safetySource = affixTier === 'rare'
+                ? WEAPON_RARE_SAFETY_SET
+                : (WEAPON_TYPE_AFFIX_POOLS[weaponType].advanced || []);
+            for (const affixType of safetySource) {
+                if (usedAffixTypes.has(affixType) || isAffixExcludedForWeaponType(weaponType, affixType)) continue;
+                const affixData = AFFIX_POOL[affixType];
+                if (!affixData || !affixData.slot.includes(slot)) continue;
+                if (affixTier === 'rare' && affixData.tier !== 'rare') continue;
+                if (affixData.class && !activeClasses.has(affixData.class)) continue;
+                if (compatible.some(c => c.type === affixType)) continue;
+                compatible.push({
+                    type: affixType,
+                    data: affixData,
+                    weight: (affixData.weight || 1.0) * 0.85
+                });
+            }
+        }
+
+        return compatible;
+    }
     
     // Helper: Select random affix from tier pool
     function selectFromTier(affixTier, count) {
         if (count <= 0) return;
         
-        // Get compatible affixes for this tier and slot
-        const compatible = [];
-        const tierAffixes = AFFIX_TIERS[affixTier] || [];
-        
-        for (const affixType of tierAffixes) {
-            const affixData = AFFIX_POOL[affixType];
-            if (affixData && affixData.slot.includes(slot) && !usedAffixTypes.has(affixType)) {
-                // Smart Loot Logic:
-                // 1. If affix has no class requirement, add it (universal)
-                // 2. If affix has class requirement AND that class is active, add it with boosted weight
-                // 3. If affix has class requirement BUT class is NOT active, skip it (or add with very low weight)
-                
-                let weight = affixData.weight || 1.0;
-                
-                if (affixData.class) {
-                    if (activeClasses.has(affixData.class)) {
-                        // Boost weight for active class affixes to ensure they drop
-                        weight *= 4.0; 
-                    } else {
-                        // Skip affixes for inactive classes
-                        continue; 
-                    }
-                }
-                
-                compatible.push({
-                    type: affixType,
-                    data: affixData,
-                    weight: weight
-                });
-            }
-        }
+        const compatible = buildCompatibleList(affixTier);
         
         // Select 'count' affixes using weighted random
         for (let i = 0; i < Math.min(count, compatible.length); i++) {
@@ -351,6 +503,9 @@ function generateAffixes(gearTier, slot) {
             compatible.splice(selectedIndex, 1); // Remove to prevent duplicates
             
             let value = selected.data.min + Math.random() * (selected.data.max - selected.data.min);
+            if (slot === 'weapon' && weaponType && affixTier === 'basic') {
+                value *= getWeaponBasicValueScale(weaponType, selected.type);
+            }
             // Round integer affixes to whole numbers
             const integerAffixes = [
                 'dodgeCharges', 'maxHealth', 'pierce', 'chainLightning', 'multishot', 
@@ -610,8 +765,8 @@ function generateGear(x, y, roomNumberOrTier = 1, enemyDifficulty = 'basic') {
         stats.speed = effectiveBonus * 0.5; // Smaller speed bonus
     }
     
-    // Generate affixes based on tier and slot
-    const affixes = generateAffixes(tier, slot);
+    // Generate affixes based on tier and slot (weapon type accents purple/orange + basic weights)
+    const affixes = generateAffixes(tier, slot, { weaponType });
     
     // Generate class modifiers and/or legendary effects
     let classModifier = null;
@@ -1134,6 +1289,19 @@ function getGearStatsString(gear) {
         statsStr.push(`+${(gear.stats.speed * 100).toFixed(0)}% Spd`);
     }
     
+    // Add weapon type identity (short pickup line — full writeup lives in Nexus Index)
+    if (gear.slot === 'weapon' && gear.weaponType && WEAPON_TYPES[gear.weaponType]) {
+        const info = typeof getWeaponTypePickupInfo === 'function'
+            ? getWeaponTypePickupInfo(gear.weaponType)
+            : null;
+        if (info) {
+            statsStr.push(`[${info.name}] ${info.blurb}`);
+        } else {
+            const wt = WEAPON_TYPES[gear.weaponType];
+            statsStr.push(`[${wt.name}] ${wt.pickupBlurb || wt.accentHint || ''}`);
+        }
+    }
+    
     // Add affixes
     if (gear.affixes && gear.affixes.length > 0) {
         gear.affixes.forEach(affix => {
@@ -1176,6 +1344,8 @@ function rerollGearAffix(gear, index) {
     if (!oldAffix) return;
 
     const slot = gear.slot;
+    const weaponType = gear.weaponType || null;
+    const useAccentPools = slot === 'weapon' && weaponType && (gear.tier === 'purple' || gear.tier === 'orange');
     const activeClasses = new Set();
     if (typeof Game !== 'undefined') {
         if (Game.player && Game.player.playerClass) {
@@ -1191,25 +1361,48 @@ function rerollGearAffix(gear, index) {
     // Get compatible affixes for this tier and slot
     const compatible = [];
     const tierAffixes = AFFIX_TIERS[oldAffix.tier] || [];
+    const allowlist = useAccentPools ? getWeaponTypeAffixAllowlist(weaponType, oldAffix.tier) : null;
 
     for (const affixType of tierAffixes) {
         const affixData = AFFIX_POOL[affixType];
-        if (affixData && affixData.slot.includes(slot)) {
-            // Check class requirement
-            if (affixData.class && !activeClasses.has(affixData.class)) {
-                continue;
-            }
-            compatible.push({
-                type: affixType,
-                data: affixData
-            });
+        if (!affixData || !affixData.slot.includes(slot)) continue;
+        if (affixData.class && !activeClasses.has(affixData.class)) continue;
+        if (useAccentPools && oldAffix.tier !== 'basic') {
+            if (isAffixExcludedForWeaponType(weaponType, affixType)) continue;
+            if (allowlist && !allowlist.includes(affixType)) continue;
+        }
+        let weight = affixData.weight || 1.0;
+        if (slot === 'weapon' && weaponType && oldAffix.tier === 'basic') {
+            weight *= getWeaponBasicWeight(weaponType, affixType);
+        }
+        compatible.push({ type: affixType, data: affixData, weight });
+    }
+
+    if (useAccentPools && (oldAffix.tier === 'rare' || oldAffix.tier === 'advanced') && compatible.length < 2) {
+        for (const affixType of WEAPON_RARE_SAFETY_SET) {
+            if (isAffixExcludedForWeaponType(weaponType, affixType)) continue;
+            const affixData = AFFIX_POOL[affixType];
+            if (!affixData || !affixData.slot.includes(slot) || affixData.tier !== 'rare') continue;
+            if (compatible.some(c => c.type === affixType)) continue;
+            compatible.push({ type: affixType, data: affixData, weight: 0.85 });
         }
     }
 
     if (compatible.length > 0) {
-        // Roll random from compatible
-        const selected = compatible[Math.floor(Math.random() * compatible.length)];
+        const totalWeight = compatible.reduce((s, c) => s + (c.weight || 1), 0);
+        let random = Math.random() * totalWeight;
+        let selected = compatible[0];
+        for (const c of compatible) {
+            random -= (c.weight || 1);
+            if (random <= 0) {
+                selected = c;
+                break;
+            }
+        }
         let value = selected.data.min + Math.random() * (selected.data.max - selected.data.min);
+        if (slot === 'weapon' && weaponType && oldAffix.tier === 'basic') {
+            value *= getWeaponBasicValueScale(weaponType, selected.type);
+        }
 
         // Round integer affixes
         const integerAffixes = [
@@ -1273,6 +1466,54 @@ function normalizeGearProgressFields(gear) {
     return gear;
 }
 
+/**
+ * Shared gear network whitelist for ground loot and equipped slots.
+ * @param {object} gear
+ * @param {{ includeWorld?: boolean }} [options]
+ *   includeWorld: ground loot (x/y/size/pulse). Equipped uses false and
+ *   preserves prior stats/name defaults (|| {} / || '').
+ */
+function serializeGearForNetwork(gear, options = {}) {
+    if (!gear) return null;
+    normalizeGearProgressFields(gear);
+    const includeWorld = !!options.includeWorld;
+    const payload = {
+        id: gear.id,
+        slot: gear.slot,
+        tier: gear.tier,
+        color: gear.color,
+        bonus: gear.bonus,
+        affixes: gear.affixes || [],
+        classModifier: gear.classModifier || null,
+        weaponType: gear.weaponType || null,
+        armorType: gear.armorType || null,
+        legendaryEffect: gear.legendaryEffect || null,
+        roomNumber: gear.roomNumber,
+        scaling: gear.scaling,
+        level: gear.level != null ? gear.level : (gear.roomNumber || 1),
+        upgradesApplied: gear.upgradesApplied != null ? gear.upgradesApplied : 0,
+        originalTier: gear.originalTier || gear.tier,
+        rarityStepsApplied: gear.rarityStepsApplied != null ? gear.rarityStepsApplied : 0,
+        rarityUpgradedThisVisit: !!gear.rarityUpgradedThisVisit,
+        rerollIndex: gear.rerollIndex != null ? gear.rerollIndex : -1,
+        rerollCount: gear.rerollCount != null ? gear.rerollCount : 0
+    };
+    if (includeWorld) {
+        // Ground loot: preserve prior nullish behavior for stats/name
+        payload.x = gear.x;
+        payload.y = gear.y;
+        payload.size = gear.size || 15;
+        payload.pulse = gear.pulse || 0;
+        payload.stats = gear.stats;
+        payload.name = gear.name;
+    } else {
+        // Equipped: prior defaults for remote display / safe-room progress
+        payload.stats = gear.stats || {};
+        payload.name = gear.name || '';
+    }
+    return payload;
+}
+
 function getNextGearTier(tier) {
     const idx = GEAR_TIER_ORDER.indexOf(tier);
     if (idx < 0 || idx >= GEAR_TIER_ORDER.length - 1) return null;
@@ -1328,7 +1569,10 @@ function adaptPrimaryStatsToTier(gear, oldTier, newTier) {
     }
 }
 
-function rollSingleAffixForSlot(affixTier, slot, usedAffixTypes) {
+function rollSingleAffixForSlot(affixTier, slot, usedAffixTypes, options = {}) {
+    const weaponType = options.weaponType || null;
+    const gearTier = options.gearTier || null;
+    const useAccentPools = slot === 'weapon' && weaponType && (gearTier === 'purple' || gearTier === 'orange');
     const tierAffixes = AFFIX_TIERS[affixTier] || [];
     const activeClasses = new Set();
     if (typeof Game !== 'undefined') {
@@ -1345,18 +1589,48 @@ function rollSingleAffixForSlot(affixTier, slot, usedAffixTypes) {
         }
     }
 
+    const allowlist = useAccentPools ? getWeaponTypeAffixAllowlist(weaponType, affixTier) : null;
     const compatible = [];
     for (const affixType of tierAffixes) {
         if (usedAffixTypes.has(affixType)) continue;
         const affixData = AFFIX_POOL[affixType];
         if (!affixData || !affixData.slot.includes(slot)) continue;
         if (affixData.class && !activeClasses.has(affixData.class)) continue;
-        compatible.push({ type: affixType, data: affixData });
+        if (useAccentPools && affixTier !== 'basic') {
+            if (isAffixExcludedForWeaponType(weaponType, affixType)) continue;
+            if (allowlist && !allowlist.includes(affixType)) continue;
+        }
+        let weight = affixData.weight || 1.0;
+        if (slot === 'weapon' && weaponType && affixTier === 'basic') {
+            weight *= getWeaponBasicWeight(weaponType, affixType);
+        }
+        compatible.push({ type: affixType, data: affixData, weight });
+    }
+    if (useAccentPools && (affixTier === 'rare' || affixTier === 'advanced') && compatible.length < 2) {
+        for (const affixType of WEAPON_RARE_SAFETY_SET) {
+            if (usedAffixTypes.has(affixType) || isAffixExcludedForWeaponType(weaponType, affixType)) continue;
+            const affixData = AFFIX_POOL[affixType];
+            if (!affixData || !affixData.slot.includes(slot) || affixData.tier !== 'rare') continue;
+            if (compatible.some(c => c.type === affixType)) continue;
+            compatible.push({ type: affixType, data: affixData, weight: 0.85 });
+        }
     }
     if (compatible.length === 0) return null;
 
-    const selected = compatible[Math.floor(Math.random() * compatible.length)];
+    const totalWeight = compatible.reduce((s, c) => s + (c.weight || 1), 0);
+    let random = Math.random() * totalWeight;
+    let selected = compatible[0];
+    for (const c of compatible) {
+        random -= (c.weight || 1);
+        if (random <= 0) {
+            selected = c;
+            break;
+        }
+    }
     let value = selected.data.min + Math.random() * (selected.data.max - selected.data.min);
+    if (slot === 'weapon' && weaponType && affixTier === 'basic') {
+        value *= getWeaponBasicValueScale(weaponType, selected.type);
+    }
     const integerAffixes = [
         'dodgeCharges', 'maxHealth', 'pierce', 'chainLightning', 'multishot',
         'beamCharges', 'beamPenetration', 'fanCount'
@@ -1386,7 +1660,10 @@ function appendMissingAffixesForTier(gear, newTier) {
         const minNeeded = slotConfig[affixTier] ? slotConfig[affixTier][0] : 0;
         let deficit = Math.max(0, minNeeded - counts[affixTier]);
         while (deficit > 0) {
-            const rolled = rollSingleAffixForSlot(affixTier, gear.slot, used);
+            const rolled = rollSingleAffixForSlot(affixTier, gear.slot, used, {
+                weaponType: gear.weaponType || null,
+                gearTier: newTier
+            });
             if (!rolled) break;
             // Scale new affix if item already has level-ups
             if (gear.upgradesApplied && gear.upgradesApplied > 0) {
@@ -1464,6 +1741,7 @@ function clearAllGearRarityVisitFlags() {
 if (typeof window !== 'undefined') {
     window.rerollGearAffix = rerollGearAffix;
     window.normalizeGearProgressFields = normalizeGearProgressFields;
+    window.serializeGearForNetwork = serializeGearForNetwork;
     window.raiseGearRarity = raiseGearRarity;
     window.getNextGearTier = getNextGearTier;
     window.getRarityUpgradeBaseCost = getRarityUpgradeBaseCost;
@@ -1474,6 +1752,7 @@ if (typeof window !== 'undefined') {
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         normalizeGearProgressFields,
+        serializeGearForNetwork,
         raiseGearRarity,
         getNextGearTier,
         getRarityUpgradeBaseCost,

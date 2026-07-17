@@ -75,6 +75,16 @@ class PlayerBase {
         this.dodgeCharges = 1;
         this.maxDodgeCharges = 1;
         this.dodgeChargeCooldowns = [0]; // Track cooldown per charge
+        this.queuedDodgeTime = 0; // Timestamp buffer for dodge during active attack frames
+        this.attackRecoveryRemaining = 0;
+        this.turnRateMultiplier = 1.0;
+        this.weaponRecoveryScale = 1.0;
+        this.weaponHitpauseScale = 1.0;
+        this.weaponPerHitDamageShare = 1.0;
+        this.weaponDualStaggerMs = 0;
+        this.weaponProjectileRangeBonus = 0;
+        this.weaponOnHitPolicy = { status: 'perSwing', proc: 'perSwing', sustain: 'perSwing' };
+        this._wasAttacking = false;
 
         // Dash visual animation state
         this.dashAnimActive = false;
@@ -374,6 +384,13 @@ class PlayerBase {
             this.handleDodge(input);
         }
 
+        // Attack recovery (readable weight); dodge-cancelable
+        if (this._wasAttacking && !this.isAttacking) {
+            this.beginAttackRecovery();
+        }
+        this._wasAttacking = !!this.isAttacking;
+        this.updateAttackRecovery(deltaTime, input);
+
         // Handle special abilities (calls subclass override)
         if (room0Action === 'all' || room0Action === 'special') {
             this.handleSpecialAbility(input);
@@ -598,13 +615,56 @@ class PlayerBase {
 
     applyAimFromInput(input) {
         if (!input) return;
+        let desired = this.rotation;
         if (input.getAimDirection) {
-            this.rotation = input.getAimDirection();
+            desired = input.getAimDirection();
         } else if (input.mouse && input.mouse.x !== undefined && input.mouse.y !== undefined) {
             const worldMouse = input.getWorldMousePos ? input.getWorldMousePos() : input.mouse;
             const dx = worldMouse.x - this.x;
             const dy = worldMouse.y - this.y;
-            this.rotation = Math.atan2(dy, dx);
+            desired = Math.atan2(dy, dx);
+        }
+        const turnMult = (this.turnRateMultiplier != null) ? this.turnRateMultiplier : 1.0;
+        if (turnMult >= 0.999 || this.attackRecoveryRemaining <= 0) {
+            this.rotation = desired;
+            return;
+        }
+        // Multiplicative damp against current turn rate (buff-safe): blend toward desired
+        let delta = desired - this.rotation;
+        while (delta > Math.PI) delta -= Math.PI * 2;
+        while (delta < -Math.PI) delta += Math.PI * 2;
+        this.rotation += delta * Math.max(0.15, Math.min(1, turnMult));
+    }
+
+    beginAttackRecovery() {
+        const base = Math.max(0.05, this.attackDuration || 0.1);
+        const scale = this.weaponRecoveryScale != null ? this.weaponRecoveryScale : 1.0;
+        const as = Math.max(0.5, this.attackSpeedMultiplier || 1.0);
+        this.attackRecoveryRemaining = (base * scale) / as;
+        // Heavier weapons damp turn more; never zero (feels bricked)
+        this.turnRateMultiplier = Math.max(0.25, Math.min(1, 1 / Math.max(0.5, scale)));
+    }
+
+    updateAttackRecovery(deltaTime, input) {
+        if (this.attackRecoveryRemaining > 0) {
+            this.attackRecoveryRemaining = Math.max(0, this.attackRecoveryRemaining - deltaTime);
+            if (this.attackRecoveryRemaining <= 0) {
+                this.turnRateMultiplier = 1.0;
+                // 150ms timestamp dodge buffer on recovery frame 1
+                if (this.queuedDodgeTime && (Date.now() - this.queuedDodgeTime) < 150) {
+                    this.queuedDodgeTime = 0;
+                    if (!this.isDodging && this.guardBreakLockout <= 0) {
+                        const canDodge = this.usesChargeBasedDodge()
+                            ? this.getReadyDodgeCharges() > 0
+                            : this.dodgeCooldown <= 0;
+                        if (canDodge && input) {
+                            this.startDodge(input);
+                        }
+                    }
+                }
+            }
+        } else {
+            this.turnRateMultiplier = 1.0;
         }
     }
 
@@ -971,6 +1031,11 @@ class PlayerBase {
 
         // If dodge pressed/released and available
         if (dodgeJustPressed && canDodge) {
+            // Active attack frames: queue timestamp buffer (not sticky bool)
+            if (this.isAttacking) {
+                this.queuedDodgeTime = Date.now();
+                return;
+            }
             console.log(`[${this.playerClass}] Starting dodge! justReleased: ${dodgeJustPressed}, canDodge: ${canDodge}`);
             // Clear preview before starting dodge
             this.dashPreviewActive = false;
@@ -1125,6 +1190,10 @@ class PlayerBase {
         this.isDodging = true;
         this.invulnerable = true;
         this.dodgeElapsed = 0;
+        // Dodge-cancel recovery
+        this.attackRecoveryRemaining = 0;
+        this.turnRateMultiplier = 1.0;
+        this.queuedDodgeTime = 0;
         if (this.dodgeHitEnemies && this.dodgeHitEnemies.clear) {
             this.dodgeHitEnemies.clear();
         }
@@ -2227,17 +2296,29 @@ class PlayerBase {
                 }
                 // Store for use in attack creation
                 this.weaponRangeMultiplier = type.rangeMultiplier || 1.0;
+                this.weaponProjectileRangeBonus = type.projectileRangeBonus || 0;
                 this.weaponHitCount = type.hitCount || 1;
                 this.weaponKnockbackBonus = type.knockbackBonus || 0;
                 this.weaponStunChance = type.stunChance || 0;
+                this.weaponRecoveryScale = type.recoveryScale != null ? type.recoveryScale : 1.0;
+                this.weaponHitpauseScale = type.hitpauseScale != null ? type.hitpauseScale : 1.0;
+                this.weaponPerHitDamageShare = type.perHitDamageShare != null ? type.perHitDamageShare : 1.0;
+                this.weaponDualStaggerMs = type.dualStaggerMs || 0;
+                this.weaponOnHitPolicy = type.onHitPolicy || { status: 'perSwing', proc: 'perSwing', sustain: 'perSwing' };
             }
         } else {
             // No weapon type, reset to defaults
             this.weaponCooldownMultiplier = 1.0;
             this.weaponRangeMultiplier = 1.0;
+            this.weaponProjectileRangeBonus = 0;
             this.weaponHitCount = 1;
             this.weaponKnockbackBonus = 0;
             this.weaponStunChance = 0;
+            this.weaponRecoveryScale = 1.0;
+            this.weaponHitpauseScale = 1.0;
+            this.weaponPerHitDamageShare = 1.0;
+            this.weaponDualStaggerMs = 0;
+            this.weaponOnHitPolicy = { status: 'perSwing', proc: 'perSwing', sustain: 'perSwing' };
         }
 
         // Apply armor type effects
@@ -4100,34 +4181,7 @@ class PlayerBase {
     // Serialize equipped gear including safe-room progress fields (backward-compatible on read)
     serializeEquippedGear(gear) {
         if (!gear) return null;
-        if (typeof normalizeGearProgressFields === 'function') {
-            normalizeGearProgressFields(gear);
-        } else if (typeof window !== 'undefined' && typeof window.normalizeGearProgressFields === 'function') {
-            window.normalizeGearProgressFields(gear);
-        }
-        return {
-            id: gear.id,
-            slot: gear.slot,
-            tier: gear.tier,
-            color: gear.color,
-            stats: gear.stats || {},
-            affixes: gear.affixes || [],
-            weaponType: gear.weaponType || null,
-            armorType: gear.armorType || null,
-            classModifier: gear.classModifier || null,
-            legendaryEffect: gear.legendaryEffect || null,
-            name: gear.name || '',
-            bonus: gear.bonus,
-            scaling: gear.scaling,
-            roomNumber: gear.roomNumber,
-            level: gear.level != null ? gear.level : (gear.roomNumber || 1),
-            upgradesApplied: gear.upgradesApplied != null ? gear.upgradesApplied : 0,
-            originalTier: gear.originalTier || gear.tier,
-            rarityStepsApplied: gear.rarityStepsApplied != null ? gear.rarityStepsApplied : 0,
-            rarityUpgradedThisVisit: !!gear.rarityUpgradedThisVisit,
-            rerollIndex: gear.rerollIndex != null ? gear.rerollIndex : -1,
-            rerollCount: gear.rerollCount != null ? gear.rerollCount : 0
-        };
+        return window.serializeGearForNetwork(gear, { includeWorld: false });
     }
 
     // Serialize player state for multiplayer sync (base properties)

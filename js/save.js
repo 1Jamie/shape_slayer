@@ -90,7 +90,10 @@ const SaveSystem = {
             // Index discoveries
             discoveries: {
                 affixes: [], // Array of affix type strings (e.g., 'movementSpeed', 'critChance')
-                items: [] // Array of item IDs
+                items: [], // Array of item IDs
+                enemies: [], // Enemy Index ids: circle, diamond, star, rectangle, octagon
+                eliteAffixes: [], // Elite threat affix keys: fortify, phasing, ...
+                biomes: [] // Biome Index ids: swarm, prism, ...
             },
             // Solo-only mid-run Safe Room checkpoint (consumed atomically on resume)
             activeRunCheckpoint: null
@@ -152,7 +155,10 @@ const SaveSystem = {
                     playerName: parsed.playerName !== undefined ? parsed.playerName : defaults.playerName,
                     discoveries: parsed.discoveries ? {
                         affixes: Array.isArray(parsed.discoveries.affixes) ? parsed.discoveries.affixes : defaults.discoveries.affixes,
-                        items: Array.isArray(parsed.discoveries.items) ? parsed.discoveries.items : defaults.discoveries.items
+                        items: Array.isArray(parsed.discoveries.items) ? parsed.discoveries.items : defaults.discoveries.items,
+                        enemies: Array.isArray(parsed.discoveries.enemies) ? parsed.discoveries.enemies : defaults.discoveries.enemies,
+                        eliteAffixes: Array.isArray(parsed.discoveries.eliteAffixes) ? parsed.discoveries.eliteAffixes : defaults.discoveries.eliteAffixes,
+                        biomes: Array.isArray(parsed.discoveries.biomes) ? parsed.discoveries.biomes : defaults.discoveries.biomes
                     } : defaults.discoveries,
                     activeRunCheckpoint: (parsed.activeRunCheckpoint && typeof parsed.activeRunCheckpoint === 'object')
                         ? parsed.activeRunCheckpoint
@@ -818,29 +824,71 @@ const SaveSystem = {
     getDiscoveries() {
         const save = this.load();
         if (!save.discoveries) {
-            save.discoveries = { affixes: [], items: [] };
+            save.discoveries = { affixes: [], items: [], enemies: [], eliteAffixes: [], biomes: [] };
         }
+        if (!Array.isArray(save.discoveries.affixes)) save.discoveries.affixes = [];
+        if (!Array.isArray(save.discoveries.items)) save.discoveries.items = [];
+        if (!Array.isArray(save.discoveries.enemies)) save.discoveries.enemies = [];
+        if (!Array.isArray(save.discoveries.eliteAffixes)) save.discoveries.eliteAffixes = [];
+        if (!Array.isArray(save.discoveries.biomes)) save.discoveries.biomes = [];
+        return save.discoveries;
+    },
+    _ensureDiscoveries(save) {
+        if (!save.discoveries) save.discoveries = { affixes: [], items: [], enemies: [], eliteAffixes: [], biomes: [] };
+        if (!Array.isArray(save.discoveries.affixes)) save.discoveries.affixes = [];
+        if (!Array.isArray(save.discoveries.items)) save.discoveries.items = [];
+        if (!Array.isArray(save.discoveries.enemies)) save.discoveries.enemies = [];
+        if (!Array.isArray(save.discoveries.eliteAffixes)) save.discoveries.eliteAffixes = [];
+        if (!Array.isArray(save.discoveries.biomes)) save.discoveries.biomes = [];
         return save.discoveries;
     },
     discoverAffix(affixType) {
         const save = this.load();
-        if (!save.discoveries) save.discoveries = { affixes: [], items: [] };
-        if (!Array.isArray(save.discoveries.affixes)) save.discoveries.affixes = [];
-        if (!save.discoveries.affixes.includes(affixType)) {
-            save.discoveries.affixes.push(affixType);
+        const discoveries = this._ensureDiscoveries(save);
+        if (!discoveries.affixes.includes(affixType)) {
+            discoveries.affixes.push(affixType);
             this.save(save);
         }
-        return save.discoveries.affixes;
+        return discoveries.affixes;
     },
     discoverItem(itemId) {
         const save = this.load();
-        if (!save.discoveries) save.discoveries = { affixes: [], items: [] };
-        if (!Array.isArray(save.discoveries.items)) save.discoveries.items = [];
-        if (!save.discoveries.items.includes(itemId)) {
-            save.discoveries.items.push(itemId);
+        const discoveries = this._ensureDiscoveries(save);
+        if (!discoveries.items.includes(itemId)) {
+            discoveries.items.push(itemId);
             this.save(save);
         }
-        return save.discoveries.items;
+        return discoveries.items;
+    },
+    discoverEnemy(enemyId) {
+        if (!enemyId) return this.getDiscoveries().enemies;
+        const save = this.load();
+        const discoveries = this._ensureDiscoveries(save);
+        if (!discoveries.enemies.includes(enemyId)) {
+            discoveries.enemies.push(enemyId);
+            this.save(save);
+        }
+        return discoveries.enemies;
+    },
+    discoverEliteAffix(affixKey) {
+        if (!affixKey) return this.getDiscoveries().eliteAffixes;
+        const save = this.load();
+        const discoveries = this._ensureDiscoveries(save);
+        if (!discoveries.eliteAffixes.includes(affixKey)) {
+            discoveries.eliteAffixes.push(affixKey);
+            this.save(save);
+        }
+        return discoveries.eliteAffixes;
+    },
+    discoverBiome(biomeId) {
+        if (!biomeId) return this.getDiscoveries().biomes;
+        const save = this.load();
+        const discoveries = this._ensureDiscoveries(save);
+        if (!discoveries.biomes.includes(biomeId)) {
+            discoveries.biomes.push(biomeId);
+            this.save(save);
+        }
+        return discoveries.biomes;
     },
     hasDiscoveredAffix(affixType) {
         const discoveries = this.getDiscoveries();
@@ -849,6 +897,18 @@ const SaveSystem = {
     hasDiscoveredItem(itemId) {
         const discoveries = this.getDiscoveries();
         return Array.isArray(discoveries.items) && discoveries.items.includes(itemId);
+    },
+    hasDiscoveredEnemy(enemyId) {
+        const discoveries = this.getDiscoveries();
+        return Array.isArray(discoveries.enemies) && discoveries.enemies.includes(enemyId);
+    },
+    hasDiscoveredEliteAffix(affixKey) {
+        const discoveries = this.getDiscoveries();
+        return Array.isArray(discoveries.eliteAffixes) && discoveries.eliteAffixes.includes(affixKey);
+    },
+    hasDiscoveredBiome(biomeId) {
+        const discoveries = this.getDiscoveries();
+        return Array.isArray(discoveries.biomes) && discoveries.biomes.includes(biomeId);
     },
 
     hasActiveRunCheckpoint() {

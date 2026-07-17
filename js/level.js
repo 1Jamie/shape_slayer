@@ -381,6 +381,18 @@ function generateRoom(roomNumber) {
                 scalingCtx
             );
 
+            const biomeId = room.biomeId
+                || (typeof BiomeConfig !== 'undefined' && BiomeConfig.getBiomeIdForRoom
+                    ? BiomeConfig.getBiomeIdForRoom(roomNumber, 'gear')
+                    : 'swarm');
+
+            if (typeof BiomeEnemyMods !== 'undefined' && BiomeEnemyMods.apply) {
+                BiomeEnemyMods.apply(enemy, biomeId);
+            }
+            if (typeof EliteEnemyAffixes !== 'undefined' && EliteEnemyAffixes.applyEliteAffix) {
+                EliteEnemyAffixes.applyEliteAffix(enemy, biomeId, roomNumber);
+            }
+
             if (enemy.hasShield) {
                 enemy.maxShieldHealth = Math.floor(enemy.maxHp * 0.5);
                 enemy.shieldHealth = enemy.maxShieldHealth;

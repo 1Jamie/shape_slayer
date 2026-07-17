@@ -42,8 +42,55 @@
         return arr;
     }
 
+    /** Snapshot fields for multiplayer game_state (host → clients). */
+    function serializeProjectileForNetwork(proj) {
+        if (!proj || typeof proj !== 'object') return null;
+        ensureProjectileId(proj);
+        if (!proj.id) {
+            console.warn('[Projectiles] Projectile missing id during serialize');
+        }
+        return {
+            id: proj.id,
+            x: proj.x,
+            y: proj.y,
+            vx: proj.vx,
+            vy: proj.vy,
+            size: proj.size,
+            type: proj.type,
+            color: proj.color,
+            damage: proj.damage,
+            lifetime: proj.lifetime,
+            elapsed: proj.elapsed,
+            trailLength: proj.trailLength,
+            trailColor: proj.trailColor,
+            baseAngle: proj.baseAngle,
+            baseSpeed: proj.baseSpeed,
+            waveAmplitude: proj.waveAmplitude,
+            waveFrequency: proj.waveFrequency,
+            wavePhase: proj.wavePhase,
+            waveClock: proj.waveClock,
+            playerId: proj.playerId || proj.ownerId || null,
+            ownerId: proj.ownerId || proj.playerId || null,
+            // Parallel twin dormancy / identity (0.8.2)
+            activateAfter: proj.activateAfter || 0,
+            isParallelSecond: !!proj.isParallelSecond,
+            isParallelPrimary: !!proj.isParallelPrimary
+        };
+    }
+
     global.generateProjectileId = generateProjectileId;
     global.ensureProjectileId = ensureProjectileId;
     global.pushGameProjectile = pushGameProjectile;
     global.createProjectileList = createProjectileList;
+    global.serializeProjectileForNetwork = serializeProjectileForNetwork;
+
+    if (typeof module !== 'undefined' && module.exports) {
+        module.exports = {
+            generateProjectileId,
+            ensureProjectileId,
+            pushGameProjectile,
+            createProjectileList,
+            serializeProjectileForNetwork
+        };
+    }
 })(typeof window !== 'undefined' ? window : globalThis);

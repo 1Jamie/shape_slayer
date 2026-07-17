@@ -571,6 +571,10 @@ class RectangleEnemy extends EnemyBase {
 
         drawColor = this.getFlashDrawColor(drawColor);
 
+        const phaseAlpha = (typeof this.getDrawAlpha === 'function') ? this.getDrawAlpha() : 1;
+        ctx.save();
+        ctx.globalAlpha = phaseAlpha;
+
         // Voxel damage: draw body to offscreen canvas, punch destroyed cells out, blit back
         const _w = this.width * multiplier;
         const _h = this.height * multiplier;
@@ -594,6 +598,8 @@ class RectangleEnemy extends EnemyBase {
             ctx.fill();
             ctx.restore();
         }
+
+        ctx.restore();
 
 
         // Draw status effects (burn, freeze)

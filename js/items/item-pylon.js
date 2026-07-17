@@ -494,10 +494,25 @@ function renderItemPylons(ctx) {
     }
 }
 
+/** Snapshot fields for multiplayer game_state (host → clients). */
+function serializeItemPylonForNetwork(pylon) {
+    if (!pylon) return null;
+    return {
+        id: pylon.id,
+        x: pylon.x,
+        y: pylon.y,
+        rarity: pylon.rarity || 'common', // Store the rarity - all players get items of this rarity
+        interactedPlayers: pylon.interactedPlayers ? pylon.interactedPlayers.slice() : [],
+        disappearing: pylon.disappearing || false,
+        disappearProgress: pylon.disappearProgress || 0
+    };
+}
+
 // Export functions
 window.updateItemPylons = updateItemPylons;
 window.checkItemPylonInteraction = checkItemPylonInteraction;
 window.interactWithItemPylon = interactWithItemPylon;
 window.createItemPylon = createItemPylon;
 window.renderItemPylons = renderItemPylons;
+window.serializeItemPylonForNetwork = serializeItemPylonForNetwork;
 

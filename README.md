@@ -2,154 +2,446 @@
 
 **Rogue-like geometry warfare you can launch in a browser. Dodge, dash, and demolish waves of hostile shapes solo or with friends.**
 
-Shape Slayer is a fast, skill-first top-down action roguelike built for quick runs and high replayability. Choose your favorite class of sentient shape, dive into procedurally scaled combat arenas, and stack wild gear affixes that turn every run into a new buildcraft playground.
+Shape Slayer is a fast, skill-first top-down action roguelike. Pick a sentient shape, dive into procedurally generated arenas, stack gear affixes until the build gets weird, and see how far you can push a run. Gear Mode is the game now — Card Mode got deleted on purpose.
+
+Current version: **0.8.2** (see in-game patch notes / `js/version.js`).
 
 ## Why You’ll Love It
 
-- **Arcade-speed combat:** Tight eight-directional movement, snappy attacks, invincible dodges, and a constant flow of enemies.
-- **Boss battles with personality:** Cinematic intros, multi-phase move sets, breakable weak points, and arenas that fight back.
-- **Endless build tinkering:** Loot tiers, legendary effects, class-specific modifiers, and a persistent upgrade hub keep you chasing the next broken combo.
-- **Drop-in multiplayer:** Up to four players can queue up instantly with six-character lobby codes. Host migration and reconnection mean a disconnect won’t kill the run.
-- **Runs anywhere:** No installs, no frameworks-just open the page and start slaying.
+- **Arcade-speed combat:** Tight movement, weapon-weighted feel, invincible dodges, and a constant flow of angry polygons.
+- **Timing that pays off:** Soft recovery after swings, perfect dodges that cut cooldown, perfect interrupts that crit and stagger telegraphs.
+- **Boss fights with personality:** Cinematic intros, multi-phase kits, breakable weak points, and arenas that fight back.
+- **Buildcraft that actually sticks:** Weapon archetypes with real identity, loot tiers, legendaries, class mods, stackable items, and a Nexus hub that permanently upgrades how greedy your drops get.
+- **Biomes that remix the roster:** Same five enemy bases, remixed per biome — plus mid/late elite affixes with readable threat rings.
+- **Safe Rooms mid-run:** Every 5 combat rooms you get a cyan upgrade lounge — level gear, reroll affixes, heal, or (solo) save and come back later.
+- **Drop-in multiplayer:** Up to four players, six-character lobby codes, host migration, reconnection, and client prediction so people stop teleporting across the room.
+- **Runs anywhere:** Open the page. That’s the install process.
 
 ## Jump In
 
 | How you want to play | What to do |
 | --- | --- |
-| **Solo or hot-seat** | Open `index.html` in a modern desktop or mobile browser. That’s it. |
-| **Squad up online** | Open the game, create or join a lobby from the pause menu, share the six-character code, and you’re in. |
+| **Solo or hot-seat** | Open `index.html` via a local server (`npm start` / `node server.js`) or just open the hosted page. Prefer HTTP over raw `file://` so nothing weird breaks. |
+| **Squad up online** | Pause menu → create/join a lobby → share the six-character code. Host hits the Nexus portal when everyone’s ready. |
+
+Production multiplayer already points at `wss://shape-slayer.gpe.pet` if you don’t feel like self-hosting.
+
+## The Loop (Gear Mode)
+
+1. **Nexus** — pick a class, buy permanent upgrades with credits/shards, step through the portal.
+2. **Rooms 1–50** — procedural combat arenas that shift biomes as you climb (Swarm → Prism → Fortress → Fractal → Vortex). Same enemy bases, remixed rules per biome; elites start showing up mid/late.
+3. **Safe Rooms** — after every 5 combat rooms: craft gear, heal, optionally save the run (solo).
+4. **Bosses at 10 / 20 / 30 / 40 / 50** — Swarm King, Twin Prism, Fortress, Fractal Core, Vortex.
+5. **Past 50** — keep going if you’re unhinged; scaling soft-caps so deep runs stay mean without needing scientific notation for HP bars.
+6. **Die (or finish)** — bank leftover credits, collect shards, brag on the scoreboard.
+
+First time here? There’s an actual onboarding coach now, plus **Room 0** — a combat drill dummy arena so you aren’t dropped into glowing mystery boxes with zero explanation.
 
 ## Pick Your Shape
 
-| Class | Fantasy | Signature Moves |
+| Class | Fantasy | Signature Kit |
 | --- | --- | --- |
-| **Warrior** (Square) | Blade-dancing frontline bruiser | Straight-line blade strikes, forward thrust heavy with full i-frames, whirlwind special |
-| **Rogue** (Triangle) | Crit-hunting assassin | Knife barrages, double dodge charges, backstabs that explode damage numbers |
-| **Tank** (Pentagon) | Crowd-controlling bulwark | Life-stealing hammer swings, Shout stun/slow, shield wall that retaliates |
-| **Mage** (Hexagon) | Mobile artillery | Basic spell bolts, piercing beam heavy, blink + nova special with decoy |
+| **Warrior** (Square) | Balanced frontline bruiser | Wide sword cleaves, forward thrust heavy with i-frames, whirlwind special, block stance while standing still |
+| **Rogue** (Triangle) | Crit-hunting assassin | Knife throws, fan-of-knives heavy, shadow clones, double dodge charges, backstab bonus |
+| **Tank** (Pentagon) | Crowd-control bulwark | Life-stealing hammer, Shout stun/slow, shield wall that pulses, retaliatory knockback |
+| **Mage** (Hexagon) | Mobile artillery | Spell bolts, multi-charge piercing beam, blink + nova with decoy |
 
-Every class has bespoke config-tuned stats, animations, and gear synergies-rotate through them to learn how each handles the escalating chaos.
+Stats, cooldowns, and tooltip copy live in the class configs — rotate through them when the escalating chaos starts disrespecting your main.
 
 ## What’s Waiting in the Arenas
 
 ### Combat That Rewards Movement
-- Dash through swarms, bait elite assassins, and kite projectile barrages across oversized 2400×1350 arenas built for momentum.
-- Screen shake, hit pause, crit/backstab markers, and pop-up damage/heal numbers reinforce every big play.
-- When enemies hide off-screen, smart enemy arrows point you straight to the last stragglers so pacing never dies.
+- Procedural layouts (roads, gauntlets, mazes, arenas, crossroads, wilds) with obstacles, landmarks, and biome scenery — not one fixed rectangle forever.
+- Soft turn-rate recovery after swings (dodge-cancelable, short dodge buffer) so commits feel weighted without soft-locking you.
+- **Perfect dodge** on a real attack → half dodge cooldown. **Perfect interrupt** during telegraph → forced crit + stagger (bosses/elites get interrupt lockout + hyper-armor flash).
+- Screen shake, hit pause scaled by weapon type, crit/backstab markers, damage/heal numbers, and **voxel fracture** so enemies chip apart instead of politely vanishing.
+- Off-screen enemy arrows keep pacing alive when something’s hiding in a corner.
 
 ### Boss Fights Worth Showing Off
-- Room 10 onward kicks off a boss gauntlet: Swarm King, Twin Prism, Fortress, Fractal Core, and the vortexing final boss.
-- Each fight brings unique hazards (shockwaves, pull fields, collapsing debris) and phase shifts at 50%/25% HP that force you to adapt.
-- Crack glowing weak points for 3× bonus damage, stack the loot guarantees, and bask in the dramatic intros (or skip them with a tap if you’re on a speedrun).
+- Five bosses on a 10-room cadence through the canonical 50-room climb.
+- Phase shifts, unique hazards (shockwaves, pull fields, collapsing debris…), and weak points that eat bonus damage when you crack them.
+- Skip intros with a tap if you’re speedrunning / impatient / both.
 
 ### Buildcrafter’s Playground
-- Discover weapons that transform your kit: dual-hit “Parallel” blades, long-reaching “Vector” polearms, or “Obtuse” heavy hitters with built-in knockback and stuns.
-- Armor archetypes push you toward niche play: “Fractal” light armor fuels speed junkies, while “Tessellated” plating makes you an immovable crowd-control machine.
-- Legendary effects add run-defining perks like Phoenix Down revives, Chain Lightning procs, Berserker Rage risk/reward, and time-slow gimmicks.
-- Keep earning currency to feed the Nexus hub’s permanent upgrades, unlocking new stat ceilings across every class.
+- Weapons that rewrite your kit: dual-hit **Parallel**, long-reach **Vector**, chunky **Obtuse**, snappy **Acute** — basics *and* heavies respect the type.
+- Armor archetypes for niches: **Fractal** speed junkies, **Tessellated** immovable objects, **Membrane** cooldown goblins, **Polygon** “just make me tankier.”
+- Orange legendaries for run-defining chaos (Phoenix Down, Glass Cannon, Chain Lightning, etc.).
+- Stackable **items** drop from combat too — shields, auras, execute toys, the usual “one more and this build is illegal” pile.
+- Nexus **Index** catalogs gear affixes, items, weapons (Feel / Pitch / Leans Toward), enemies (bases + biome chips), and elite affixes — discovery-locked where it matters.
+- Credits fund class upgrades + Safe Room crafting. Shards fund Nexus gear meta (drop luck, affix capacity, Safe Room power). Yes the save key is still named `cardShards`. We’re living with it.
+
+## Safe Rooms & Nexus Meta
+
+### Safe Rooms (credits)
+| Machine | What it does |
+| --- | --- |
+| **Gear Level Up** | Spend credits → +4% stats on that piece (caps climb via Nexus) |
+| **Affix Reroll** | Pick a slot, reroll it, accept fate |
+| **Raise Rarity** | Bump tier once you’ve unlocked Rarity Forge power |
+| **Healer** | Free once per visit — grows max HP a bit, then tops you off |
+| **Save Run** (solo) | Checkpoint the whole run and bounce back to Nexus without ending it |
+
+Rooms **9 / 19 / 29…** also get a pre-boss heal booth (+25% max HP) after the room clears, because walking into geometry finals on 12 HP is rude.
+
+### Nexus Gear Upgrades (shards)
+Machines unlock as you actually progress:
+
+| Station | Unlocks after |
+| --- | --- |
+| **Rarity Chance** | Clear Room 5 |
+| **Affix Capacity** | Defeat Swarm King |
+| **Safe Room Systems** | Defeat Twin Prism |
+| **Safe Room Efficiency** | Defeat Fortress |
+
+Candy aisle stays locked on purpose. Earn your orange luck.
 
 ## Loot & Affixes
 
 ### Weapon Archetypes
 
-| Archetype | Highlights |
-| --- | --- |
-| Acute (fast) | 30% quicker swings, slight damage tradeoff, free move speed boost |
-| Obtuse (heavy) | Chunkier hits, bonus knockback, 15% stun chance |
-| Vector (reach) | Extended melee range and projectile travel | 
-| Parallel (dual) | Double-hit basics, built-in crit, low per-hit damage |
+| Archetype | Feel | Highlights |
+| --- | --- | --- |
+| **Acute** (fast) | Light hitpause, quick recovery | ~30% quicker swings, slight damage tradeoff, move speed; leans speed / crit / rampage |
+| **Obtuse** (heavy) | Chunky hitpause, longer commit | Harder hits, bonus knockback, 15% stun; leans execute / explosions |
+| **Vector** (reach) | Extended geometry | Melee arcs, projectiles, beams / thrusts / shouts stretch farther; leans pierce / chain / volleys |
+| **Parallel** (dual) | Twin staggered contacts (~55ms) | ~Half damage each contact (parity DPS), denser status/procs on basics *and* heavies |
+
+Pickup tooltips show a one-liner. Expand **[Index Machine](#index-machine)** below for the full Feel / Pitch / Leans Toward writeups (same catalog as the Nexus Index — everything unlocked here). Purple/orange weapons also roll type accent affix pools; basics stay universal but weighted by type.
 
 ### Armor Archetypes
 
 | Archetype | Highlights |
 | --- | --- |
-| Fractal (light) | +20% speed, extra dodge charge, dodge damage reduction |
-| Polygon (medium) | Baseline defense plus flat 10% HP |
-| Tessellated (heavy) | Huge defense, interrupt/knockback immunity, slight speed penalty |
-| Membrane (cloth) | 15% cooldown reduction and faster projectiles |
+| Fractal (light) | Speed + extra dodge charge + dodge DR (less defense) |
+| Polygon (medium) | Baseline defense + flat HP |
+| Tessellated (heavy) | Huge defense, interrupt/knockback immunity, slight speed tax |
+| Membrane (cloth) | Cooldown reduction + faster projectiles |
 
 ### Legendary Effects (Orange Tier)
 
 | Effect | What it does |
 | --- | --- |
-| Vampiric | 8% lifesteal on everything |
-| Incendiary | Adds a 3 s burn DoT based on damage dealt |
-| Freezing | 20% chance to slow enemies by 50% for 2 s |
-| Thorns | Reflects 25% damage back at attackers |
-| Berserker Rage | +25% damage with -20% defense tradeoff |
-| Glass Cannon | +45% damage but -40% max HP |
-| Phoenix Down | Auto-revive each room at 30% HP (recharges through damage) |
-| Time Dilation | Slows time 20% on hit |
+| Vampiric | 6% lifesteal |
+| Incendiary | Burn DoT based on damage dealt |
+| Freezing | 20% chance to slow hard for 2s |
+| Thorns | Reflects 25% damage |
+| Berserker Rage | +25% damage / −20% defense |
+| Glass Cannon | +45% damage / −40% max HP |
+| Phoenix Down | Auto-revive once per room at 30% HP |
+| Time Dilation | Slows time on hit |
 | Chain Lightning | Forks to two extra enemies at 60% damage |
 
 ### Affix Pools
 
-**Basic Tier**
+**Basic:** movementSpeed, attackSpeed, projectileSpeed, maxHealth, knockbackPower
 
-| Affix | Slots | Effect |
-| --- | --- | --- |
-| movementSpeed | armor, accessory | +10–15% movement speed |
-| attackSpeed | weapon, accessory | +10–20% attack speed |
-| projectileSpeed | weapon, accessory | +15–25% projectile speed |
-| maxHealth | armor | +15–40 flat HP |
-| knockbackPower | weapon | +20–50% knockback |
+**Advanced:** critChance, critDamage, lifesteal, cooldownReduction, areaOfEffect, plus class toys (whirlwind/thrust, clone/dash, shield width, beam tick/duration…)
 
-**Advanced Tier**
+**Rare:** dodgeCharges, pierce, chainLightning, execute, rampage, multishot, phasing, explosiveAttacks, fortify, overcharge, beamCharges/penetration, and more class-specific nonsense
 
-| Affix | Slots | Effect |
-| --- | --- | --- |
-| critChance | weapon, accessory | +5–15% crit chance |
-| critDamage | weapon | +15–45% crit damage multiplier |
-| lifesteal | weapon, armor | +3–10% lifesteal |
-| cooldownReduction | accessory, armor | -8–15% cooldowns (up to 75% cap) |
-| areaOfEffect | weapon | +12–28% AoE radius |
-| beamTickRate | weapon, accessory | 15–35% faster Mage beam ticks |
-| beamDuration | weapon, accessory | +20–50% Mage beam duration |
+Purple/orange gear can also roll class modifiers that shove builds into absurd territory. Affix slot caps grow with Nexus upgrades — early greens are humble on purpose.
 
-**Rare Tier**
+## Index Machine
 
-| Affix | Slots | Effect |
-| --- | --- | --- |
-| dodgeCharges | armor, accessory | +1 dodge charge |
-| pierce | weapon | +1–3 projectile pierce |
-| chainLightning | weapon | +1–2 chain targets |
-| execute | weapon | +25–50% damage vs enemies under 30% HP |
-| rampage | weapon, accessory | +4–12% stacking damage per kill (up to 5 stacks) |
-| multishot | weapon | +1–2 additional projectiles |
-| phasing | armor, accessory | +10–25% chance to ignore collisions |
-| explosiveAttacks | weapon | +12–25% chance to spawn explosions on hit |
-| fortify | armor | Converts 5–15% damage dealt into a decaying shield |
-| overcharge | accessory | +15–30% chance to refund heavy/special/dodge cooldowns |
-| beamCharges | weapon, accessory | +1 Mage beam charge |
-| beamPenetration | weapon, accessory | +1–2 beam penetration |
+Same encyclopedia the Nexus Index uses — weapons, enemies, biomes, elite affixes — with every entry open. In-game, enemies and elite affixes unlock as you meet them; here nothing is locked.
 
-Legendary gear always rolls one of the effects above **in addition** to its affixes, and purple/orange items can carry class-specific modifiers that push builds into truly absurd territory.
+**Jump:** [Weapons](#index-weapons) · [Armor](#index-armor) · [Enemies](#index-enemies) · [Biomes](#index-biomes) · [Elite Affixes](#index-elite-affixes) · [Timing](#index-timing)
+
+<a id="index-weapons"></a>
+<details>
+<summary><strong>Weapons</strong> — Acute · Obtuse · Vector · Parallel</summary>
+
+<details>
+<summary><strong>Acute</strong> — fast &amp; light</summary>
+
+- **Feel:** Light hitpause, quick recovery, shorter commitment after each swing.
+- **Pitch:** Built for tempo. Basics and heavies come out sooner; you stay mobile between hits.
+- **Leans toward:** Attack speed, crit chance, rampage, and other density tools.
+- **Numbers:** ~0.95× damage, ~0.7× cooldown, +15% move speed.
+
+</details>
+
+<details>
+<summary><strong>Obtuse</strong> — slow &amp; heavy</summary>
+
+- **Feel:** Chunky hitpause and longer recovery — each connect feels like a commit.
+- **Pitch:** Trades speed for punch. Stronger per-hit damage and shove; heavies hit like a statement.
+- **Leans toward:** Knockback, crit damage, execute, and explosive finishers.
+- **Numbers:** ~1.25× damage, ~1.15× cooldown, +50% knockback, 15% stun chance.
+
+</details>
+
+<details>
+<summary><strong>Vector</strong> — long reach</summary>
+
+- **Feel:** Extended melee arcs, longer projectile travel, and farther beams / shouts / thrusts.
+- **Pitch:** Keep distance or cover more ground per swing. Identity is geometry, not raw DPS.
+- **Leans toward:** Range, pierce, chain lightning, multishot, and volley tools.
+- **Numbers:** ~1.5× melee reach, extra projectile travel.
+
+</details>
+
+<details>
+<summary><strong>Parallel</strong> — twin staggered contacts</summary>
+
+- **Feel:** Two staggered contacts (~55ms apart). Total damage matches a normal weapon; status and procs can roll twice.
+- **Pitch:** Not double DPS — double tick density. Basics, heavies, beams, fans, and thrusts all twin in their own way.
+- **Leans toward:** Attack speed, status/proc density, and tools that love hitting more often.
+- **Numbers:** Two contacts at ~half damage each (parity DPS), small crit bonus.
+
+</details>
+
+</details>
+
+<a id="index-armor"></a>
+<details>
+<summary><strong>Armor</strong> — Fractal · Polygon · Tessellated · Membrane</summary>
+
+<details>
+<summary><strong>Fractal</strong> (light)</summary>
+
+Speed junkie shell: lower defense, +move speed, extra dodge charge, dodge damage reduction.
+
+</details>
+
+<details>
+<summary><strong>Polygon</strong> (medium)</summary>
+
+Baseline defense with a flat HP bump — the “just make me tankier” default.
+
+</details>
+
+<details>
+<summary><strong>Tessellated</strong> (heavy)</summary>
+
+Huge defense, interrupt + knockback immunity, slight move-speed tax. Stand still and be rude.
+
+</details>
+
+<details>
+<summary><strong>Membrane</strong> (cloth)</summary>
+
+Cooldown reduction and faster projectiles — glassier body, snappier kit.
+
+</details>
+
+</details>
+
+<a id="index-enemies"></a>
+<details>
+<summary><strong>Enemies</strong> — five bases remixed by biome</summary>
+
+<details>
+<summary><strong>Circle</strong> — Swarmer</summary>
+
+- **Blurb:** Melee pack pressure — lunges after a short telegraph.
+- **Description:** The basic melee shape. Closes in, winds up a lunge, and commits. Later rooms add feints, combo lunges, surround pressure, and smarter group behavior.
+- **Tells:** Telegraph flash before the lunge. Watch pack spacing — they push together.
+
+</details>
+
+<details>
+<summary><strong>Diamond</strong> — Assassin</summary>
+
+- **Blurb:** Orbits, then snaps in with a fast dash.
+- **Description:** Keeps mid-range, circles you, and dashes through after a very short telegraph. Later rooms unlock feints, combo dashes, and nastier positioning.
+- **Tells:** Cyan diamond weaving at orbit distance — dash is fast; the windup is short.
+
+</details>
+
+<details>
+<summary><strong>Triangle</strong> — Ranger</summary>
+
+- **Blurb:** Keeps distance and shoots — panics when you close.
+- **Description:** Ranged triangle that tries to stay outside your comfort zone. Burst fire, predictive aim, and volleys unlock as rooms climb. Get close and it backpedals with messy panic shots.
+- **Tells:** Orange triangle at long range. Projectile windups before shots; wider fans when cornered.
+
+</details>
+
+<details>
+<summary><strong>Rectangle</strong> — Brute</summary>
+
+- **Blurb:** Slow windup into a slam AoE.
+- **Description:** Tanky and deliberate. Charges a slam, then hits a wide ground AoE. Later rooms add fake-out timing, combos, and defensive tricks when low.
+- **Tells:** Big red charge ring while winding up. Leave the circle or interrupt the commit.
+
+</details>
+
+<details>
+<summary><strong>Octagon</strong> — Commander</summary>
+
+- **Blurb:** Hybrid elite base — spin, charge, shots, and minions.
+- **Description:** Heavier hybrid that mixes melee spin/charge with projectile volleys and minion summons. Treat it like a mini-commander, not a normal trash mob.
+- **Tells:** Purple outline. Watch for spin telegraphs, shot volleys, and circle spawns around it.
+
+</details>
+
+</details>
+
+<a id="index-biomes"></a>
+<details>
+<summary><strong>Biomes</strong> — how the roster gets remixed</summary>
+
+<details>
+<summary><strong>Swarm</strong></summary>
+
+Pack pressure — denser, slightly faster packs.
+
+</details>
+
+<details>
+<summary><strong>Prism</strong></summary>
+
+Wider ranged volleys and messier projectile spreads.
+
+</details>
+
+<details>
+<summary><strong>Fortress</strong></summary>
+
+Braced — tankier, longer telegraphs, harder hits.
+
+</details>
+
+<details>
+<summary><strong>Fractal</strong></summary>
+
+Echo afterimages on hit/death (pooled hitboxes, not new enemies).
+
+</details>
+
+<details>
+<summary><strong>Vortex</strong></summary>
+
+Pull during telegraphs — get dragged into commits.
+
+</details>
+
+<details>
+<summary><strong>Endless</strong> (past room 50)</summary>
+
+Late mix — light echoes + pull pressure.
+
+</details>
+
+</details>
+
+<a id="index-elite-affixes"></a>
+<details>
+<summary><strong>Elite Affixes</strong> — one cheat code + jagged threat ring</summary>
+
+Mid/late rooms can roll a single elite affix. Pools change by biome.
+
+<details>
+<summary><strong>Fortify</strong></summary>
+
+- **Blurb:** Harder to punish during windup.
+- **What it does:** Takes much less damage while telegraphing / charging. Wait for the commit or find another angle.
+- **Tell:** Jagged threat ring. Tankier only during the windup — not permanently armored.
+- **Pools:** Swarm, Fortress, Endless.
+
+</details>
+
+<details>
+<summary><strong>Phasing</strong></summary>
+
+- **Blurb:** Briefly unhittable after committing an attack.
+- **What it does:** On attack commit, slips into a short phase window where hits do not land. Body goes translucent / wireframe while active.
+- **Tell:** Threat ring + sudden ghosted body. Do not empty a heavy into the phase window.
+- **Pools:** Prism, Fractal, Endless.
+
+</details>
+
+<details>
+<summary><strong>Multishot</strong></summary>
+
+- **Blurb:** Extra projectiles on ranged attacks.
+- **What it does:** Ranged patterns fire an extra projectile. Especially nasty on stars and other shooters.
+- **Tell:** Threat ring on a shooter. Expect wider / denser volleys than the base pattern.
+- **Pools:** Prism, Vortex.
+
+</details>
+
+<details>
+<summary><strong>Volatile</strong> (explosive attacks)</summary>
+
+- **Blurb:** Explodes on death in a small radius.
+- **What it does:** Death blast around the corpse. Finish at range or dodge the pop — do not stand on the kill.
+- **Tell:** Threat ring. After the kill, give the body space for a beat.
+- **Pools:** Fortress, Fractal.
+
+</details>
+
+<details>
+<summary><strong>Arc</strong> (chain lightning)</summary>
+
+- **Blurb:** Hits can chain lightning toward you.
+- **What it does:** Combat hits may arc extra damage toward nearby players. Packs with Arc punish clustering.
+- **Tell:** Threat ring. Spread out when several elites or dense packs are up.
+- **Pools:** Swarm, Vortex.
+
+</details>
+
+<details>
+<summary><strong>Execute</strong></summary>
+
+- **Blurb:** Hurts more when you are already low.
+- **What it does:** Deals bonus damage when your HP is under a threshold. Heal before trading; do not linger in execute range.
+- **Tell:** Threat ring. Respect it hardest when you are already bleeding.
+- **Pools:** Vortex, Endless.
+
+</details>
+
+<details>
+<summary><strong>Rampage</strong></summary>
+
+- **Blurb:** Speeds up and hits harder after landing a hit.
+- **What it does:** On a successful hit, briefly buffs move speed and damage. Break contact or kite until the ramp fades.
+- **Tell:** Threat ring. After it tags you, expect a short aggressive chase.
+- **Pools:** Swarm, Fortress, Endless.
+
+</details>
+
+</details>
+
+<a id="index-timing"></a>
+<details>
+<summary><strong>Timing</strong> — recovery, perfect dodge, perfect interrupt</summary>
+
+- **Recovery:** Soft turn-rate lock after swings. Dodge-cancelable; short dodge buffer so you aren’t stuck waiting for the animation to finish.
+- **Perfect dodge:** Dodge through a real attack → half dodge cooldown (VFX only, no currency).
+- **Perfect interrupt:** Hit during telegraph spool → forced crit + stagger. Bosses/elites get an interrupt lockout and a brief hyper-armor flash when denied.
+
+</details>
 
 ## Party Up
 
-- **Zero-fuss lobbies:** Hit the pause menu, generate a code, and have friends join from any device or browser tab.
-- **Smooth experience:** Enjoy buttery 60 FPS interpolation, automatic reconnection attempts, and instant host migration if someone disconnects.
-- **Shared glory:** End-of-run scoreboards highlight damage dealt, kills, room clears, and time alive so you can flex the carry (or blame the throw).
-- **Spectator mode:** If you drop in multiplayer, press `Space` to hop between living teammates and keep calling the shots.
+- Pause menu → lobby code → friends appear from any browser/device.
+- Host is authoritative for combat/loot/rooms; clients get prediction + interpolation so movement feels less like a rubber band.
+- 0.8.2 combat toys sync for clients too: Parallel twin projectiles (dormant stagger), biome echo rings, perfect interrupt/dodge FX, elite explode bursts, hyper-armor flash / rampage timers.
+- Disconnects retry a few times; host drop migrates instead of instantly ending civilization.
+- End-of-run scoreboards flex damage, kills, rooms, time alive.
+- Dead in multiplayer? `Space` spectates living teammates.
 
 ## Controls
 
 ### Keyboard & Mouse
-- Movement: `WASD`
-- Aim: Mouse
-- Basic Attack: `Left Click`
-- Heavy Attack: `Right Click`
-- Dodge: `Shift`
-- Special Ability: `Space`
+- Move: `WASD` · Aim: mouse
+- Basic: `Left Click` · Heavy: `Right Click`
+- Dodge: `Shift` · Special: `Space`
 - Restart / Menu: `R` / `M`
-- Pause / Multiplayer Menu: `ESC`
+- Pause / Multiplayer: `ESC`
 - Debug Panel: `Ctrl+D`
-- Host Action: `G` at the Nexus portal to launch a run
+- Host at Nexus portal: `G` to launch a run
+- Interact (machines, pylons, pads): prompted on-screen (`E` / face button depending on input)
+
+### Gamepad
+- Hot-swap supported — mash another pad and it becomes active.
+- Glyphs adapt for Xbox / PlayStation / Nintendo-ish mappings where we can sniff them.
 
 ### Touch
-- Twin virtual joysticks keep movement and aiming intuitive.
-- Dedicated ability buttons show cooldowns, charges, and activation states.
-- UI repositions itself automatically on rotate or resize so you’re never fighting the interface.
+- Twin virtual joysticks + ability buttons with cooldown/charge feedback.
+- UI reshuffles on rotate/resize so you’re not fighting the chrome.
 
 ## Want to Host Your Own Server?
 
@@ -163,236 +455,126 @@ SERVER_MODE=slave MASTER_SERVER_IP=10.0.0.100 WORKER_COUNT=4 npm start   # scale
 ```
 
 - Default WebSocket port: **4000**
-- Configure lobby size, interpolation, and reconnect behavior in `js/mp-config.js`
-- Sample production URL (`wss://shape-slayer.gpe.pet`) ships ready to play if you don’t want to self-host
+- Lobby / interpolation / reconnect knobs: `js/mp-config.js`
+- Don’t want to self-host? Production URL (`wss://shape-slayer.gpe.pet`) ships ready.
+
+Local static game shell from repo root:
+
+```bash
+npm start    # or: node server.js
+```
+
+Full harness (MP + metrics ingest + dashboard):
+
+```bash
+npm run server
+```
 
 ## Credits & Community
 
-Shape Slayer is an evolving passion project focused on readability, responsiveness, and relentless fun. Dive in, break the build systems, and let us know what ridiculous combos you discover.
+Passion project. Readability, responsiveness, relentless fun. Break the build systems. Tell me what ridiculous combo you found.
 
-- **Bugs or ideas?** Open an issue on GitHub.
-- **Want to contribute?** The codebase is plain vanilla JavaScript-fork it and go wild.
-- **Need help?** Check the in-game debug panel (`Ctrl+D`), the console, or server logs for detailed output.
+- **Bugs or ideas?** Open a GitHub issue.
+- **Want to contribute?** Fork it and go wild — vanilla JS + Canvas 2D for the game, DOM components under `ui/`, plain CSS under `css/ui/`. No framework, no render engine.
+- **Need help?** In-game debug panel (`Ctrl+D`), browser console, or server logs.
 
-## Classes
-
-| Class | Role | Signature Kit |
-| --- | --- | --- |
-| Warrior (Square) | Balanced bruiser | Wide sword swings, thrust dash with i-frames, whirlwind special |
-| Rogue (Triangle) | High mobility assassin | Crit-focused basics, fan-of-knives heavy, shadow-clone special, backstab bonus |
-| Tank (Pentagon) | Crowd control & sustain | Hammer lifesteal basics, Shout stun/slow heavy, directional shield special, retaliatory knockback passive |
-| Mage (Hexagon) | Ranged spellcaster | Charged bolts, beam heavy, blink + nova special, beam-specific gear synergies |
-
-Class tooltips in the Nexus pull straight from the config templates, so designer-written copy stays accurate as balance changes.
+Music so far is sourced from Pixabay (copyright-free audio): [https://pixabay.com](https://pixabay.com)
 
 ## Enemies & Bosses
 
-- Normal rooms mix circles (swarmers), stars (ranged), diamonds (assassins), rectangles (brutes), and octagons (elites) with threat-table driven aggro.
-- Bosses spawn every five rooms from 10 onward (Swarm King, Twin Prism, Fortress, Fractal Core, Vortex). Each has three escalating phases, bespoke hazards, and guaranteed rare+ loot.
-- Multiplayer scaling adjusts count, HP, and damage per player without overwhelming low-end machines.
+- Trash mix: circles (swarmers), stars (ranged), diamonds (assassins), rectangles (brutes), octagons — same five bases, remixed by biome:
+  - **Swarm** — pack pressure / tighter spacing
+  - **Prism** — wider volleys
+  - **Fortress** — braced HP / telegraphs / damage
+  - **Fractal** — delayed echo hitboxes on hit/death
+  - **Vortex** — pull during telegraph + aggressive tracking
+  - **Endless** (past 50) — mild mix of the above
+- Mid/late rooms can roll one **elite affix** (rampage, phasing, execute, explosive attacks, etc.) with a jagged threat ring; phasing enemies go translucent.
+- Bosses every 10 rooms from 10 onward through the 50-room climb; each has escalating phases, hazards, and juicy loot.
+- Multiplayer scaling adjusts count / HP / damage per player without instantly melting low-end machines.
+- Kill payouts: trash pays now (not just elites/bosses). Credits bank **on kill**. Decade bumps keep late trash from feeling like pocket lint.
+- Discover enemies and elite affixes in the Nexus **Index** (bases + biome chips; elite affixes are their own tab). Full unlocked catalog also lives in **[Index Machine](#index-machine)** above.
 
-## Gear Reference
+## Progression & Saves
 
-### Weapon Archetypes
-
-| Archetype | Notes |
-| --- | --- |
-| Acute (fast) | 30% faster attacks, slight damage nerf, +15% move speed |
-| Obtuse (heavy) | 25% more damage, slight speed penalty, bonus knockback & 15% stun chance |
-| Vector (reach) | Longer melee reach and projectile travel range |
-| Parallel (dual) | Double-hit basics, crit bonus, lower per-hit damage |
-
-### Armor Archetypes
-
-| Archetype | Notes |
-| --- | --- |
-| Fractal (light) | -25% defense, +20% speed, +1 dodge charge, dodge damage reduction |
-| Polygon (medium) | Flat 10% health bonus, baseline defense |
-| Tessellated (heavy) | +30% defense, -10% speed, interrupt & knockback immunity |
-| Membrane (cloth) | +15% cooldown reduction, +20% projectile speed |
-
-### Legendary Effects (Orange Tier)
-
-| Effect | Description |
-| --- | --- |
-| Vampiric | +8% lifesteal on all damage sources |
-| Incendiary | Applies 3 s burn DoT based on damage dealt |
-| Freezing | 20% slow chance with 50% reduction for 2 s |
-| Thorns | Reflects 25% incoming damage |
-| Berserker Rage | +25% damage, -20% defense |
-| Glass Cannon | +45% damage, -40% max HP |
-| Phoenix Down | Auto-revive once per room at 30% HP (recharges via damage dealt) |
-| Time Dilation | 20% time-slow effect |
-| Chain Lightning | Chains damage to two extra targets at 60% power |
-
-Purple/orange gear can also roll class modifiers (e.g., +1 Rogue dodge charge, +150 Mage blink range, +1 Tank shield second, universal cooldown reductions), enabling run-defining builds.
-
-### Affix Tables
-
-**Basic Tier**
-
-| Affix | Slots | Effect |
-| --- | --- | --- |
-| movementSpeed | armor, accessory | +10–15% movement speed |
-| attackSpeed | weapon, accessory | +10–20% attack speed |
-| projectileSpeed | weapon, accessory | +15–25% projectile speed |
-| maxHealth | armor | +15–40 flat HP |
-| knockbackPower | weapon | +20–50% knockback |
-
-**Advanced Tier**
-
-| Affix | Slots | Effect |
-| --- | --- | --- |
-| critChance | weapon, accessory | +5–15% crit chance |
-| critDamage | weapon | +15–45% crit damage multiplier |
-| lifesteal | weapon, armor | +3–10% lifesteal |
-| cooldownReduction | accessory, armor | -8–15% ability cooldowns (caps at 75%) |
-| areaOfEffect | weapon | +12–28% AoE radius |
-| beamTickRate | weapon, accessory | 15–35% faster Mage beam ticks |
-| beamDuration | weapon, accessory | +20–50% Mage beam duration |
-
-**Rare Tier**
-
-| Affix | Slots | Effect |
-| --- | --- | --- |
-| dodgeCharges | armor, accessory | +1 dodge charge |
-| pierce | weapon | +1–3 projectile pierce |
-| chainLightning | weapon | +1–2 chain targets |
-| execute | weapon | +25–50% bonus damage vs enemies under 30% HP |
-| rampage | weapon, accessory | +4–12% stacking damage per Rampage stack (caps at 5 stacks) |
-| multishot | weapon | +1–2 additional projectiles |
-| phasing | armor, accessory | +10–25% chance to ignore collisions |
-| explosiveAttacks | weapon | +12–25% chance to spawn explosions on hit |
-| fortify | armor | Converts 5–15% dealt damage into decaying shields |
-| overcharge | accessory | +15–30% chance to refund heavy/special/dodge cooldowns |
-| beamCharges | weapon, accessory | +1 Mage beam charge |
-| beamPenetration | weapon, accessory | +1–2 beam penetration |
-
-Legendary items always receive one of the effects above in addition to their rolled affixes.
-
-## Controls
-
-### Keyboard & Mouse
-- `WASD` move, mouse aims.
-- `Left Click` basic attack, `Right Click` heavy attack.
-- `Shift` dodge, `Space` special ability, `R` restart, `M` main menu.
-- `ESC` opens pause/multiplayer menu, `Ctrl+D` toggles debug panel.
-- Host-exclusive: `G` at the Nexus portal starts a run.
-
-### Touch & Hybrid
-- Dual virtual joysticks for movement and aiming.
-- Dedicated buttons for heavy, special, and dodge with charge counters and cooldown shading.
-- Auto-layout recalculates on viewport resize/orientation change.
-
-### Spectator Mode
-- In multiplayer, dead players can press `Space` to follow teammates. HUD shows the tracked player and enemy arrows still assist navigation.
-
-## Multiplayer Workflow
-
-1. Host launches the WebSocket server and game client, creates a lobby, and shares the six-character code.
-2. Clients join from new browser windows or devices; upgrades and currency sync from their save data.
-3. Host selects `G` in the Nexus to start the run. Host remains authoritative for combat, loot, and room transitions.
-4. Disconnections trigger up to three automated reconnection attempts. If the host drops, the worker assigns a new host and sends `host_migrated`.
-5. End-of-run stats (damage dealt, kills, rooms cleared, time alive) broadcast from the host for a shared death screen.
-
-Configure endpoints, interpolation, and reconnection caps in `js/mp-config.js`.
-
-## Progression & Meta Systems
-
-- `SaveSystem` persists currency, per-class upgrade levels, selected class, control mode, fullscreen preference, audio settings, and modal state in `localStorage`.
-- Update and launch modals surface patch notes from `js/version.js` whenever `GameVersion.VERSION` changes.
-- Player stats tracking (`PlayerStats`) records run metrics for final summaries and cross-player comparisons.
-- Nexus layout includes class pads (left wing) and upgrade stations (right wing) with interactable pads in both desktop and touch modes.
+- `SaveSystem` parks currency, shards, per-class upgrades, gear meta, selected class, control mode, audio, onboarding flags, and more in `localStorage`.
+- Update / launch / privacy modals surface from `js/version.js` when the version bumps.
+- Solo Safe Room **Save Run** stores the real mid-run state (room, gear, items, HP, etc.) and resumes from that Safe Room — checkpoint consumes on load so you can’t duplicate infinite money. Multiplayer babysits itself instead.
+- While a saved run exists, Nexus mostly just wants you to hit the portal again (no sneaking a pile of meta upgrades into a mid-run demon build).
 
 ## Debugging & Testing
 
-- Toggle the debug panel with `Ctrl+D` or `DebugPanel.toggle()` to warp to rooms 1–30 or enter a custom room number.
-- Verbose logging flags live under `DebugFlags` (e.g., enable `DebugFlags.DAMAGE_NUMBERS = true` for sync investigations).
-- Automated Puppeteer test for multiplayer damage-number parity:
-  ```bash
-  cd tests
-  npm install
-  node damage-numbers.test.js
-  ```
-  The test spins up the server, launches host/client browsers, and validates send/receive/render stages with logged checkpoints.
+- `Ctrl+D` / `DebugPanel.toggle()` — warp rooms, poke flags, stare at FPS.
+- Verbose flags under `DebugFlags` (e.g. damage-number sync investigations).
+- Balance / regression scripts from repo root (`package.json`):
+
+```bash
+npm run balance:gear
+npm run balance:full-run
+npm run balance:economy
+npm run test:combat-scaling
+npm run test:combat-economy
+npm run test:feature-tutorials
+# …plus more under npm run test:*
+```
+
+Puppeteer-style MP checks still live under `tests/` — see `tests/README.md`.
 
 ## Project Structure
 
 ```
 shape_slayer/
-├── index.html                 # Game shell
-├── server.js                  # Optional static dev server (port 3000)
-├── css/style.css              # UI styling
+├── index.html                 # Game shell + script load order
+├── server.js                  # Optional static / PWA-friendly local server
+├── sw.js / manifest.json      # Service worker + PWA bits
+├── css/ui/                    # Hand-edited UI CSS (legacy .scss files may linger; edit the .css)
 ├── js/
 │   ├── main.js                # Game loop, camera, state machine, run orchestration
-│   ├── ui.js                  # HUD, menus, scoreboards, enemy arrows, modals
-│   ├── combat.js              # Damage, crit, execute, rampage, lifesteal, legendary procs
-│   ├── level.js               # Room generation, scaling, boss spawning
-│   ├── gear.js                # Loot rolls, affix pools, class modifiers, legendary effects
-│   ├── players/               # Base player + Warrior/Rogue/Tank/Mage subclasses
-│   ├── enemies/               # Enemy archetypes with threat/aggro logic
-│   ├── bosses/                # Boss implementations and hazard system
-│   ├── multiplayer.js         # Client-side lobby/state management
-│   ├── mp-config.js           # Multiplayer tuning knobs
-│   ├── interpolation.js       # Client smoothing and extrapolation helpers
-│   ├── audio.js               # Procedural Web Audio soundscape
-│   ├── touch-controls.js      # Virtual joystick/button system
-│   ├── nexus.js               # Hub layout, upgrade pads, class info
-│   ├── save.js                # Persistence helpers
-│   ├── debug.js               # DebugPanel & DebugFlags
-│   └── version.js             # Patch notes & tagging
-├── server/                    # WebSocket host (single, clustered, slave modes)
-│   ├── mp-server.js / master / worker
-│   ├── config.js              # Host/port/Redis config
-│   └── package.json
-├── tests/                     # Puppeteer regression suite
-│   ├── damage-numbers.test.js
-│   ├── README.md
-│   └── package.json
-├── MULTIPLAYER.md             # In-depth multiplayer docs
-├── spec_sheet.md              # Design spec
-├── implementation_plan.md     # Roadmap
-└── DAMAGE_NUMBERS_*.md        # Debug notes & final report
+│   ├── combat.js              # Damage, weapon-type feel, perfect dodge/interrupt, legendaries
+│   ├── combat-scaling.js      # Room/boss/MP scaling (50-room gear cadence)
+│   ├── combat-economy.js      # Kill credits + affordability helpers
+│   ├── level.js               # Room generation hooks, bosses, Safe Rooms
+│   ├── biomes.js              # Biome defs + gear progression map
+│   ├── room-layout-generator.js
+│   ├── gear.js                # Loot rolls, weapon/armor types, affixes, legendaries, crafting
+│   ├── items/                 # Stackable passive items + pylons
+│   ├── players/               # Base + Warrior/Rogue/Tank/Mage (recovery, Parallel heavies)
+│   ├── enemies/ · bosses/     # Trash + boss kits; biome mods + elite affixes
+│   ├── multiplayer.js         # Client lobby / sync / prediction / combat FX
+│   ├── mp-config.js           # Multiplayer tuning
+│   ├── nexus.js               # Hub, class pads, gear upgrade stations
+│   ├── onboarding.js · room0-tutorial.js · feature-tutorials.js · coach-transition.js
+│   ├── voxel-fracture.js      # Hit punch-out / death shatter VFX
+│   ├── render.js · input.js · touch-controls.js · device-detection.js
+│   ├── audio.js · music-manager.js
+│   ├── save.js · telemetry.js · debug.js · version.js
+│   └── …
+├── ui/                        # DOM UI (menus, HUD, Safe Room, Index, gear shops)
+├── server/                    # WebSocket host (single / clustered / slave)
+├── harness/                   # One-command MP + metrics + dashboard
+├── metrics/                   # Ingest service + analytics GUI
+├── tests/                     # Node tests, balance sims, Puppeteer checks
+└── docs/                      # Design notes / living changelogs (not always player-facing)
 ```
+
+Card Mode used to live under `js/cards/` and a pile of door/hand UIs. Those files are gone. If a doc still talks about decks, it’s historical.
 
 ## Telemetry & Analytics
 
-- **Service Harness** (`harness/index.js`) orchestrates the multiplayer server, metrics ingestion service, and metrics dashboard from a single command. Run `npm run server` at the repo root to start all three; logs stream to the console and persist at `harness/logs/*.log`. Use `--only=mp,metrics`, `--skip=gui`, or `--list` to control which services run, and `--log-dir=/custom/path` to override the log destination.
-- **Client instrumentation** (`js/telemetry.js`) collects per-run metrics (damage, hits, room timings, boss encounters) in solo or multiplayer host sessions. Data posts to the ingestion endpoint once a run ends.
-- **Ingestion service** (`metrics/server`) listens on port `4001`, validates payloads, and stores them in SQLite.
-  ```bash
-  cd metrics/server
-  npm install
-  npm run dev            # or npm start for production
-  # optional: node --test tests/ingest.test.js
-  ```
-  Configure the service via environment variables:
-  - `METRICS_PORT` (default `4001`)
-  - `METRICS_DB_PATH` (custom SQLite location)
-  - `METRICS_INGEST_TOKEN` (required header for uploads)
-  Use `samples/sample-run.json` to seed local data while developing the dashboard.
-- **Analytics GUI** (`metrics/gui`) serves a dashboard on port `5000` and reads from the shared SQLite database.
-  ```bash
-  cd metrics/gui
-  npm install
-  npm run dev            # launches on port 5000 by default
-  ```
-  Endpoints:
-  - `GET /api/summary` – aggregate KPIs (runs, modes, affixes, boss stats)
-  - `GET /api/runs?limit=50` – latest runs with damage and hit totals
-  - `GET /api/runs/:runId` – deep dive (players, rooms, boss encounters, affixes)
-- **Testing** – `tests/telemetry-client.test.js` validates serialization logic, and `metrics/server/tests/ingest.test.js` covers payload ingestion + idempotency.
+- **Harness** (`npm run server`) can spin MP + metrics ingest + dashboard together; logs under `harness/logs/`.
+- **Client** (`js/telemetry.js`) ships per-run metrics from solo / host sessions when a run ends.
+- **Ingest** (`metrics/server`, port `4001`) validates payloads into SQLite.
+- **GUI** (`metrics/gui`, port `5000`) for summaries / run deep-dives.
+
+Env knobs include `METRICS_PORT`, `METRICS_DB_PATH`, `METRICS_INGEST_TOKEN`. Details in `metrics/server/README.md`.
 
 ## Troubleshooting
 
-- **Unable to connect** – make sure the WebSocket server is running, the URL in `mp-config.js` matches, and port `4000` is reachable (check firewalls/NAT).
-- **Lobby not found or full** – codes are case-sensitive, expire after an hour, and only support four players. Restart the server to reset stale lobbies.
-- **Performance issues** – check FPS in the debug panel, trim lobby size, or close other tabs; rooms past 18 rely on stat scaling instead of enemy floods.
-- **Sound muted unexpectedly** – toggle mute in the pause menu; state is persisted in `SaveSystem`.
-- **Game fails to load from disk** – prefer `node server.js` or another HTTP server to avoid browser restrictions when loading local files.
+- **Can’t connect** — MP server running? URL in `mp-config.js` / same-origin host correct? Port `4000` reachable?
+- **Lobby missing / full** — codes are case-sensitive, expire ~1 hour, max 4 players. Restart server to clear ghosts.
+- **Performance** — debug FPS, shrink lobby, close tab farms; deep rooms soft-cap density instead of spawning a second city.
+- **Sound muted** — pause menu mute persists via `SaveSystem`.
+- **`file://` weirdness** — use `npm start` / any HTTP server.
+- **Looking for Card Mode** — it was removed in 0.8.0 (“Undeck Yourself”). Gear is the whole product now. Touch grass. Or touch gear. Same vibe.
 
-For additional help, inspect the browser console (`F12`) and the multiplayer server logs. Bug reports and feedback are welcome through GitHub issues.
-
-
-As a note all music so far has been sourced from Pixabay that provides copyright free audio. [https://pixabay.com](https://pixabay.com)
-
+For more help: browser console (`F12`) and multiplayer server logs. Issues welcome on GitHub.

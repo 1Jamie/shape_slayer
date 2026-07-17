@@ -24,7 +24,8 @@
     "test:mp-config": "node --test tests/mp-config.test.js",
     "test:mp-combat-relay": "node --test tests/mp-combat-relay.test.js",
     "test:mp-prediction": "node --test tests/mp-prediction.test.js tests/mp-host-migration.test.js",
-    "metrics:test": "npm test --prefix metrics/server && node --test tests/telemetry-client.test.js tests/path-security.test.js tests/mp-config.test.js tests/mp-combat-relay.test.js tests/mp-prediction.test.js tests/mp-host-migration.test.js"
+    "test:mp-serialize-helpers": "node --test tests/mp-serialize-helpers.test.js",
+    "metrics:test": "npm test --prefix metrics/server && node --test tests/telemetry-client.test.js tests/path-security.test.js tests/mp-config.test.js tests/mp-combat-relay.test.js tests/mp-prediction.test.js tests/mp-host-migration.test.js tests/mp-serialize-helpers.test.js"
   },
   "keywords": [
     "game",

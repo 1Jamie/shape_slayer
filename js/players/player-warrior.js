@@ -27,7 +27,7 @@ const WARRIOR_CONFIG = {
     heavyAttackCooldown: 3.5,      // Cooldown for heavy attack (seconds)
     thrustDistance: 275,           // Distance of forward thrust (pixels)
     thrustDuration: 0.12,          // How long the thrust takes (seconds)
-    thrustDamage: 1.3,             // Damage multiplier for thrust
+    thrustDamage: 2.2,             // Damage multiplier for thrust (once per contact; was multi-frame)
     thrustHitRadius: 13,           // Hit detection radius around thrust path (pixels)
     thrustKnockback: 120,          // Knockback force applied to hit enemies
 
@@ -355,15 +355,37 @@ class Warrior extends PlayerBase {
                 this.y = clamp(this.y, this.size, roomHeight - this.size);
             }
 
-            // Deal damage to enemies along the rushing path (check every frame)
+            // Deal damage to enemies along the rushing path (once per contact; Parallel = twin contacts)
             if (typeof Game !== 'undefined' && Game.enemies) {
                 const thrustDirX = Math.cos(this.rotation);
                 const thrustDirY = Math.sin(this.rotation);
-                const baseThrustDamage = this.damage * WARRIOR_CONFIG.thrustDamage * this.thrustDamageMultiplier; // Apply class modifier
-                const effectiveThrustDistance = WARRIOR_CONFIG.thrustDistance + this.thrustDistanceBonus; // Include bonus
+                const share = (this.thrustDamageShare != null) ? this.thrustDamageShare : 1.0;
+                const baseThrustDamage = this.damage * WARRIOR_CONFIG.thrustDamage * this.thrustDamageMultiplier * share;
+                const reachMult = typeof getWeaponMeleeReachMult === 'function' ? getWeaponMeleeReachMult(this) : (this.weaponRangeMultiplier || 1.0);
+                const effectiveThrustDistance = (WARRIOR_CONFIG.thrustDistance + this.thrustDistanceBonus) * reachMult;
+                const dualStagger = typeof getWeaponDualStaggerSec === 'function' ? getWeaponDualStaggerSec(this) : 0;
+                const isParallel = !!this.thrustIsParallel;
+
+                // Parallel contact-2: hit cached victims once more after stagger
+                if (isParallel && !this.thrustParallelSecondFired && dualStagger > 0
+                    && this.thrustElapsed >= dualStagger
+                    && this.thrustParallelCachedIds && this.thrustParallelCachedIds.length) {
+                    this.thrustParallelSecondFired = true;
+                    this.thrustParallelCachedIds.forEach(id => {
+                        const enemy = (typeof findEnemyByStableId === 'function')
+                            ? findEnemyByStableId(Game.enemies, id)
+                            : Game.enemies.find(e => e && (e.id === id || e.enemyId === id));
+                        if (!enemy || !enemy.alive) return;
+                        this.applyThrustHitToEnemy(enemy, baseThrustDamage, thrustDirX, thrustDirY, {
+                            isParallelSecond: true
+                        });
+                    });
+                }
 
                 Game.enemies.forEach(enemy => {
                     if (!enemy.alive) return;
+                    const sid = (typeof getEnemyStableId === 'function') ? getEnemyStableId(enemy) : (enemy.id || enemy.enemyId);
+                    if (sid != null && this.thrustHitEnemies && this.thrustHitEnemies.has(sid)) return;
 
                     const bodies = typeof getEnemyCollisionBodies === 'function'
                         ? getEnemyCollisionBodies(enemy)
@@ -394,85 +416,45 @@ class Warrior extends PlayerBase {
                     }
                     if (!bodyHit) return;
 
-                    // Check for crit
-                    const isCrit = Math.random() < this.critChance;
-                    const critMultiplier = isCrit ? (2.0 * (this.critDamageMultiplier || 1.0)) : 1.0;
-                    let thrustDamage = baseThrustDamage * critMultiplier;
-
-                    // Track stats (host/solo only) - declare isClient before use
-                    const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
-
-                    // Precision card bonuses: Apply vulnerability debuff on crit (Orange only)
-                    // Apply vulnerability debuff multiplier (Precision Orange bonus)
-                    if (enemy.vulnerable && enemy.vulnerabilityMultiplier && enemy.vulnerabilityMultiplier > 1.0) {
-                        thrustDamage *= enemy.vulnerabilityMultiplier;
-                    }
-
-                    // Calculate damage dealt BEFORE applying damage
-                    const damageDealt = Math.min(thrustDamage, enemy.hp);
-
-                    // Get player ID for damage attribution
-                    const attackerId = this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null);
-
-                    enemy.takeDamage(thrustDamage, attackerId);
-
-                    // Track stats (host/solo only)
-                    if (!isClient) {
-                        // Track lifetime damage stat
-                        if (typeof window.trackLifetimeStat === 'function') {
-                            window.trackLifetimeStat('totalDamageDealt', damageDealt);
-                        }
-
-                        if (typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
-                            const stats = Game.getPlayerStats(attackerId);
-                            if (stats) {
-                                stats.addStat('damageDealt', damageDealt);
-                            }
-
-                            // Track kill if enemy died
-                            if (enemy.hp <= 0) {
-                                const killStats = Game.getPlayerStats(attackerId);
-                                if (killStats) {
-                                    killStats.addStat('kills', 1);
-                                }
-                            }
+                    if (sid != null) {
+                        if (!this.thrustHitEnemies) this.thrustHitEnemies = new Set();
+                        this.thrustHitEnemies.add(sid);
+                        if (isParallel && this.thrustParallelCachedIds
+                            && this.thrustParallelCachedIds.indexOf(sid) === -1) {
+                            this.thrustParallelCachedIds.push(sid);
                         }
                     }
 
-                    // Apply lifesteal
-                    if (typeof applyLifesteal !== 'undefined') {
-                        applyLifesteal(this, damageDealt, { enemy, source: 'melee' });
-                    }
-
-                    // Apply legendary effects
-                    if (typeof applyLegendaryEffects !== 'undefined') {
-                        applyLegendaryEffects(this, enemy, damageDealt, attackerId);
-                    }
-                    // Chain lightning (only once per thrust)
-                    if (this.activeLegendaryEffects && !this.thrustHasChainedLegendary) {
-                        this.activeLegendaryEffects.forEach(effect => {
-                            if (effect.type === 'chain_lightning' && typeof chainLightningAttack !== 'undefined') {
-                                chainLightningAttack(this, enemy, effect, thrustDamage);
-                                this.thrustHasChainedLegendary = true;
-                            }
-                        });
-                    }
-
-                    // Create damage number for heavy attack
-                    if (typeof createDamageNumber !== 'undefined') {
-                        createDamageNumber(enemy.x, enemy.y, damageDealt, isCrit, false);
-                    }
-
-                    // Push enemy to the side (perpendicular to thrust direction)
-                    const pushForce = WARRIOR_CONFIG.thrustKnockback;
-                    const perpXNorm = hitPerpX / (hitPerpDist + 0.001);
-                    const perpYNorm = hitPerpY / (hitPerpDist + 0.001);
-                    enemy.applyKnockback(perpXNorm * pushForce, perpYNorm * pushForce);
+                    this.applyThrustHitToEnemy(enemy, baseThrustDamage, thrustDirX, thrustDirY, {
+                        isParallelSecond: false,
+                        hitPerpX,
+                        hitPerpY,
+                        hitPerpDist
+                    });
                 });
             }
 
             // End thrust after duration
             if (this.thrustElapsed >= this.thrustDuration) {
+                // Ensure Parallel contact-2 still lands if dash ended early
+                if (this.thrustIsParallel && !this.thrustParallelSecondFired
+                    && this.thrustParallelCachedIds && this.thrustParallelCachedIds.length
+                    && typeof Game !== 'undefined' && Game.enemies) {
+                    this.thrustParallelSecondFired = true;
+                    const share = (this.thrustDamageShare != null) ? this.thrustDamageShare : 0.5;
+                    const baseThrustDamage = this.damage * WARRIOR_CONFIG.thrustDamage * this.thrustDamageMultiplier * share;
+                    const thrustDirX = Math.cos(this.rotation);
+                    const thrustDirY = Math.sin(this.rotation);
+                    this.thrustParallelCachedIds.forEach(id => {
+                        const enemy = (typeof findEnemyByStableId === 'function')
+                            ? findEnemyByStableId(Game.enemies, id)
+                            : Game.enemies.find(e => e && (e.id === id || e.enemyId === id));
+                        if (!enemy || !enemy.alive) return;
+                        this.applyThrustHitToEnemy(enemy, baseThrustDamage, thrustDirX, thrustDirY, {
+                            isParallelSecond: true
+                        });
+                    });
+                }
                 this.thrustActive = false;
                 this.thrustElapsed = 0;
                 this.thrustDuration = WARRIOR_CONFIG.thrustDuration; // Reset to base duration
@@ -515,8 +497,9 @@ class Warrior extends PlayerBase {
         const pos = this.getGameplayPosition();
 
         // Create hitboxes in a straight line in front of the player
-        const baseDistance = this.size + WARRIOR_CONFIG.cleaveBaseDistance;
-        const spacing = WARRIOR_CONFIG.cleaveSpacing;
+        const rangeMult = this.weaponRangeMultiplier || 1.0;
+        const baseDistance = (this.size + WARRIOR_CONFIG.cleaveBaseDistance) * rangeMult;
+        const spacing = WARRIOR_CONFIG.cleaveSpacing * rangeMult;
 
         for (let i = 0; i < WARRIOR_CONFIG.cleaveHitboxCount; i++) {
             const distance = baseDistance + (i * spacing);
@@ -554,12 +537,97 @@ class Warrior extends PlayerBase {
         // Trigger screen shake for heavy attacks
         if (typeof Game !== 'undefined') {
             Game.triggerScreenShake(0.5, 0.2);
-            Game.triggerHitPause(0.08); // Brief freeze on heavy attack
+            if (typeof applyHeavyAttackHitpause === 'function') {
+                applyHeavyAttackHitpause(this);
+            } else {
+                Game.triggerHitPause(0.08);
+            }
         }
 
         // Apply standardized heavy cooldown for UI parity
         if (this.applyHeavyAttackCooldown) {
             this.applyHeavyAttackCooldown();
+        }
+    }
+
+    applyThrustHitToEnemy(enemy, baseThrustDamage, thrustDirX, thrustDirY, options) {
+        options = options || {};
+        const hitProxy = { isParallelSecond: !!options.isParallelSecond };
+        const allowProc = typeof shouldRollWeaponProcOnHit !== 'function'
+            || shouldRollWeaponProcOnHit(this, hitProxy);
+        const allowStatus = typeof shouldApplyWeaponStatusOnHit !== 'function'
+            || shouldApplyWeaponStatusOnHit(this, hitProxy);
+
+        const isCrit = allowProc && Math.random() < (this.critChance || 0);
+        const critMultiplier = isCrit ? (2.0 * (this.critDamageMultiplier || 1.0)) : 1.0;
+        let thrustDamage = baseThrustDamage * critMultiplier;
+
+        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+
+        if (enemy.vulnerable && enemy.vulnerabilityMultiplier && enemy.vulnerabilityMultiplier > 1.0) {
+            thrustDamage *= enemy.vulnerabilityMultiplier;
+        }
+
+        const damageDealt = Math.min(thrustDamage, enemy.hp);
+        const attackerId = this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null);
+
+        enemy.takeDamage(thrustDamage, attackerId);
+
+        if (!isClient) {
+            if (typeof window.trackLifetimeStat === 'function') {
+                window.trackLifetimeStat('totalDamageDealt', damageDealt);
+            }
+            if (typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
+                const stats = Game.getPlayerStats(attackerId);
+                if (stats) {
+                    stats.addStat('damageDealt', damageDealt);
+                }
+                if (enemy.hp <= 0) {
+                    const killStats = Game.getPlayerStats(attackerId);
+                    if (killStats) {
+                        killStats.addStat('kills', 1);
+                    }
+                }
+            }
+        }
+
+        if (typeof applyLifesteal !== 'undefined') {
+            applyLifesteal(this, damageDealt, { enemy, source: 'melee' });
+        }
+
+        if (allowStatus && typeof applyLegendaryEffects !== 'undefined') {
+            applyLegendaryEffects(this, enemy, damageDealt, attackerId);
+        }
+        if (allowStatus && this.activeLegendaryEffects && !this.thrustHasChainedLegendary) {
+            this.activeLegendaryEffects.forEach(effect => {
+                if (effect.type === 'chain_lightning' && typeof chainLightningAttack !== 'undefined') {
+                    chainLightningAttack(this, enemy, effect, thrustDamage);
+                    this.thrustHasChainedLegendary = true;
+                }
+            });
+        }
+
+        if (typeof createDamageNumber !== 'undefined') {
+            createDamageNumber(enemy.x, enemy.y, damageDealt, isCrit, false);
+        }
+
+        let hitPerpX = options.hitPerpX;
+        let hitPerpY = options.hitPerpY;
+        let hitPerpDist = options.hitPerpDist;
+        if (hitPerpX == null || hitPerpY == null) {
+            const enemyDx = enemy.x - this.x;
+            const enemyDy = enemy.y - this.y;
+            const dot = enemyDx * thrustDirX + enemyDy * thrustDirY;
+            hitPerpX = enemyDx - thrustDirX * dot;
+            hitPerpY = enemyDy - thrustDirY * dot;
+            hitPerpDist = Math.sqrt(hitPerpX * hitPerpX + hitPerpY * hitPerpY);
+        }
+        const kbMult = typeof getWeaponKnockbackMult === 'function' ? getWeaponKnockbackMult(this) : 1.0;
+        const pushForce = WARRIOR_CONFIG.thrustKnockback * kbMult;
+        const perpXNorm = hitPerpX / (hitPerpDist + 0.001);
+        const perpYNorm = hitPerpY / (hitPerpDist + 0.001);
+        if (enemy.applyKnockback) {
+            enemy.applyKnockback(perpXNorm * pushForce, perpYNorm * pushForce);
         }
     }
 
@@ -570,7 +638,8 @@ class Warrior extends PlayerBase {
         }
 
         // Warrior forward thrust - rush forward while dealing damage along the path
-        const thrustDistance = WARRIOR_CONFIG.thrustDistance + this.thrustDistanceBonus; // Apply class modifier
+        const reachMult = typeof getWeaponMeleeReachMult === 'function' ? getWeaponMeleeReachMult(this) : (this.weaponRangeMultiplier || 1.0);
+        const thrustDistance = (WARRIOR_CONFIG.thrustDistance + this.thrustDistanceBonus) * reachMult;
         const thrustDirX = Math.cos(this.rotation);
         const thrustDirY = Math.sin(this.rotation);
 
@@ -604,6 +673,13 @@ class Warrior extends PlayerBase {
         this.thrustActive = true;
         this.thrustElapsed = 0;
         this.thrustHasChainedLegendary = false; // Reset chain flag for this thrust
+        this.thrustHitEnemies = new Set();
+        this.thrustParallelCachedIds = [];
+        this.thrustParallelSecondFired = false;
+        this.thrustIsParallel = typeof playerWeaponIsParallel === 'function' && playerWeaponIsParallel(this);
+        this.thrustDamageShare = this.thrustIsParallel
+            ? (typeof getWeaponPerHitDamageShare === 'function' ? getWeaponPerHitDamageShare(this) : 0.5)
+            : 1.0;
 
         // Track ability use for lifetime stats
         if (typeof window.trackLifetimeStat === 'function') {
