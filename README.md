@@ -67,7 +67,7 @@ Stats, cooldowns, and tooltip copy live in the class configs — rotate through 
 - Armor archetypes for niches: **Fractal** speed junkies, **Tessellated** immovable objects, **Membrane** cooldown goblins, **Polygon** “just make me tankier.”
 - Orange legendaries for run-defining chaos (Phoenix Down, Glass Cannon, Chain Lightning, etc.).
 - Stackable **items** drop from combat too — shields, auras, execute toys, the usual “one more and this build is illegal” pile.
-- Nexus **Index** catalogs gear affixes, items, weapons (Feel / Pitch / Leans Toward), enemies (bases + biome chips), and elite affixes — discovery-locked where it matters.
+- Nexus **Index** catalogs gear affixes, items, weapons (Feel / Pitch / Leans Toward), enemies (bases + biome chips), elite affixes, and a **Combat Ledger & Feats** tab for lifetime records plus mastery challenges — discovery-locked / progress-tracked where it matters.
 - Credits fund class upgrades + Safe Room crafting. Shards fund Nexus gear meta (drop luck, affix capacity, Safe Room power). Yes the save key is still named `cardShards`. We’re living with it.
 
 ## Safe Rooms & Nexus Meta
@@ -143,9 +143,49 @@ Purple/orange gear can also roll class modifiers that shove builds into absurd t
 
 ## Index Machine
 
-Same encyclopedia the Nexus Index uses — weapons, enemies, biomes, elite affixes — with every entry open. In-game, enemies and elite affixes unlock as you meet them; here nothing is locked.
+Same encyclopedia the Nexus Index uses — weapons, enemies, biomes, elite affixes, and combat ledger / feats — with catalog entries open in this README. In-game, enemies and elite affixes unlock as you meet them; ledger stats and feat progress come from your local save.
 
-**Jump:** [Weapons](#index-weapons) · [Armor](#index-armor) · [Enemies](#index-enemies) · [Biomes](#index-biomes) · [Elite Affixes](#index-elite-affixes) · [Timing](#index-timing)
+**Jump:** [Weapons](#index-weapons) · [Armor](#index-armor) · [Enemies](#index-enemies) · [Biomes](#index-biomes) · [Elite Affixes](#index-elite-affixes) · [Timing](#index-timing) · [Combat Ledger & Feats](#index-combat-ledger)
+
+<a id="index-combat-ledger"></a>
+<details>
+<summary><strong>Combat Ledger &amp; Feats</strong> — lifetime records, class analytics, mastery payouts</summary>
+
+The Nexus Index’s **Combat Ledger & Feats** tab (host/solo tracking only — no netcode) stores progress inside the normal `shapeSlayerSave` blob (`globalRecords`, `classTracking`, `unlockedFeats`, `featCompletions`).
+
+### Tabs
+| Subtab | What you see |
+| --- | --- |
+| **GLOBAL** | Deepest room/biome, longest *active* run, max single-hit damage, fastest room-50 clear, lifetime voxel shatter count |
+| **WARRIOR / ROGUE / TANK / MAGE** | Weapon archetype weight (Acute / Obtuse / Vector / Parallel hits), dodge precision rate, perfect-interrupt count, class kit counters, plus that class’s mastery feats |
+| *(Universal feats)* | Shown under GLOBAL — Close Call, Volcano Surfer, Underdog, Perfectionist |
+
+Deepest room and longest run are **independent** records (a short deep dive doesn’t overwrite a long shallow run, and vice versa).
+
+### Run timing (death screen + longest / fastest records)
+Active play time is wall-clock math from epoch stamps — not a per-frame accumulator:
+
+- Stamp **start** / **end**, plus **pause enter/exit** and **safe-room enter/exit**.
+- Pause intervals are **not** recorded while already in a Safe Room or in multiplayer (MP pause menu doesn’t freeze the sim).
+- Pause exit only closes a matching open enter (no orphan exits).
+- At run end: `activeMs = grossMs − pausedMs − safeRoomMs`.
+- Death overlay shows Active / Paused / Safe Rooms / Wall Clock from that same helper.
+
+### Feats & payouts
+| Kind | Examples | First completion | Later completions |
+| --- | --- | --- | --- |
+| **Universal Flaw** | Close Call, Volcano Surfer, Underdog, Perfectionist | Full **Credits** instantly | **25%** of the credit reward (min 1), counted |
+| **Class Mastery** | Warrior Cyclone Engine, Rogue Phantom Execution, Tank Sonic Boom, Mage Hyper-Beam Lineup, … | Full **Shards** instantly | **25%** of the shard reward (min 1), counted |
+
+- Toast on each completion (`FEAT UNLOCKED` first time, `FEAT: Name (×N)` on repeats).
+- Completion counts live in `featCompletions`; Index cards show ×N and first vs repeat reward.
+- Threshold feats use edge triggers (e.g. once per whirlwind session past 6s) so holding a beam doesn’t spam payouts every tick.
+- Notable redesign: Rogue **Phantom Execution** — boss hits a Shadow Clone within **400ms** of your killing blow (clones stay decoys; no clone damage rewrite).
+- Warrior **Cyclone Engine** is backed by real Whirlwind kill-extension (`+0.75s` per kill, hard-capped).
+
+Implementation: `js/feats-registry.js` (definitions) · `js/ledger-manager.js` (hooks + timing + payouts) · `ui/components/indexMachine.js` (tab UI). Tests: `npm run test:combat-ledger`.
+
+</details>
 
 <a id="index-weapons"></a>
 <details>
@@ -493,11 +533,11 @@ Music so far is sourced from Pixabay (copyright-free audio): [https://pixabay.co
 - Bosses every 10 rooms from 10 onward through the 50-room climb; each has escalating phases, hazards, and juicy loot.
 - Multiplayer scaling adjusts count / HP / damage per player without instantly melting low-end machines.
 - Kill payouts: trash pays now (not just elites/bosses). Credits bank **on kill**. Decade bumps keep late trash from feeling like pocket lint.
-- Discover enemies and elite affixes in the Nexus **Index** (bases + biome chips; elite affixes are their own tab). Full unlocked catalog also lives in **[Index Machine](#index-machine)** above.
+- Discover enemies and elite affixes in the Nexus **Index** (bases + biome chips; elite affixes are their own tab). Combat Ledger & Feats live there too. Full unlocked catalog also lives in **[Index Machine](#index-machine)** above.
 
 ## Progression & Saves
 
-- `SaveSystem` parks currency, shards, per-class upgrades, gear meta, selected class, control mode, audio, onboarding flags, and more in `localStorage`.
+- `SaveSystem` parks currency, shards, per-class upgrades, gear meta, selected class, control mode, audio, onboarding flags, Index discoveries, combat ledger (`globalRecords` / `classTracking` / `unlockedFeats` / `featCompletions`), and more in `localStorage`.
 - Update / launch / privacy modals surface from `js/version.js` when the version bumps.
 - Solo Safe Room **Save Run** stores the real mid-run state (room, gear, items, HP, etc.) and resumes from that Safe Room — checkpoint consumes on load so you can’t duplicate infinite money. Multiplayer babysits itself instead.
 - While a saved run exists, Nexus mostly just wants you to hit the portal again (no sneaking a pile of meta upgrades into a mid-run demon build).
@@ -515,6 +555,7 @@ npm run balance:economy
 npm run test:combat-scaling
 npm run test:combat-economy
 npm run test:feature-tutorials
+npm run test:combat-ledger
 # …plus more under npm run test:*
 ```
 
@@ -547,9 +588,10 @@ shape_slayer/
 │   ├── voxel-fracture.js      # Hit punch-out / death shatter VFX
 │   ├── render.js · input.js · touch-controls.js · device-detection.js
 │   ├── audio.js · music-manager.js
-│   ├── save.js · telemetry.js · debug.js · version.js
+│   ├── save.js · run-checkpoint.js · feats-registry.js · ledger-manager.js
+│   ├── telemetry.js · debug.js · version.js
 │   └── …
-├── ui/                        # DOM UI (menus, HUD, Safe Room, Index, gear shops)
+├── ui/                        # DOM UI (menus, HUD, Safe Room, Index + Combat Ledger, gear shops)
 ├── server/                    # WebSocket host (single / clustered / slave)
 ├── harness/                   # One-command MP + metrics + dashboard
 ├── metrics/                   # Ingest service + analytics GUI

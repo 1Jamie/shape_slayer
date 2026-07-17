@@ -1539,6 +1539,9 @@
                 g.destroyedCount++;
             }
             g.renderDirty = true;
+            if (topCells.length > 0 && typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+                LedgerManager.recordEvent('voxelsDestroyed', { count: topCells.length });
+            }
         }
 
         if (typeof triggerVoxelHitJuice === 'function') {

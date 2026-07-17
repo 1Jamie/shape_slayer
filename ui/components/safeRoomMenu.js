@@ -834,6 +834,13 @@ const SafeRoomMenu = {
 
         this.markTransaction();
 
+        if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+            LedgerManager.recordEvent('safeRoomReroll', {
+                slotKey: `${this.selectedSlot}:${this.selectedAffixIndex}`,
+                player
+            });
+        }
+
         if (typeof AudioManager !== 'undefined' && AudioManager.playSound) {
             AudioManager.playSound('ui_buy');
         }

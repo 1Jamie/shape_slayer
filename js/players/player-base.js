@@ -1573,7 +1573,15 @@ class PlayerBase {
             return;
         }
 
-        if (this.invulnerable || this.dead) return;
+        if (this.invulnerable || this.dead) {
+            // Vanguard Thrust: phase through boss AoE during heavy thrust i-frames
+            if (this.invulnerable && this.thrustActive && sourceEnemy && (sourceEnemy.isBoss || sourceEnemy.bossName)) {
+                if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+                    LedgerManager.recordEvent('vanguardThrust', { player: this, enemy: sourceEnemy });
+                }
+            }
+            return;
+        }
 
         // Phasing: Chance to negate damage
         if (this.phasingChance && this.phasingChance > 0 && Math.random() < this.phasingChance) {
@@ -1636,6 +1644,9 @@ class PlayerBase {
         if (isBlocking) {
             if (typeof window.trackLifetimeStat === 'function') {
                 window.trackLifetimeStat('totalBlocks', 1);
+            }
+            if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+                LedgerManager.recordEvent('block', { player: this });
             }
         }
 
@@ -1880,6 +1891,13 @@ class PlayerBase {
             if (typeof Game !== 'undefined') {
                 Game.endTime = Date.now();
                 Game.deathScreenStartTime = Date.now(); // Initialize death screen timer
+                if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+                    LedgerManager.recordEvent('runEnded', {
+                        now: Game.endTime,
+                        roomNumber: Game.roomNumber || 0,
+                        successfulClear: false
+                    });
+                }
                 Game.currencyEarned = Game.calculateCurrency();
                 Game.shardsEarned = Game.calculateShards ? Game.calculateShards() : 0;
 

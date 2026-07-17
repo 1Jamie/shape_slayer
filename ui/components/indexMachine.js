@@ -1,7 +1,8 @@
 (function () {
 	let layer, modal, body, previewSection;
 	let open = false;
-	let currentTab = 'affixes'; // 'affixes', 'eliteAffixes', 'enemies', 'items', 'weapons'
+	let currentTab = 'affixes'; // 'affixes', 'eliteAffixes', 'enemies', 'items', 'weapons', 'combatLedger'
+	let currentLedgerSubtab = 'global'; // 'global' | 'warrior' | 'rogue' | 'tank' | 'mage'
 	let selectedEntry = null; // Currently selected entry for preview
 	let previewAnimId = null;
 	let previewAnimCanvas = null;
@@ -171,7 +172,8 @@
 			{ key: 'eliteAffixes', label: 'Elite Affixes', icon: '💀' },
 			{ key: 'enemies', label: 'Enemies', icon: '⬡' },
 			{ key: 'items', label: 'Items', icon: '📦' },
-			{ key: 'weapons', label: 'Weapons', icon: '🗡️' }
+			{ key: 'weapons', label: 'Weapons', icon: '🗡️' },
+			{ key: 'combatLedger', label: 'Combat Ledger & Feats', icon: '📜' }
 		];
 
 		tabs.forEach(tab => {
@@ -293,6 +295,8 @@
 			renderItems(discoveries.items || []);
 		} else if (currentTab === 'weapons') {
 			renderWeaponTypes();
+		} else if (currentTab === 'combatLedger') {
+			renderCombatLedger();
 		}
 	}
 
@@ -797,6 +801,239 @@
 		return colors[rarity] || '#aaa';
 	}
 
+	const WEAPON_AFFINITY_LABELS = {
+		fast: 'Acute',
+		heavy: 'Obtuse',
+		reach: 'Vector',
+		dual: 'Parallel'
+	};
+
+	function formatLedgerMs(ms) {
+		if (typeof LedgerManager !== 'undefined' && LedgerManager.formatDurationMs) {
+			return LedgerManager.formatDurationMs(ms);
+		}
+		const totalSec = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+		const m = Math.floor(totalSec / 60);
+		const s = totalSec % 60;
+		return `${m}:${String(s).padStart(2, '0')}`;
+	}
+
+	function renderCombatLedger() {
+		const subtabs = [
+			{ key: 'global', label: 'GLOBAL' },
+			{ key: 'warrior', label: 'WARRIOR' },
+			{ key: 'rogue', label: 'ROGUE' },
+			{ key: 'tank', label: 'TANK' },
+			{ key: 'mage', label: 'MAGE' }
+		];
+
+		const row = document.createElement('div');
+		row.style.display = 'flex';
+		row.style.flexWrap = 'wrap';
+		row.style.gap = '8px';
+		row.style.marginBottom = '16px';
+
+		subtabs.forEach(st => {
+			const btn = document.createElement('button');
+			btn.className = 'btn';
+			btn.dataset.ledgerSubtab = st.key;
+			btn.textContent = st.label;
+			btn.style.padding = '8px 14px';
+			btn.style.fontSize = '12px';
+			btn.style.border = 'none';
+			btn.style.borderRadius = '4px';
+			btn.style.cursor = 'pointer';
+			const active = currentLedgerSubtab === st.key;
+			btn.style.backgroundColor = active ? '#333' : 'transparent';
+			btn.style.color = active ? '#fff' : '#aaa';
+			btn.addEventListener('click', () => {
+				currentLedgerSubtab = st.key;
+				selectedEntry = null;
+				refresh();
+				updatePreview(null);
+			});
+			row.appendChild(btn);
+		});
+		body.appendChild(row);
+
+		const grid = document.createElement('div');
+		grid.style.display = 'grid';
+		grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(250px, 1fr))';
+		grid.style.gap = '12px';
+
+		if (currentLedgerSubtab === 'global') {
+			const records = (typeof SaveSystem !== 'undefined' && SaveSystem.getGlobalRecords)
+				? SaveSystem.getGlobalRecords()
+				: {};
+			const deepest = records.deepestRoom || 0;
+			const biome = records.deepestBiome || 'None';
+			const items = [
+				{
+					type: 'record',
+					id: 'deepest',
+					title: 'Deepest Excursion',
+					summary: deepest > 0 ? `Room ${deepest} (${biome})` : 'None yet',
+					detail: 'Furthest room and biome reached. Independent of run duration.'
+				},
+				{
+					type: 'record',
+					id: 'longest',
+					title: 'Longest Active Run',
+					summary: formatLedgerMs(records.longestRunMs || 0),
+					detail: 'Longest pause/safe-room-gated active play time across runs.'
+				},
+				{
+					type: 'record',
+					id: 'maxHit',
+					title: 'The Big One',
+					summary: `${Math.floor(records.maxSingleHit || 0).toLocaleString()} Damage`,
+					detail: 'Maximum damage dealt in a single frame/hit.'
+				},
+				{
+					type: 'record',
+					id: 'fastest',
+					title: 'Speed Demon',
+					summary: (records.fastestRunClear > 0)
+						? formatLedgerMs(records.fastestRunClear)
+						: 'No room-50 clear yet',
+					detail: 'Fastest active clear time for a successful 50-room run.'
+				},
+				{
+					type: 'record',
+					id: 'voxels',
+					title: 'Voxel Shatter Count',
+					summary: `${Math.floor(records.lifetimeVoxels || 0).toLocaleString()} Voxels`,
+					detail: 'Lifetime count of enemy shape cells fractured into debris.'
+				}
+			];
+			items.forEach(entry => appendLedgerCard(grid, entry));
+		} else {
+			const tracking = (typeof SaveSystem !== 'undefined' && SaveSystem.getClassTracking)
+				? SaveSystem.getClassTracking(currentLedgerSubtab)
+				: {};
+			const hits = tracking.weaponHits || {};
+			const totalHits = (hits.fast || 0) + (hits.heavy || 0) + (hits.reach || 0) + (hits.dual || 0);
+			const affinityParts = Object.keys(WEAPON_AFFINITY_LABELS).map(k => {
+				const n = hits[k] || 0;
+				const pct = totalHits > 0 ? Math.round((n / totalHits) * 100) : 0;
+				return `${WEAPON_AFFINITY_LABELS[k]} ${pct}%`;
+			});
+			const dodgeRate = (tracking.totalDodges > 0)
+				? ((tracking.perfectDodges || 0) / tracking.totalDodges * 100).toFixed(1)
+				: '0.0';
+
+			const classRecords = [
+				{
+					type: 'record',
+					id: `${currentLedgerSubtab}-affinity`,
+					title: 'Weapon Archetype Weight',
+					summary: affinityParts.join(' · '),
+					detail: 'Hits landed with each weapon variant while playing this class.'
+				},
+				{
+					type: 'record',
+					id: `${currentLedgerSubtab}-dodge`,
+					title: 'Dodge Precision Rate',
+					summary: `${dodgeRate}%`,
+					detail: `Perfect Dodges ${tracking.perfectDodges || 0} / Total Dodges ${tracking.totalDodges || 0}`
+				},
+				{
+					type: 'record',
+					id: `${currentLedgerSubtab}-interrupt`,
+					title: 'Counter-Strike Count',
+					summary: String(tracking.perfectInterrupts || 0),
+					detail: 'Successful Perfect Interrupts during enemy telegraph windows.'
+				}
+			];
+			classRecords.forEach(entry => appendLedgerCard(grid, entry));
+		}
+
+		// Feats section
+		const featsHeader = document.createElement('div');
+		featsHeader.style.gridColumn = '1 / -1';
+		featsHeader.style.marginTop = '8px';
+		featsHeader.style.color = '#fff';
+		featsHeader.style.fontWeight = '700';
+		featsHeader.style.fontSize = '16px';
+		featsHeader.textContent = 'FEATS PROGRESSION';
+		grid.appendChild(featsHeader);
+
+		const feats = (typeof FeatsRegistry !== 'undefined' && FeatsRegistry.getForTab)
+			? FeatsRegistry.getForTab(currentLedgerSubtab)
+			: [];
+		const unlocked = (typeof SaveSystem !== 'undefined' && SaveSystem.getUnlockedFeats)
+			? SaveSystem.getUnlockedFeats()
+			: [];
+		const completions = (typeof SaveSystem !== 'undefined' && SaveSystem.getFeatCompletions)
+			? SaveSystem.getFeatCompletions()
+			: {};
+		const progress = (typeof LedgerManager !== 'undefined' && LedgerManager.getProgressSnapshot)
+			? LedgerManager.getProgressSnapshot()
+			: {};
+
+		feats.forEach(feat => {
+			const isUnlocked = unlocked.indexOf(feat.id) !== -1;
+			const times = Math.max(0, Math.floor(Number(completions[feat.id]) || 0));
+			let mark = '[ ]';
+			let status = 'LOCKED';
+			if (isUnlocked) {
+				mark = '[X]';
+				const r = feat.reward || {};
+				const firstPay = r.credits ? `+${r.credits}c` : (r.shards ? `+${r.shards} shards` : '');
+				status = times > 1
+					? `UNLOCKED ×${times}`
+					: `UNLOCKED${firstPay ? `: ${firstPay}` : ''}`;
+				if (times > 1) status += firstPay ? ` (first ${firstPay})` : '';
+			} else if (feat.progressKey && progress[feat.progressKey] != null && feat.target > 1) {
+				const cur = progress[feat.progressKey] || 0;
+				if (cur > 0) {
+					mark = '[=]';
+					status = `${Number(cur).toFixed(1)} / ${feat.target}`;
+				}
+			}
+			appendLedgerCard(grid, {
+				type: 'feat',
+				id: feat.id,
+				title: `${mark} ${feat.name}`,
+				summary: status,
+				detail: feat.description,
+				feat,
+				completions: times
+			});
+		});
+
+		body.appendChild(grid);
+	}
+
+	function appendLedgerCard(grid, entry) {
+		const card = document.createElement('div');
+		card.style.padding = '14px';
+		card.style.border = '1px solid #444';
+		card.style.borderRadius = '4px';
+		card.style.cursor = 'pointer';
+		card.style.backgroundColor = selectedEntry && selectedEntry.id === entry.id ? 'rgba(156,39,176,0.2)' : '#222';
+		if (selectedEntry && selectedEntry.id === entry.id) {
+			card.style.borderColor = '#9c27b0';
+		}
+		const title = document.createElement('div');
+		title.style.color = '#fff';
+		title.style.fontWeight = '600';
+		title.style.marginBottom = '6px';
+		title.textContent = entry.title;
+		const summary = document.createElement('div');
+		summary.style.color = '#aaa';
+		summary.style.fontSize = '13px';
+		summary.textContent = entry.summary;
+		card.appendChild(title);
+		card.appendChild(summary);
+		card.addEventListener('click', () => {
+			selectedEntry = entry;
+			refresh();
+			updatePreview(entry);
+		});
+		grid.appendChild(card);
+	}
+
 	function updatePreview(entry) {
 		if (!previewSection) return;
 
@@ -1294,6 +1531,49 @@
 				note.style.lineHeight = '1.5';
 				note.textContent = 'Biomes modulate the five base enemies. Elite affix pools also change by biome — see Elite Affixes.';
 				content.appendChild(note);
+			}
+		} else if (entry.type === 'record' || entry.type === 'feat') {
+			title.textContent = entry.title || 'Entry';
+			title.style.color = entry.type === 'feat' ? '#ffd54f' : '#80cbc4';
+			const summary = document.createElement('div');
+			summary.style.color = '#ccc';
+			summary.style.marginBottom = '12px';
+			summary.style.fontSize = '14px';
+			summary.textContent = entry.summary || '';
+			content.appendChild(summary);
+			const detail = document.createElement('div');
+			detail.style.color = '#bbb';
+			detail.style.fontSize = '13px';
+			detail.style.lineHeight = '1.5';
+			detail.textContent = entry.detail || (entry.feat && entry.feat.description) || '';
+			content.appendChild(detail);
+			if (entry.feat && entry.feat.reward) {
+				const reward = document.createElement('div');
+				reward.style.marginTop = '12px';
+				reward.style.color = '#ffd700';
+				reward.style.fontWeight = '600';
+				const r = entry.feat.reward;
+				const ratio = (typeof LedgerManager !== 'undefined' && LedgerManager.FEAT_REPEAT_PAYOUT_RATIO)
+					? LedgerManager.FEAT_REPEAT_PAYOUT_RATIO
+					: 0.25;
+				let text = '';
+				if (r.credits) {
+					const repeat = Math.max(1, Math.floor(r.credits * ratio));
+					text = `First: +${r.credits} Credits · Repeat: +${repeat} Credits`;
+				} else if (r.shards) {
+					const repeat = Math.max(1, Math.floor(r.shards * ratio));
+					text = `First: +${r.shards} Shards · Repeat: +${repeat} Shards`;
+				}
+				reward.textContent = text;
+				content.appendChild(reward);
+			}
+			if (entry.completions > 0) {
+				const times = document.createElement('div');
+				times.style.marginTop = '8px';
+				times.style.color = '#aaa';
+				times.style.fontSize = '13px';
+				times.textContent = `Completed ${entry.completions} time${entry.completions === 1 ? '' : 's'}`;
+				content.appendChild(times);
 			}
 		}
 

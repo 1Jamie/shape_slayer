@@ -178,7 +178,19 @@
             const dx = p.x - enemy.x;
             const dy = p.y - enemy.y;
             if (dx * dx + dy * dy <= radius * radius) {
+                const hpBefore = p.hp;
                 if (typeof p.takeDamage === 'function') p.takeDamage(dmg, enemy);
+                // Survived explosion under 10% HP
+                if (!p.dead && p.hp > 0 && p.maxHp > 0) {
+                    const hpPct = p.hp / p.maxHp;
+                    if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+                        LedgerManager.recordEvent('eliteExplosionSurvived', {
+                            player: p,
+                            hpPct,
+                            hpBefore
+                        });
+                    }
+                }
             }
         });
         if (typeof createParticleBurst !== 'undefined') {

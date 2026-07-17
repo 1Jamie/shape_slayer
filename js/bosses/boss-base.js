@@ -726,6 +726,21 @@ class BossBase extends EnemyBase {
                     stats.addStat('kills', 1);
                 }
             }
+            if (!isClient && typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+                let killer = null;
+                if (typeof Game !== 'undefined') {
+                    if (Game.player && (Game.player.playerId === this.lastAttacker || Game.getLocalPlayerId && Game.getLocalPlayerId() === this.lastAttacker)) {
+                        killer = Game.player;
+                    } else if (Game.players) {
+                        killer = Game.players.get ? Game.players.get(this.lastAttacker) : null;
+                    }
+                }
+                LedgerManager.recordEvent('bossKilled', {
+                    player: killer || (typeof Game !== 'undefined' ? Game.player : null),
+                    boss: this,
+                    now: Date.now()
+                });
+            }
         }
         
         // Death visuals (voxel shatter + juice)

@@ -151,7 +151,10 @@ const RunCheckpoint = {
                 currencyEarned: game.currencyEarned || 0,
                 currencyBankedThisRun: game.currencyBankedThisRun || 0,
                 shardsEarned: game.shardsEarned || 0,
-                startTime: game.startTime || Date.now()
+                startTime: game.startTime || Date.now(),
+                runTiming: game.runTiming
+                    ? JSON.parse(JSON.stringify(game.runTiming))
+                    : null
             }
         };
     },

@@ -56,6 +56,44 @@ const SaveSystem = {
                 totalDeaths: 0,
                 totalNearDeathExperiences: 0
             },
+            // Combat Ledger historical records + feats (nested in shapeSlayerSave)
+            globalRecords: {
+                deepestRoom: 0,
+                deepestBiome: 'None',
+                longestRunMs: 0,
+                maxSingleHit: 0,
+                fastestRunClear: 0,
+                lifetimeVoxels: 0
+            },
+            classTracking: {
+                warrior: {
+                    roomsCleared: 0, basicSwings: 0, heavySwings: 0,
+                    perfectInterrupts: 0, perfectDodges: 0, totalDodges: 0,
+                    weaponHits: { fast: 0, heavy: 0, reach: 0, dual: 0 },
+                    blocksExecuted: 0, maxWhirlwindTime: 0
+                },
+                rogue: {
+                    roomsCleared: 0, basicSwings: 0, heavySwings: 0,
+                    perfectInterrupts: 0, perfectDodges: 0, totalDodges: 0,
+                    weaponHits: { fast: 0, heavy: 0, reach: 0, dual: 0 },
+                    consecutiveBackstabs: 0, maxConsecutiveBackstabs: 0
+                },
+                tank: {
+                    roomsCleared: 0, basicSwings: 0, heavySwings: 0,
+                    perfectInterrupts: 0, perfectDodges: 0, totalDodges: 0,
+                    weaponHits: { fast: 0, heavy: 0, reach: 0, dual: 0 },
+                    shoutMultiStuns: 0, hammerLifeStolen: 0
+                },
+                mage: {
+                    roomsCleared: 0, basicSwings: 0, heavySwings: 0,
+                    perfectInterrupts: 0, perfectDodges: 0, totalDodges: 0,
+                    weaponHits: { fast: 0, heavy: 0, reach: 0, dual: 0 },
+                    beamMultiPierces: 0, distanceBlinked: 0
+                }
+            },
+            unlockedFeats: [],
+            // featId -> times completed (includes first unlock)
+            featCompletions: {},
             migratedFromGear: false,
             selectedClass: null,
             controlMode: 'auto', // 'auto', 'mobile', 'desktop'
@@ -125,6 +163,63 @@ const SaveSystem = {
                         ? parsed.highestRoomCleared
                         : defaults.highestRoomCleared,
                     lifetimeStats: parsed.lifetimeStats ? { ...defaults.lifetimeStats, ...parsed.lifetimeStats } : defaults.lifetimeStats,
+                    globalRecords: Object.assign({}, defaults.globalRecords, parsed.globalRecords || {}),
+                    classTracking: {
+                        warrior: Object.assign(
+                            {},
+                            defaults.classTracking.warrior,
+                            parsed.classTracking && parsed.classTracking.warrior ? parsed.classTracking.warrior : {},
+                            {
+                                weaponHits: Object.assign(
+                                    {},
+                                    defaults.classTracking.warrior.weaponHits,
+                                    (parsed.classTracking && parsed.classTracking.warrior && parsed.classTracking.warrior.weaponHits) || {}
+                                )
+                            }
+                        ),
+                        rogue: Object.assign(
+                            {},
+                            defaults.classTracking.rogue,
+                            parsed.classTracking && parsed.classTracking.rogue ? parsed.classTracking.rogue : {},
+                            {
+                                weaponHits: Object.assign(
+                                    {},
+                                    defaults.classTracking.rogue.weaponHits,
+                                    (parsed.classTracking && parsed.classTracking.rogue && parsed.classTracking.rogue.weaponHits) || {}
+                                )
+                            }
+                        ),
+                        tank: Object.assign(
+                            {},
+                            defaults.classTracking.tank,
+                            parsed.classTracking && parsed.classTracking.tank ? parsed.classTracking.tank : {},
+                            {
+                                weaponHits: Object.assign(
+                                    {},
+                                    defaults.classTracking.tank.weaponHits,
+                                    (parsed.classTracking && parsed.classTracking.tank && parsed.classTracking.tank.weaponHits) || {}
+                                )
+                            }
+                        ),
+                        mage: Object.assign(
+                            {},
+                            defaults.classTracking.mage,
+                            parsed.classTracking && parsed.classTracking.mage ? parsed.classTracking.mage : {},
+                            {
+                                weaponHits: Object.assign(
+                                    {},
+                                    defaults.classTracking.mage.weaponHits,
+                                    (parsed.classTracking && parsed.classTracking.mage && parsed.classTracking.mage.weaponHits) || {}
+                                )
+                            }
+                        )
+                    },
+                    unlockedFeats: Array.isArray(parsed.unlockedFeats)
+                        ? parsed.unlockedFeats.slice()
+                        : defaults.unlockedFeats.slice(),
+                    featCompletions: (parsed.featCompletions && typeof parsed.featCompletions === 'object')
+                        ? Object.assign({}, parsed.featCompletions)
+                        : {},
                     migratedFromGear: parsed.migratedFromGear === true,
                     selectedClass: parsed.selectedClass || defaults.selectedClass,
                     controlMode: parsed.controlMode || defaults.controlMode,
@@ -954,6 +1049,206 @@ const SaveSystem = {
         save.activeRunCheckpoint = null;
         this.save(save);
         return cp;
+    },
+
+    // --- Combat Ledger helpers ---
+
+    CLASS_LEDGER_KEYS: {
+        square: 'warrior',
+        triangle: 'rogue',
+        pentagon: 'tank',
+        hexagon: 'mage'
+    },
+
+    engineClassToLedgerKey(classType) {
+        if (!classType) return null;
+        if (this.CLASS_LEDGER_KEYS[classType]) return this.CLASS_LEDGER_KEYS[classType];
+        if (['warrior', 'rogue', 'tank', 'mage'].indexOf(classType) !== -1) return classType;
+        return null;
+    },
+
+    getGlobalRecords() {
+        const save = this.load();
+        const defaults = this.getDefaultSave().globalRecords;
+        return Object.assign({}, defaults, save.globalRecords || {});
+    },
+
+    bumpGlobalRecord(key, delta) {
+        const save = this.load();
+        const defaults = this.getDefaultSave().globalRecords;
+        if (!save.globalRecords) save.globalRecords = Object.assign({}, defaults);
+        const amount = Number(delta);
+        if (!Number.isFinite(amount)) return save.globalRecords[key];
+        save.globalRecords[key] = (Number(save.globalRecords[key]) || 0) + amount;
+        this.save(save);
+        return save.globalRecords[key];
+    },
+
+    setGlobalMax(key, value) {
+        const save = this.load();
+        const defaults = this.getDefaultSave().globalRecords;
+        if (!save.globalRecords) save.globalRecords = Object.assign({}, defaults);
+        const v = Number(value);
+        if (!Number.isFinite(v)) return save.globalRecords[key];
+        const cur = Number(save.globalRecords[key]) || 0;
+        if (v > cur) {
+            save.globalRecords[key] = v;
+            this.save(save);
+        }
+        return save.globalRecords[key];
+    },
+
+    setGlobalMinPositive(key, value) {
+        const save = this.load();
+        const defaults = this.getDefaultSave().globalRecords;
+        if (!save.globalRecords) save.globalRecords = Object.assign({}, defaults);
+        const v = Number(value);
+        if (!Number.isFinite(v) || v <= 0) return save.globalRecords[key];
+        const cur = Number(save.globalRecords[key]) || 0;
+        if (cur <= 0 || v < cur) {
+            save.globalRecords[key] = v;
+            this.save(save);
+        }
+        return save.globalRecords[key];
+    },
+
+    setGlobalRecord(key, value) {
+        const save = this.load();
+        const defaults = this.getDefaultSave().globalRecords;
+        if (!save.globalRecords) save.globalRecords = Object.assign({}, defaults);
+        save.globalRecords[key] = value;
+        this.save(save);
+        return save.globalRecords[key];
+    },
+
+    getClassTracking(classKey) {
+        const ledgerKey = this.engineClassToLedgerKey(classKey) || classKey;
+        const save = this.load();
+        const defaults = this.getDefaultSave().classTracking;
+        const base = defaults[ledgerKey] || {};
+        const stored = (save.classTracking && save.classTracking[ledgerKey]) || {};
+        const merged = Object.assign({}, base, stored);
+        if (base.weaponHits) {
+            merged.weaponHits = Object.assign({}, base.weaponHits, stored.weaponHits || {});
+        }
+        return merged;
+    },
+
+    bumpClassStat(classKey, key, delta) {
+        const ledgerKey = this.engineClassToLedgerKey(classKey) || classKey;
+        const save = this.load();
+        const defaults = this.getDefaultSave().classTracking;
+        if (!save.classTracking) save.classTracking = JSON.parse(JSON.stringify(defaults));
+        if (!save.classTracking[ledgerKey]) {
+            save.classTracking[ledgerKey] = JSON.parse(JSON.stringify(defaults[ledgerKey] || {}));
+        }
+        const amount = Number(delta);
+        if (!Number.isFinite(amount)) return;
+        if (key.indexOf('.') !== -1) {
+            const parts = key.split('.');
+            let obj = save.classTracking[ledgerKey];
+            for (let i = 0; i < parts.length - 1; i++) {
+                if (!obj[parts[i]] || typeof obj[parts[i]] !== 'object') obj[parts[i]] = {};
+                obj = obj[parts[i]];
+            }
+            const leaf = parts[parts.length - 1];
+            obj[leaf] = (Number(obj[leaf]) || 0) + amount;
+        } else {
+            save.classTracking[ledgerKey][key] = (Number(save.classTracking[ledgerKey][key]) || 0) + amount;
+        }
+        this.save(save);
+        return save.classTracking[ledgerKey];
+    },
+
+    setClassStatMax(classKey, key, value) {
+        const ledgerKey = this.engineClassToLedgerKey(classKey) || classKey;
+        const save = this.load();
+        const defaults = this.getDefaultSave().classTracking;
+        if (!save.classTracking) save.classTracking = JSON.parse(JSON.stringify(defaults));
+        if (!save.classTracking[ledgerKey]) {
+            save.classTracking[ledgerKey] = JSON.parse(JSON.stringify(defaults[ledgerKey] || {}));
+        }
+        const v = Number(value);
+        if (!Number.isFinite(v)) return;
+        const cur = Number(save.classTracking[ledgerKey][key]) || 0;
+        if (v > cur) {
+            save.classTracking[ledgerKey][key] = v;
+            this.save(save);
+        }
+        return save.classTracking[ledgerKey][key];
+    },
+
+    getUnlockedFeats() {
+        const save = this.load();
+        return Array.isArray(save.unlockedFeats) ? save.unlockedFeats.slice() : [];
+    },
+
+    hasFeat(id) {
+        const feats = this.getUnlockedFeats();
+        return feats.indexOf(id) !== -1;
+    },
+
+    unlockFeat(id) {
+        if (!id || this.hasFeat(id)) return false;
+        const save = this.load();
+        if (!Array.isArray(save.unlockedFeats)) save.unlockedFeats = [];
+        save.unlockedFeats.push(id);
+        this.save(save);
+        return true;
+    },
+
+    getFeatCompletions() {
+        const save = this.load();
+        return (save.featCompletions && typeof save.featCompletions === 'object')
+            ? Object.assign({}, save.featCompletions)
+            : {};
+    },
+
+    getFeatCompletionCount(id) {
+        if (!id) return 0;
+        const map = this.getFeatCompletions();
+        return Math.max(0, Math.floor(Number(map[id]) || 0));
+    },
+
+    /**
+     * Increment completion count. First time also adds to unlockedFeats.
+     * @returns {{ count: number, firstUnlock: boolean }}
+     */
+    recordFeatCompletion(id) {
+        if (!id) return { count: 0, firstUnlock: false };
+        const save = this.load();
+        if (!save.featCompletions || typeof save.featCompletions !== 'object') {
+            save.featCompletions = {};
+        }
+        if (!Array.isArray(save.unlockedFeats)) save.unlockedFeats = [];
+        const prev = Math.max(0, Math.floor(Number(save.featCompletions[id]) || 0));
+        const count = prev + 1;
+        save.featCompletions[id] = count;
+        let firstUnlock = false;
+        if (save.unlockedFeats.indexOf(id) === -1) {
+            save.unlockedFeats.push(id);
+            firstUnlock = true;
+        }
+        this.save(save);
+        return { count, firstUnlock };
+    },
+
+    trackLifetimeStat(stat, amount) {
+        const delta = Number(amount);
+        if (!stat || !Number.isFinite(delta)) return;
+        const save = this.load();
+        const defaults = this.getDefaultSave().lifetimeStats;
+        if (!save.lifetimeStats) save.lifetimeStats = Object.assign({}, defaults);
+        save.lifetimeStats[stat] = (Number(save.lifetimeStats[stat]) || 0) + delta;
+        this.save(save);
+        return save.lifetimeStats[stat];
+    }
+};
+
+// Bridge orphaned window.trackLifetimeStat call sites
+window.trackLifetimeStat = function (stat, amount) {
+    if (typeof SaveSystem !== 'undefined' && SaveSystem.trackLifetimeStat) {
+        return SaveSystem.trackLifetimeStat(stat, amount === undefined ? 1 : amount);
     }
 };
 

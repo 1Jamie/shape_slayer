@@ -328,10 +328,24 @@
 		const bossesKilled = Game.bossesKilled || 0;
 		const levelReached = player ? (player.level || 1) : 1;
 		
-		// Calculate time played
-		const timePlayed = Game.endTime && Game.startTime ? (Game.endTime - Game.startTime) / 1000 : 0;
-		const minutes = Math.floor(timePlayed / 60);
-		const seconds = (timePlayed % 60).toFixed(1);
+		// Gated run timing (pause + safe-room excluded from active time)
+		let timing = Game.lastRunTimingResult || null;
+		if (!timing && typeof LedgerManager !== 'undefined' && LedgerManager.computeRunTiming) {
+			timing = LedgerManager.computeRunTiming(Game.runTiming, Game.endTime || Date.now());
+		}
+		const fmt = (ms) => {
+			if (typeof LedgerManager !== 'undefined' && LedgerManager.formatDurationMs) {
+				return LedgerManager.formatDurationMs(ms);
+			}
+			const totalSec = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+			const m = Math.floor(totalSec / 60);
+			const s = totalSec % 60;
+			return `${m}:${String(s).padStart(2, '0')}`;
+		};
+		const activeStr = timing ? fmt(timing.activeMs) : '0:00';
+		const pausedStr = timing ? fmt(timing.pausedMs) : '0:00';
+		const safeStr = timing ? fmt(timing.safeRoomMs) : '0:00';
+		const wallStr = timing ? fmt(timing.grossMs) : '0:00';
 
 		// Always show all stats
 		const stats = [
@@ -340,7 +354,10 @@
 			{ label: 'Enemies Killed', value: enemiesKilled },
 			{ label: 'Elites Killed', value: elitesKilled },
 			{ label: 'Bosses Killed', value: bossesKilled },
-			{ label: 'Time Played', value: `${minutes}:${seconds}` }
+			{ label: 'Active Time', value: activeStr },
+			{ label: 'Paused', value: pausedStr },
+			{ label: 'Safe Rooms', value: safeStr },
+			{ label: 'Wall Clock', value: wallStr }
 		];
 
 		stats.forEach(stat => {

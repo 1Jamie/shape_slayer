@@ -298,6 +298,9 @@ class Warrior extends PlayerBase {
                                         if (killStats) {
                                             killStats.addStat('kills', 1);
                                         }
+                                        if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+                                            LedgerManager.recordEvent('whirlwindKill', { player: this, enemy });
+                                        }
                                     }
                                 }
                             }
@@ -328,12 +331,18 @@ class Warrior extends PlayerBase {
                 this.whirlwindHitTimer = 0;
             }
 
-            // End whirlwind after duration
-            const effectiveWhirlwindDuration = WARRIOR_CONFIG.whirlwindDuration + (this.whirlwindDurationBonus || 0);
+            // End whirlwind after duration (includes kill-extension bonus, capped in LedgerManager)
+            const effectiveWhirlwindDuration = WARRIOR_CONFIG.whirlwindDuration
+                + (this.whirlwindDurationBonus || 0)
+                + (this._whirlwindKillExtend || 0);
+            if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+                LedgerManager.recordEvent('whirlwindTick', { elapsed: this.whirlwindElapsed, player: this });
+            }
             if (this.whirlwindElapsed >= effectiveWhirlwindDuration) {
                 this.whirlwindActive = false;
                 this.whirlwindElapsed = 0;
                 this.whirlwindHitTimer = 0;
+                this._whirlwindKillExtend = 0;
             }
         }
 
@@ -717,6 +726,7 @@ class Warrior extends PlayerBase {
         this.whirlwindHitTimer = 0;
         this._whirlwindSessionId = (this._whirlwindSessionId || 0) + 1;
         this._whirlwindPulseIndex = 0;
+        this._whirlwindKillExtend = 0;
         this.whirlwindStartTime = Date.now(); // Track start time for smooth visual rotation
         // Apply cooldown reduction
         const effectiveSpecialCooldown = this.specialCooldownTime * (1 - this.cooldownReduction);

@@ -622,6 +622,27 @@ function checkRoomCleared() {
             window.updateLifetimeStats({ totalRoomsCleared: 1 });
         }
 
+        if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent && typeof Game !== 'undefined' && Game.player) {
+            const hpPct = Game.player.maxHp > 0 ? Game.player.hp / Game.player.maxHp : 1;
+            let biomeName = 'None';
+            if (currentRoom.biomeId) {
+                biomeName = currentRoom.biomeId;
+                if (typeof BiomeConfig !== 'undefined' && BiomeConfig.getBiomeDefinition) {
+                    const def = BiomeConfig.getBiomeDefinition(currentRoom.biomeId);
+                    if (def && def.bossTheme) biomeName = def.bossTheme;
+                    else if (def && def.id) biomeName = def.id;
+                }
+            }
+            const isCombat = currentRoom.type === 'combat' || currentRoom.type === 'boss' || currentRoom.type === 'elite';
+            LedgerManager.recordEvent('roomCleared', {
+                roomNumber: currentRoom.number || Game.roomNumber || 0,
+                hpPct,
+                biomeName,
+                isCombat,
+                player: Game.player
+            });
+        }
+
         currentRoom.rewardsGranted = true;
 
         if (typeof Game !== 'undefined' &&

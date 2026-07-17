@@ -198,6 +198,9 @@ function tryPerfectInterrupt(player, enemy, hitbox) {
             color: '#ffe066',
             count: 10
         });
+        if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+            LedgerManager.recordEvent('perfectInterrupt', { player, enemy });
+        }
     } else {
         enemy.hyperArmorFlashUntil = now + 250;
         if (typeof createParticleBurst !== 'undefined') {
@@ -276,6 +279,9 @@ function tryRegisterPerfectDodge(player, enemy, playerId) {
     if (player._perfectDodgeThreatKeys.size > 32) player._perfectDodgeThreatKeys.clear();
 
     grantPerfectDodgeCooldown(player);
+    if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+        LedgerManager.recordEvent('perfectDodge', { player, enemy, now: Date.now() });
+    }
 }
 
 // Circle collision detection helper
@@ -720,11 +726,19 @@ function applyHammerHeal(player, damageDealt, options = {}) {
     if (!Number.isFinite(damageDealt) || damageDealt <= 0) return 0;
     const baseHealPercent = typeof TANK_CONFIG !== 'undefined' ? TANK_CONFIG.hammerHealOnHit : 0.075;
     const healPercent = baseHealPercent + (player.hammerHealBonus || 0);
-    return applySustainHeal(player, damageDealt * healPercent, {
+    const healed = applySustainHeal(player, damageDealt * healPercent, {
         ...options,
         source: 'hammerHeal',
         showHealNumber: true
     });
+    if (healed > 0 && typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+        LedgerManager.recordEvent('hammerLifesteal', {
+            healed,
+            maxHp: player.maxHp,
+            player
+        });
+    }
+    return healed;
 }
 
 function applyLifeOnCritHeal(player, damageDealt, lifeOnCritRate, options = {}) {
@@ -1132,6 +1146,19 @@ function processMeleeHitOnEnemy(player, enemies, hitbox, enemy, playerId, bodyHi
                     if (typeof window.trackLifetimeStat === 'function') {
                         window.trackLifetimeStat('totalDamageDealt', damageDealt);
                     }
+
+                    if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+                        const isBackstabCrit = !!(isBackstab && isCrit);
+                        LedgerManager.recordEvent('damageHit', {
+                            damage: damageDealt,
+                            player,
+                            weaponType: player.weapon && player.weapon.weaponType,
+                            isBasic: !(hitbox && (hitbox.type === 'thrust' || hitbox.isHeavy)),
+                            isHeavy: !!(hitbox && (hitbox.type === 'thrust' || hitbox.isHeavy)),
+                            isBackstabCrit,
+                            breaksBackstabCombo: !isBackstabCrit
+                        });
+                    }
                     
                     if (typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
                         const stats = Game.getPlayerStats(attackerId);
@@ -1352,6 +1379,9 @@ function checkEnemiesVsPlayer(player, enemies) {
                         if (currentTime - lastDodgeTrack >= damageCooldownMs) {
                             window.trackLifetimeStat('totalDodges', 1);
                             checkEnemiesVsPlayer.dodgeTrackCooldowns.set(dodgeTrackKey, currentTime);
+                            if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+                                LedgerManager.recordEvent('dodge', { player: p });
+                            }
                         }
                     }
                     // Perfect dodge: action-dependent cooldown relief (client-predict OK for feel)
@@ -1361,6 +1391,15 @@ function checkEnemiesVsPlayer(player, enemies) {
                     // Skip damage application but still resolve overlap
                     resolveEnemyPlayerOverlap(enemy, p);
                     return; // Skip to next player
+                }
+
+                // Artillery Barrage proximity tracking
+                if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+                    const pdx = enemy.x - p.x;
+                    const pdy = enemy.y - p.y;
+                    LedgerManager.recordEvent('enemyProximity', {
+                        dist: Math.sqrt(pdx * pdx + pdy * pdy)
+                    });
                 }
                 
                 // For diamond enemies, check if dash has already hit (prevents continuous damage)
@@ -1516,6 +1555,13 @@ function checkEnemiesVsClones(player, enemies) {
                                     clone.takeDamage(damageAmount, {
                                         particleColor: '#666666'
                                     });
+                                }
+                                if ((enemy.isBoss || enemy.bossName) && typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+                                    LedgerManager.recordEvent('cloneHit', {
+                                        player: p,
+                                        enemy,
+                                        now: Date.now()
+                                    });
                                 } else if (clone.health !== undefined) {
                                     clone.health = Math.max(0, clone.health - damageAmount);
                                     clone.hp = clone.health;
@@ -1567,6 +1613,7 @@ function checkEnemiesVsClones(player, enemies) {
                     if (currentTime - lastDamageTime >= damageCooldownMs) {
                         // Decoy takes damage from enemy
                         const damageAmount = enemy.damage || 5;
+                        const decoyHpBefore = p.blinkDecoyHealth;
                         if (typeof p.applyBlinkDecoyDamage === 'function') {
                             p.applyBlinkDecoyDamage(damageAmount, {
                                 particleColor: '#96c8ff'
@@ -1595,6 +1642,16 @@ function checkEnemiesVsClones(player, enemies) {
                             if (p.blinkDecoyHealth <= 0) {
                                 p.blinkDecoyActive = false;
                                 p.blinkDecoyHealth = 0;
+                            }
+                        }
+                        // Perfect Displace: decoy soaked a lethal-scale hit while player blink i-frames clear danger
+                        if (p.invulnerable && (
+                            damageAmount >= (p.hp || 0) ||
+                            decoyHpBefore - (p.blinkDecoyHealth || 0) >= decoyHpBefore * 0.5 ||
+                            (p.blinkDecoyHealth || 0) <= 0
+                        )) {
+                            if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+                                LedgerManager.recordEvent('decoyAbsorb', { player: p, lethal: true });
                             }
                         }
                         

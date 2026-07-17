@@ -734,7 +734,7 @@ Room 200 is still gonna suck in the fun way i hope, but I'm not handing it to yo
 *P.S. - If your rubber band survives this patch, send me the MP Prediction numbers. I collect them now. you can find them in the debug pannel by hitting ctrl+d during a mp run.*
 `,
     '0.8.2': `**⚖️ UPDATE 0.8.2: WEIGHT, TIMING & BIOME GEOMETRY** 
-*"Weapons should feel different. Dodges should reward reads. Biomes should remix the same shapes without inventing twelve new classes."*
+*"Weapons should feel different. Dodges should reward reads. Biomes should remix the same shapes without inventing twelve new classes. And now the Index keeps score."*
 
 ---
 
@@ -756,7 +756,17 @@ Room 200 is still gonna suck in the fun way i hope, but I'm not handing it to yo
 • Some mid/late enemies roll one elite affix + jagged threat ring; phasing goes translucent
 • Nexus **Index** now has **Enemies** (bases + biome chips) and **Elite Affixes** (separate from your gear affixes)
 
-*TL;DR: weapons have weight you can read, timing has payoff, biomes remix geometry, elites telegraph their cheat codes. Check the Index if you forget which type does what.*
+## **📜 COMBAT LEDGER & FEATS**
+• New Index tab: **Combat Ledger & Feats** — GLOBAL + WARRIOR / ROGUE / TANK / MAGE subtabs
+• **Global records:** deepest room/biome, longest *active* run, max single-hit, fastest room-50 clear, lifetime voxel shatter count (deepest vs longest are separate)
+• **Class analytics:** weapon archetype weight, dodge precision rate, perfect-interrupt count, kit-specific counters
+• **Feats:** Universal Flaw feats pay **Credits** mid-run; Class Mastery feats pay **Shards** — first completion full payout, later completions **25%** (min 1) with a completion counter
+• Toast on unlock / repeat; everything lives in your normal local save (no second storage blob, no netcode)
+• **Run timing:** wall-clock stamps for start/end, pause, and Safe Rooms; pause is not stamped in Safe Rooms or MP; death screen shows Active / Paused / Safe Rooms / Wall Clock
+• **Warrior:** Whirlwind kill-extension (+0.75s per kill, capped) so Cyclone Engine is a real chase
+• **Rogue:** Phantom Execution — boss hits a Shadow Clone within 400ms of your killing blow (clones stay decoys)
+
+*TL;DR: weapons have weight you can read, timing has payoff, biomes remix geometry, elites telegraph their cheat codes, and the Index finally tracks mastery. Check Ledger & Feats if you want receipts.*
 `,
   },
 

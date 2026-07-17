@@ -99,6 +99,8 @@ const PRECACHE_URLS = [
   './js/run-profiler.js',
   './js/debug.js',
   './js/save.js',
+  './js/feats-registry.js',
+  './js/ledger-manager.js',
   './js/run-checkpoint.js',
   './js/coach-transition.js',
   './js/onboarding.js',

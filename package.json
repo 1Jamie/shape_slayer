@@ -12,6 +12,7 @@
     "balance:full-run": "node tests/full-run-balance-sim.js",
     "balance:economy": "node tests/economy-balance-sim.js",
     "test:combat-scaling": "node --test tests/combat-scaling.test.js",
+    "test:combat-ledger": "node --test tests/combat-ledger.test.js",
     "test:run-credits": "node --test tests/run-credits.test.js",
     "test:combat-economy": "node --test tests/combat-economy.test.js",
     "test:safe-room-run-save": "node --test tests/safe-room-run-save.test.js",

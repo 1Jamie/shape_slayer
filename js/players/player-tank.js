@@ -421,6 +421,7 @@ class Tank extends PlayerBase {
         const stunDur = TANK_CONFIG.shoutStunDuration + (this.shoutStunBonus || 0) + (obtuseStunBonus || 0);
         const aggroMult = options.softPulse ? (TANK_CONFIG.shoutAggroMultiplier * 0.5) : TANK_CONFIG.shoutAggroMultiplier;
 
+        let hitCount = 0;
         Game.enemies.forEach(enemy => {
             if (!enemy.alive) return;
             const dx = enemy.x - this.x;
@@ -428,6 +429,7 @@ class Tank extends PlayerBase {
             const distance = Math.sqrt(dx * dx + dy * dy);
             if (distance >= shoutRadius) return;
 
+            hitCount++;
             if (enemy.applyStun) {
                 enemy.applyStun(stunDur * (options.softPulse ? 0.5 : 1));
             }
@@ -441,6 +443,9 @@ class Tank extends PlayerBase {
                 enemy.addThreat(attackerId, shoutDamage * aggroMult);
             }
         });
+        if (!options.softPulse && typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+            LedgerManager.recordEvent('shoutHit', { count: hitCount, player: this });
+        }
     }
     
     // Override handleSpecialAbility for shield press-and-hold behavior
@@ -682,6 +687,12 @@ class Tank extends PlayerBase {
                                             const killStats = Game.getPlayerStats(attackerId);
                                             if (killStats) {
                                                 killStats.addStat('kills', 1);
+                                            }
+                                            if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+                                                LedgerManager.recordEvent('shieldRetaliateKill', {
+                                                    enemy,
+                                                    player: this
+                                                });
                                             }
                                         }
                                     }

@@ -720,6 +720,11 @@ class Mage extends PlayerBase {
             this.y = newY;
         }
 
+        const blinkTravel = Math.sqrt((this.x - oldX) ** 2 + (this.y - oldY) ** 2);
+        if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+            LedgerManager.recordEvent('blink', { distance: blinkTravel, player: this });
+        }
+
         // Create decoy at old position with full health
         this.blinkDecoyActive = true;
         this.blinkDecoyX = oldX;
@@ -1251,6 +1256,9 @@ class Mage extends PlayerBase {
 
             hitCount++;
             if (hitCount >= maxPenetration) break;
+        }
+        if (hitCount > 0 && typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+            LedgerManager.recordEvent('beamPierce', { count: hitCount, player: this });
         }
     }
 

@@ -4497,6 +4497,19 @@ const Game = {
         const was = !!this.inSafeRoom;
         const now = !!next;
         this.inSafeRoom = now;
+        if (!was && now && typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+            LedgerManager.recordEvent('safeRoomEnter', { now: Date.now() });
+            // Reset perfectionist slot counters for a new visit
+            if (LedgerManager.getRunState) {
+                const rs = LedgerManager.getRunState();
+                if (rs) {
+                    rs.sameSlotRerolls = {};
+                    rs.maxSameSlotRerolls = 0;
+                }
+            }
+        } else if (was && !now && typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+            LedgerManager.recordEvent('safeRoomExit', { now: Date.now() });
+        }
         if (was && !now && typeof clearAllGearRarityVisitFlags === 'function') {
             clearAllGearRarityVisitFlags();
         } else if (was && !now && typeof window !== 'undefined' && typeof window.clearAllGearRarityVisitFlags === 'function') {
@@ -4663,6 +4676,12 @@ const Game = {
             this.currencyBankedThisRun = run.currencyBankedThisRun || 0;
             this.shardsEarned = run.shardsEarned || 0;
             this.startTime = run.startTime || Date.now();
+            if (run.runTiming && typeof run.runTiming === 'object') {
+                this.runTiming = JSON.parse(JSON.stringify(run.runTiming));
+            } else if (typeof LedgerManager !== 'undefined' && LedgerManager.createEmptyRunTiming) {
+                this.runTiming = LedgerManager.createEmptyRunTiming();
+                this.runTiming.startedAt = this.startTime;
+            }
 
             this.roomNumber = checkpoint.roomNumber || 1;
             this.enteringSafeRoom = true;
@@ -4887,6 +4906,11 @@ const Game = {
 
                 console.log(`Advanced to Room ${this.roomNumber}${newRoom.type === 'boss' ? ' (BOSS ROOM)' : ''}`);
                 this.updateMusicForCurrentRoom();
+
+                if (newRoom.type === 'boss' && this.player && typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+                    const hpPct = this.player.maxHp > 0 ? this.player.hp / this.player.maxHp : 1;
+                    LedgerManager.recordEvent('bossRoomEnter', { hpPct, player: this.player });
+                }
 
                 if (typeof Telemetry !== 'undefined') {
                     const participants = this.collectTelemetryParticipants(true);
@@ -6643,6 +6667,9 @@ const Game = {
                 this.paused = true;
                 this.pausedFromState = 'PLAYING'; // Remember where we paused from
                 console.log('[TOGGLE PAUSE] Game paused - pausedFromState set to: PLAYING');
+                if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+                    LedgerManager.recordEvent('pauseEnter', { now: Date.now() });
+                }
                 this.playPauseMusic();
             } else if (this.state === 'NEXUS') {
                 this.state = 'PAUSED';
@@ -6652,10 +6679,14 @@ const Game = {
                 this.playPauseMusic();
             } else if (this.state === 'PAUSED') {
                 // Resume to the state we paused from
-                this.state = this.pausedFromState || 'PLAYING';
+                const from = this.pausedFromState || 'PLAYING';
+                this.state = from;
                 this.paused = false;
                 this.pausedFromState = null;
                 console.log('[TOGGLE PAUSE] Game resumed - pausedFromState cleared');
+                if (from === 'PLAYING' && typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+                    LedgerManager.recordEvent('pauseExit', { now: Date.now() });
+                }
                 if (typeof audioMenuVisible !== 'undefined') {
                     audioMenuVisible = false;
                 }
@@ -6872,6 +6903,16 @@ const Game = {
             this.creditRewards();
             this.currencyEarned = 0;
             this.shardsEarned = 0;
+        }
+
+        if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent && !this.lastRunTimingResult) {
+            const success = typeof currentRoom !== 'undefined' && currentRoom
+                && currentRoom.type === 'boss' && currentRoom.cleared;
+            LedgerManager.recordEvent('runEnded', {
+                now: Date.now(),
+                roomNumber: this.roomNumber || 0,
+                successfulClear: !!success || (this.roomNumber || 0) >= 50
+            });
         }
 
         if (typeof Telemetry !== 'undefined') {
@@ -7294,6 +7335,10 @@ const Game = {
             : 1;
         this.doorPulse = 0;
         this.startTime = Date.now();
+        if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+            this.lastRunTimingResult = null;
+            LedgerManager.recordEvent('runStart', { player: this.player });
+        }
 
         // Initialize per-player stats tracking
         this.initializePlayerStats();
@@ -7466,6 +7511,10 @@ const Game = {
         this.endTime = 0; // Reset end time
         this.deathScreenStartTime = 0; // Reset death screen timer
         this.rewardsCredited = false;
+        this.lastRunTimingResult = null;
+        if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+            LedgerManager.recordEvent('runStart', { player: this.player });
+        }
 
         // Initialize per-player stats tracking
         this.initializePlayerStats();
