@@ -199,7 +199,7 @@ function tryPerfectInterrupt(player, enemy, hitbox) {
             count: 10
         });
         if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
-            LedgerManager.recordEvent('perfectInterrupt', { player, enemy });
+            LedgerManager.recordEvent('perfectInterrupt', { player, enemy, now: Date.now() });
         }
     } else {
         enemy.hyperArmorFlashUntil = now + 250;

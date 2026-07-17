@@ -80,6 +80,15 @@ const FeatsRegistry = (function () {
             target: 3
         },
         {
+            id: 'shadow_riposte',
+            name: 'Shadow Riposte',
+            description: 'Perfect dodge a threat, then land a perfect interrupt on any enemy within 1 second.',
+            classKey: 'rogue',
+            reward: { shards: 25 },
+            progressKey: 'shadowRiposte',
+            target: 1
+        },
+        {
             id: 'surgical_strike',
             name: 'Surgical Strike',
             description: 'Land 8 consecutive critical hits strictly from a backstab spatial position without breaking weapon combo sequence.',

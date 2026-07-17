@@ -242,6 +242,40 @@ describe('Phantom Execution window', () => {
     });
 });
 
+describe('Shadow Riposte window', () => {
+    it('unlocks when perfect interrupt follows perfect dodge within 1s on any enemy', () => {
+        const { LedgerManager, SaveSystem, Game } = loadLedgerHarness();
+        Game.player = { playerClass: 'triangle' };
+        LedgerManager.recordEvent('perfectDodge', {
+            player: Game.player,
+            enemy: { id: 'enemy-a' },
+            now: 1000
+        });
+        LedgerManager.recordEvent('perfectInterrupt', {
+            player: Game.player,
+            enemy: { id: 'enemy-b' },
+            now: 1800
+        });
+        assert.equal(SaveSystem.hasFeat('shadow_riposte'), true);
+    });
+
+    it('does not unlock outside the 1s window', () => {
+        const { LedgerManager, SaveSystem, Game } = loadLedgerHarness();
+        Game.player = { playerClass: 'triangle' };
+        LedgerManager.recordEvent('perfectDodge', {
+            player: Game.player,
+            enemy: { id: 'enemy-1' },
+            now: 1000
+        });
+        LedgerManager.recordEvent('perfectInterrupt', {
+            player: Game.player,
+            enemy: { id: 'enemy-1' },
+            now: 2100
+        });
+        assert.equal(SaveSystem.hasFeat('shadow_riposte'), false);
+    });
+});
+
 describe('Close Call', () => {
     it('unlocks when clearing combat room under 5% HP', () => {
         const { LedgerManager, SaveSystem, Game } = loadLedgerHarness();

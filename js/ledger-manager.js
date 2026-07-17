@@ -4,6 +4,8 @@ const LedgerManager = (function () {
     const WHIRLWIND_EXTEND_PER_KILL = 0.75;
     const WHIRLWIND_MAX_DURATION = 12.0;
     const PHANTOM_WINDOW_MS = 400;
+    // Rogue dodge is 0.3s (~216px dash) + knife travel after overshoot; 1s is tight but mechanically fair
+    const SHADOW_RIPOSTE_WINDOW_MS = 1000;
     const ARTILLERY_PROXIMITY_PX = 150;
 
     let runState = createEmptyRunState();
@@ -284,6 +286,7 @@ const LedgerManager = (function () {
             underdog: 0,
             vanguardThrust: 0,
             shadowStep: 0,
+            shadowRiposte: 0,
             phantomExecution: 0,
             returnToSender: 0,
             perfectDisplace: 0,
@@ -416,10 +419,14 @@ const LedgerManager = (function () {
 
     function recordPerfectDodge(data) {
         if (!isHostOrSolo()) return;
-        const classKey = resolveClassKey(data && data.player);
+        const player = data && data.player;
+        const classKey = resolveClassKey(player);
         const now = (data && data.now) || Date.now();
         if (classKey && typeof SaveSystem !== 'undefined') {
             SaveSystem.bumpClassStat(classKey, 'perfectDodges', 1);
+        }
+        if (player) {
+            player._lastPerfectDodgeAt = now;
         }
         runState.perfectDodgeTimes.push(now);
         // Keep last 5s window
@@ -432,9 +439,19 @@ const LedgerManager = (function () {
 
     function recordPerfectInterrupt(data) {
         if (!isHostOrSolo()) return;
-        const classKey = resolveClassKey(data && data.player);
+        const player = data && data.player;
+        const classKey = resolveClassKey(player);
         if (classKey && typeof SaveSystem !== 'undefined') {
             SaveSystem.bumpClassStat(classKey, 'perfectInterrupts', 1);
+        }
+        // Any enemy counts: the dodged foe usually can't re-telegraph inside the window
+        if (classKey === 'rogue' && player && player._lastPerfectDodgeAt) {
+            const now = (data && data.now) || Date.now();
+            if (now - player._lastPerfectDodgeAt <= SHADOW_RIPOSTE_WINDOW_MS) {
+                tryUnlockFeat('shadow_riposte');
+                // Consume the dodge stamp so one PD can't chain-pay multiple interrupts
+                player._lastPerfectDodgeAt = 0;
+            }
         }
     }
 
@@ -701,6 +718,7 @@ const LedgerManager = (function () {
         WHIRLWIND_EXTEND_PER_KILL,
         WHIRLWIND_MAX_DURATION,
         PHANTOM_WINDOW_MS,
+        SHADOW_RIPOSTE_WINDOW_MS,
         applyWhirlwindKillExtend: recordWhirlwindKill
     };
 })();

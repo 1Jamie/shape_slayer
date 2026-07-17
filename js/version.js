@@ -765,6 +765,7 @@ Room 200 is still gonna suck in the fun way i hope, but I'm not handing it to yo
 • **Run timing:** wall-clock stamps for start/end, pause, and Safe Rooms; pause is not stamped in Safe Rooms or MP; death screen shows Active / Paused / Safe Rooms / Wall Clock
 • **Warrior:** Whirlwind kill-extension (+0.75s per kill, capped) so Cyclone Engine is a real chase
 • **Rogue:** Phantom Execution - boss hits a Shadow Clone within 400ms of your killing blow (clones stay decoys)
+• **Rogue:** Shadow Riposte - perfect dodge a threat, then perfect-interrupt any enemy within 1s (dash distance + knife travel baked into the window)
 
 ## **🔮 MAGE TUNE-UP**
 • Base damage brought up to **12** (parity with the other classes - mage was the lonely 10)
