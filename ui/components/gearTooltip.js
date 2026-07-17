@@ -122,9 +122,15 @@ const GearTooltipUI = {
 
         // Footer with controls
         if (nearbyCount > 1) {
+            const usingGamepad = typeof Input !== 'undefined'
+                && ((Input.isGamepadMode && Input.isGamepadMode())
+                    || Input._activeInputSource === 'gamepad');
+            const cycleHint = usingGamepad
+                ? `D-pad ← → to cycle (${LootSelection.selectedIndex + 1}/${nearbyCount})`
+                : `← → to cycle (${LootSelection.selectedIndex + 1}/${nearbyCount})`;
             html += `
                 <div style="margin-top: 10px; padding-top: 5px; border-top: 1px solid #444; text-align: center; color: #ffff00; font-size: 12px;">
-                    ← → to cycle (${LootSelection.selectedIndex + 1}/${nearbyCount})
+                    ${cycleHint}
                 </div>
             `;
         }

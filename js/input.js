@@ -1043,6 +1043,51 @@ const Input = {
             button.active       = isDown;
         };
 
+        // DOM menus own the pad while open — don't also drive the player / interact
+        const uiBlocking = window.ControllerNav
+            && typeof window.ControllerNav.isBlockingGameplay === 'function'
+            && window.ControllerNav.isBlockingGameplay();
+
+        const clearGameplayPad = () => {
+            syncJoystick(this.touchJoysticks.movement, { x: 0, y: 0, mag: 0 });
+            if (this.touchJoysticks.basicAttack) {
+                this.touchJoysticks.basicAttack.active = false;
+                this.touchJoysticks.basicAttack.magnitude = 0;
+            }
+            syncButton(this.touchButtons.heavyAttack, false);
+            syncAbilityJoystick(this.touchJoysticks.heavyAttack, { x: 0, y: 0, mag: 0 }, false);
+            syncButton(this.touchButtons.specialAbility, false);
+            syncAbilityJoystick(this.touchJoysticks.specialAbility, { x: 0, y: 0, mag: 0 }, false);
+            syncButton(this.touchButtons.dodge, false);
+            syncAbilityJoystick(this.touchJoysticks.dodge, { x: 0, y: 0, mag: 0 }, false);
+            this.keys['g'] = false;
+            this.keys['m'] = false;
+            this.keys['arrowleft'] = false;
+            this.keys['arrowright'] = false;
+        };
+
+        if (uiBlocking) {
+            clearGameplayPad();
+            if (!(window.ControllerNav && window.ControllerNav.handlesSystemButtons)) {
+                const startNow = gp.buttons[9]?.pressed || false;
+                if (startNow && !this._gamepadStartPrev) {
+                    if (typeof Game !== 'undefined' && Game.togglePause) {
+                        Game.togglePause();
+                    }
+                }
+                this._gamepadStartPrev = startNow;
+
+                const selectNow = gp.buttons[8]?.pressed || false;
+                if (selectNow && !this._gamepadSelectPrev) {
+                    this.keys['tab'] = true;
+                } else if (!selectNow && this._gamepadSelectPrev) {
+                    this.keys['tab'] = false;
+                }
+                this._gamepadSelectPrev = selectNow;
+            }
+            return;
+        }
+
         // ---- Left stick → movement ----
         const leftStick = applyDeadzone(gp.axes[0] || 0, gp.axes[1] || 0);
         // D-pad also drives movement as digital override
@@ -1050,16 +1095,33 @@ const Input = {
         const dpadDown  = gp.buttons[13]?.pressed || false;
         const dpadLeft  = gp.buttons[14]?.pressed || false;
         const dpadRight = gp.buttons[15]?.pressed || false;
-        if (dpadUp || dpadDown || dpadLeft || dpadRight) {
-            let dx = 0, dy = 0;
-            if (dpadUp)    dy -= 1;
-            if (dpadDown)  dy += 1;
-            if (dpadLeft)  dx -= 1;
-            if (dpadRight) dx += 1;
-            const len = Math.sqrt(dx * dx + dy * dy);
-            syncJoystick(this.touchJoysticks.movement, { x: dx / len, y: dy / len, mag: 1 });
-        } else {
+
+        // Near stacked loot: D-pad L/R cycles selection (stick still moves)
+        const lootCycleActive = typeof LootSelection !== 'undefined'
+            && LootSelection.nearbyItems
+            && LootSelection.nearbyItems.length > 1
+            && (dpadLeft || dpadRight)
+            && !dpadUp
+            && !dpadDown;
+
+        if (lootCycleActive) {
             syncJoystick(this.touchJoysticks.movement, leftStick);
+            this.keys['arrowleft'] = dpadLeft;
+            this.keys['arrowright'] = dpadRight;
+        } else {
+            this.keys['arrowleft'] = false;
+            this.keys['arrowright'] = false;
+            if (dpadUp || dpadDown || dpadLeft || dpadRight) {
+                let dx = 0, dy = 0;
+                if (dpadUp)    dy -= 1;
+                if (dpadDown)  dy += 1;
+                if (dpadLeft)  dx -= 1;
+                if (dpadRight) dx += 1;
+                const len = Math.sqrt(dx * dx + dy * dy);
+                syncJoystick(this.touchJoysticks.movement, { x: dx / len, y: dy / len, mag: 1 });
+            } else {
+                syncJoystick(this.touchJoysticks.movement, leftStick);
+            }
         }
 
         // ---- Right stick -> aim, RT/R2 -> primary attack ----

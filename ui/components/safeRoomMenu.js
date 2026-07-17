@@ -257,9 +257,9 @@ const SafeRoomMenu = {
             }
             this.render();
 
-            // Auto-focus first button for controller support
+            // Auto-focus first action button for controller support (skip header close)
             setTimeout(() => {
-                const firstBtn = modal.querySelector('button');
+                const firstBtn = modal.querySelector('#safe-room-body button, .modal-body button');
                 if (firstBtn) firstBtn.focus();
             }, 50);
         }

@@ -300,7 +300,13 @@ function renderGearTooltips(ctx, player) {
             promptY += 18;
             ctx.fillStyle = '#aaaaaa';
             ctx.font = '11px Arial';
-            ctx.fillText(`← → to cycle (${LootSelection.selectedIndex + 1}/${nearbyCount})`, tooltipX, promptY);
+            const usingGamepad = typeof Input !== 'undefined'
+                && ((Input.isGamepadMode && Input.isGamepadMode())
+                    || Input._activeInputSource === 'gamepad');
+            const cycleHint = usingGamepad
+                ? `D-pad ← → to cycle (${LootSelection.selectedIndex + 1}/${nearbyCount})`
+                : `← → to cycle (${LootSelection.selectedIndex + 1}/${nearbyCount})`;
+            ctx.fillText(cycleHint, tooltipX, promptY);
         }
     }
 

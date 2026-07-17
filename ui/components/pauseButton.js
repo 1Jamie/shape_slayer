@@ -8,13 +8,9 @@
 		btn.className = 'pause-button btn btn--primary';
 		btn.textContent = 'Pause';
 		btn.type = 'button';
-		btn.style.position = 'fixed';
-		btn.style.top = '12px';
-		btn.style.right = '12px';
 		btn.style.pointerEvents = 'auto';
 		btn.style.userSelect = 'none';
-		btn.style.zIndex = '1001';
-		
+		// Position / z-index owned by .pause-button in base.css (under modals)
 		// Prevent right-click context menu on pause button
 		btn.addEventListener('contextmenu', (e) => {
 			e.preventDefault();

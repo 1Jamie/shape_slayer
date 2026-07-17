@@ -554,7 +554,7 @@ shape_slayer/
 ├── index.html                 # Game shell + script load order
 ├── server.js                  # Optional static / PWA-friendly local server
 ├── sw.js / manifest.json      # Service worker + PWA bits
-├── css/ui/                    # Hand-edited UI CSS (legacy .scss files may linger; edit the .css)
+├── css/ui/                    # Hand-edited UI CSS (edit base.css directly; no Sass)
 ├── js/
 │   ├── main.js                # Game loop, camera, state machine, run orchestration
 │   ├── combat.js              # Damage, weapon-type feel, perfect dodge/interrupt, legendaries

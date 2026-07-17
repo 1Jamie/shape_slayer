@@ -1,5 +1,6 @@
 (function () {
 	let layer, modal, codeInput, statusText, codeDisplay, rosterList, isHostBadge, nameInput, joinBtn, createBtn;
+	let setupSection, lobbySection, leaveBtn, copyBtn;
 
 	async function ensureMultiplayerModule() {
 		// Check if module is already loaded
@@ -114,142 +115,126 @@
 
 		const body = document.createElement('div');
 		body.className = 'modal__body';
-		body.style.display = 'grid';
-		body.style.gap = '12px';
 
-		// Lobby code display and host badge
-		const headerRow = document.createElement('div');
-		headerRow.style.display = 'flex';
-		headerRow.style.justifyContent = 'space-between';
-		codeDisplay = document.createElement('div');
-		codeDisplay.style.fontWeight = '700';
-		isHostBadge = document.createElement('div');
-		isHostBadge.style.opacity = '0.8';
-		headerRow.appendChild(codeDisplay);
-		headerRow.appendChild(isHostBadge);
-		body.appendChild(headerRow);
+		// --- Display name (always visible) ---
+		const nameSection = document.createElement('div');
+		nameSection.className = 'mp-section';
 
-		// Player name input
-		const nameWrap = document.createElement('div');
 		const nameLabel = document.createElement('label');
+		nameLabel.className = 'mp-label';
 		nameLabel.textContent = 'Display Name';
-		nameLabel.style.display = 'block';
-		nameLabel.style.marginBottom = '4px';
-		nameLabel.style.fontSize = '14px';
+		nameLabel.htmlFor = 'mp-display-name';
+
 		nameInput = document.createElement('input');
+		nameInput.id = 'mp-display-name';
+		nameInput.className = 'mp-input';
 		nameInput.type = 'text';
 		nameInput.maxLength = 20;
 		nameInput.placeholder = 'Enter your name (optional)';
-		nameInput.style.width = '100%';
-		nameInput.style.padding = '8px';
-		nameInput.style.border = '1px solid rgba(150,150,255,0.3)';
-		nameInput.style.borderRadius = '4px';
-		nameInput.style.background = 'rgba(0,0,0,0.3)';
-		nameInput.style.color = '#fff';
-		nameInput.style.fontSize = '14px';
-		// Prevent keyboard shortcuts from interfering when typing
-		nameInput.addEventListener('keydown', (e) => {
-			e.stopPropagation();
-		});
-		nameInput.addEventListener('keyup', (e) => {
-			e.stopPropagation();
-		});
-		// Load saved name
+		nameInput.addEventListener('keydown', (e) => { e.stopPropagation(); });
+		nameInput.addEventListener('keyup', (e) => { e.stopPropagation(); });
 		if (typeof SaveSystem !== 'undefined' && SaveSystem.getPlayerName) {
 			const savedName = SaveSystem.getPlayerName();
-			if (savedName) {
-				nameInput.value = savedName;
-			}
+			if (savedName) nameInput.value = savedName;
 		}
-		
-		// Save button
+
 		const saveNameBtn = document.createElement('button');
-		saveNameBtn.className = 'btn';
+		saveNameBtn.className = 'btn mp-btn-block';
+		saveNameBtn.type = 'button';
 		saveNameBtn.textContent = 'Save Name';
-		saveNameBtn.style.marginTop = '8px';
-		saveNameBtn.style.width = '100%';
 		saveNameBtn.addEventListener('click', () => {
-			// Save name when button is clicked
 			if (typeof SaveSystem !== 'undefined' && SaveSystem.setPlayerName) {
 				SaveSystem.setPlayerName(nameInput.value);
-				// Update name in lobby if connected
 				const mgr = getMultiplayerManager();
 				if (mgr && mgr.lobbyCode && mgr.send) {
-					// Send name update to server
 					mgr.send({
 						type: 'update_player_name',
 						data: { name: nameInput.value || null }
 					});
-					// Don't refresh immediately - wait for server to broadcast update
-					// The server will send player_list_update which will trigger refresh
 				} else {
-					// Not in a lobby, just refresh locally
 					refresh();
 				}
-				// Show confirmation
 				if (window.showToast) {
 					window.showToast('Name Saved!', 1500);
 				}
 			}
 		});
-		
-		nameWrap.appendChild(nameLabel);
-		nameWrap.appendChild(nameInput);
-		nameWrap.appendChild(saveNameBtn);
-		body.appendChild(nameWrap);
+
+		nameSection.appendChild(nameLabel);
+		nameSection.appendChild(nameInput);
+		nameSection.appendChild(saveNameBtn);
+
+		// --- Setup mode: Create / Join ---
+		setupSection = document.createElement('div');
+		setupSection.className = 'mp-section mp-setup';
 
 		createBtn = document.createElement('button');
-		createBtn.className = 'btn btn--primary';
+		createBtn.className = 'btn btn--primary mp-btn-block';
+		createBtn.type = 'button';
 		createBtn.textContent = 'Create Lobby';
 		createBtn.addEventListener('click', async () => {
 			status('Loading multiplayer system...');
-			
-			// Ensure module is loaded first
+
 			const loaded = await ensureMultiplayerModule();
 			if (!loaded) {
 				status('Failed to load multiplayer system');
 				console.error('[MultiplayerMenu] Failed to load multiplayer module');
 				return;
 			}
-			
+
 			const mgr = getMultiplayerManager();
 			if (!mgr) {
 				status('Multiplayer system not available');
 				console.warn('[MultiplayerMenu] MultiplayerManager not available after loading');
 				return;
 			}
-			
+
 			try {
 				status('Creating lobby...');
-				// Get name from SaveSystem, or use null to let server assign Player 1
 				const playerName = getPlayerName();
 				const playerClass = getPlayerClass();
 				await mgr.createLobby(playerName, playerClass);
-				// Don't refresh immediately - wait for server response via UIBus event
-				// Toast will be shown by UIBus event handler
 			} catch (error) {
 				console.error('[MultiplayerMenu] Error creating lobby:', error);
 				status(error.message || 'Failed to create lobby');
 			}
 		});
 
-		const inputWrap = document.createElement('div');
-		const inputLabel = document.createElement('label');
-		inputLabel.textContent = 'Join code';
-		inputLabel.style.display = 'block';
+		const divider = document.createElement('div');
+		divider.className = 'mp-divider';
+		divider.setAttribute('role', 'separator');
+		const dividerText = document.createElement('span');
+		dividerText.textContent = 'or';
+		divider.appendChild(dividerText);
+
+		const joinCluster = document.createElement('div');
+		joinCluster.className = 'mp-join';
+
+		const joinLabel = document.createElement('label');
+		joinLabel.className = 'mp-label';
+		joinLabel.textContent = 'Join with code';
+		joinLabel.htmlFor = 'mp-join-code';
+
+		const joinRow = document.createElement('div');
+		joinRow.className = 'mp-join__row';
+
 		codeInput = document.createElement('input');
+		codeInput.id = 'mp-join-code';
+		codeInput.className = 'mp-input mp-input--code';
 		codeInput.type = 'text';
 		codeInput.maxLength = 6;
 		codeInput.placeholder = 'ABC123';
-		codeInput.style.width = '100%';
+		codeInput.autocomplete = 'off';
+		codeInput.spellcheck = false;
+		codeInput.addEventListener('keydown', (e) => { e.stopPropagation(); });
+		codeInput.addEventListener('keyup', (e) => { e.stopPropagation(); });
 		codeInput.addEventListener('input', () => {
 			codeInput.value = codeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
 		});
-		inputWrap.appendChild(inputLabel);
-		inputWrap.appendChild(codeInput);
 
 		joinBtn = document.createElement('button');
 		joinBtn.className = 'btn';
+		joinBtn.type = 'button';
 		joinBtn.textContent = 'Join Lobby';
 		joinBtn.addEventListener('click', async () => {
 			const code = (codeInput.value || '').trim().toUpperCase();
@@ -257,40 +242,73 @@
 				status('Please enter a 6-character code');
 				return;
 			}
-			
+
 			status('Loading multiplayer system...');
-			
-			// Ensure module is loaded first
+
 			const loaded = await ensureMultiplayerModule();
 			if (!loaded) {
 				status('Failed to load multiplayer system');
 				console.error('[MultiplayerMenu] Failed to load multiplayer module');
 				return;
 			}
-			
+
 			const mgr = getMultiplayerManager();
 			if (!mgr) {
 				status('Multiplayer system not available');
 				console.warn('[MultiplayerMenu] MultiplayerManager not available after loading');
 				return;
 			}
-			
+
 			try {
 				status('Joining lobby...');
-				// Get name from SaveSystem, or use null to let server assign player number
 				const playerName = getPlayerName();
 				const playerClass = getPlayerClass();
 				await mgr.joinLobby(code, playerName, playerClass);
-				// Don't refresh immediately - wait for server response via UIBus event
-				// Toast will be shown by UIBus event handler
 			} catch (error) {
 				console.error('[MultiplayerMenu] Error joining lobby:', error);
 				status(error.message || 'Failed to join lobby');
 			}
 		});
 
-		const copyBtn = document.createElement('button');
+		joinRow.appendChild(codeInput);
+		joinRow.appendChild(joinBtn);
+		joinCluster.appendChild(joinLabel);
+		joinCluster.appendChild(joinRow);
+
+		setupSection.appendChild(createBtn);
+		setupSection.appendChild(divider);
+		setupSection.appendChild(joinCluster);
+
+		// --- Lobby mode: code + roster + leave ---
+		lobbySection = document.createElement('div');
+		lobbySection.className = 'mp-section mp-lobby';
+		lobbySection.hidden = true;
+
+		const lobbyHeader = document.createElement('div');
+		lobbyHeader.className = 'mp-lobby__header';
+
+		const codeBlock = document.createElement('div');
+		codeBlock.className = 'mp-code';
+
+		const codeLabel = document.createElement('div');
+		codeLabel.className = 'mp-label';
+		codeLabel.textContent = 'Lobby code';
+
+		codeDisplay = document.createElement('div');
+		codeDisplay.className = 'mp-code__value';
+
+		isHostBadge = document.createElement('span');
+		isHostBadge.className = 'mp-host-badge';
+
+		codeBlock.appendChild(codeLabel);
+		codeBlock.appendChild(codeDisplay);
+
+		const codeActions = document.createElement('div');
+		codeActions.className = 'mp-lobby__actions';
+
+		copyBtn = document.createElement('button');
 		copyBtn.className = 'btn';
+		copyBtn.type = 'button';
 		copyBtn.textContent = 'Copy Code';
 		copyBtn.addEventListener('click', async () => {
 			const mgr = getMultiplayerManager();
@@ -299,12 +317,11 @@
 				status('No lobby code to copy');
 				return;
 			}
-			
+
 			if (navigator.clipboard && navigator.clipboard.writeText) {
 				try {
 					await navigator.clipboard.writeText(code);
 					status('Code copied!');
-					// Show toast notification
 					if (window.showToast) {
 						window.showToast('Code Copied!', 1500);
 					}
@@ -313,7 +330,6 @@
 					status('Failed to copy code');
 				}
 			} else {
-				// Fallback for older browsers
 				const textArea = document.createElement('textarea');
 				textArea.value = code;
 				textArea.style.position = 'fixed';
@@ -323,7 +339,6 @@
 				try {
 					document.execCommand('copy');
 					status('Code copied!');
-					// Show toast notification
 					if (window.showToast) {
 						window.showToast('Code Copied!', 1500);
 					}
@@ -335,24 +350,28 @@
 			}
 		});
 
-		rosterList = document.createElement('div');
-		rosterList.style.borderTop = '1px solid rgba(150,150,255,0.3)';
-		rosterList.style.paddingTop = '12px';
-		rosterList.style.marginTop = '8px';
+		codeActions.appendChild(isHostBadge);
+		codeActions.appendChild(copyBtn);
 
-		const leaveBtn = document.createElement('button');
-		leaveBtn.className = 'btn';
+		lobbyHeader.appendChild(codeBlock);
+		lobbyHeader.appendChild(codeActions);
+
+		rosterList = document.createElement('div');
+		rosterList.className = 'mp-roster';
+
+		leaveBtn = document.createElement('button');
+		leaveBtn.className = 'btn mp-btn-block';
+		leaveBtn.type = 'button';
 		leaveBtn.textContent = 'Leave Lobby';
 		leaveBtn.addEventListener('click', async () => {
-			// Ensure module is loaded first
 			await ensureMultiplayerModule();
-			
+
 			const mgr = getMultiplayerManager();
 			if (!mgr) {
 				status('Multiplayer system not available');
 				return;
 			}
-			
+
 			try {
 				mgr.leaveLobby();
 				refresh();
@@ -363,15 +382,17 @@
 			}
 		});
 
-		statusText = document.createElement('div');
-		statusText.className = 'sr-only';
+		lobbySection.appendChild(lobbyHeader);
+		lobbySection.appendChild(rosterList);
+		lobbySection.appendChild(leaveBtn);
 
-		body.appendChild(createBtn);
-		body.appendChild(inputWrap);
-		body.appendChild(joinBtn);
-		body.appendChild(copyBtn);
-		body.appendChild(rosterList);
-		body.appendChild(leaveBtn);
+		statusText = document.createElement('div');
+		statusText.className = 'mp-status';
+		statusText.setAttribute('aria-live', 'polite');
+
+		body.appendChild(nameSection);
+		body.appendChild(setupSection);
+		body.appendChild(lobbySection);
 		body.appendChild(statusText);
 
 		const footer = document.createElement('div');
@@ -398,8 +419,8 @@
 
 	function status(msg) {
 		if (!statusText) return;
-		statusText.textContent = msg;
-		// Also log for debugging
+		statusText.textContent = msg || '';
+		statusText.hidden = !msg;
 		console.log('[MultiplayerMenu]', msg);
 	}
 
@@ -432,6 +453,8 @@
 				nameInput.value = '';
 			}
 		}
+
+		status('');
 		
 		// Try to ensure module is loaded when opening (but don't block)
 		ensureMultiplayerModule().then(() => {
@@ -448,14 +471,24 @@
 		
 		layer.style.display = 'flex';
 		// Focus the modal panel itself so escape key works immediately
-		// We'll focus the input after a short delay to allow escape to work
 		if (modal) {
 			modal.setAttribute('tabindex', '-1');
 			modal.focus();
 		}
-		// Focus the code input after a brief delay (allows escape to work first)
+		// Prefer action buttons on gamepad; text fields need a keyboard
 		setTimeout(() => {
-			if (codeInput) codeInput.focus();
+			const usingGamepad = typeof Input !== 'undefined'
+				&& ((Input.isGamepadMode && Input.isGamepadMode())
+					|| Input._activeInputSource === 'gamepad');
+			const mgr = getMultiplayerManager();
+			const inLobby = !!(mgr && mgr.lobbyCode);
+			if (usingGamepad) {
+				if (inLobby && leaveBtn) leaveBtn.focus();
+				else if (createBtn) createBtn.focus();
+				return;
+			}
+			if (!inLobby && codeInput) codeInput.focus();
+			else if (nameInput) nameInput.focus();
 		}, 100);
 	}
 
@@ -475,10 +508,7 @@
 		svg.setAttribute('width', size);
 		svg.setAttribute('height', size);
 		svg.setAttribute('viewBox', `-${size} -${size} ${size * 2} ${size * 2}`);
-		svg.style.display = 'inline-block';
-		svg.style.verticalAlign = 'middle';
-		svg.style.marginRight = '8px';
-		svg.style.flexShrink = '0';
+		svg.classList.add('mp-roster__icon');
 
 		const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
 		path.setAttribute('fill', color);
@@ -514,7 +544,6 @@
 	}
 
 	function getClassShapeAndColor(playerClass) {
-		// Map player class to shape and color
 		const classMap = {
 			square: { shape: 'square', color: '#4a90e2' },
 			triangle: { shape: 'triangle', color: '#ff1493' },
@@ -525,61 +554,41 @@
 	}
 
 	function refresh() {
-		// Reflect lobby state: code + roster
 		const mgr = getMultiplayerManager();
 		const code = (mgr && mgr.lobbyCode) || '';
 		const inLobby = !!code;
-		
+
+		if (setupSection) setupSection.hidden = inLobby;
+		if (lobbySection) lobbySection.hidden = !inLobby;
+
 		if (codeDisplay) {
-			codeDisplay.textContent = code ? `Code: ${code}` : '';
+			codeDisplay.textContent = code || '';
 		}
 		if (isHostBadge) {
-			isHostBadge.textContent = (mgr && mgr.isHost) ? 'Host' : '';
+			const isHost = !!(mgr && mgr.isHost);
+			isHostBadge.textContent = isHost ? 'Host' : '';
+			isHostBadge.hidden = !isHost;
 		}
-		
-		// Disable/enable create lobby, join button and code input based on lobby state
-		if (createBtn) {
-			createBtn.disabled = inLobby;
-			createBtn.style.opacity = inLobby ? '0.5' : '1';
-			createBtn.style.cursor = inLobby ? 'not-allowed' : 'pointer';
-		}
-		if (joinBtn) {
-			joinBtn.disabled = inLobby;
-			joinBtn.style.opacity = inLobby ? '0.5' : '1';
-			joinBtn.style.cursor = inLobby ? 'not-allowed' : 'pointer';
-		}
-		if (codeInput) {
-			codeInput.disabled = inLobby;
-			codeInput.style.opacity = inLobby ? '0.5' : '1';
-			codeInput.style.cursor = inLobby ? 'not-allowed' : 'text';
-		}
-		
-		// Don't update name input here - only load it when menu opens
-		// This prevents overwriting what the user is typing
+
 		if (rosterList) {
 			rosterList.innerHTML = '';
 			const players = (mgr && mgr.players) || [];
-			if (Array.isArray(players) && players.length > 0) {
+			if (inLobby && Array.isArray(players) && players.length > 0) {
 				const title = document.createElement('div');
-				title.style.fontWeight = '700';
-				title.style.marginBottom = '8px';
+				title.className = 'mp-roster__title';
 				title.textContent = 'Players';
 				rosterList.appendChild(title);
 
-				// Sort players: host first, then by join order
-				// Create a map of player IDs to their index in the original array
 				const playerIndexMap = new Map();
 				players.forEach((p, idx) => {
 					playerIndexMap.set(p.id, idx);
 				});
-				
+
 				const sortedPlayers = [...players].sort((a, b) => {
-					// Host always comes first
 					if (mgr && mgr.isHost) {
 						if (a.id === mgr.playerId) return -1;
 						if (b.id === mgr.playerId) return 1;
 					}
-					// Otherwise maintain original order
 					const idxA = playerIndexMap.get(a.id) || 0;
 					const idxB = playerIndexMap.get(b.id) || 0;
 					return idxA - idxB;
@@ -587,78 +596,53 @@
 
 				sortedPlayers.forEach((p, index) => {
 					const row = document.createElement('div');
-					row.style.display = 'flex';
-					row.style.alignItems = 'center';
-					row.style.justifyContent = 'space-between';
-					row.style.padding = '8px 12px';
-					row.style.marginBottom = '6px';
-					row.style.borderRadius = '6px';
-					row.style.background = (mgr && mgr.playerId === p.id) ? 'rgba(120, 160, 255, 0.25)' : 'rgba(120, 160, 255, 0.15)';
-					row.style.border = (mgr && mgr.playerId === p.id) ? '1px solid rgba(120, 160, 255, 0.4)' : '1px solid rgba(120, 160, 255, 0.2)';
+					row.className = 'mp-roster__row';
+					if (mgr && mgr.playerId === p.id) {
+						row.classList.add('mp-roster__row--you');
+					}
+					if (p.disconnected) {
+						row.classList.add('mp-roster__row--offline');
+					}
 
 					const leftSide = document.createElement('div');
-					leftSide.style.display = 'flex';
-					leftSide.style.alignItems = 'center';
-					leftSide.style.flex = '1';
+					leftSide.className = 'mp-roster__player';
 
-					// Add shape icon
 					const playerClass = p.class || 'square';
 					const { shape, color } = getClassShapeAndColor(playerClass);
-					const icon = createShapeIcon(shape, color, 14);
-					leftSide.appendChild(icon);
+					leftSide.appendChild(createShapeIcon(shape, color, 14));
 
-					// Add player number and name
 					const playerNumber = index + 1;
 					const nameText = document.createElement('span');
-					
-					// Always use the name from the server's player list (p.name)
-					// If name is set and not empty, use it; otherwise use player number
+					nameText.className = 'mp-roster__name';
+
 					let displayName;
 					if (p.name && p.name.trim() !== '' && p.name !== 'Player') {
 						displayName = p.name;
 					} else {
 						displayName = `Player ${playerNumber}`;
 					}
-					
-                    nameText.textContent = displayName;
-                    if (p.disconnected) {
-                        nameText.textContent += ' (Offline)';
-                        nameText.style.opacity = '0.65';
-                    }
-                    if (mgr && mgr.playerId === p.id) {
+
+					nameText.textContent = displayName;
+					if (p.disconnected) {
+						nameText.textContent += ' (Offline)';
+					}
+					if (mgr && mgr.playerId === p.id) {
 						nameText.textContent += ' (You)';
-						nameText.style.fontWeight = '700';
 					}
 					leftSide.appendChild(nameText);
 					row.appendChild(leftSide);
 
-					// Add kick button for host (if not self)
 					if (mgr && mgr.isHost && p.id !== mgr.playerId) {
 						const kickBtn = document.createElement('button');
+						kickBtn.className = 'btn mp-kick-btn';
+						kickBtn.type = 'button';
 						kickBtn.textContent = 'Kick';
-						kickBtn.style.padding = '4px 12px';
-						kickBtn.style.fontSize = '12px';
-						kickBtn.style.fontWeight = '600';
-						kickBtn.style.background = 'rgba(200, 50, 50, 0.9)';
-						kickBtn.style.color = '#fff';
-						kickBtn.style.border = '1px solid rgba(200, 50, 50, 1)';
-						kickBtn.style.borderRadius = '4px';
-						kickBtn.style.cursor = 'pointer';
-						kickBtn.style.marginLeft = '8px';
-						kickBtn.style.transition = 'background 0.2s';
-						kickBtn.addEventListener('mouseenter', () => {
-							kickBtn.style.background = 'rgba(220, 70, 70, 1)';
-						});
-						kickBtn.addEventListener('mouseleave', () => {
-							kickBtn.style.background = 'rgba(200, 50, 50, 0.9)';
-						});
 						kickBtn.addEventListener('click', async (e) => {
 							e.stopPropagation();
 							const confirmed = typeof window.showConfirm === 'function'
 								? await window.showConfirm(`Kick Player ${playerNumber}?`)
 								: confirm(`Kick Player ${playerNumber}?`);
 							if (confirmed) {
-								// Send kick message to server
 								if (mgr && mgr.send) {
 									mgr.send({
 										type: 'kick_player',
@@ -672,6 +656,11 @@
 
 					rosterList.appendChild(row);
 				});
+			} else if (inLobby) {
+				const empty = document.createElement('div');
+				empty.className = 'mp-roster__empty';
+				empty.textContent = 'Waiting for players…';
+				rosterList.appendChild(empty);
 			}
 		}
 	}
@@ -685,37 +674,28 @@
 		};
 		
 		// Handle escape key to close multiplayer menu and return to pause menu
-		// Use capture phase to run before other handlers
 		document.addEventListener('keydown', (e) => {
-			// Check if multiplayer menu is visible first
 			const isVisible = layer && layer.style.display !== 'none' && layer.style.display !== '';
 			const isVisibleFlag = typeof window !== 'undefined' && window.multiplayerMenuVisible;
 			
-			// Only handle escape if menu is visible
 			if (e.key === 'Escape' && (isVisible || isVisibleFlag)) {
-				// Allow escape to work even if focus is on an input field
-				// (Escape should always close modals, even when typing)
 				console.log('[MultiplayerMenu] Escape key pressed, closing menu. isVisible:', isVisible, 'isVisibleFlag:', isVisibleFlag);
 				hide();
-				// Ensure pause menu is visible after closing multiplayer menu
 				if (typeof Game !== 'undefined' && typeof Game.showPauseMenu !== 'undefined') {
 					Game.showPauseMenu = true;
 				}
 				e.preventDefault();
 				e.stopPropagation();
-				return; // Stop event from propagating further
+				return;
 			}
 		}, { capture: true });
 		
-		// Track if we've already shown toast to prevent duplicates
 		let toastShown = { created: false, joined: false };
 		
-		// Subscribe to MP events to keep view synced
 		if (window.UIBus && UIBus.on) {
 			UIBus.on('mp:lobby:created', () => {
 				refresh();
 				status('Lobby created!');
-				// Show toast notification (only once)
 				if (window.showToast && !toastShown.created) {
 					toastShown.created = true;
 					window.showToast('Lobby Created!', 2000);
@@ -725,7 +705,6 @@
 			UIBus.on('mp:lobby:joined', () => {
 				refresh();
 				status('Joined lobby!');
-				// Show toast notification (only once)
 				if (window.showToast && !toastShown.joined) {
 					toastShown.joined = true;
 					window.showToast('Connected to Lobby!', 2000);
@@ -739,18 +718,11 @@
 			UIBus.on('mp:lobby:players', () => {
 				refresh();
 			});
-			UIBus.on('mp:player:joined', () => {
-				refresh();
-			});
-			UIBus.on('mp:player:left', () => {
-				refresh();
-			});
 			UIBus.on('mp:player_list_update', () => {
 				refresh();
 			});
 		}
 		
-		// Also set up periodic refresh in case events are missed
 		setInterval(() => {
 			if (layer && layer.style.display !== 'none') {
 				refresh();
@@ -764,5 +736,3 @@
 		init();
 	}
 })();
-
-

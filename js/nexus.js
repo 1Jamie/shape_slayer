@@ -309,11 +309,19 @@ function updateNexus(ctx, deltaTime) {
         initNexus();
     }
 
-    // Don't process input if pause menu or multiplayer menu is visible
+    // Don't process input if a blocking UI modal is open
     const pauseMenuOpen = Game && (Game.state === 'PAUSED' || Game.showPauseMenu);
     const mpMenuOpen = typeof multiplayerMenuVisible !== 'undefined' && multiplayerMenuVisible;
+    const gearUpgradeOpen = typeof window !== 'undefined' && window.GearUpgradeMenu && window.GearUpgradeMenu.isOpen;
+    const indexOpen = typeof Game !== 'undefined' && Game.showingIndexMachine;
+    const safeRoomOpen = typeof window !== 'undefined' && window.SafeRoomMenu && window.SafeRoomMenu.isOpen;
+    const sheetOpen = typeof window !== 'undefined' && window.CharacterSheet
+        && typeof window.CharacterSheet.isOpen === 'function' && window.CharacterSheet.isOpen();
+    const uiBlocking = pauseMenuOpen || mpMenuOpen || gearUpgradeOpen || indexOpen || safeRoomOpen || sheetOpen
+        || (window.ControllerNav && typeof window.ControllerNav.isBlockingGameplay === 'function'
+            && window.ControllerNav.isBlockingGameplay());
 
-    if (mpMenuOpen) {
+    if (uiBlocking) {
         // Still send multiplayer updates even when menu is open
         if (Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
             if (multiplayerManager.isHost) {
@@ -322,11 +330,7 @@ function updateNexus(ctx, deltaTime) {
                 multiplayerManager.sendPlayerState();
             }
         }
-        return; // Skip all nexus updates when multiplayer menu is open
-    }
-
-    if (pauseMenuOpen) {
-        return; // Skip all nexus updates when pause menu is open
+        return; // Skip all nexus updates when a modal owns input
     }
 
     // MULTIPLAYER: Snapshot input BEFORE updating (preserves justPressed/justReleased)

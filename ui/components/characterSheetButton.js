@@ -7,6 +7,26 @@
         };
     }
 
+    function isCharacterSheetOpen() {
+        return !!(window.CharacterSheet
+            && typeof window.CharacterSheet.isOpen === 'function'
+            && window.CharacterSheet.isOpen());
+    }
+
+    // Any modal overlay except the character sheet itself should bury HUD chrome.
+    function hasForeignModalOpen() {
+        const layers = document.querySelectorAll('.ui-layer--modal');
+        for (let i = 0; i < layers.length; i++) {
+            const layer = layers[i];
+            const display = layer.style.display || window.getComputedStyle(layer).display;
+            if (!display || display === 'none') continue;
+            // Own sheet stays allowed so the button can toggle-close above it
+            if (layer.querySelector && layer.querySelector('.character-sheet')) continue;
+            return true;
+        }
+        return false;
+    }
+
     function createCharacterSheetButton() {
         const root = window.UIRoot && window.UIRoot.ensure ? window.UIRoot.ensure() : document.body;
         let btn = document.getElementById('ui-charsheet-button');
@@ -18,15 +38,10 @@
         btn = document.createElement('button');
         btn.id = 'ui-charsheet-button';
         btn.className = 'charsheet-button btn btn--primary';
-        // Use an icon or short text
         btn.textContent = 'Char';
         btn.type = 'button';
-        btn.style.position = 'fixed';
-        btn.style.top = '12px';
-        btn.style.right = '100px'; // Further left from the pause button (which is at right: 12px)
         btn.style.pointerEvents = 'auto';
         btn.style.userSelect = 'none';
-        btn.style.zIndex = '1001';
         btn.style.minWidth = '60px';
         btn.style.display = 'none';
 
@@ -41,11 +56,11 @@
 
         // Simple click handler - works for both mouse and touch
         btn.addEventListener('click', (e) => {
-            // Prevent event from reaching canvas
             e.preventDefault();
             e.stopPropagation();
 
-            // Toggle character sheet using the CharacterSheet global
+            if (hasForeignModalOpen()) return;
+
             if (window.CharacterSheet && typeof window.CharacterSheet.toggle === 'function') {
                 window.CharacterSheet.toggle();
             } else {
@@ -60,8 +75,24 @@
     function refreshCharacterSheetButton() {
         const btn = document.getElementById('ui-charsheet-button');
         if (!btn || typeof Input === 'undefined' || !Input.isMobileUiMode) return;
+
         const surface = getInputSurface();
-        btn.style.display = surface.isTouchUi && !surface.isGamepad ? 'block' : 'none';
+        const touchChrome = surface.isTouchUi && !surface.isGamepad;
+        const sheetOpen = isCharacterSheetOpen();
+        const blocked = hasForeignModalOpen();
+        // Hide under pause / index / audio / etc. Stay visible to close our own sheet.
+        const shouldShow = touchChrome && !blocked;
+
+        btn.style.display = shouldShow ? 'block' : 'none';
+        btn.classList.toggle('charsheet-button--above-sheet', shouldShow && sheetOpen);
+        btn.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
+    }
+
+    window.refreshCharacterSheetButton = refreshCharacterSheetButton;
+
+    function tick() {
+        refreshCharacterSheetButton();
+        requestAnimationFrame(tick);
     }
 
     // Wait for Input to be available before creating button
@@ -70,6 +101,7 @@
             createCharacterSheetButton();
             window.addEventListener('controlmodechange', refreshCharacterSheetButton);
             window.addEventListener('inputsourcechange', refreshCharacterSheetButton);
+            tick();
         } else {
             // Input not ready yet, try again in 100ms
             setTimeout(tryCreateButton, 100);

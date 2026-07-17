@@ -67,8 +67,24 @@
 					if (window.UIMultiplayer) window.UIMultiplayer.open();
 				}
 			},
-			{ text: 'Restart', action: () => Game && Game.restart && Game.restart() },
-			{ text: 'Return to Nexus', action: () => Game && Game.returnToNexus && Game.returnToNexus() },
+			{
+				text: 'Restart',
+				action: async () => {
+					const confirmed = typeof window.showConfirm === 'function'
+						? await window.showConfirm('Restart this run? Your current progress will be lost.')
+						: window.confirm('Restart this run? Your current progress will be lost.');
+					if (confirmed && Game && Game.restart) Game.restart();
+				}
+			},
+			{
+				text: 'Return to Nexus',
+				action: async () => {
+					const confirmed = typeof window.showConfirm === 'function'
+						? await window.showConfirm('Return to Nexus? Your current run will end.')
+						: window.confirm('Return to Nexus? Your current run will end.');
+					if (confirmed && Game && Game.returnToNexus) Game.returnToNexus();
+				}
+			},
 			{ text: 'Audio', action: () => { if (window.UIAudio) window.UIAudio.open(); } },
 			{ text: 'Fullscreen', action: () => Game && Game.toggleFullscreen && Game.toggleFullscreen() },
 			{ text: 'How to Play', action: () => { if (Game) { Game.launchModalVisible = true; } } },
@@ -477,6 +493,11 @@
 
 			// Don't handle escape if index machine is open (let it handle it)
 			if (typeof window !== 'undefined' && window.UIIndexMachine && window.UIIndexMachine.isOpen && window.UIIndexMachine.isOpen()) {
+				return;
+			}
+
+			// Confirm dialog owns Escape while open (don't resume underneath it)
+			if (document.querySelector('.confirm-dialog')) {
 				return;
 			}
 

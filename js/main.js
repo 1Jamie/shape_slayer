@@ -564,9 +564,13 @@ const Game = {
                     }
                 }
 
-                // Close character sheet first if open
-                if (typeof CharacterSheet !== 'undefined' && CharacterSheet.isOpen) {
-                    CharacterSheet.isOpen = false;
+                // Close character sheet first if open (DOM UI)
+                if (typeof window !== 'undefined' && window.CharacterSheet
+                    && typeof window.CharacterSheet.isOpen === 'function' && window.CharacterSheet.isOpen()) {
+                    if (typeof window.CharacterSheet.toggle === 'function') {
+                        window.CharacterSheet.toggle(false);
+                    }
+                    e.preventDefault();
                     return;
                 }
 
@@ -3791,6 +3795,16 @@ const Game = {
     // Check for gear pickup
     checkGearPickup() {
         if (!Input) return;
+
+        // Don't interact with world while a machine/sheet modal owns focus
+        if (typeof window !== 'undefined') {
+            if (window.SafeRoomMenu && window.SafeRoomMenu.isOpen) return;
+            if (window.GearUpgradeMenu && window.GearUpgradeMenu.isOpen) return;
+            if (Game && Game.showingIndexMachine) return;
+            if (window.CharacterSheet && typeof window.CharacterSheet.isOpen === 'function' && window.CharacterSheet.isOpen()) return;
+            if (window.ControllerNav && typeof window.ControllerNav.isBlockingGameplay === 'function'
+                && window.ControllerNav.isBlockingGameplay()) return;
+        }
 
         let shouldPickup = false;
 

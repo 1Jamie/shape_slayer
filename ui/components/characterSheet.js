@@ -25,11 +25,12 @@
 
 		body = document.createElement('div');
 		body.className = 'modal__body';
+		body.setAttribute('data-controller-scroll', '');
 		body.style.display = 'grid';
 		body.style.gridTemplateColumns = '1fr 1fr';
 		body.style.gap = '16px';
-		body.style.maxHeight = 'none';
-		body.style.overflow = 'visible';
+		body.style.maxHeight = 'min(72vh, 820px)';
+		body.style.overflow = 'auto';
 		// Wheel scrolling (desktop)
 		body.addEventListener('wheel', (e) => {
 			e.preventDefault();
@@ -54,7 +55,8 @@
 		footer.className = 'modal__footer';
 		const close = document.createElement('button');
 		close.className = 'btn';
-		close.textContent = 'Close (Tab)';
+		close.textContent = 'Close';
+		close.setAttribute('aria-label', 'Close character sheet');
 		close.addEventListener('click', () => toggle(false));
 		footer.appendChild(close);
 
@@ -654,6 +656,13 @@
 		if (!layer) return;
 		layer.style.display = open ? 'flex' : 'none';
 		if (open) render();
+		if (typeof window.refreshCharacterSheetButton === 'function') {
+			window.refreshCharacterSheetButton();
+		}
+	}
+
+	function isOpen() {
+		return !!open;
 	}
 
 	function tick() {
@@ -715,9 +724,10 @@
 			}
 		}, { capture: true });
 
-		// Expose toggle function globally for mobile button
+		// Expose toggle / isOpen for mobile button + chrome layering
 		window.CharacterSheet = window.CharacterSheet || {};
 		window.CharacterSheet.toggle = toggle;
+		window.CharacterSheet.isOpen = isOpen;
 	}
 
 	if (document.readyState === 'loading') {

@@ -11,7 +11,8 @@
 	const scrollableSelector = [
 		'[data-controller-scroll]',
 		'.nexus-scrollbar',
-		'.modal__body'
+		'.modal__body',
+		'.pause-menu-list'
 	].join(',');
 
 	const buttonMap = {
@@ -124,6 +125,11 @@
 		moveHoldStartedAt: 0,
 		prevButtons: {},
 		prevMove: { x: 0, y: 0 },
+
+		/** True while a DOM modal owns gamepad focus (pause, machines, sheets, etc.). */
+		isBlockingGameplay() {
+			return !!(this.activeModal || this.getTopVisibleModal());
+		},
 
 		init() {
 			this.updateLoop = this.updateLoop.bind(this);
@@ -300,7 +306,7 @@
 				if (scrollPane) return scrollPane;
 			}
 
-			const preferredButton = byText(/got it|opt in|resume|continue|close/i);
+			const preferredButton = byText(/got it|opt in|resume|continue/i);
 			if (preferredButton) return preferredButton;
 
 			const preferredControl = targets.find(el => el.type === 'range' || el.tagName === 'SELECT');
@@ -483,7 +489,8 @@
 
 		openCharacterSheet() {
 			if (window.CharacterSheet && typeof window.CharacterSheet.toggle === 'function') {
-				window.CharacterSheet.toggle(true);
+				// Select toggles open/closed (unlike Tab hold-to-view)
+				window.CharacterSheet.toggle();
 				return;
 			}
 

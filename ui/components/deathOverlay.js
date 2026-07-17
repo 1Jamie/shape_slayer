@@ -9,7 +9,7 @@
 		layer.style.pointerEvents = 'auto';
 		layer.style.position = 'fixed'; // Override absolute from CSS class
 		layer.style.inset = '0'; // Full screen coverage
-		layer.style.zIndex = '3000'; // Ensure death screen appears above everything (HUD is 2000)
+		layer.style.zIndex = '10000'; // Same band as other .ui-layer--modal overlays
 		layer.style.background = 'rgba(0, 0, 0, 0.85)'; // Dark overlay background
 		layer.setAttribute('role', 'dialog');
 		layer.setAttribute('aria-modal', 'true');
@@ -294,16 +294,24 @@
 				}
 			} else {
 				// Host or singleplayer: show controls
+				const usingGamepad = typeof Input !== 'undefined'
+					&& ((Input.isGamepadMode && Input.isGamepadMode())
+						|| Input._activeInputSource === 'gamepad');
+
 				const restartText = document.createElement('div');
 				restartText.style.color = '#ffff00';
 				restartText.style.marginBottom = '8px';
-				restartText.textContent = 'Press R to Restart';
+				restartText.textContent = usingGamepad
+					? 'Select Restart with the controller, or press R'
+					: 'Press R to Restart';
 				instructionsEl.appendChild(restartText);
 
 				const continueText = document.createElement('div');
 				continueText.style.color = '#00ffff';
 				continueText.style.fontSize = '16px';
-				continueText.textContent = 'Press M or Click to Continue to Nexus';
+				continueText.textContent = usingGamepad
+					? 'Select Return to Nexus, or press M'
+					: 'Press M or Click to Continue to Nexus';
 				instructionsEl.appendChild(continueText);
 				if (btn) {
 					btn.disabled = false;

@@ -48,6 +48,21 @@
 		wrap.appendChild(canvas);
 		parent.appendChild(wrap);
 	}
+
+	/** Mark catalog/ledger cards as controller-navigable (divs with click handlers). */
+	function makeFocusableCard(el, label) {
+		if (!el) return el;
+		el.setAttribute('role', 'button');
+		el.tabIndex = 0;
+		if (label) el.setAttribute('aria-label', label);
+		el.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter' || e.key === ' ') {
+				e.preventDefault();
+				el.click();
+			}
+		});
+		return el;
+	}
 	function createIndexMachine() {
 		const rootLayer = document.createElement('div');
 		rootLayer.className = 'ui-layer ui-layer--modal';
@@ -341,6 +356,7 @@
 			card.style.opacity = isDiscovered ? '1' : '0.5';
 			card.style.cursor = 'pointer';
 			card.dataset.affixType = affixType;
+			makeFocusableCard(card, isDiscovered ? formatAffixName(affixType) : 'Unknown affix');
 
 			const name = document.createElement('div');
 			name.style.fontSize = '16px';
@@ -423,6 +439,7 @@
 			itemEl.style.opacity = isDiscovered ? '1' : '0.5';
 			itemEl.style.cursor = 'pointer';
 			itemEl.dataset.itemId = item.id;
+			makeFocusableCard(itemEl, isDiscovered ? (item.name || 'Item') : 'Unknown item');
 
 			const name = document.createElement('div');
 			name.style.fontSize = '16px';
@@ -508,6 +525,7 @@
 			card.style.backgroundColor = '#2a2a2a';
 			card.style.cursor = 'pointer';
 			card.dataset.weaponType = key;
+			makeFocusableCard(card, weaponData.name || key);
 
 			const name = document.createElement('div');
 			name.style.fontSize = '16px';
@@ -584,6 +602,7 @@
 			card.style.opacity = isDiscovered ? '1' : '0.55';
 			card.style.cursor = 'pointer';
 			card.dataset.eliteAffix = key;
+			makeFocusableCard(card, isDiscovered ? (affixData.name || key) : 'Unknown elite threat');
 
 			if (isDiscovered && typeof EliteEnemyAffixes.createEliteAffixPreviewCanvas === 'function') {
 				const thumb = EliteEnemyAffixes.createEliteAffixPreviewCanvas(key, 88, 88);
@@ -671,6 +690,7 @@
 				chip.style.opacity = isDiscovered ? '1' : '0.55';
 				chip.textContent = isDiscovered ? b.name : '???';
 				chip.title = isDiscovered ? (b.blurb || '') : 'Not yet encountered';
+				makeFocusableCard(chip, isDiscovered ? (b.name || id) : 'Unknown biome');
 				chip.addEventListener('click', () => {
 					selectedEntry = { type: 'biome', biomeId: id, biomeData: b };
 					updatePreview(selectedEntry);
@@ -713,6 +733,7 @@
 			card.style.opacity = isDiscovered ? '1' : '0.55';
 			card.style.cursor = 'pointer';
 			card.dataset.enemyId = id;
+			makeFocusableCard(card, isDiscovered ? (enemyData.name || id) : 'Unknown enemy');
 
 			if (isDiscovered && typeof EnemyIndexCatalog.createEnemyPreviewCanvas === 'function') {
 				const thumb = EnemyIndexCatalog.createEnemyPreviewCanvas(id, 88, 88);
@@ -1015,6 +1036,7 @@
 		if (selectedEntry && selectedEntry.id === entry.id) {
 			card.style.borderColor = '#9c27b0';
 		}
+		makeFocusableCard(card, entry.title || 'Ledger entry');
 		const title = document.createElement('div');
 		title.style.color = '#fff';
 		title.style.fontWeight = '600';
@@ -1604,6 +1626,11 @@
 			if (show) {
 				refresh();
 				switchTab(currentTab); // Update tab button styles
+				// Land controller focus on catalog cards (not tab/Close buttons)
+				setTimeout(() => {
+					const firstCard = layer.querySelector('[role="button"][tabindex="0"]');
+					if (firstCard) firstCard.focus();
+				}, 50);
 			} else {
 				stopPreviewAnimation();
 			}

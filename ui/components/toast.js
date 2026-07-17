@@ -110,9 +110,11 @@
 			return new Promise((resolve) => {
 				const root = window.UIRoot && window.UIRoot.ensure ? window.UIRoot.ensure() : document.body;
 				const overlay = document.createElement('div');
-				overlay.className = 'ui-layer ui-layer--modal';
+				overlay.className = 'ui-layer ui-layer--modal confirm-dialog';
 				overlay.style.pointerEvents = 'auto';
 				overlay.style.zIndex = '10001';
+				overlay.setAttribute('role', 'dialog');
+				overlay.setAttribute('aria-modal', 'true');
 
 				const panel = document.createElement('div');
 				panel.className = 'modal';
@@ -139,19 +141,26 @@
 				confirmBtn.textContent = 'Confirm';
 				confirmBtn.style.background = 'rgba(200, 50, 50, 0.9)';
 
+				let settled = false;
+				const onDocEscape = (e) => {
+					if (e.key !== 'Escape') return;
+					e.preventDefault();
+					e.stopPropagation();
+					cleanup(false);
+				};
+
 				const cleanup = (result) => {
+					if (settled) return;
+					settled = true;
+					document.removeEventListener('keydown', onDocEscape, true);
 					overlay.remove();
 					resolve(result);
 				};
 
 				cancelBtn.addEventListener('click', () => cleanup(false));
 				confirmBtn.addEventListener('click', () => cleanup(true));
-				overlay.addEventListener('keydown', (e) => {
-					if (e.key === 'Escape') {
-						e.preventDefault();
-						cleanup(false);
-					}
-				});
+				// Capture on document so Escape cancels here instead of resuming pause underneath
+				document.addEventListener('keydown', onDocEscape, true);
 
 				actions.appendChild(cancelBtn);
 				actions.appendChild(confirmBtn);

@@ -543,6 +543,12 @@ const GearUpgradeMenu = {
             if (machineId && typeof FeatureTutorials !== 'undefined' && FeatureTutorials.notifyMachineOpened) {
                 FeatureTutorials.notifyMachineOpened(machineId);
             }
+
+            // Auto-focus first upgrade/action button for controller support
+            setTimeout(() => {
+                const firstBtn = modal.querySelector('.modal__body .upgrade-btn, .modal__body button');
+                if (firstBtn) firstBtn.focus();
+            }, 50);
         }
     },
 
