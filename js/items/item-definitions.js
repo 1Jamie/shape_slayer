@@ -596,19 +596,32 @@ const ITEM_RARITY_WEIGHTS = {
     epic: 8
 };
 
-// Get random item based on rarity weights
-function getRandomItem() {
-    const totalWeight = Object.values(ITEM_RARITY_WEIGHTS).reduce((a, b) => a + b, 0);
-    let random = Math.random() * totalWeight;
+// Boss consumable drops skew toward rare/epic - same item pool, better odds
+const BOSS_ITEM_RARITY_WEIGHTS = {
+    common: 10,
+    uncommon: 30,
+    rare: 40,
+    epic: 20
+};
 
-    for (const [rarity, weight] of Object.entries(ITEM_RARITY_WEIGHTS)) {
+// Get random item based on rarity weights (optional override for boss/special drops)
+function getRandomItem(rarityWeights = null) {
+    const weights = rarityWeights || ITEM_RARITY_WEIGHTS;
+    // Skip rarities with no items so empty buckets (e.g. epic) don't fall through to common
+    const available = Object.entries(weights).filter(([rarity, weight]) =>
+        weight > 0 && Object.values(ITEM_DEFINITIONS).some(item => item.rarity === rarity)
+    );
+    const totalWeight = available.reduce((sum, [, weight]) => sum + weight, 0);
+    if (totalWeight <= 0) {
+        return Object.values(ITEM_DEFINITIONS).find(item => item.rarity === 'common') || ITEM_DEFINITIONS.shield_generator;
+    }
+
+    let random = Math.random() * totalWeight;
+    for (const [rarity, weight] of available) {
         random -= weight;
         if (random <= 0) {
-            // Get all items of this rarity
             const itemsOfRarity = Object.values(ITEM_DEFINITIONS).filter(item => item.rarity === rarity);
-            if (itemsOfRarity.length > 0) {
-                return itemsOfRarity[Math.floor(Math.random() * itemsOfRarity.length)];
-            }
+            return itemsOfRarity[Math.floor(Math.random() * itemsOfRarity.length)];
         }
     }
 

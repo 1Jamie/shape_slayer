@@ -18,7 +18,8 @@ const SCRIPT_EXPORTS = {
         'ARMOR_TYPES',
         'ENEMY_DIFFICULTY',
         'TIER_BONUSES',
-        'GEAR_TIERS'
+        'GEAR_TIERS',
+        'rollBossTrophyTier'
     ],
     'js/enemies/telegraph/telegraph-manager.js': ['TelegraphSystem'],
     'js/enemies/enemy-base.js': ['EnemyBase'],
@@ -36,7 +37,7 @@ const SCRIPT_EXPORTS = {
     'js/combat-scaling.js': ['CombatScaling', 'BossScaling'],
     'js/bosses/boss-scaling.js': ['BossScaling'],
     'js/players/player-warrior.js': ['WARRIOR_CONFIG'],
-    'js/items/item-definitions.js': ['ITEM_DEFINITIONS', 'getRandomItem', 'logarithmicScale', 'ITEM_RARITY_WEIGHTS'],
+    'js/items/item-definitions.js': ['ITEM_DEFINITIONS', 'getRandomItem', 'logarithmicScale', 'ITEM_RARITY_WEIGHTS', 'BOSS_ITEM_RARITY_WEIGHTS'],
     'js/items/item-manager.js': ['ItemManager']
 };
 
@@ -416,14 +417,23 @@ function createBalanceRuntime(options = {}) {
 
     function rollTier(roomNumber, enemyDifficulty, rng) {
         const probabilities = ctx.calculateTierProbabilities(roomNumber, enemyDifficulty);
-        const tiers = Object.keys(probabilities);
+        const tiers = ['gray', 'green', 'blue', 'purple', 'orange'];
         const roll = rng();
         let cumulative = 0;
-        for (const tier of tiers) {
-            cumulative += probabilities[tier];
-            if (roll < cumulative) return tier;
+        let tier = tiers[tiers.length - 1];
+        for (const name of tiers) {
+            cumulative += probabilities[name] || 0;
+            if (roll < cumulative) {
+                tier = name;
+                break;
+            }
         }
-        return tiers[tiers.length - 1];
+        // Mirror generateGear boss floor (never trash)
+        if (enemyDifficulty === 'boss') {
+            const minIdx = tiers.indexOf('blue');
+            if (tiers.indexOf(tier) < minIdx) tier = 'blue';
+        }
+        return tier;
     }
 
     function rollGear(roomNumber, enemyDifficulty, rng) {
@@ -437,11 +447,22 @@ function createBalanceRuntime(options = {}) {
         }
     }
 
-    function rollRandomItem(rng) {
+    /** Forced-tier gear (boss trophy purple/orange). */
+    function rollForcedTierGear(tier, rng) {
         const originalRandom = Math.random;
         Math.random = rng;
         try {
-            return ctx.getRandomItem();
+            return ctx.generateGear(0, 0, tier);
+        } finally {
+            Math.random = originalRandom;
+        }
+    }
+
+    function rollRandomItem(rng, rarityWeights = null) {
+        const originalRandom = Math.random;
+        Math.random = rng;
+        try {
+            return ctx.getRandomItem(rarityWeights);
         } finally {
             Math.random = originalRandom;
         }
@@ -458,14 +479,22 @@ function createBalanceRuntime(options = {}) {
         );
     }
 
-    /** Boss guaranteed loot count (2 or 3), mirrors boss-base.js onDeath(). */
+    /** Boss extras after the trophy piece (2 or 3), mirrors boss-base.js die(). */
     function rollBossGearDropCount(rng) {
         return 2 + Math.floor(rng() * 2);
     }
 
-    /** Boss item drop chance is a flat 50%, exempt from room/count scaling (boss-base.js). */
+    /** Boss trophy tier scales with room (mirrors gear.js rollBossTrophyTier). */
+    function rollBossTrophyTier(roomNumber, rng) {
+        if (typeof ctx.rollBossTrophyTier === 'function') {
+            return ctx.rollBossTrophyTier(roomNumber, rng);
+        }
+        return rng() < 0.18 ? 'purple' : 'blue';
+    }
+
+    /** Boss item drop chance is a flat 75%, exempt from room/count scaling (boss-base.js). */
     function rollBossItemDrop(rng) {
-        return rng() < 0.50;
+        return rng() < 0.75;
     }
 
     return {
@@ -487,14 +516,17 @@ function createBalanceRuntime(options = {}) {
         computeScalingFactorsForRoom,
         rollTier,
         rollGear,
+        rollForcedTierGear,
         rollRandomItem,
         getItemDropChance,
         rollBossGearDropCount,
+        rollBossTrophyTier,
         rollBossItemDrop,
         getBossKeyForRoom: roomNumber => getBossKeyForRoomFromScaling(roomNumber),
         bossDisplayName: bossKey => BOSS_DISPLAY_NAMES[bossKey] || bossKey,
         itemDropChances,
         ITEM_DEFINITIONS: ctx.ITEM_DEFINITIONS,
+        BOSS_ITEM_RARITY_WEIGHTS: ctx.BOSS_ITEM_RARITY_WEIGHTS,
         ItemManager: ctx.ItemManager,
         getGearScaling: ctx.getGearScaling,
         calculateTierProbabilities: ctx.calculateTierProbabilities,

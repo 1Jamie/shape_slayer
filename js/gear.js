@@ -612,8 +612,54 @@ const ENEMY_DIFFICULTY = {
     diamond: { multiplier: 1.4, name: 'diamond' },   // Cyan diamond (assassin)
     star: { multiplier: 1.4, name: 'star' },         // Yellow star (ranged)
     octagon: { multiplier: 2.2, name: 'elite' },     // Gold octagon (elite)
-    boss: { multiplier: 3.5, name: 'boss' }          // Bosses
+    boss: { multiplier: 4.5, name: 'boss' }          // Bosses (dedicated reward curve below)
 };
+
+// Boss loot progress: 0 at first boss (room 10), 1 around room 50.
+// Early bosses reward above trash without dumping late-game rarity every kill.
+function getBossLootProgress(roomNumber) {
+    return Math.max(0, Math.min(1, (roomNumber - 10) / 40));
+}
+
+function lerpBossLoot(a, b, t) {
+    return a + (b - a) * t;
+}
+
+// Room-scaled boss extras curve: Swarm King leans blue; late bosses lean purple/orange.
+function getBossTierBaseWeights(roomNumber) {
+    const t = getBossLootProgress(roomNumber);
+    return {
+        gray: 0,
+        green: lerpBossLoot(22, 2, t),
+        blue: lerpBossLoot(63, 28, t),
+        purple: lerpBossLoot(13, 45, t),
+        orange: lerpBossLoot(2, 25, t)
+    };
+}
+
+const BOSS_TIER_GROWTH_RATES = {
+    gray: 0,
+    green: -1.2,
+    blue: -0.6,
+    purple: 1.0,
+    orange: 1.6
+};
+
+// Highlight piece for a boss kill. Always above trash, but epic/legendary ramp with room.
+// Room 10: mostly blue, purple uncommon, orange rare. Room 50: purple/orange jackpot.
+function rollBossTrophyTier(roomNumber, rng = Math.random) {
+    const t = getBossLootProgress(roomNumber);
+    const roll = typeof rng === 'function' ? rng() : Math.random();
+
+    const orangeChance = lerpBossLoot(0.02, 0.42, t);
+    const purpleChance = lerpBossLoot(0.16, 0.50, t);
+
+    if (roll < orangeChance) return 'orange';
+    if (roll < orangeChance + purpleChance) return 'purple';
+    // Pre-room-30 trophies can still be "just" rare (blue) - still a clear upgrade over trash
+    if (t < 0.55) return 'blue';
+    return 'purple';
+}
 
 // Calculate tier probabilities based on room number and enemy difficulty
 // Uses gradual curve: slow early progression, accelerates in later rooms
@@ -621,6 +667,7 @@ function calculateTierProbabilities(roomNumber, enemyDifficulty = 'basic') {
     // Get difficulty multiplier
     const difficultyData = ENEMY_DIFFICULTY[enemyDifficulty] || ENEMY_DIFFICULTY.basic;
     const diffMultiplier = difficultyData.multiplier;
+    const isBoss = difficultyData.name === 'boss';
     
     // Calculate effective level: 75% room weight, 25% difficulty weight
     const effectiveLevel = roomNumber * 0.75 + (roomNumber * diffMultiplier * 0.25);
@@ -632,28 +679,33 @@ function calculateTierProbabilities(roomNumber, enemyDifficulty = 'basic') {
         ? SaveSystem.getGearUpgrades()
         : { rarityChanceGreen: 0, rarityChanceBlue: 0, rarityChancePurple: 0, rarityChanceOrange: 0 };
 
-    // Base weights (room 1, basic enemy)
-    const baseWeights = {
-        gray: 75,
-        green: 23,
-        blue: 1.7,
-        purple: 0.25,
-        orange: 0.05
-    };
+    // Base weights: trash enemies stay gray-heavy; bosses use a room-scaled reward curve
+    const baseWeights = isBoss
+        ? getBossTierBaseWeights(roomNumber)
+        : {
+            gray: 75,
+            green: 23,
+            blue: 1.7,
+            purple: 0.25,
+            orange: 0.05
+        };
     
-    // Growth rates per tier (how much each tier grows with scaling) - slower progression
-    const growthRates = {
-        gray: -2.8,   // Gray decreases slower
-        green: -1.0,  // Green decreases slower
-        blue: 0.8,    // Blue increases
-        purple: 1.4,  // Purple increases
-        orange: 1.6   // Orange increases
-    };
+    // Growth rates per tier (how much each tier grows with scaling)
+    const growthRates = isBoss
+        ? BOSS_TIER_GROWTH_RATES
+        : {
+            gray: -2.8,   // Gray decreases slower
+            green: -1.0,  // Green decreases slower
+            blue: 0.8,    // Blue increases
+            purple: 1.4,  // Purple increases
+            orange: 1.6   // Orange increases
+        };
     
-    // Calculate adjusted weights
+    // Calculate adjusted weights (boss gray may stay at 0)
     let weights = {};
     for (let tier in baseWeights) {
-        weights[tier] = Math.max(0.1, baseWeights[tier] + (scalingFactor * growthRates[tier]));
+        const floor = (isBoss && tier === 'gray') ? 0 : 0.1;
+        weights[tier] = Math.max(floor, baseWeights[tier] + (scalingFactor * growthRates[tier]));
     }
     
     // Convert to preliminary probabilities to apply relative multiplier upgrades safely
@@ -670,7 +722,7 @@ function calculateTierProbabilities(roomNumber, enemyDifficulty = 'basic') {
     probs.orange *= (1 + (upgrades.rarityChanceOrange || 0) * 0.04);
 
     // Normalize so it always equals 1.0 without dropping below zero
-    const minGray = difficultyData.name === 'boss' ? 0.0 : 0.05;
+    const minGray = isBoss ? 0.0 : 0.05;
     const totalHigherTiers = probs.green + probs.blue + probs.purple + probs.orange;
     probs.gray = Math.max(minGray, 1.0 - totalHigherTiers);
 
@@ -724,6 +776,14 @@ function generateGear(x, y, roomNumberOrTier = 1, enemyDifficulty = 'basic') {
         
         // Fallback to gray if something went wrong
         if (!tier) tier = 'gray';
+
+        // Boss drops are never trash - floor at rare (blue)
+        if (enemyDifficulty === 'boss') {
+            const minIdx = tiers.indexOf('blue');
+            if (tiers.indexOf(tier) < minIdx) {
+                tier = 'blue';
+            }
+        }
     }
     
     const slot = slots[Math.floor(Math.random() * slots.length)];

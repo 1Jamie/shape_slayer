@@ -218,6 +218,12 @@ function simulateBossEncounter(runtime, player, options, roomNumber, bossKey, rn
     // Boss rewards (xpValue *3 baked into BossBase constructor already).
     applyXp(player, boss.xpValue || 0, runtime.playerProgression);
 
+    // Trophy (purple/orange) + 2-3 rare+ extras - mirrors boss-base.js die()
+    const trophy = runtime.rollForcedTierGear(runtime.rollBossTrophyTier(roomNumber, rng), rng);
+    if (trophy) {
+        player.gearDrops += 1;
+        equipIfBetter(player.loadout, trophy);
+    }
     const gearDropCount = runtime.rollBossGearDropCount(rng);
     for (let i = 0; i < gearDropCount; i++) {
         const gear = runtime.rollGear(roomNumber, 'boss', rng);
@@ -227,7 +233,10 @@ function simulateBossEncounter(runtime, player, options, roomNumber, bossKey, rn
         }
     }
     if (runtime.rollBossItemDrop(rng)) {
-        collectItemDrop(runtime, player, rng);
+        const itemDef = runtime.rollRandomItem(rng, runtime.BOSS_ITEM_RARITY_WEIGHTS);
+        if (itemDef && player.itemManager.addItem(itemDef.id)) {
+            player.itemDrops += 1;
+        }
     }
     syncSimPlayerCombatStats(player);
 
@@ -455,7 +464,7 @@ function main() {
     console.log('- Boss stats use js/combat-scaling.js (mode-specific anchors, endless ramp past canonical end).');
     console.log('- Trash tempo/intelligence scale via combat-scaling; sim TTK is still cleave-primary (no trash clear model).');
     console.log('- Canonical run end: room 30 (gear) / room 32 (cards). Endless = same run continuing past that.');
-    console.log('- Item drops use live enemy-base.js chances; boss item/gear drops use live boss-base.js onDeath() rates.');
+    console.log('- Item drops use live enemy-base.js chances; boss item/gear drops use live boss-base.js die() rates (trophy + rare+ extras).');
     console.log('- DPS model is warrior cleave-primary; specials/heavy/affixes and non-warrior classes are not simulated.');
     console.log('- CARDS mode has no gear/item drops; this script models GEAR-mode progression only.');
 }

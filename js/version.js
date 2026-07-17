@@ -771,7 +771,14 @@ Room 200 is still gonna suck in the fun way i hope, but I'm not handing it to yo
 • Energy Beam tick damage **0.4× → 0.6×**, and range falloff softened so kite-range beams actually pay rent instead of tickling from afar
   *"If your beam felt like a laser pointer with opinions: same. It hits like a heavy now."*
 
-*TL;DR: weapons have weight you can read, timing has payoff, biomes remix geometry, elites telegraph their cheat codes, mage beam stopped being a sham, and the Index finally tracks mastery. Check Ledger & Feats if you want receipts.*
+## **👑 BOSS LOOT (ACTUALLY A REWARD)**
+• Bosses had a "boss" difficulty multiplier that barely moved the needle - room 10 still spat ~75% gray like a basic circle. Fixed.
+• Dedicated boss loot curve with **room scaling**: Swarm King leans blue (purple/orange possible but uncommon); late bosses lean purple/orange jackpot
+• Every kill drops a **trophy** highlight + 2–3 rare+ extras (trophy rarity also ramps with room - not free legendaries at room 10)
+• Consumables: 75% chance (was 50%) and rarity-biased toward uncommon/rare
+  *"You fought a geometry final boss. You do not get thrift-store trash - but you also don't skip half the loot table."*
+
+*TL;DR: weapons have weight you can read, timing has payoff, biomes remix geometry, elites telegraph their cheat codes, mage beam stopped being a sham, bosses finally drop loot that feels earned, and the Index finally tracks mastery. Check Ledger & Feats if you want receipts.*
 `,
   },
 

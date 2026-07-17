@@ -706,7 +706,7 @@ class BossBase extends EnemyBase {
         }
     }
     
-    // Override die to drop guaranteed rare+ loot
+    // Override die to drop a boss reward package (trophy + rare+ extras)
     // NOTE: Only called on host or in solo mode. Clients receive death via game_state sync.
     die() {
         this.alive = false;
@@ -788,13 +788,15 @@ class BossBase extends EnemyBase {
             Game.distributeXPToAllPlayers(this.xpValue);
         }
         
-        // Item drop system (bosses have high chance to drop items)
+        // Item drop system (bosses have high chance + rarity-biased consumables)
         if (typeof Game !== 'undefined' && typeof ITEM_DEFINITIONS !== 'undefined' && typeof getRandomItem === 'function') {
-            // Bosses have 50% chance to drop an item (highest drop rate)
-            // Bosses are exempt from scaling since they're rare and should feel rewarding
+            // Bosses: 75% item chance, exempt from room/count scaling
             const roomNumber = (typeof Game !== 'undefined' && Game.roomNumber) ? Game.roomNumber : 1;
-            if (Math.random() < 0.50) {
-                const itemDef = getRandomItem();
+            if (Math.random() < 0.75) {
+                const bossItemWeights = (typeof BOSS_ITEM_RARITY_WEIGHTS !== 'undefined')
+                    ? BOSS_ITEM_RARITY_WEIGHTS
+                    : null;
+                const itemDef = getRandomItem(bossItemWeights);
 
                 // Check if in multiplayer - use pylons instead of ground items
                 const inMultiplayer = typeof multiplayerManager !== 'undefined' &&
@@ -842,16 +844,30 @@ class BossBase extends EnemyBase {
             }
         }
         
-        // Drop guaranteed rare+ loot (2-3 items) - syncs via game_state in multiplayer
+        // Boss reward package: room-scaled trophy + 2-3 rare+ extras
+        // Syncs via game_state in multiplayer
         if (typeof generateGear !== 'undefined' && typeof groundLoot !== 'undefined') {
-            const lootCount = 2 + Math.floor(Math.random() * 2); // 2 or 3 items
+            const extraCount = 2 + Math.floor(Math.random() * 2); // 2 or 3 extras
             const roomNum = typeof Game !== 'undefined' ? (Game.roomNumber || 1) : 1;
-            
-            for (let i = 0; i < lootCount; i++) {
-                // Generate gear at slightly offset position using boss difficulty
-                const offsetX = (Math.random() - 0.5) * 40;
-                const offsetY = (Math.random() - 0.5) * 40;
-                const gear = generateGear(this.x + offsetX, this.y + offsetY, roomNum, 'boss');
+            const dropOffset = () => ({
+                x: this.x + (Math.random() - 0.5) * 40,
+                y: this.y + (Math.random() - 0.5) * 40
+            });
+
+            // Trophy piece - always a highlight, but epic/legendary ramp with room
+            const trophyTier = (typeof rollBossTrophyTier === 'function')
+                ? rollBossTrophyTier(roomNum)
+                : 'blue';
+            const trophyPos = dropOffset();
+            const trophy = generateGear(trophyPos.x, trophyPos.y, trophyTier);
+            if (trophy) {
+                groundLoot.push(trophy);
+                console.log(`Boss trophy dropped ${trophy.tier} loot`);
+            }
+
+            for (let i = 0; i < extraCount; i++) {
+                const pos = dropOffset();
+                const gear = generateGear(pos.x, pos.y, roomNum, 'boss');
                 if (gear) {
                     groundLoot.push(gear);
                     console.log(`Boss dropped ${gear.tier} loot`);

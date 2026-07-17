@@ -1043,7 +1043,7 @@ const Input = {
             button.active       = isDown;
         };
 
-        // DOM menus own the pad while open — don't also drive the player / interact
+        // DOM menus own the pad while open - don't also drive the player / interact
         const uiBlocking = window.ControllerNav
             && typeof window.ControllerNav.isBlockingGameplay === 'function'
             && window.ControllerNav.isBlockingGameplay();
