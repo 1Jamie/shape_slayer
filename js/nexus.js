@@ -1031,8 +1031,7 @@ function renderNexus(ctx) {
     ctx.save();
     if (typeof Game !== 'undefined' && Game.nexusCamera) {
         // Detect if desktop (for zoom)
-        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
-        const currentZoom = isMobile ? (Game.mobileZoom || 1.0) : (Game.baseZoom || 1.1); // Desktop: 1.1x zoom, Mobile: zoom out for 21:9
+        const currentZoom = (Game.getViewZoom && Game.getViewZoom()) || 1.0; // Camera distance + platform base
 
         const centerX = canvasWidth / 2;
         const centerY = canvasHeight / 2;

@@ -112,13 +112,12 @@
 				const overlay = document.createElement('div');
 				overlay.className = 'ui-layer ui-layer--modal confirm-dialog';
 				overlay.style.pointerEvents = 'auto';
-				overlay.style.zIndex = '10001';
+				overlay.style.zIndex = '10030';
 				overlay.setAttribute('role', 'dialog');
 				overlay.setAttribute('aria-modal', 'true');
 
 				const panel = document.createElement('div');
-				panel.className = 'modal';
-				panel.style.maxWidth = 'min(420px, 92vw)';
+				panel.className = 'modal confirm-dialog__panel';
 				panel.style.padding = '20px';
 				panel.style.textAlign = 'center';
 
@@ -134,10 +133,12 @@
 
 				const cancelBtn = document.createElement('button');
 				cancelBtn.className = 'btn';
+				cancelBtn.type = 'button';
 				cancelBtn.textContent = 'Cancel';
 
 				const confirmBtn = document.createElement('button');
-				confirmBtn.className = 'btn';
+				confirmBtn.className = 'btn btn--primary';
+				confirmBtn.type = 'button';
 				confirmBtn.textContent = 'Confirm';
 				confirmBtn.style.background = 'rgba(200, 50, 50, 0.9)';
 
@@ -154,6 +155,10 @@
 					settled = true;
 					document.removeEventListener('keydown', onDocEscape, true);
 					overlay.remove();
+					if (window.ControllerNav) {
+						window.ControllerNav.clearFocus && window.ControllerNav.clearFocus();
+						window.ControllerNav.lastModal = null;
+					}
 					resolve(result);
 				};
 
@@ -168,7 +173,12 @@
 				panel.appendChild(actions);
 				overlay.appendChild(panel);
 				root.appendChild(overlay);
-				confirmBtn.focus();
+				if (window.ControllerNav && window.ControllerNav.setFocus) {
+					window.ControllerNav.lastModal = null;
+					window.ControllerNav.setFocus(confirmBtn);
+				} else {
+					confirmBtn.focus();
+				}
 			});
 		};
 	}

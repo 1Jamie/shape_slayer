@@ -47,6 +47,14 @@ const LedgerManager = (function () {
         return true;
     }
 
+    function allowsMetaProgression() {
+        if (typeof Game !== 'undefined' && typeof Game.allowsMetaProgression === 'function') {
+            return Game.allowsMetaProgression();
+        }
+        if (typeof Game !== 'undefined' && Game.state === 'TITLE') return false;
+        return true;
+    }
+
     function getLocalPlayer() {
         if (typeof Game === 'undefined') return null;
         return Game.player || null;
@@ -221,6 +229,7 @@ const LedgerManager = (function () {
      */
     function completeFeat(featId) {
         if (!isHostOrSolo()) return false;
+        if (!allowsMetaProgression()) return false;
         if (typeof SaveSystem === 'undefined' || !SaveSystem.recordFeatCompletion) return false;
 
         const feat = (typeof FeatsRegistry !== 'undefined' && FeatsRegistry.getById)
@@ -661,6 +670,8 @@ const LedgerManager = (function () {
 
     function recordEvent(type, data) {
         if (!type) return;
+        // Title attract is combat theater only — no feat / record evaluation
+        if (!allowsMetaProgression()) return;
         switch (type) {
             case 'damageHit': return recordDamageHit(data);
             case 'roomCleared': return recordRoomCleared(data);

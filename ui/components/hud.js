@@ -230,6 +230,10 @@
 			if (container) container.style.display = 'none';
 			return;
 		}
+		if (typeof Game !== 'undefined' && Game.state === 'TITLE') {
+			container.style.display = 'none';
+			return;
+		}
 		const player = (typeof Game !== 'undefined') ? Game.player : null;
 		if (!player || player.dead) {
 			container.style.display = 'none';

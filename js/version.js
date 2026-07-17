@@ -802,6 +802,16 @@ Room 200 is still gonna suck in the fun way i hope, but I'm not handing it to yo
     '0.8.0': ['major', 'feature', 'rebalance', 'visuals'],
     '0.8.1': ['minor', 'feature', 'hotfix'],
     '0.8.2': ['minor', 'feature', 'rebalance', 'visuals']
+  },
+
+  // Short patch codenames for the title screen subtitle (VERSION + title)
+  PATCH_TITLES: {
+    '0.6.0': 'THE "DECK YOURSELF" UPDATE',
+    '0.6.1': 'THE "THUMBS & NUMBERS" UPDATE',
+    '0.7.0': 'THE "TOUCH GRASS PROCEDURALLY" UPDATE',
+    '0.8.0': 'THE "UNDECK YOURSELF" UPDATE',
+    '0.8.1': 'THE "STOP TELEPORTING, PLEASE" UPDATE',
+    '0.8.2': 'WEIGHT, TIMING & BIOME GEOMETRY'
   }
 };
 

@@ -513,8 +513,7 @@ const Room0Tutorial = {
         if (typeof Game === 'undefined' || Game.state !== 'PLAYING') return;
 
         const cam = Game.camera || { x: 0, y: 0 };
-        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
-        const zoom = isMobile ? (Game.mobileZoom || 1.0) : (Game.baseZoom || 1.0);
+        const zoom = (Game.getViewZoom && Game.getViewZoom()) || 1.0;
         const viewHalfW = (Game.config ? Game.config.width : 1920) / (2 * zoom);
         const viewHalfH = (Game.config ? Game.config.height : 1080) / (2 * zoom);
         const viewX = cam.x - viewHalfW;
@@ -588,8 +587,7 @@ const Room0Tutorial = {
         if (!copy) return;
 
         const cam = Game.camera || { x: 0, y: 0 };
-        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
-        const zoom = isMobile ? (Game.mobileZoom || 1.0) : (Game.baseZoom || 1.0);
+        const zoom = (Game.getViewZoom && Game.getViewZoom()) || 1.0;
         const viewHalfW = (Game.config ? Game.config.width : 1920) / (2 * zoom);
         const viewHalfH = (Game.config ? Game.config.height : 1080) / (2 * zoom);
         const viewX = cam.x - viewHalfW;

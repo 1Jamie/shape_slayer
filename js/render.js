@@ -204,8 +204,7 @@ function renderLightningArcs(ctx) {
     const isArcVisible = (arc) => {
         if (!Game.camera || !Game.config) return true; // Render if no camera
 
-        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
-        const zoom = isMobile ? 1.0 : (Game.baseZoom || 1.1);
+        const zoom = (Game.getViewZoom && Game.getViewZoom()) || 1.0;
         const margin = 50; // Small margin for arcs
 
         const screenW = Game.config.width / zoom;
@@ -382,8 +381,7 @@ function renderParticles(ctx) {
     let viewX = 0, viewY = 0, viewW = 2400, viewH = 1350;
 
     if (Game.camera && Game.config) {
-        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
-        const zoom = isMobile ? (Game.mobileZoom || 1.0) : (Game.baseZoom || 1.1);
+        const zoom = (Game.getViewZoom && Game.getViewZoom()) || 1.0;
         const padding = 100; // Margin for particles
 
         const screenW = Game.config.width / zoom;
@@ -621,8 +619,7 @@ function drawBiomeGrid(ctx, roomNumber, isVignetteMask = false, forceNoCulling =
 
     if (!forceNoCulling && typeof Game !== 'undefined' && Game.camera && Game.config) {
         // Get camera position and zoom
-        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
-        zoom = isMobile ? (Game.mobileZoom || 1.0) : (Game.baseZoom || 1.1);
+        zoom = (Game.getViewZoom && Game.getViewZoom()) || 1.0;
 
         // Calculate visible world area
         const padding = 200;
@@ -2889,8 +2886,7 @@ function renderExitChevron(ctx) {
     const config = Game.config;
     if (!camera || !config) return;
 
-    const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
-    const zoom = isMobile ? (Game.mobileZoom || 1.0) : (Game.baseZoom || 1.1);
+    const zoom = (Game.getViewZoom && Game.getViewZoom()) || 1.0;
     const canvasWidth = config.width;
     const canvasHeight = config.height;
     const exitTarget = {

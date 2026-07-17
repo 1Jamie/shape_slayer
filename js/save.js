@@ -97,6 +97,7 @@ const SaveSystem = {
             migratedFromGear: false,
             selectedClass: null,
             controlMode: 'auto', // 'auto', 'mobile', 'desktop'
+            cameraDistance: 'medium', // 'close', 'medium', 'far'
             fullscreenEnabled: false,
             audioVolume: 0.5, // 0.0 to 1.0 (master)
             musicVolume: 1.0, // 0.0 to 1.0 (music bus)
@@ -223,6 +224,7 @@ const SaveSystem = {
                     migratedFromGear: parsed.migratedFromGear === true,
                     selectedClass: parsed.selectedClass || defaults.selectedClass,
                     controlMode: parsed.controlMode || defaults.controlMode,
+                    cameraDistance: parsed.cameraDistance || defaults.cameraDistance,
                     fullscreenEnabled: parsed.fullscreenEnabled !== undefined ? parsed.fullscreenEnabled : defaults.fullscreenEnabled,
                     audioVolume: parsed.audioVolume !== undefined ? parsed.audioVolume : defaults.audioVolume,
                     musicVolume: parsed.musicVolume !== undefined ? parsed.musicVolume : (parsed.audioVolume !== undefined ? 1.0 : defaults.musicVolume),
@@ -279,6 +281,15 @@ const SaveSystem = {
         }
     },
 
+    // Title attract (and similar sims) must not mutate persistent meta-progression
+    allowsMetaProgression() {
+        if (typeof Game !== 'undefined' && typeof Game.allowsMetaProgression === 'function') {
+            return Game.allowsMetaProgression();
+        }
+        if (typeof Game !== 'undefined' && Game.state === 'TITLE') return false;
+        return true;
+    },
+
     // Get currency
     getCurrency() {
         const save = this.load();
@@ -294,6 +305,7 @@ const SaveSystem = {
 
     // Add currency
     addCurrency(amount) {
+        if (!this.allowsMetaProgression()) return this.getCurrency();
         const save = this.load();
         save.currency = Math.floor((save.currency || 0) + Math.floor(amount));
         this.save(save);
@@ -410,12 +422,30 @@ const SaveSystem = {
         return true;
     },
 
+    // Camera distance: 'close' | 'medium' | 'far' (applies on mobile and desktop)
+    getCameraDistance() {
+        const save = this.load();
+        const d = save.cameraDistance || 'medium';
+        return (d === 'close' || d === 'medium' || d === 'far') ? d : 'medium';
+    },
+
+    setCameraDistance(distance) {
+        if (distance !== 'close' && distance !== 'medium' && distance !== 'far') {
+            return false;
+        }
+        const save = this.load();
+        save.cameraDistance = distance;
+        this.save(save);
+        return true;
+    },
+
     // ---- Shard currency helpers ----
     getCardShards() {
         const save = this.load();
         return Number.isFinite(save.cardShards) ? save.cardShards : 0;
     },
     addCardShards(amount) {
+        if (!this.allowsMetaProgression()) return this.getCardShards();
         const save = this.load();
         const current = Number.isFinite(save.cardShards) ? save.cardShards : 0;
         save.cardShards = Math.max(0, current + Math.floor(amount || 0));
@@ -938,6 +968,7 @@ const SaveSystem = {
         return save.discoveries;
     },
     discoverAffix(affixType) {
+        if (!this.allowsMetaProgression()) return this.getDiscoveries().affixes;
         const save = this.load();
         const discoveries = this._ensureDiscoveries(save);
         if (!discoveries.affixes.includes(affixType)) {
@@ -947,6 +978,7 @@ const SaveSystem = {
         return discoveries.affixes;
     },
     discoverItem(itemId) {
+        if (!this.allowsMetaProgression()) return this.getDiscoveries().items;
         const save = this.load();
         const discoveries = this._ensureDiscoveries(save);
         if (!discoveries.items.includes(itemId)) {
@@ -957,6 +989,7 @@ const SaveSystem = {
     },
     discoverEnemy(enemyId) {
         if (!enemyId) return this.getDiscoveries().enemies;
+        if (!this.allowsMetaProgression()) return this.getDiscoveries().enemies;
         const save = this.load();
         const discoveries = this._ensureDiscoveries(save);
         if (!discoveries.enemies.includes(enemyId)) {
@@ -967,6 +1000,7 @@ const SaveSystem = {
     },
     discoverEliteAffix(affixKey) {
         if (!affixKey) return this.getDiscoveries().eliteAffixes;
+        if (!this.allowsMetaProgression()) return this.getDiscoveries().eliteAffixes;
         const save = this.load();
         const discoveries = this._ensureDiscoveries(save);
         if (!discoveries.eliteAffixes.includes(affixKey)) {
@@ -977,6 +1011,7 @@ const SaveSystem = {
     },
     discoverBiome(biomeId) {
         if (!biomeId) return this.getDiscoveries().biomes;
+        if (!this.allowsMetaProgression()) return this.getDiscoveries().biomes;
         const save = this.load();
         const discoveries = this._ensureDiscoveries(save);
         if (!discoveries.biomes.includes(biomeId)) {
@@ -1074,6 +1109,10 @@ const SaveSystem = {
     },
 
     bumpGlobalRecord(key, delta) {
+        if (!this.allowsMetaProgression()) {
+            const save = this.load();
+            return save.globalRecords && save.globalRecords[key];
+        }
         const save = this.load();
         const defaults = this.getDefaultSave().globalRecords;
         if (!save.globalRecords) save.globalRecords = Object.assign({}, defaults);
@@ -1085,6 +1124,10 @@ const SaveSystem = {
     },
 
     setGlobalMax(key, value) {
+        if (!this.allowsMetaProgression()) {
+            const save = this.load();
+            return save.globalRecords && save.globalRecords[key];
+        }
         const save = this.load();
         const defaults = this.getDefaultSave().globalRecords;
         if (!save.globalRecords) save.globalRecords = Object.assign({}, defaults);
@@ -1099,6 +1142,10 @@ const SaveSystem = {
     },
 
     setGlobalMinPositive(key, value) {
+        if (!this.allowsMetaProgression()) {
+            const save = this.load();
+            return save.globalRecords && save.globalRecords[key];
+        }
         const save = this.load();
         const defaults = this.getDefaultSave().globalRecords;
         if (!save.globalRecords) save.globalRecords = Object.assign({}, defaults);
@@ -1113,6 +1160,10 @@ const SaveSystem = {
     },
 
     setGlobalRecord(key, value) {
+        if (!this.allowsMetaProgression()) {
+            const save = this.load();
+            return save.globalRecords && save.globalRecords[key];
+        }
         const save = this.load();
         const defaults = this.getDefaultSave().globalRecords;
         if (!save.globalRecords) save.globalRecords = Object.assign({}, defaults);
@@ -1190,6 +1241,7 @@ const SaveSystem = {
 
     unlockFeat(id) {
         if (!id || this.hasFeat(id)) return false;
+        if (!this.allowsMetaProgression()) return false;
         const save = this.load();
         if (!Array.isArray(save.unlockedFeats)) save.unlockedFeats = [];
         save.unlockedFeats.push(id);
@@ -1216,6 +1268,9 @@ const SaveSystem = {
      */
     recordFeatCompletion(id) {
         if (!id) return { count: 0, firstUnlock: false };
+        if (!this.allowsMetaProgression()) {
+            return { count: this.getFeatCompletionCount(id), firstUnlock: false };
+        }
         const save = this.load();
         if (!save.featCompletions || typeof save.featCompletions !== 'object') {
             save.featCompletions = {};
@@ -1234,6 +1289,7 @@ const SaveSystem = {
     },
 
     trackLifetimeStat(stat, amount) {
+        if (!this.allowsMetaProgression()) return;
         const delta = Number(amount);
         if (!stat || !Number.isFinite(delta)) return;
         const save = this.load();

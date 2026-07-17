@@ -12,7 +12,7 @@
 		'[data-controller-scroll]',
 		'.nexus-scrollbar',
 		'.modal__body',
-		'.pause-menu-list'
+		'.pause-scroll'
 	].join(',');
 
 	const buttonMap = {
@@ -214,6 +214,26 @@
 		},
 
 		getTopVisibleModal() {
+			// Prefer Game-flagged / dedicated overlays so pause never steals focus underneath
+			if (typeof Game !== 'undefined') {
+				const flagged = [];
+				if (Game.updateModalVisible) flagged.push('.update-modal');
+				if (Game.launchModalVisible) flagged.push('.launch-modal');
+				if (Game.privacyModalVisible) flagged.push('.privacy-modal');
+				for (let i = 0; i < flagged.length; i++) {
+					const panel = document.querySelector(flagged[i]);
+					const layer = panel && panel.closest('.ui-layer--modal');
+					if (layer && this.isVisibleLayer(layer)) return layer;
+				}
+			}
+
+			const confirm = document.querySelector('.confirm-dialog');
+			if (confirm && this.isVisibleLayer(confirm)) return confirm;
+
+			const audioPanel = document.querySelector('.audio-menu');
+			const audioLayer = audioPanel && audioPanel.closest('.ui-layer--modal');
+			if (audioLayer && this.isVisibleLayer(audioLayer)) return audioLayer;
+
 			const layers = Array.from(document.querySelectorAll('.ui-layer, .ui-layer--modal'));
 			const visible = layers.filter(layer => this.isModalLayer(layer) && this.isVisibleLayer(layer));
 			if (visible.length === 0) return null;
@@ -301,9 +321,33 @@
 			const modal = this.activeModal;
 			const byText = (pattern) => targets.find(el => pattern.test(el.textContent || el.getAttribute('aria-label') || ''));
 
-			if (modal && modal.querySelector('.update-modal')) {
+			// Confirm dialogs: land on Confirm
+			if (modal && modal.classList.contains('confirm-dialog')) {
+				const confirmBtn = byText(/^confirm$/i);
+				if (confirmBtn) return confirmBtn;
+			}
+
+			// Pause menu only: sticky Resume is the baseline (not when a nested overlay is top)
+			if (modal && modal.querySelector && modal.querySelector('.pause-menu')) {
+				const pauseResume = targets.find(el => el.getAttribute('data-pause-action') === 'resume');
+				if (pauseResume) return pauseResume;
+			}
+
+			if (modal && modal.querySelector && modal.querySelector('.update-modal')) {
 				const scrollPane = targets.find(el => this.isScrollableTarget(el, modal));
 				if (scrollPane) return scrollPane;
+				const closeBtn = byText(/^close$/i);
+				if (closeBtn) return closeBtn;
+			}
+
+			if (modal && modal.querySelector && modal.querySelector('.launch-modal')) {
+				const continueBtn = byText(/got it|continue/i);
+				if (continueBtn) return continueBtn;
+			}
+
+			if (modal && modal.querySelector && modal.querySelector('.audio-menu')) {
+				const range = targets.find(el => el.type === 'range');
+				if (range) return range;
 			}
 
 			const preferredButton = byText(/got it|opt in|resume|continue/i);
@@ -405,15 +449,22 @@
 
 			const currentRect = current.getBoundingClientRect();
 			const currentCenter = this.centerOf(currentRect);
+			const currentRow = current.closest ? current.closest('.pause-segmented') : null;
 			let best = null;
 			let bestScore = Infinity;
 
 			for (const candidate of targets) {
 				if (candidate === current) continue;
-				const rect = candidate.getBoundingClientRect();
-				const center = this.centerOf(rect);
-				const dx = center.x - currentCenter.x;
-				const dy = center.y - currentCenter.y;
+
+				const candidateRow = candidate.closest ? candidate.closest('.pause-segmented') : null;
+				// Vertical moves stay out of the same segmented row (Left/Right cycle those)
+				if (direction.y !== 0 && currentRow && candidateRow && currentRow === candidateRow) {
+					continue;
+				}
+
+				const metrics = this.getSpatialMetrics(currentCenter, candidate, direction, candidateRow);
+				const dx = metrics.dx;
+				const dy = metrics.dy;
 
 				if (direction.x > 0 && dx <= 4) continue;
 				if (direction.x < 0 && dx >= -4) continue;
@@ -424,13 +475,50 @@
 				const secondary = direction.x !== 0 ? Math.abs(dy) : Math.abs(dx);
 				const score = primary + secondary * 2.25;
 
-				if (score < bestScore) {
+				if (score < bestScore - 0.05) {
 					bestScore = score;
 					best = candidate;
+				} else if (best && Math.abs(score - bestScore) <= 0.05) {
+					best = this.pickSegmentedTieBreak(currentCenter, best, candidate, direction);
+					bestScore = Math.min(bestScore, score);
 				}
 			}
 
 			return best || this.findLinearFallback(current, targets, direction);
+		},
+
+		/**
+		 * For vertical nav into a .pause-segmented row, score against the row band
+		 * so off-center chips (Auto/Pad) are not skipped for centered ones below.
+		 */
+		getSpatialMetrics(currentCenter, candidate, direction, candidateRow) {
+			const rect = candidate.getBoundingClientRect();
+			if (direction.y !== 0 && candidateRow) {
+				const rowRect = candidateRow.getBoundingClientRect();
+				let dx = 0;
+				if (currentCenter.x < rowRect.left) dx = rowRect.left - currentCenter.x;
+				else if (currentCenter.x > rowRect.right) dx = currentCenter.x - rowRect.right;
+				const dy = (rowRect.top + rowRect.height / 2) - currentCenter.y;
+				return { dx, dy };
+			}
+			const center = this.centerOf(rect);
+			return {
+				dx: center.x - currentCenter.x,
+				dy: center.y - currentCenter.y
+			};
+		},
+
+		pickSegmentedTieBreak(currentCenter, a, b, direction) {
+			const rowA = a.closest ? a.closest('.pause-segmented') : null;
+			const rowB = b.closest ? b.closest('.pause-segmented') : null;
+			if (direction.y !== 0 && rowA && rowA === rowB) {
+				if (a.classList.contains('is-active') && !b.classList.contains('is-active')) return a;
+				if (b.classList.contains('is-active') && !a.classList.contains('is-active')) return b;
+				const da = Math.abs(this.centerOf(a.getBoundingClientRect()).x - currentCenter.x);
+				const db = Math.abs(this.centerOf(b.getBoundingClientRect()).x - currentCenter.x);
+				return da <= db ? a : b;
+			}
+			return a;
 		},
 
 		centerOf(rect) {
@@ -480,6 +568,17 @@
 
 		handleGlobalButtons(gamepad) {
 			if (this.wasPressed(gamepad, 9)) {
+				// Confirm dialog owns the stack — don't unpause underneath it
+				const confirm = document.querySelector('.confirm-dialog');
+				if (confirm && this.isVisibleLayer(confirm)) return;
+
+				// Prefer dismissing nested overlays over unpausing
+				if (typeof Game !== 'undefined' && Game.dismissOverlayAbovePause
+					&& Game.dismissOverlayAbovePause()) {
+					this.clearFocus();
+					this.lastModal = null;
+					return;
+				}
 				if (typeof Game !== 'undefined' && Game.togglePause) Game.togglePause();
 			}
 			if (this.wasPressed(gamepad, 8)) {
@@ -529,6 +628,14 @@
 				return;
 			}
 
+			// Nested pause overlays first — never click Pause's Resume while these are up
+			if (typeof Game !== 'undefined' && Game.dismissOverlayAbovePause
+				&& Game.dismissOverlayAbovePause()) {
+				this.clearFocus();
+				this.lastModal = null;
+				return;
+			}
+
 			const modal = this.activeModal || this.getTopVisibleModal();
 			if (!modal) return;
 
@@ -536,19 +643,24 @@
 				.find(btn => {
 					if (!this.isVisibleElement(btn)) return false;
 					const label = `${btn.textContent || ''} ${btn.getAttribute('aria-label') || ''} ${btn.className || ''}`;
-					return /close|cancel|back|resume|no|×|✕/i.test(label);
+					// Do not treat Pause "Resume" as a generic back/close here — handled below
+					if (/resume/i.test(label) && modal.querySelector && modal.querySelector('.pause-menu')) {
+						return false;
+					}
+					return /close|cancel|back|no|×|✕/i.test(label);
 				});
 
 			if (closeButton) {
 				closeButton.click();
+				this.clearFocus();
+				this.lastModal = null;
 				return;
 			}
 
 			if (typeof Game !== 'undefined') {
-				if (Game.launchModalVisible) Game.launchModalVisible = false;
-				else if (Game.updateModalVisible) Game.updateModalVisible = false;
-				else if (Game.privacyModalVisible) Game.privacyModalVisible = false;
-				else if ((Game.state === 'PAUSED' || Game.showPauseMenu) && Game.togglePause) Game.togglePause();
+				if ((Game.state === 'PAUSED' || Game.showPauseMenu) && Game.togglePause) {
+					Game.togglePause();
+				}
 			}
 		},
 

@@ -34,6 +34,7 @@ const PRECACHE_URLS = [
   './ui/components/characterSheet.js',
   './ui/components/indexMachine.js',
   './ui/components/shardDisplay.js',
+  './ui/components/titleScreen.js',
   './ui/components/hud.js',
   './ui/components/gearUpgradeMenu.js',
   './ui/components/safeRoomMenu.js',
@@ -112,6 +113,7 @@ const PRECACHE_URLS = [
   './js/telemetry.js',
   './js/interpolation.js',
   './js/nexus.js',
+  './js/title-attract.js',
   './js/main.js'
 ];
 

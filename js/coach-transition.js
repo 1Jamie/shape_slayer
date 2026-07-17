@@ -25,9 +25,9 @@ const CoachTransition = {
         if (typeof Game === 'undefined' || !Game.config) {
             return { halfW: 640, halfH: 360 };
         }
-        const zoom = this._isMobile()
-            ? (Game.mobileZoom || 1.0)
-            : (Game.baseZoom || 1.0);
+        const zoom = (typeof Game !== 'undefined' && Game.getViewZoom)
+            ? Game.getViewZoom()
+            : (this._isMobile() ? (Game.mobileZoom || 1.0) : (Game.baseZoom || 1.0));
         return {
             halfW: Game.config.width / (2 * zoom),
             halfH: Game.config.height / (2 * zoom)

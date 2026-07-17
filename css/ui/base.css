@@ -89,6 +89,23 @@ body {
   z-index: 10000;
 }
 
+/* Nested overlays above the pause menu so controller focus targets the top sheet */
+.ui-layer--modal:has(.update-modal),
+.ui-layer--modal:has(.launch-modal),
+.ui-layer--modal:has(.audio-menu),
+.ui-layer--modal:has(.privacy-modal) {
+  z-index: 10020;
+}
+
+.ui-layer--modal.confirm-dialog {
+  z-index: 10030;
+}
+
+.confirm-dialog .modal {
+  max-width: min(520px, 92vw);
+  width: min(520px, 92vw);
+}
+
 /* Generic modal block */
 .modal {
   pointer-events: auto;
@@ -373,6 +390,259 @@ body {
 
 .mp-status:empty {
   display: none;
+}
+
+/* Pause menu (sectioned layout, mirrors multiplayer modal patterns) */
+.pause-menu-shell {
+  position: relative;
+  display: block;
+  /* Desktop default: comfortable width; touch/narrow overrides below */
+  width: min(560px, 92vw);
+  max-width: 92vw;
+  max-height: min(85vh, 760px);
+  pointer-events: auto;
+}
+
+.pause-menu {
+  width: 100%;
+  max-width: none;
+  max-height: min(85vh, 760px);
+}
+
+.pause-menu .pause-segmented__btn {
+  font-size: 13px;
+  padding: 10px 8px;
+}
+
+/* Float beside the modal — does not compete for modal width */
+.pause-notes-rail {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 12px);
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  width: 72px;
+  padding: 14px 8px;
+  background: var(--ui-panel);
+  border: 2px solid var(--ui-border);
+  border-radius: 8px;
+  color: var(--ui-text);
+  box-shadow: 0 0 12px rgba(74, 144, 226, 0.2);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.pause-notes-rail:hover,
+.pause-notes-rail:focus-visible {
+  background: rgba(100, 100, 255, 0.22);
+  box-shadow: 0 0 14px rgba(74, 144, 226, 0.45);
+}
+
+.pause-notes-rail__glyph {
+  position: relative;
+  width: 36px;
+  height: 44px;
+  flex: 0 0 auto;
+}
+
+/* Document / changelog page */
+.pause-notes-rail__page {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 14, 28, 0.9);
+  border: 2px solid var(--ui-border);
+  border-radius: 3px 8px 3px 3px;
+  box-shadow: inset 0 0 0 1px rgba(74, 144, 226, 0.15);
+}
+
+.pause-notes-rail__page::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 12px;
+  height: 12px;
+  background: linear-gradient(135deg, transparent 50%, rgba(74, 144, 226, 0.35) 50%),
+    var(--ui-panel);
+  border-left: 2px solid var(--ui-border);
+  border-bottom: 2px solid var(--ui-border);
+  border-radius: 0 6px 0 0;
+}
+
+.pause-notes-rail__lines {
+  position: absolute;
+  left: 7px;
+  right: 7px;
+  top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.pause-notes-rail__lines::before,
+.pause-notes-rail__lines::after {
+  content: '';
+  display: block;
+  height: 2px;
+  border-radius: 1px;
+  background: rgba(136, 221, 255, 0.85);
+}
+
+.pause-notes-rail__lines::before {
+  width: 100%;
+  box-shadow: 0 7px 0 rgba(136, 221, 255, 0.55);
+}
+
+.pause-notes-rail__lines::after {
+  width: 62%;
+  margin-top: 9px;
+  background: rgba(74, 144, 226, 0.9);
+}
+
+.pause-notes-rail__label {
+  display: block;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: center;
+  line-height: 1.25;
+  color: #88ddff;
+}
+
+.pause-menu__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.pause-primary {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(150, 150, 255, 0.25);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.pause-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 14px 16px 16px;
+  /* Room for controller focus outlines so they are not clipped */
+  scroll-padding: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(74, 144, 226, 0.8) rgba(20, 20, 40, 0.4);
+}
+
+.pause-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.pause-scroll::-webkit-scrollbar-track {
+  background: rgba(20, 20, 40, 0.4);
+  border-radius: 4px;
+}
+
+.pause-scroll::-webkit-scrollbar-thumb {
+  background: rgba(74, 144, 226, 0.75);
+  border-radius: 4px;
+  border: 2px solid rgba(20, 20, 40, 0.4);
+}
+
+.pause-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pause-section + .pause-section {
+  padding-top: 12px;
+  border-top: 1px solid rgba(150, 150, 255, 0.18);
+}
+
+.pause-section__title {
+  margin: 0 0 2px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ui-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.pause-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #88ddff;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+
+.pause-btn-block {
+  width: 100%;
+  text-align: center;
+}
+
+.pause-btn-block.is-disabled,
+.pause-menu .btn.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(50%);
+}
+
+.pause-segmented {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+}
+
+.pause-segmented__btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 8px 6px;
+  font-size: 12px;
+  border-color: rgba(150, 150, 255, 0.3);
+  background: transparent;
+  box-shadow: none;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pause-segmented__btn.is-active {
+  border-color: var(--ui-border);
+  background: rgba(100, 100, 255, 0.35);
+  box-shadow: 0 0 8px rgba(74, 144, 226, 0.4);
+}
+
+.pause-tooltip {
+  position: fixed;
+  background: rgba(0, 0, 0, 0.95);
+  border: 2px solid #666;
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: #fff;
+  font-size: 12px;
+  font-family: 'Orbitron', sans-serif;
+  z-index: 10003;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.5);
 }
 
 .controller-focused {
@@ -938,54 +1208,50 @@ body {
     transform: scale(0.85) !important;
     transform-origin: left bottom !important;
   }
-  /* Pause menu mobile styling */
-  .pause-menu {
-    max-width: 95vw !important;
+  /* Pause menu mobile styling — keep compact on small viewports */
+  .pause-menu-shell {
+    width: min(420px, 92vw) !important;
+    max-width: 92vw !important;
     max-height: 90vh !important;
-    width: 500px !important;
+  }
+  .confirm-dialog .modal {
+    max-width: min(420px, 92vw) !important;
+    width: min(420px, 92vw) !important;
+  }
+  .pause-menu {
+    max-width: none !important;
+    max-height: 90vh !important;
+    width: 100% !important;
+  }
+  .pause-notes-rail {
+    left: calc(100% + 8px);
+    width: 64px;
+    padding: 12px 6px;
+  }
+  .pause-notes-rail__label {
+    font-size: 9px;
   }
   .pause-menu .modal__header {
     padding: 12px 16px !important;
     font-size: 16px !important;
   }
-  .pause-menu .modal__body {
-    padding: 16px !important;
-    padding-right: 12px !important;
+  .pause-menu .pause-menu__body {
+    padding: 0 !important;
     overflow: hidden !important;
   }
-  /* Always show scrollbar on webkit browsers (Chrome, Safari, Edge) */
-  .pause-menu .modal__body::-webkit-scrollbar {
-    -webkit-appearance: none;
-    width: 10px;
+  .pause-menu .pause-scroll {
+    gap: 14px;
+    padding: 12px 14px 14px;
   }
-  .pause-menu .modal__body::-webkit-scrollbar-track {
-    background: rgba(20, 20, 40, 0.4);
-    border-radius: 5px;
-    -webkit-box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.3);
-  }
-  .pause-menu .modal__body::-webkit-scrollbar-thumb {
-    background: rgba(74, 144, 226, 0.8);
-    border-radius: 5px;
-    border: 2px solid rgba(20, 20, 40, 0.4);
-    -webkit-box-shadow: 0 0 6px rgba(74, 144, 226, 0.5);
-  }
-  .pause-menu .modal__body::-webkit-scrollbar-thumb:hover {
-    background: rgb(74, 144, 226);
-  }
-  /* Force scrollbar to always be visible (prevent auto-hide) */
-  .pause-menu .modal__body::-webkit-scrollbar-thumb:vertical {
-    min-height: 30px;
-  }
-  .pause-menu .modal__body > div {
-    gap: 12px !important;
-  }
-  .pause-menu .btn {
-    padding: 12px 16px !important;
+  .pause-menu .pause-btn-block,
+  .pause-menu .pause-segmented__btn {
+    padding: 12px 14px !important;
     font-size: 15px !important;
     min-height: 48px !important;
   }
-  .pause-menu .modal__footer {
-    padding: 12px 16px !important;
+  .pause-menu .pause-segmented__btn {
+    font-size: 13px !important;
+    padding: 10px 6px !important;
   }
   /* Ensure pause menu appears above HUD */
   .ui-layer--modal {
@@ -1219,60 +1485,49 @@ body {
   transform: scale(0.85) !important;
   transform-origin: left bottom !important;
 }
-.touch-mode {
-  /* Pause menu mobile styling */
+.touch-mode .pause-menu-shell {
+  width: min(420px, 92vw) !important;
+  max-width: 92vw !important;
+  max-height: 90vh !important;
+}
+.touch-mode .confirm-dialog .modal {
+  max-width: min(420px, 92vw) !important;
+  width: min(420px, 92vw) !important;
 }
 .touch-mode .pause-menu {
-  max-width: 95vw !important;
+  max-width: none !important;
   max-height: 90vh !important;
-  width: 500px !important;
+  width: 100% !important;
+}
+.touch-mode .pause-notes-rail {
+  left: calc(100% + 8px);
+  width: 64px;
+  padding: 12px 6px;
+}
+.touch-mode .pause-notes-rail__label {
+  font-size: 9px;
 }
 .touch-mode .pause-menu .modal__header {
   padding: 12px 16px !important;
   font-size: 16px !important;
 }
-.touch-mode .pause-menu .modal__body {
-  padding: 16px !important;
-  padding-right: 12px !important;
+.touch-mode .pause-menu .pause-menu__body {
+  padding: 0 !important;
   overflow: hidden !important;
 }
-.touch-mode {
-  /* Always show scrollbar on webkit browsers (Chrome, Safari, Edge) */
+.touch-mode .pause-menu .pause-scroll {
+  gap: 14px;
+  padding: 12px 14px 14px;
 }
-.touch-mode .pause-menu .modal__body::-webkit-scrollbar {
-  -webkit-appearance: none;
-  width: 10px;
-}
-.touch-mode .pause-menu .modal__body::-webkit-scrollbar-track {
-  background: rgba(20, 20, 40, 0.4);
-  border-radius: 5px;
-  -webkit-box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.3);
-}
-.touch-mode .pause-menu .modal__body::-webkit-scrollbar-thumb {
-  background: rgba(74, 144, 226, 0.8);
-  border-radius: 5px;
-  border: 2px solid rgba(20, 20, 40, 0.4);
-  -webkit-box-shadow: 0 0 6px rgba(74, 144, 226, 0.5);
-}
-.touch-mode .pause-menu .modal__body::-webkit-scrollbar-thumb:hover {
-  background: rgb(74, 144, 226);
-}
-.touch-mode {
-  /* Force scrollbar to always be visible (prevent auto-hide) */
-}
-.touch-mode .pause-menu .modal__body::-webkit-scrollbar-thumb:vertical {
-  min-height: 30px;
-}
-.touch-mode .pause-menu .modal__body > div {
-  gap: 12px !important;
-}
-.touch-mode .pause-menu .btn {
-  padding: 12px 16px !important;
+.touch-mode .pause-menu .pause-btn-block,
+.touch-mode .pause-menu .pause-segmented__btn {
+  padding: 12px 14px !important;
   font-size: 15px !important;
   min-height: 48px !important;
 }
-.touch-mode .pause-menu .modal__footer {
-  padding: 12px 16px !important;
+.touch-mode .pause-menu .pause-segmented__btn {
+  font-size: 13px !important;
+  padding: 10px 6px !important;
 }
 .touch-mode {
   /* Ensure pause menu appears above HUD */
@@ -1355,5 +1610,222 @@ body {
 }
 .touch-mode .character-sheet .cs-card__desc {
   font-size: 9px !important;
+}
+
+/* Title screen chrome (DOM overlay over procedural attract canvas) */
+.title-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: none;
+  flex-direction: column;
+  justify-content: space-between;
+  pointer-events: auto;
+  user-select: none;
+  padding: clamp(16px, 4vh, 48px) clamp(16px, 4vw, 48px);
+  background: transparent;
+  font-family: "Orbitron", sans-serif;
+}
+
+.title-screen__top {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding-top: clamp(8px, 4vh, 36px);
+}
+
+.title-screen__logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(8px, 1.5vw, 18px);
+  flex-wrap: wrap;
+}
+
+.title-screen__word {
+  font-weight: 900;
+  font-size: clamp(36px, 8vw, 84px);
+  letter-spacing: 0.06em;
+  line-height: 1;
+  color: #1a0a2e;
+  -webkit-text-stroke: 2px #00e5ff;
+  text-shadow:
+    0 0 8px rgba(0, 229, 255, 0.85),
+    0 0 22px rgba(0, 229, 255, 0.45),
+    -2px 0 10px rgba(255, 106, 0, 0.35),
+    2px 0 10px rgba(255, 106, 0, 0.35);
+}
+
+.title-screen__gem {
+  display: inline-flex;
+  filter: drop-shadow(0 0 10px rgba(0, 229, 255, 0.65)) drop-shadow(0 0 8px rgba(255, 106, 0, 0.4));
+}
+
+.title-screen__gem svg {
+  display: block;
+  width: clamp(40px, 7vw, 64px);
+  height: clamp(40px, 7vw, 64px);
+}
+
+.title-screen__subtitle {
+  font-size: clamp(12px, 2.2vw, 20px);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #7cff4a;
+  text-shadow:
+    0 0 8px rgba(124, 255, 74, 0.9),
+    0 0 18px rgba(124, 255, 74, 0.45);
+  text-align: center;
+  text-transform: uppercase;
+  animation: title-subtitle-breathe 2.8s ease-in-out infinite;
+}
+
+.title-screen__bottom {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: end;
+  gap: 12px;
+  width: 100%;
+}
+
+.title-screen__currency {
+  justify-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: clamp(12px, 1.8vw, 16px);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #c8e6ff;
+  text-shadow: 0 0 6px rgba(120, 200, 255, 0.45);
+}
+
+.title-screen__shards {
+  color: #ffb070;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.title-screen__shard-icon {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  background: #ff8a2a;
+  transform: rotate(45deg);
+  box-shadow: 0 0 8px rgba(255, 138, 42, 0.8);
+}
+
+.title-screen__prompt {
+  justify-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(13px, 2vw, 18px);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #ffe066;
+  text-shadow:
+    0 0 8px rgba(255, 224, 102, 0.85),
+    0 0 18px rgba(255, 200, 40, 0.4);
+  animation: title-prompt-pulse 1.6s ease-in-out infinite;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.title-screen__prompt .title-screen__key,
+.title-screen__prompt .controller-button-badge,
+.title-screen__prompt .control-key-badge {
+  display: inline-flex;
+  vertical-align: middle;
+  margin: 0 0.05em;
+  animation: none;
+  text-shadow: none;
+  letter-spacing: 0;
+  font-size: 0.92em;
+}
+
+.title-screen__prompt .controller-button-badge {
+  width: 1.55em;
+  height: 1.55em;
+  min-width: 1.55em;
+  box-shadow:
+    inset 0 -0.2em 0.4em rgba(255, 255, 255, 0.08),
+    0 0 0 1px rgba(0, 0, 0, 0.65),
+    0 0 10px rgba(255, 224, 102, 0.35);
+}
+
+.title-screen__prompt .control-key-badge {
+  color: #ffe066;
+  border-color: rgba(255, 224, 102, 0.55);
+  background: rgba(255, 224, 102, 0.08);
+  min-height: 1.55em;
+  padding: 0.15em 0.45em;
+}
+
+.title-screen__version {
+  justify-self: end;
+  font-size: clamp(10px, 1.4vw, 13px);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: rgba(160, 180, 200, 0.55);
+  text-align: right;
+}
+
+@keyframes title-prompt-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes title-subtitle-breathe {
+  0%,
+  100% {
+    opacity: 0.72;
+    text-shadow:
+      0 0 6px rgba(124, 255, 74, 0.55),
+      0 0 14px rgba(124, 255, 74, 0.28);
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    text-shadow:
+      0 0 12px rgba(124, 255, 74, 1),
+      0 0 28px rgba(124, 255, 74, 0.65);
+    transform: scale(1.03);
+  }
+}
+
+@media (max-width: 720px) {
+  .title-screen__bottom {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    gap: 10px;
+  }
+
+  .title-screen__currency,
+  .title-screen__version {
+    justify-self: center;
+    text-align: center;
+  }
+
+  .title-screen__prompt {
+    white-space: normal;
+    order: -1;
+  }
+}
+
+.touch-mode .title-screen__word {
+  font-size: clamp(28px, 10vw, 56px);
+  -webkit-text-stroke-width: 1.5px;
+}
+
+.touch-mode .title-screen__subtitle {
+  font-size: clamp(11px, 3.2vw, 16px);
 }
 

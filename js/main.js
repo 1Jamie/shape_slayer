@@ -108,13 +108,26 @@ const Game = {
     get UPDATE_TYPES() {
         return typeof GameVersion !== 'undefined' ? GameVersion.UPDATE_TYPES : {};
     },
+    get PATCH_TITLES() {
+        return typeof GameVersion !== 'undefined' ? GameVersion.PATCH_TITLES : {};
+    },
+    getPatchTitle(version) {
+        const v = version || this.VERSION;
+        const titles = this.PATCH_TITLES || {};
+        return titles[v] || ('UPDATE ' + v);
+    },
 
     // Canvas and context
     canvas: null,
     ctx: null,
 
     // Game state
-    state: 'NEXUS', // 'NEXUS', 'PLAYING', 'PAUSED', 'ENTERING_ROOM'
+    state: 'TITLE', // 'TITLE', 'NEXUS', 'PLAYING', 'PAUSED', 'ENTERING_ROOM'
+    pendingBootModals: null, // { privacy, launch, update } deferred until title dismiss
+    // Title attract is a visual sim — no feats, discoveries, currency, or lifetime stats
+    allowsMetaProgression() {
+        return this.state !== 'TITLE';
+    },
     paused: false,
     pausedFromState: null, // Track where we paused from ('PLAYING' or 'NEXUS')
     showPauseMenu: false, // Visual pause menu flag (for multiplayer - doesn't pause game)
@@ -288,7 +301,37 @@ const Game = {
 
     // Camera zoom
     baseZoom: 1.1, // Desktop zoom level (10% closer)
+    mobileZoom: 0.9, // Mobile default: pull back so more of the arena is visible
+    cameraDistance: 'medium', // 'close' | 'medium' | 'far' (from save / pause menu)
+    CAMERA_DISTANCE_MULT: { close: 1.15, medium: 1.0, far: 0.85 },
     bossIntroZoom: 1.3, // Extra zoom during boss intro (30% closer total)
+
+    /** Effective world zoom for the current platform + camera-distance setting. */
+    getViewZoom() {
+        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
+        const platformZoom = isMobile ? (this.mobileZoom || 0.9) : (this.baseZoom || 1.1);
+        const mult = (this.CAMERA_DISTANCE_MULT && this.CAMERA_DISTANCE_MULT[this.cameraDistance]) || 1.0;
+        return platformZoom * mult;
+    },
+
+    setCameraDistance(distance) {
+        if (distance !== 'close' && distance !== 'medium' && distance !== 'far') return false;
+        this.cameraDistance = distance;
+        if (typeof SaveSystem !== 'undefined' && SaveSystem.setCameraDistance) {
+            SaveSystem.setCameraDistance(distance);
+        }
+        return true;
+    },
+
+    getCameraDistance() {
+        if (this.cameraDistance === 'close' || this.cameraDistance === 'medium' || this.cameraDistance === 'far') {
+            return this.cameraDistance;
+        }
+        if (typeof SaveSystem !== 'undefined' && SaveSystem.getCameraDistance) {
+            return SaveSystem.getCameraDistance();
+        }
+        return 'medium';
+    },
 
     // FPS tracking
     fps: 0,
@@ -381,6 +424,9 @@ const Game = {
         // Load fullscreen preference
         if (typeof SaveSystem !== 'undefined') {
             this.fullscreenEnabled = SaveSystem.getFullscreenPreference();
+            if (SaveSystem.getCameraDistance) {
+                this.cameraDistance = SaveSystem.getCameraDistance();
+            }
         }
 
         // Setup fullscreen API event listeners
@@ -440,12 +486,14 @@ const Game = {
             this.telemetryOptIn = SaveSystem.getTelemetryOptIn ? SaveSystem.getTelemetryOptIn() : null;
 
             const hasAcknowledgedPrivacy = SaveSystem.hasAcknowledgedPrivacy ? SaveSystem.hasAcknowledgedPrivacy() : true;
+            const pendingBoot = { privacy: false, launch: false, update: false };
+
             if (!hasAcknowledgedPrivacy) {
-                this.openPrivacyModal('onboarding');
+                pendingBoot.privacy = true;
             } else if (typeof Onboarding !== 'undefined' && Onboarding.getStep && Onboarding.getStep() === Onboarding.STEPS.CONTROLS) {
-                this.launchModalVisible = true;
+                pendingBoot.launch = true;
             } else if (!SaveSystem.getHasSeenLaunchModal()) {
-                this.launchModalVisible = true;
+                pendingBoot.launch = true;
             }
 
             // Patch notes: returning players only. New saves get a quiet version stamp.
@@ -460,31 +508,33 @@ const Game = {
                     && FeatureTutorials.isSpotlightActive()) {
                     if (typeof Onboarding !== 'undefined' && Onboarding.deferUpdateModal) {
                         Onboarding.deferUpdateModal();
-                    } else {
-                        this.updateModalVisible = false;
                     }
                 } else {
-                    this.updateModalVisible = true;
+                    pendingBoot.update = true;
                 }
             }
 
-            if (typeof Onboarding !== 'undefined' && Onboarding.onNexusEnter) {
-                // Delay until nexus is ready; boot may still be initializing
-                setTimeout(() => {
-                    Onboarding.onNexusEnter();
-                    if (typeof FeatureTutorials !== 'undefined' && FeatureTutorials.onNexusEnter) {
-                        FeatureTutorials.onNexusEnter();
-                    }
-                }, 0);
-            } else if (typeof FeatureTutorials !== 'undefined' && FeatureTutorials.onNexusEnter) {
-                setTimeout(() => FeatureTutorials.onNexusEnter(), 0);
-            }
+            // Boot modals + onboarding wait until title screen is dismissed
+            this.pendingBootModals = pendingBoot;
         } else {
             this.telemetryOptIn = null;
         }
 
         // Player will be created after class selection
         this.player = null;
+
+        if (typeof TitleAttract !== 'undefined' && TitleAttract.init) {
+            TitleAttract.init(this.config.width, this.config.height);
+        }
+
+        // Dismiss title via click/tap on the canvas (DOM chrome also listens)
+        const dismissTitleFromPointer = (e) => {
+            if (this.state !== 'TITLE') return;
+            e.preventDefault();
+            this.dismissTitleScreen();
+        };
+        this.canvas.addEventListener('mousedown', dismissTitleFromPointer);
+        this.canvas.addEventListener('touchstart', dismissTitleFromPointer, { passive: false });
 
         // Handle mouse wheel scrolling for update modal
         this.canvas.addEventListener('wheel', (e) => {
@@ -530,6 +580,17 @@ const Game = {
             // Don't intercept keys if user is typing in an input field
             const target = e.target;
             if (target && typeof isFormFieldTarget === 'function' && isFormFieldTarget(target)) {
+                return;
+            }
+
+            // Title screen: Enter / Space dismiss; Esc does nothing
+            if (this.state === 'TITLE') {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    this.dismissTitleScreen();
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                }
                 return;
             }
 
@@ -689,6 +750,48 @@ const Game = {
         this.start();
     },
 
+    applyDeferredBootModals() {
+        const pending = this.pendingBootModals;
+        this.pendingBootModals = null;
+        if (!pending) return;
+
+        if (pending.privacy) {
+            this.openPrivacyModal('onboarding');
+        } else if (pending.launch) {
+            this.launchModalVisible = true;
+        }
+
+        if (pending.update) {
+            this.updateModalVisible = true;
+        }
+
+        if (typeof Onboarding !== 'undefined' && Onboarding.onNexusEnter) {
+            setTimeout(() => {
+                Onboarding.onNexusEnter();
+                if (typeof FeatureTutorials !== 'undefined' && FeatureTutorials.onNexusEnter) {
+                    FeatureTutorials.onNexusEnter();
+                }
+            }, 0);
+        } else if (typeof FeatureTutorials !== 'undefined' && FeatureTutorials.onNexusEnter) {
+            setTimeout(() => FeatureTutorials.onNexusEnter(), 0);
+        }
+    },
+
+    dismissTitleScreen() {
+        if (this.state !== 'TITLE') return;
+
+        if (typeof TitleAttract !== 'undefined' && TitleAttract.dispose) {
+            TitleAttract.dispose();
+        }
+
+        this.state = 'NEXUS';
+        if (typeof initNexus !== 'undefined') {
+            initNexus();
+        }
+        this.applyDeferredBootModals();
+        this.updateMusicForCurrentRoom();
+    },
+
     // Setup responsive canvas sizing - dynamic viewport to match screen
     setupResponsiveCanvas() {
         if (!this.canvas) return;
@@ -745,20 +848,20 @@ const Game = {
         // Recalculate aspect ratio after rounding
         aspectRatio = canvasWidth / canvasHeight;
 
-        // Calculate mobile zoom based on aspect ratio (zoom out for 21:9 landscape)
+        // Calculate mobile zoom based on aspect ratio (zoom out further for 21:9 landscape)
+        const baseMobileZoom = 0.9; // Slightly pulled back vs 1:1 world scale
         if (isMobileDevice) {
-            // For 21:9 landscape (aspect ratio > 2.0), zoom out to show more vertical space
+            // For 21:9 landscape (aspect ratio > 2.0), zoom out more to show vertical space
             if (aspectRatio > 2.0) {
                 // Zoom out more for wider aspect ratios
-                // 21:9 (2.33) -> 0.85, wider -> more zoom out
-                const zoomFactor = Math.max(0.85, 1.0 - (aspectRatio - 2.0) * 0.15);
+                // 21:9 (2.33) -> ~0.85, wider -> more zoom out
+                const zoomFactor = Math.max(0.75, baseMobileZoom - (aspectRatio - 2.0) * 0.15);
                 this.mobileZoom = zoomFactor;
             } else {
-                // For other mobile aspect ratios, use 1.0 (no zoom)
-                this.mobileZoom = 1.0;
+                this.mobileZoom = baseMobileZoom;
             }
         } else {
-            this.mobileZoom = 1.0; // Not used on desktop, but set for consistency
+            this.mobileZoom = baseMobileZoom; // Not used on desktop, but set for consistency
         }
 
         // High DPI Support - never force upscale on 1x displays.
@@ -1171,6 +1274,10 @@ const Game = {
                 this.update(this.fixedTimestep);
             } else if (this.state === 'ENTERING_ROOM') {
                 this.updateRoomEnterTransition();
+            } else if (this.state === 'TITLE') {
+                if (typeof TitleAttract !== 'undefined' && TitleAttract.update) {
+                    TitleAttract.update(this.fixedTimestep);
+                }
             } else if (this.state === 'NEXUS') {
                 if (typeof updateNexus !== 'undefined') {
                     updateNexus(this.ctx, this.fixedTimestep);
@@ -1337,8 +1444,7 @@ const Game = {
         Renderer.clear(ctx, logicalWidth, logicalHeight, biome.baseColor);
 
         ctx.save();
-        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
-        const currentZoom = isMobile ? (this.mobileZoom || 1.0) : (this.baseZoom);
+        const currentZoom = this.getViewZoom();
         const centerX = logicalWidth / 2;
         const centerY = logicalHeight / 2;
         ctx.translate(centerX + this.screenShakeOffset.x, centerY + this.screenShakeOffset.y);
@@ -1626,8 +1732,7 @@ const Game = {
         // Clamp camera to room boundaries (prevent showing outside room)
         // Account for zoom - with zoom, we see less world space, so bounds are tighter
         if (typeof currentRoom !== 'undefined' && currentRoom) {
-            const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
-            const currentZoom = isMobile ? (this.mobileZoom || 1.0) : this.baseZoom;
+            const currentZoom = this.getViewZoom();
 
             // Visible world space is smaller when zoomed
             const halfVisibleWorldW = (this.config.width / 2) / currentZoom;
@@ -1694,8 +1799,7 @@ const Game = {
         }
 
         // Clamp to nexus boundaries (account for zoom)
-        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
-        const currentZoom = isMobile ? (this.mobileZoom || 1.0) : this.baseZoom;
+        const currentZoom = this.getViewZoom();
 
         // Visible world space is smaller when zoomed
         const halfVisibleWorldW = (this.config.width / 2) / currentZoom;
@@ -1934,6 +2038,76 @@ const Game = {
         this.privacyModalReturnToPause = false;
         this.privacyModalContext = 'onboarding';
         this.privacyModalPreviousShowPauseMenu = false;
+    },
+
+    /**
+     * Close the top overlay that sits above the pause menu (patch notes, how to play,
+     * audio, privacy) without unpausing. Returns true if something was dismissed.
+     */
+    dismissOverlayAbovePause() {
+        // DOM audio menu (opened from pause)
+        if (typeof window !== 'undefined' && window.UIAudio && typeof window.UIAudio.close === 'function') {
+            const audioPanel = document.querySelector('.audio-menu');
+            const audioLayer = audioPanel && audioPanel.closest('.ui-layer--modal');
+            if (audioLayer) {
+                const display = audioLayer.style.display || (window.getComputedStyle
+                    ? window.getComputedStyle(audioLayer).display
+                    : '');
+                if (display && display !== 'none') {
+                    window.UIAudio.close();
+                    return true;
+                }
+            }
+        }
+
+        // Legacy canvas audio menu flag
+        if (typeof audioMenuVisible !== 'undefined' && audioMenuVisible) {
+            audioMenuVisible = false;
+            if (typeof activeAudioSliderKey !== 'undefined') activeAudioSliderKey = null;
+            if (typeof activeAudioSliderPointerId !== 'undefined') activeAudioSliderPointerId = null;
+            if (typeof AudioManager !== 'undefined' && AudioManager.saveSettings) {
+                AudioManager.saveSettings();
+            }
+            return true;
+        }
+
+        if (this.updateModalVisible) {
+            this.updateModalVisible = false;
+            if (typeof SaveSystem !== 'undefined' && SaveSystem.setLastRunVersion && this.VERSION) {
+                SaveSystem.setLastRunVersion(this.VERSION);
+            }
+            if (typeof updateModalScroll !== 'undefined') {
+                updateModalScroll = 0;
+            }
+            return true;
+        }
+
+        if (this.launchModalVisible) {
+            // Forced first-run controls step: Esc cannot dismiss
+            if (typeof Onboarding !== 'undefined' && Onboarding.getStep
+                && Onboarding.getStep() === Onboarding.STEPS.CONTROLS
+                && !Onboarding.isSuspended()) {
+                return true; // consumed; stay on how-to-play / controls
+            }
+            this.launchModalVisible = false;
+            if (typeof SaveSystem !== 'undefined' && SaveSystem.setHasSeenLaunchModal) {
+                SaveSystem.setHasSeenLaunchModal(true);
+            }
+            return true;
+        }
+
+        if (this.privacyModalVisible) {
+            if (typeof Onboarding !== 'undefined'
+                && Onboarding.getStep
+                && Onboarding.getStep() === Onboarding.STEPS.PRIVACY
+                && this.privacyModalContext === 'onboarding') {
+                return true; // consumed; stay on privacy
+            }
+            this.closePrivacyModal();
+            return true;
+        }
+
+        return false;
     },
 
     setTelemetryPreference(optIn) {
@@ -2666,7 +2840,7 @@ const Game = {
         if (this.gameOverMusicPlaying) {
             return;
         }
-        if (this.state === 'NEXUS' || (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'safe')) {
+        if (this.state === 'TITLE' || this.state === 'NEXUS' || (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'safe')) {
             MusicManager.setNexus().catch(err => {
                 console.error('[Music] Failed to set nexus music:', err);
             });
@@ -5006,7 +5180,16 @@ const Game = {
         const inMultiplayer = this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
 
         // Render based on game state
-        if (this.state === 'NEXUS') {
+        if (this.state === 'TITLE') {
+            if (typeof TitleAttract !== 'undefined' && TitleAttract.render) {
+                if (TitleAttract.resize) {
+                    TitleAttract.resize(this.config.width, this.config.height);
+                }
+                TitleAttract.render(this.ctx);
+            } else {
+                Renderer.clear(this.ctx, this.config.width, this.config.height, '#0a0e1a');
+            }
+        } else if (this.state === 'NEXUS') {
             if (typeof renderNexus !== 'undefined') {
                 renderNexus(this.ctx);
             }
@@ -5128,8 +5311,7 @@ const Game = {
                 const _localId = typeof this.getLocalPlayerId === 'function' ? this.getLocalPlayerId() : 'local';
                 if (!healer.usedBy.has(_localId)) {
                     // Convert world coords to screen coords
-                    const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
-                    const _zoom = isMobile ? (this.mobileZoom || 1.0) : (this.baseZoom || 1.1);
+                    const _zoom = this.getViewZoom();
                     const _cX = (this.config.width / 2) + this.screenShakeOffset.x;
                     const _cY = (this.config.height / 2) + this.screenShakeOffset.y;
                     const sx = (healer.x - this.camera.x) * _zoom + _cX;
@@ -5183,8 +5365,7 @@ const Game = {
         // Room 0 coach + exit-door spotlight (world-space, camera-transformed)
         if (typeof Room0Tutorial !== 'undefined') {
             this.ctx.save();
-            const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
-            const currentZoom = isMobile ? (this.mobileZoom || 1.0) : (this.baseZoom);
+            const currentZoom = this.getViewZoom();
             const centerX = this.config.width / 2;
             const centerY = this.config.height / 2;
             this.ctx.translate(centerX + this.screenShakeOffset.x, centerY + this.screenShakeOffset.y);
@@ -5601,8 +5782,7 @@ const Game = {
         pCtx.clearRect(0, 0, this.playerLightCanvas.width, this.playerLightCanvas.height);
         pCtx.scale(dpr * lightScale, dpr * lightScale);
 
-        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
-        const currentZoom = isMobile ? (this.mobileZoom || 1.0) : (this.baseZoom || 1.1);
+        const currentZoom = this.getViewZoom();
         const centerX = logicalWidth / 2;
         const centerY = logicalHeight / 2;
         const visibleLists = this.visibleFrameLists || null;
@@ -5991,8 +6171,9 @@ const Game = {
         const isVisible = (entity, margin = 100) => {
             // Simple AABB check against camera view
             // Viewport is centered on camera
-            const halfWidth = (this.config.width / 2) / (this.baseZoom || 1) + margin;
-            const halfHeight = (this.config.height / 2) / (this.baseZoom || 1) + margin;
+            const zoom = this.getViewZoom();
+            const halfWidth = (this.config.width / 2) / zoom + margin;
+            const halfHeight = (this.config.height / 2) / zoom + margin;
 
             return (
                 entity.x >= this.camera.x - halfWidth &&
@@ -6627,6 +6808,10 @@ const Game = {
 
     // Toggle pause
     togglePause() {
+        if (this.state === 'TITLE') {
+            return;
+        }
+
         // Check if multiplayer is enabled
         const inMultiplayer = this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
 
@@ -8342,7 +8527,7 @@ const Game = {
     isRemotePlayerVisible(remote, margin) {
         if (!remote || !this.camera || !this.config) return true;
         const m = margin != null ? margin : remote.size * 4;
-        const zoom = this.baseZoom || 1;
+        const zoom = this.getViewZoom();
         const halfWidth = (this.config.width / 2) / zoom + m;
         const halfHeight = (this.config.height / 2) / zoom + m;
         return (
@@ -8476,8 +8661,9 @@ const Game = {
             // Helper to check if remote player is visible
             const isPlayerVisible = (player) => {
                 const margin = 100; // Extra margin for effects
-                const halfWidth = (this.config.width / 2) / (this.baseZoom || 1) + margin;
-                const halfHeight = (this.config.height / 2) / (this.baseZoom || 1) + margin;
+                const zoom = this.getViewZoom();
+                const halfWidth = (this.config.width / 2) / zoom + margin;
+                const halfHeight = (this.config.height / 2) / zoom + margin;
 
                 return (
                     player.x >= this.camera.x - halfWidth &&

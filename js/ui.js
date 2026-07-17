@@ -910,8 +910,9 @@ function handleCharacterSheetScroll(x, y, deltaY) {
 // Expose worldToScreen globally for DOM components
 window.worldToScreen = function worldToScreen(worldX, worldY) {
     // Get current zoom level
-    const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
-    const zoom = isMobile ? (typeof Game !== 'undefined' && Game.mobileZoom ? Game.mobileZoom : 1.0) : (typeof Game !== 'undefined' && Game.baseZoom ? Game.baseZoom : 1.1);
+    const zoom = (typeof Game !== 'undefined' && Game.getViewZoom)
+        ? Game.getViewZoom()
+        : (typeof Game !== 'undefined' && Game.baseZoom ? Game.baseZoom : 1.1);
 
     if (typeof Game !== 'undefined' && Game.camera && Game.state === 'PLAYING') {
         const centerX = Game.config.width / 2;
@@ -1082,8 +1083,7 @@ function renderEnemyDirectionArrows(ctx, player) {
     const camera = Game.camera;
     if (!camera) return;
 
-    const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
-    const zoom = isMobile ? 1.0 : (Game.baseZoom || 1.1);
+    const zoom = (Game.getViewZoom && Game.getViewZoom()) || 1.0;
     const canvasWidth = Game.config.width;
     const canvasHeight = Game.config.height;
 
@@ -1153,8 +1153,7 @@ function renderDoorDirectionArrow(ctx, player) {
     const camera = Game.camera;
     if (!camera || !Game.config) return;
 
-    const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
-    const zoom = isMobile ? 1.0 : (Game.baseZoom || 1.1);
+    const zoom = (Game.getViewZoom && Game.getViewZoom()) || 1.0;
     const canvasWidth = Game.config.width;
     const canvasHeight = Game.config.height;
 

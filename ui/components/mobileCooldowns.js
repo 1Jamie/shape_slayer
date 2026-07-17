@@ -98,7 +98,7 @@
 	function tick() {
 		const surface = getInputSurface();
 		const game = (typeof Game !== 'undefined') ? Game : null;
-		if (!surface.isMobileControllerSurface || !game || !game.player || game.player.dead) {
+		if (!surface.isMobileControllerSurface || !game || !game.player || game.player.dead || game.state === 'TITLE') {
 			layer.style.display = 'none';
 		} else {
 			layer.style.setProperty('display', 'block', 'important');

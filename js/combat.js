@@ -1154,12 +1154,16 @@ function processMeleeHitOnEnemy(player, enemies, hitbox, enemy, playerId, bodyHi
                 
                 // Track damage stats (host/solo only for consistency)
                 if (!isClient) {
+                    const metaOk = typeof Game === 'undefined'
+                        || typeof Game.allowsMetaProgression !== 'function'
+                        || Game.allowsMetaProgression();
+
                     // Track lifetime damage stat
-                    if (typeof window.trackLifetimeStat === 'function') {
+                    if (metaOk && typeof window.trackLifetimeStat === 'function') {
                         window.trackLifetimeStat('totalDamageDealt', damageDealt);
                     }
 
-                    if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+                    if (metaOk && typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
                         const isBackstabCrit = !!(isBackstab && isCrit);
                         LedgerManager.recordEvent('damageHit', {
                             damage: damageDealt,
@@ -1172,7 +1176,7 @@ function processMeleeHitOnEnemy(player, enemies, hitbox, enemy, playerId, bodyHi
                         });
                     }
                     
-                    if (typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
+                    if (metaOk && typeof Game !== 'undefined' && Game.getPlayerStats && attackerId) {
                         const stats = Game.getPlayerStats(attackerId);
                         if (stats) {
                             stats.addStat('damageDealt', damageDealt);
@@ -1180,7 +1184,7 @@ function processMeleeHitOnEnemy(player, enemies, hitbox, enemy, playerId, bodyHi
                     }
                     
                     // Track damage toward XP (on kill)
-                    if (enemy.hp <= 0) {
+                    if (metaOk && enemy.hp <= 0) {
                         // Track lifetime kills stat
                         if (typeof window.trackLifetimeStat === 'function') {
                             window.trackLifetimeStat('totalKills', 1);

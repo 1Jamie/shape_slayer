@@ -963,7 +963,7 @@ function isGroundGearVisible(gear, margin) {
     if (typeof Game === 'undefined' || !Game.camera || !Game.config) {
         return true;
     }
-    const zoom = Game.baseZoom || 1;
+    const zoom = (Game.getViewZoom && Game.getViewZoom()) || (Game.baseZoom || 1);
     const halfWidth = (Game.config.width / 2) / zoom + margin;
     const halfHeight = (Game.config.height / 2) / zoom + margin;
     return (

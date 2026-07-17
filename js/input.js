@@ -18,9 +18,10 @@ const Input = {
             return { x: this.mouse.x, y: this.mouse.y };
         }
 
-        // Get current zoom level (desktop only)
-        // Mobile UI disabled - always use desktop zoom
-        const zoom = Game.baseZoom || 1.1;
+        // Get current zoom level (platform + camera-distance setting)
+        const zoom = (typeof Game !== 'undefined' && Game.getViewZoom)
+            ? Game.getViewZoom()
+            : (Game.baseZoom || 1.1);
 
         // Combat rooms - use combat camera
         if (Game.camera && Game.state === 'PLAYING') {
@@ -198,6 +199,8 @@ const Input = {
                 document.mozFullScreenElement)) ||
                 !!(typeof Game !== 'undefined' && Game.pseudoFullscreenActive),
             mobileZoom: typeof Game !== 'undefined' && Game.mobileZoom ? Game.mobileZoom : 1,
+            viewZoom: typeof Game !== 'undefined' && Game.getViewZoom ? Game.getViewZoom() : 1,
+            cameraDistance: typeof Game !== 'undefined' && Game.cameraDistance ? Game.cameraDistance : 'medium',
             viewport
         };
     },
@@ -1071,7 +1074,9 @@ const Input = {
             if (!(window.ControllerNav && window.ControllerNav.handlesSystemButtons)) {
                 const startNow = gp.buttons[9]?.pressed || false;
                 if (startNow && !this._gamepadStartPrev) {
-                    if (typeof Game !== 'undefined' && Game.togglePause) {
+                    if (typeof Game !== 'undefined' && Game.state === 'TITLE' && Game.dismissTitleScreen) {
+                        Game.dismissTitleScreen();
+                    } else if (typeof Game !== 'undefined' && Game.togglePause) {
                         Game.togglePause();
                     }
                 }
@@ -1161,10 +1166,12 @@ const Input = {
         syncAbilityJoystick(this.touchJoysticks.dodge, leftStick, dodgeDown);
 
         if (!(window.ControllerNav && window.ControllerNav.handlesSystemButtons)) {
-            // ---- Start (button 9) → toggle pause ----
+            // ---- Start (button 9) → title dismiss or toggle pause ----
             const startNow = gp.buttons[9]?.pressed || false;
             if (startNow && !this._gamepadStartPrev) {
-                if (typeof Game !== 'undefined' && Game.togglePause) {
+                if (typeof Game !== 'undefined' && Game.state === 'TITLE' && Game.dismissTitleScreen) {
+                    Game.dismissTitleScreen();
+                } else if (typeof Game !== 'undefined' && Game.togglePause) {
                     Game.togglePause();
                 }
             }
@@ -1221,7 +1228,9 @@ const Input = {
         const height = (typeof Game !== 'undefined' && Game.config) ? Game.config.height : canvas.height;
 
         // Get mobile zoom level to adjust positioning
-        const mobileZoom = (typeof Game !== 'undefined' && Game.mobileZoom) ? Game.mobileZoom : 1.0;
+        const mobileZoom = (typeof Game !== 'undefined' && Game.getViewZoom)
+            ? Game.getViewZoom()
+            : ((typeof Game !== 'undefined' && Game.mobileZoom) ? Game.mobileZoom : 1.0);
 
         // Debug: Log initialization
         if (typeof Game !== 'undefined' && Game.fullscreenEnabled) {

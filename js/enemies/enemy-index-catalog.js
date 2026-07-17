@@ -108,6 +108,11 @@
      */
     function discoverFromEnemy(enemy) {
         if (!enemy || enemy._indexDiscovered) return;
+        if (enemy.isTitleAttract || enemy.isTutorialDummy) return;
+        if (typeof Game !== 'undefined' && typeof Game.allowsMetaProgression === 'function'
+            && !Game.allowsMetaProgression()) {
+            return;
+        }
         if (typeof SaveSystem === 'undefined') return;
         const enemyId = resolveEnemyIndexId(enemy);
         if (!enemyId && !(enemy.eliteAffix && enemy.eliteAffix.type) && !enemy.biomeId) return;
