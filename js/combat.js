@@ -142,7 +142,7 @@ function getWeaponKnockbackMult(player) {
     return 1 + bonus;
 }
 
-/** Brief freeze on heavy fire — scaled by weapon feel (Acute soft / Obtuse heavy). */
+/** Brief freeze on heavy fire - scaled by weapon feel (Acute soft / Obtuse heavy). */
 function applyHeavyAttackHitpause(player) {
     if (typeof Game === 'undefined' || typeof Game.triggerHitPause !== 'function') return;
     const scale = (player && player.weaponHitpauseScale != null) ? player.weaponHitpauseScale : 1.0;
@@ -262,7 +262,7 @@ function grantPerfectDodgeCooldown(player) {
 
 function tryRegisterPerfectDodge(player, enemy, playerId) {
     if (!player || !enemy) return;
-    // Only active dodge frames count — not post-hit / post-dodge invuln leftovers
+    // Only active dodge frames count - not post-hit / post-dodge invuln leftovers
     if (!player.isDodging) return;
     const threatActive = enemy.state === 'dash' || enemy.state === 'lunge' || enemy.state === 'spin'
         || enemy.state === 'charge' || enemy.state === 'slam' || enemy.state === 'telegraph'
@@ -768,7 +768,7 @@ function applyLegendaryEffects(player, enemy, damageDealt, attackerId) {
     
     if (!player || !player.activeLegendaryEffects || !enemy) return;
     // Parallel contact-2 may still apply status legendaries when policy is perContact;
-    // callers should pass hitbox via options when available — default allow.
+    // callers should pass hitbox via options when available - default allow.
     
     player.activeLegendaryEffects.forEach(effect => {
         if (effect.type === 'incendiary') {

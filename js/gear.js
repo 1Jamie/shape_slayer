@@ -205,7 +205,7 @@ const WEAPON_TYPES = {
         basicWeights: { attackSpeed: 1.4, projectileSpeed: 1.0, knockbackPower: 0.45 },
         basicValueScale: { attackSpeed: 1.2, projectileSpeed: 1.0, knockbackPower: 0.55 },
         // Short line for pickup / gear tooltips (keep brief)
-        pickupBlurb: 'Fast & light — snappy swings, leans speed',
+        pickupBlurb: 'Fast & light - snappy swings, leans speed',
         accentHint: 'Favors attack speed, crit chance & rampage',
         // Index machine copy
         feel: 'Light hitpause, quick recovery, shorter commitment after each swing.',
@@ -228,9 +228,9 @@ const WEAPON_TYPES = {
         onHitPolicy: { status: 'perSwing', proc: 'perSwing', sustain: 'perSwing' },
         basicWeights: { attackSpeed: 0.55, projectileSpeed: 0.5, knockbackPower: 1.6 },
         basicValueScale: { attackSpeed: 0.65, projectileSpeed: 0.75, knockbackPower: 1.25 },
-        pickupBlurb: 'Slow & heavy — hard hits, leans knockback',
+        pickupBlurb: 'Slow & heavy - hard hits, leans knockback',
         accentHint: 'Favors knockback, crit damage, execute & explosions',
-        feel: 'Chunky hitpause and longer recovery — each connect feels like a commit.',
+        feel: 'Chunky hitpause and longer recovery - each connect feels like a commit.',
         pitch: 'Trades speed for punch. Stronger per-hit damage and shove; heavies hit like a statement.',
         leansToward: 'Knockback, crit damage, execute, and explosive finishers.'
     },
@@ -249,7 +249,7 @@ const WEAPON_TYPES = {
         onHitPolicy: { status: 'perSwing', proc: 'perSwing', sustain: 'perSwing' },
         basicWeights: { attackSpeed: 1.0, projectileSpeed: 1.6, knockbackPower: 0.4 },
         basicValueScale: { attackSpeed: 1.0, projectileSpeed: 1.25, knockbackPower: 0.6 },
-        pickupBlurb: 'Long reach — space control, leans range',
+        pickupBlurb: 'Long reach - space control, leans range',
         accentHint: 'Favors range, pierce, chain & volleys',
         feel: 'Extended melee arcs, longer projectile travel, and farther beams / shouts / thrusts.',
         pitch: 'Keep distance or cover more ground per swing. Identity is geometry, not raw DPS.',
@@ -270,10 +270,10 @@ const WEAPON_TYPES = {
         onHitPolicy: { status: 'perContact', proc: 'perContact', sustain: 'perSwing' },
         basicWeights: { attackSpeed: 1.25, projectileSpeed: 1.0, knockbackPower: 0.4 },
         basicValueScale: { attackSpeed: 1.1, projectileSpeed: 1.0, knockbackPower: 0.5 },
-        pickupBlurb: 'Twin strikes — same damage, denser procs',
+        pickupBlurb: 'Twin strikes - same damage, denser procs',
         accentHint: 'Twin strikes: status & proc density at parity damage',
         feel: 'Two staggered contacts (~55ms apart). Total damage matches a normal weapon; status and procs can roll twice.',
-        pitch: 'Not double DPS — double tick density. Basics, heavies, beams, fans, and thrusts all twin in their own way.',
+        pitch: 'Not double DPS - double tick density. Basics, heavies, beams, fans, and thrusts all twin in their own way.',
         leansToward: 'Attack speed, status/proc density, and tools that love hitting more often.'
     }
 };
@@ -1289,7 +1289,7 @@ function getGearStatsString(gear) {
         statsStr.push(`+${(gear.stats.speed * 100).toFixed(0)}% Spd`);
     }
     
-    // Add weapon type identity (short pickup line — full writeup lives in Nexus Index)
+    // Add weapon type identity (short pickup line - full writeup lives in Nexus Index)
     if (gear.slot === 'weapon' && gear.weaponType && WEAPON_TYPES[gear.weaponType]) {
         const info = typeof getWeaponTypePickupInfo === 'function'
             ? getWeaponTypePickupInfo(gear.weaponType)

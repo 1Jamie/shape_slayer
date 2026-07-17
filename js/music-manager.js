@@ -131,7 +131,7 @@ const MusicManager = {
                 registration.active.postMessage(message);
             }
         }).catch(() => {
-            // Ignore — fallback warm still runs.
+            // Ignore - fallback warm still runs.
         });
         return false;
     },
@@ -174,7 +174,7 @@ const MusicManager = {
                 const url = this.fallbackWarmQueue.shift();
                 this.fallbackWarmQueued.delete(url);
                 try {
-                    // Fetch only — do not decode. Keeps RAM low while filling HTTP/SW cache.
+                    // Fetch only - do not decode. Keeps RAM low while filling HTTP/SW cache.
                     const response = await fetch(url, { credentials: 'same-origin' });
                     if (response && response.ok) {
                         await response.arrayBuffer();
@@ -220,7 +220,7 @@ const MusicManager = {
             navigator.serviceWorker.controller;
 
         if (hasController) {
-            // Service worker owns the library warm — avoid competing downloads.
+            // Service worker owns the library warm - avoid competing downloads.
             return;
         }
 

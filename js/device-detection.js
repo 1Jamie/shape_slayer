@@ -176,7 +176,7 @@ const DeviceDetection = {
         return { formFactor: 'desktop', os: 'unknown', confidence: 'low', reason: 'default-desktop' };
     },
 
-    // Engine sniff for Canvas2D policy. Chrome/Edge ship "like Gecko" — exclude those.
+    // Engine sniff for Canvas2D policy. Chrome/Edge ship "like Gecko" - exclude those.
     // Servo inherits Gecko-family opts: weak/missing shadowBlur, expensive composite layers (Vello).
     _parseEngine(ua) {
         const raw = typeof ua === 'string' ? ua : '';

@@ -397,7 +397,7 @@ class Tank extends PlayerBase {
         // Apply stun, slow, and aggro spike to enemies in range
         this.applyShoutCrowdControl(shoutRadius, shoutDamage, obtuseStunBonus);
         
-        // Parallel: readable second shout pulse (CC refresh) after dual stagger —
+        // Parallel: readable second shout pulse (CC refresh) after dual stagger -
         // damage twin already comes from melee contact-2 on shout hitboxes
         if (typeof playerWeaponIsParallel === 'function' && playerWeaponIsParallel(this)) {
             const delayMs = (typeof getWeaponDualStaggerSec === 'function' ? getWeaponDualStaggerSec(this) : 0.055) * 1000;

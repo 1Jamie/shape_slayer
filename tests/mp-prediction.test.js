@@ -174,7 +174,7 @@ test('drift estimator engages on coherent directional error and decays on noise'
     assert.ok(bias.x > 4);
     assert.ok(Math.abs(bias.y) < 1);
 
-    // Inject noisy opposing errors — bias should decay / deactivate
+    // Inject noisy opposing errors - bias should decay / deactivate
     for (let i = 0; i < 12; i++) {
         const dx = (i % 2 === 0) ? 8 : -8;
         const dy = (i % 2 === 0) ? -6 : 6;

@@ -474,7 +474,7 @@
 		intro.style.fontSize = '13px';
 		intro.style.margin = '0 0 16px 0';
 		intro.style.lineHeight = '1.5';
-		intro.textContent = 'Every weapon rolls one type. Types change feel (timing, reach, twin strikes) and gently bias which affixes show up — equal-value tradeoffs, not strict power tiers.';
+		intro.textContent = 'Every weapon rolls one type. Types change feel (timing, reach, twin strikes) and gently bias which affixes show up - equal-value tradeoffs, not strict power tiers.';
 		body.appendChild(intro);
 
 		const order = ['fast', 'heavy', 'reach', 'dual'];
@@ -1529,7 +1529,7 @@
 				note.style.fontSize = '12px';
 				note.style.color = '#666';
 				note.style.lineHeight = '1.5';
-				note.textContent = 'Biomes modulate the five base enemies. Elite affix pools also change by biome — see Elite Affixes.';
+				note.textContent = 'Biomes modulate the five base enemies. Elite affix pools also change by biome - see Elite Affixes.';
 				content.appendChild(note);
 			}
 		} else if (entry.type === 'record' || entry.type === 'feat') {

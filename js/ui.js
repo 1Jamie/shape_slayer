@@ -1499,7 +1499,7 @@ function getInteractionLabel(interaction) {
     if (interaction.type === 'exitDoor') {
         const localId = typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
         const isReady = localId && typeof Game.isPlayerDoorReady === 'function' && Game.isPlayerDoorReady(localId);
-        return isReady ? 'Cancel Ready' : 'Ready — Enter Room';
+        return isReady ? 'Cancel Ready' : 'Ready - Enter Room';
     }
     return 'Interact';
 }

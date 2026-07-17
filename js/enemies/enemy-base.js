@@ -1941,7 +1941,7 @@ class EnemyBase {
 
         this.hp -= damage;
 
-        // Index discovery (host combat path — backup for sighting via render)
+        // Index discovery (host combat path - backup for sighting via render)
         if (typeof EnemyIndexCatalog !== 'undefined' && EnemyIndexCatalog.discoverFromEnemy) {
             EnemyIndexCatalog.discoverFromEnemy(this);
         }

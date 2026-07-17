@@ -72,7 +72,7 @@ class MultiplayerManager {
         this.driftBiasY = 0;
         this.driftCoherence = 0;
 
-        // Class is only selectable in Nexus — freeze for the whole run
+        // Class is only selectable in Nexus - freeze for the whole run
         this.runClassLocks = new Map(); // playerId -> classKey
     }
 
@@ -1162,7 +1162,7 @@ class MultiplayerManager {
             currency: currency,
             upgrades: upgrades,
             ...playerState, // All player state from player.serialize()
-            // Class is authoritative / run-locked — always win over serialize() fields
+            // Class is authoritative / run-locked - always win over serialize() fields
             class: playerClass,
             playerClass: playerClass,
             lastProcessedInputSeq: player.lastProcessedInputSeq != null
@@ -1185,7 +1185,7 @@ class MultiplayerManager {
             Game.pendingDoorReadyToggle = false;
         }
         
-        // Store input history for rollback (client-side prediction) — also recorded in predict loop with dt
+        // Store input history for rollback (client-side prediction) - also recorded in predict loop with dt
         // Serialize still tags seq for host ack; history with dt is owned by recordPredictionFrame()
         
         // Debug: Log when sending button releases for abilities
@@ -2087,7 +2087,7 @@ class MultiplayerManager {
         this.predictionStats = stats;
         stats.reconciles++;
 
-        // Tiny error and nothing to replay — leave predicted pose alone
+        // Tiny error and nothing to replay - leave predicted pose alone
         if (distance <= softDist && this.inputHistory.length === 0) {
             stats.softIgnores++;
             stats.lastMode = 'soft';
@@ -2105,7 +2105,7 @@ class MultiplayerManager {
             return;
         }
 
-        // When drift is coherent, blend a bit harder toward host (still soft — not a snap)
+        // When drift is coherent, blend a bit harder toward host (still soft - not a snap)
         if (stats.driftActive && this.driftCoherence > 0.55 && distance > softDist && distance <= snapDist) {
             blendFactor = Math.min(0.72, blendFactor + 0.18 * this.driftCoherence);
         }
@@ -2443,7 +2443,7 @@ class MultiplayerManager {
             }
         }
         
-        // Store player's selected class (for NEXUS rendering) — never overwrite a lock
+        // Store player's selected class (for NEXUS rendering) - never overwrite a lock
         if (data.class) {
             const remotePlayer = this.remotePlayers.find(rp => rp.id === data.id);
             if (remotePlayer) {
@@ -2545,7 +2545,7 @@ class MultiplayerManager {
             onGameStart(data);
         }
 
-        // Host startGame path may have created instances — lock again with freshest data
+        // Host startGame path may have created instances - lock again with freshest data
         this.lockRunClasses();
     }
     
@@ -2996,7 +2996,7 @@ class MultiplayerManager {
             pylon.interactedPlayers.push(playerId);
         }
         
-        // Local player feedback — game_state can sync interactedPlayers before this
+        // Local player feedback - game_state can sync interactedPlayers before this
         // broadcast arrives, so always show pickup UI when the grant message is for us.
         if (isLocalPlayer && Game.player && Game.player.itemManager) {
             if (!alreadyInteracted) {
@@ -3570,7 +3570,7 @@ class MultiplayerManager {
         }
     }
 
-    // Handle combat FX (particles, lightning, explosions) from host — display-only client simulation
+    // Handle combat FX (particles, lightning, explosions) from host - display-only client simulation
     handleCombatFx(data) {
         if (this.isHost) return;
         if (!data || !data.kind) return;
@@ -3843,7 +3843,7 @@ class MultiplayerManager {
             (existing.layout && existing.layout.hash && existing.layout.hash === layout.hash)
         );
 
-        // Full/delta game_state always carries roomLayout once known — only re-enter on real changes
+        // Full/delta game_state always carries roomLayout once known - only re-enter on real changes
         if (sameLayout) {
             return;
         }

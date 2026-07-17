@@ -82,11 +82,11 @@ const MultiplayerConfig = {
     RECONCILE_SOFT_DISTANCE: 5, // Ignore tiny errors (px)
     RECONCILE_BLEND_FACTOR: 0.35, // Medium-error: pull toward auth before replay (0-1)
     PREDICTION_CORRECTION_DECAY: 0.85, // Per-frame decay of visual correction offset (higher = linger longer)
-    PREDICTION_DIVERGENCE_THRESHOLD: 8, // px — count as significant when reconcile moves pose by more than this
+    PREDICTION_DIVERGENCE_THRESHOLD: 8, // px - count as significant when reconcile moves pose by more than this
     PREDICTION_MAX_REPLAY_STEPS: 45, // Cap rewind/replay length to limit compounding
     // Systematic drift self-correction (client-side bias from reconcile patterns)
     PREDICTION_DRIFT_WINDOW: 12, // Recent reconcile samples for pattern detection
-    PREDICTION_DRIFT_COHERENCE: 0.62, // Mean/avgMagnitude — how consistent direction must be
+    PREDICTION_DRIFT_COHERENCE: 0.62, // Mean/avgMagnitude - how consistent direction must be
     PREDICTION_DRIFT_MIN_MEAN: 4, // px mean correction before engaging bias
     PREDICTION_DRIFT_STRENGTH: 0.45, // How strongly to adopt detected mean into bias
     PREDICTION_DRIFT_APPLY: 2.5, // Bias velocity scale (px/s per px of bias) during live predict

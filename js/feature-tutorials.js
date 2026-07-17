@@ -84,7 +84,7 @@ const FeatureTutorials = {
         return this._sessionSuspended || this.isMultiplayerActive();
     },
 
-    /** Solo resume checkpoint owns the Nexus — only portal is usable. */
+    /** Solo resume checkpoint owns the Nexus - only portal is usable. */
     isBlockedByResumeCheckpoint() {
         return typeof SaveSystem !== 'undefined'
             && typeof SaveSystem.hasActiveRunCheckpoint === 'function'
@@ -110,7 +110,7 @@ const FeatureTutorials = {
     /**
      * Hard safety: never leave coach UI up when it cannot be completed.
      * Call every Nexus frame / enter so resume/lock races cannot soft-lock.
-     * Does NOT clear arming on pause — players pause/unpause mid-guide.
+     * Does NOT clear arming on pause - players pause/unpause mid-guide.
      */
     enforcePresentationSafety() {
         if (this.isBlockedByResumeCheckpoint() || this.isSuspended()) {
@@ -168,7 +168,7 @@ const FeatureTutorials = {
         return false;
     },
 
-    /** Desktop/mobile floating Skip — only while a machine unlock coach is on screen. */
+    /** Desktop/mobile floating Skip - only while a machine unlock coach is on screen. */
     shouldShowSkipOverlay() {
         if (typeof Game === 'undefined' || Game.state !== 'NEXUS') return false;
         if (Game.showPauseMenu) return false;
@@ -200,7 +200,7 @@ const FeatureTutorials = {
                 snapCamera: false
             });
         } else if (queue.length) {
-            // Paused / not safe to present yet — resume will arm the next step
+            // Paused / not safe to present yet - resume will arm the next step
             this._pendingPresent = true;
             this.clearPresentation();
         } else {
@@ -331,7 +331,7 @@ const FeatureTutorials = {
 
         // Hard-gate: only the spotlighted gear machine.
         // Outer nexus probes call allowsInteraction('gearUpgrade') with no detail before
-        // iterating stations — allow that probe so the per-station check can run.
+        // iterating stations - allow that probe so the per-station check can run.
         // Escape: Skip Guide overlay + Pause → Skip Guide
         if (type === 'gearUpgrade') {
             if (detail == null || detail === '') return true;
@@ -516,7 +516,7 @@ const FeatureTutorials = {
         this.syncFromProgress({ showToast: false });
         // Keep unlock queue/toasts, but never spotlight machines during resume-only Nexus
         if (!this.enforcePresentationSafety()) {
-            console.log('[FeatureTutorials] Deferred spotlight — unsafe to present (resume/MP/lock)');
+            console.log('[FeatureTutorials] Deferred spotlight - unsafe to present (resume/MP/lock)');
             return;
         }
         if (this.getCurrentId()) {

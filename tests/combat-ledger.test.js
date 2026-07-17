@@ -1,5 +1,5 @@
 /**
- * Combat Ledger & Feats — save schema, run timing, unlocks
+ * Combat Ledger & Feats - save schema, run timing, unlocks
  */
 const { describe, it, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
@@ -181,7 +181,7 @@ describe('Run timing gating math', () => {
         assert.equal(Game.runTiming.pauseIntervals.length, 1);
         assert.equal(Game.runTiming.pauseIntervals[0].exit, 3500);
 
-        // Second exit with no new enter — no-op
+        // Second exit with no new enter - no-op
         LedgerManager.stampPauseExit(4000);
         assert.equal(Game.runTiming.pauseIntervals[0].exit, 3500);
     });

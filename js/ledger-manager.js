@@ -1,4 +1,4 @@
-// Combat Ledger Manager — run-scoped tracking, feat evaluation, run timing
+// Combat Ledger Manager - run-scoped tracking, feat evaluation, run timing
 
 const LedgerManager = (function () {
     const WHIRLWIND_EXTEND_PER_KILL = 0.75;
@@ -93,7 +93,7 @@ const LedgerManager = (function () {
     }
 
     function stampPauseEnter(now) {
-        // Solo combat pause only — skip safe rooms (already gated) and MP (menu doesn't freeze time)
+        // Solo combat pause only - skip safe rooms (already gated) and MP (menu doesn't freeze time)
         if (typeof Game !== 'undefined') {
             if (Game.inSafeRoom) return;
             if (Game.multiplayerEnabled) return;

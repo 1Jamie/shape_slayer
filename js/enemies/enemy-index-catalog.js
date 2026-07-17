@@ -6,9 +6,9 @@
             name: 'Circle',
             role: 'Swarmer',
             color: '#ff6666',
-            blurb: 'Melee pack pressure — lunges after a short telegraph',
+            blurb: 'Melee pack pressure - lunges after a short telegraph',
             description: 'The basic melee shape. Closes in, winds up a lunge, and commits. Later rooms add feints, combo lunges, surround pressure, and smarter group behavior.',
-            tells: 'Telegraph flash before the lunge. Watch pack spacing — they push together.'
+            tells: 'Telegraph flash before the lunge. Watch pack spacing - they push together.'
         },
         diamond: {
             id: 'diamond',
@@ -17,14 +17,14 @@
             color: '#00ffff',
             blurb: 'Orbits, then snaps in with a fast dash',
             description: 'Keeps mid-range, circles you, and dashes through after a very short telegraph. Later rooms unlock feints, combo dashes, and nastier positioning.',
-            tells: 'Cyan diamond weaving at orbit distance — dash is fast; the windup is short.'
+            tells: 'Cyan diamond weaving at orbit distance - dash is fast; the windup is short.'
         },
         star: {
             id: 'star',
             name: 'Triangle',
             role: 'Ranger',
             color: '#ffaa00',
-            blurb: 'Keeps distance and shoots — panics when you close',
+            blurb: 'Keeps distance and shoots - panics when you close',
             description: 'Ranged triangle that tries to stay outside your comfort zone. Burst fire, predictive aim, and volleys unlock as rooms climb. Get close and it backpedals with messy panic shots.',
             tells: 'Orange triangle at long range. Projectile windups before shots; wider fans when cornered.'
         },
@@ -42,7 +42,7 @@
             name: 'Octagon',
             role: 'Commander',
             color: '#bb86fc',
-            blurb: 'Hybrid elite base — spin, charge, shots, and minions',
+            blurb: 'Hybrid elite base - spin, charge, shots, and minions',
             description: 'Heavier hybrid that mixes melee spin/charge with projectile volleys and minion summons. Treat it like a mini-commander, not a normal trash mob.',
             tells: 'Purple outline. Watch for spin telegraphs, shot volleys, and circle spawns around it.'
         }
@@ -53,7 +53,7 @@
             id: 'swarm',
             name: 'Swarm',
             color: '#ff8866',
-            blurb: 'Pack pressure — denser, slightly faster packs'
+            blurb: 'Pack pressure - denser, slightly faster packs'
         },
         prism: {
             id: 'prism',
@@ -65,7 +65,7 @@
             id: 'fortress',
             name: 'Fortress',
             color: '#ccaa66',
-            blurb: 'Braced — tankier, longer telegraphs, harder hits'
+            blurb: 'Braced - tankier, longer telegraphs, harder hits'
         },
         fractal: {
             id: 'fractal',
@@ -77,13 +77,13 @@
             id: 'vortex',
             name: 'Vortex',
             color: '#66ffcc',
-            blurb: 'Pull during telegraphs — get dragged into commits'
+            blurb: 'Pull during telegraphs - get dragged into commits'
         },
         endless: {
             id: 'endless',
             name: 'Endless',
             color: '#aaaaaa',
-            blurb: 'Late mix — light echoes + pull pressure'
+            blurb: 'Late mix - light echoes + pull pressure'
         }
     };
 
@@ -104,7 +104,7 @@
 
     /**
      * Unlock Index entries the first time this enemy is seen/fought.
-     * Safe to call often — SaveSystem dedupes; enemy flag prevents spam.
+     * Safe to call often - SaveSystem dedupes; enemy flag prevents spam.
      */
     function discoverFromEnemy(enemy) {
         if (!enemy || enemy._indexDiscovered) return;

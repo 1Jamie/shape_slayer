@@ -1,5 +1,5 @@
 // Biome-driven modulation of the five base enemy classes (0.8.2)
-// Tunable tables — apply after spawn + CombatScaling.
+// Tunable tables - apply after spawn + CombatScaling.
 (function (global) {
     const ECHO_POOL_SIZE = 48;
     const echoHitboxPool = [];

@@ -695,7 +695,7 @@ class PlayerBase {
             if (Math.abs(this._predictionCorrectionY) < 0.15) this._predictionCorrectionY = 0;
         }
 
-        // Live predict only — never start a new dodge during rewind/replay
+        // Live predict only - never start a new dodge during rewind/replay
         const allowPredictedDodge = options.allowPredictedDodge === true;
         if (allowPredictedDodge && input) {
             this.tryBeginPredictedDodge(input);
@@ -785,7 +785,7 @@ class PlayerBase {
 
         const hostDodging = !!hostState.isDodging;
         if (this._predictedDodgeActive && !hostDodging) {
-            // Host never confirmed our predicted dodge — cancel it
+            // Host never confirmed our predicted dodge - cancel it
             this._predictedDodgeActive = false;
             this.isDodging = false;
             this.dodgeElapsed = 0;
@@ -4653,7 +4653,7 @@ class PlayerBase {
         if (state.fortifyShield !== undefined) this.fortifyShield = state.fortifyShield;
         if (state.overchargeChance !== undefined) this.overchargeChance = state.overchargeChance;
 
-        // Attack hitboxes — rebuild hitEnemies as Set for render hit-confirm (.size checks)
+        // Attack hitboxes - rebuild hitEnemies as Set for render hit-confirm (.size checks)
         if (state.attackHitboxes !== undefined) {
             this.attackHitboxes = state.attackHitboxes.map(h => ({
                 ...h,

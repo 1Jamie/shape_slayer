@@ -7,7 +7,7 @@
 const MAGE_CONFIG = {
     // Base Stats (from CLASS_DEFINITIONS)
     baseHp: 80,                    // Starting health points
-    baseDamage: 10,                // Base damage per attack
+    baseDamage: 12,                // Base damage per attack (parity with other classes)
     baseSpeed: 175,                // Movement speed (pixels/second)
     baseDefense: 0,                // Damage reduction (0-1 range)
     critChance: 0,                 // Critical hit chance (0 = 0%)
@@ -32,7 +32,7 @@ const MAGE_CONFIG = {
     heavyAttackCooldown: 2,    // Cooldown for heavy attack (seconds) - increased by 5%
     beamDuration: 1.5,             // Total beam fire time (seconds)
     beamTickRate: 0.2,             // Time between damage ticks (seconds)
-    beamDamagePerTick: 0.4,        // Damage multiplier per tick (reduced from 0.5)
+    beamDamagePerTick: 0.6,        // Damage multiplier per tick (~7 ticks over beamDuration)
     beamRange: 800,                // Beam range (pixels) - matches bolt range
     beamWidth: 30,                 // Beam hitbox width (pixels)
     beamMaxPenetration: 2,         // Max enemies beam can pass through
@@ -1180,11 +1180,11 @@ class Mage extends PlayerBase {
             beam.hitEnemies.set(enemy, currentHits + 1);
 
             // Calculate distance-based damage falloff
-            // Full damage at origin (0), reduced damage at max range
-            // Linear falloff: 1.0 at 0px, ~0.1 at max range (90% reduction at far end)
+            // Full damage at origin (0), softer reduction at max range so kite-range beams still hit hard
+            // Linear falloff: 1.0 at 0px, 0.5 at max range (50% reduction at far end)
             const distanceRatio = candidate.distance / beamRange;
-            const damageFalloff = 1.0 - (distanceRatio * 0.9); // 100% at origin, 10% at max range
-            const tickDamage = baseTickDamage * Math.max(0.1, damageFalloff); // Minimum 10% damage at max range
+            const damageFalloff = 1.0 - (distanceRatio * 0.5); // 100% at origin, 50% at max range
+            const tickDamage = baseTickDamage * Math.max(0.5, damageFalloff); // Minimum 50% damage at max range
 
             // Check for crit
             const isCrit = allowProc && Math.random() < (this.critChance || 0);
@@ -1501,7 +1501,7 @@ class Mage extends PlayerBase {
             blinkExplosionElapsed: this.blinkExplosionElapsed, // For correct explosion animation on clients
             blinkExplosionX: this.blinkExplosionX,
             blinkExplosionY: this.blinkExplosionY,
-            // Beam attack state (omit hitEnemies Map — clients raycast for visuals)
+            // Beam attack state (omit hitEnemies Map - clients raycast for visuals)
             activeBeams: (this.activeBeams || []).map(b => ({
                 beamId: b.beamId,
                 elapsed: b.elapsed,

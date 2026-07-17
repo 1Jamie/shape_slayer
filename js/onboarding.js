@@ -169,7 +169,7 @@ const Onboarding = {
             this.notifyClassSelected();
             console.log('[Onboarding] Skipped current step: selectClass');
         } else if (step === this.STEPS.LAUNCH_RUN) {
-            // Only open the portal gate — first-run / class-upgrades still await a real run
+            // Only open the portal gate - first-run / class-upgrades still await a real run
             this.patch({ launchRunDone: true });
             if (typeof CoachTransition !== 'undefined' && CoachTransition.clear) {
                 CoachTransition.clear();
@@ -263,7 +263,7 @@ const Onboarding = {
                 : 'Stuck? Use Skip Guide';
             return {
                 title: 'Class upgrades',
-                body: `Walk left and open an UPGRADES station (${hint('upgrade')}). Opening continues — Credits optional. ${skipHint}`
+                body: `Walk left and open an UPGRADES station (${hint('upgrade')}). Opening continues - Credits optional. ${skipHint}`
             };
         }
         return null;

@@ -549,7 +549,7 @@ class WorkerProcess {
             }
         }
         
-        // Stay in lobby until host kicks — rejoin anytime; run continues without them
+        // Stay in lobby until host kicks - rejoin anytime; run continues without them
         this.broadcastToLobby(lobby, {
             type: 'player_disconnected',
             data: {

@@ -434,7 +434,7 @@
     }
 
     function _getStaticCanvasScale() {
-        // Half-res settled debris on Gecko/Servo — world/vignette still upscale to full room.
+        // Half-res settled debris on Gecko/Servo - world/vignette still upscale to full room.
         return _isGeckoFamilyEngine() ? 0.5 : 1;
     }
 

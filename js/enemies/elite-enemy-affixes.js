@@ -1,4 +1,4 @@
-// Elite single-affix enemies (0.8.2) — meaningful combat verbs, biome-gated
+// Elite single-affix enemies (0.8.2) - meaningful combat verbs, biome-gated
 (function (global) {
     const ELITE_AFFIX_BY_BIOME = {
         swarm: ['fortify', 'chainLightning', 'rampage'],
@@ -25,7 +25,7 @@
             name: 'Fortify',
             blurb: 'Harder to punish during windup',
             description: 'Takes much less damage while telegraphing / charging. Wait for the commit or find another angle.',
-            tell: 'Jagged threat ring. Tankier only during the windup — not permanently armored.'
+            tell: 'Jagged threat ring. Tankier only during the windup - not permanently armored.'
         },
         phasing: {
             name: 'Phasing',
@@ -42,7 +42,7 @@
         explosiveAttacks: {
             name: 'Volatile',
             blurb: 'Explodes on death in a small radius',
-            description: 'Death blast around the corpse. Finish at range or dodge the pop — do not stand on the kill.',
+            description: 'Death blast around the corpse. Finish at range or dodge the pop - do not stand on the kill.',
             tell: 'Threat ring. After the kill, give the body space for a beat.'
         },
         chainLightning: {
@@ -118,7 +118,7 @@
             enemy.phasingRemaining = enemy.eliteAffix.value.duration || 0.45;
         }
         if (enemy.eliteAffix.type === 'rampage') {
-            // rampage triggers on landing a hit — handled in combat
+            // rampage triggers on landing a hit - handled in combat
         }
     }
 
@@ -279,7 +279,7 @@
             phasingActive: affixType === 'phasing'
         };
 
-        // Body — phasing reads translucent
+        // Body - phasing reads translucent
         const bodyAlpha = affixType === 'phasing' ? 0.3 : 1;
         if (typeof EnemyIndexCatalog !== 'undefined' && EnemyIndexCatalog.drawEnemyShape) {
             EnemyIndexCatalog.drawEnemyShape(ctx, 'circle', cx, cy, size, {

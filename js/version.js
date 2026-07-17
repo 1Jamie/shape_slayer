@@ -571,7 +571,7 @@ Everything got nerfed. Tank got buffed. Enemies cap at 30 (but hit like trucks).
 
 ---
 
-## **💜 PART 1: FOR LOST — THE LONG ROAD PAST 50**
+## **💜 PART 1: FOR LOST - THE LONG ROAD PAST 50**
 *"Before the cards, the voxels, and the chaos: this one is for LOST specifically."*
 
 Lost: you stress-tested this game like it owed you money, really drug runs into the triple digits, blew through Room 150, and then you sent me back stat sheets that looked less like "telemetry" and more like a crime scene autopsy of my math. I will mention it made me look pretty bad at it too XD. You had damage tallies that could fund a small country right along side HP bars that needed scientific notation, like you legit sent me a screenshot that made the combat scaler look like it was heading for orbit and used scientific notation.
@@ -581,7 +581,7 @@ You also, casually, decided Room **200** was a realistic goal instead of a bug r
 So I built two things because of you:
 
 **💾 Solo Safe Room Save & Resume:**
-• There's a **Save Run** machine in solo Safe Rooms now. Hit it and it stores the real run - room number, class, XP, HP/shields, your actual gear and affixes, items, the whole mess —-then dumps you back in the Nexus without ending the run.
+• There's a **Save Run** machine in solo Safe Rooms now. Hit it and it stores the real run - room number, class, XP, HP/shields, your actual gear and affixes, items, the whole mess --then dumps you back in the Nexus without ending the run.
 • When you take the portal again it pops you right back into that Safe Room with the same build. Your HP stays whatever you saved (no free full heal cheese). Checkpoint gets used up on resume so you can't duplicate runs.
 • Catch: save **before** you use the other machines that visit. Once you start spending credits or healing, Save locks until next Safe Room. Solo only - multiplayer is stuck babysitting itself.
 • While you've got a saved run sitting there, Nexus basically just lets you hit the portal. No sneaking off to buy a pile of upgrades and then diving back into a mid-run demon build. Love you.... but also I know you :P
@@ -739,10 +739,10 @@ Room 200 is still gonna suck in the fun way i hope, but I'm not handing it to yo
 ---
 
 ## **🗡️ WEAPON TYPES**
-• **Acute** — fast & light (snappy hitpause, quick recovery, leans speed/crit)
-• **Obtuse** — slow & heavy (chunky hits, more knockback, leans execute/explosions)
-• **Vector** — long reach (melee arcs, projectiles, beams/thrusts/shouts stretch farther)
-• **Parallel** — twin staggered contacts at ~half damage each (same total DPS, denser status/procs) — basics *and* heavies
+• **Acute** - fast & light (snappy hitpause, quick recovery, leans speed/crit)
+• **Obtuse** - slow & heavy (chunky hits, more knockback, leans execute/explosions)
+• **Vector** - long reach (melee arcs, projectiles, beams/thrusts/shouts stretch farther)
+• **Parallel** - twin staggered contacts at ~half damage each (same total DPS, denser status/procs) - basics *and* heavies
 • Affixes: basics stay universal but weighted by type; purple/orange get type accent pools
 • Pickup tooltips show a one-liner; full Feel / Pitch / Leans Toward lives in the Nexus **Index → Weapons** tab
 
@@ -757,16 +757,21 @@ Room 200 is still gonna suck in the fun way i hope, but I'm not handing it to yo
 • Nexus **Index** now has **Enemies** (bases + biome chips) and **Elite Affixes** (separate from your gear affixes)
 
 ## **📜 COMBAT LEDGER & FEATS**
-• New Index tab: **Combat Ledger & Feats** — GLOBAL + WARRIOR / ROGUE / TANK / MAGE subtabs
+• New Index tab: **Combat Ledger & Feats** - GLOBAL + WARRIOR / ROGUE / TANK / MAGE subtabs
 • **Global records:** deepest room/biome, longest *active* run, max single-hit, fastest room-50 clear, lifetime voxel shatter count (deepest vs longest are separate)
 • **Class analytics:** weapon archetype weight, dodge precision rate, perfect-interrupt count, kit-specific counters
-• **Feats:** Universal Flaw feats pay **Credits** mid-run; Class Mastery feats pay **Shards** — first completion full payout, later completions **25%** (min 1) with a completion counter
+• **Feats:** Universal Flaw feats pay **Credits** mid-run; Class Mastery feats pay **Shards** - first completion full payout, later completions **25%** (min 1) with a completion counter
 • Toast on unlock / repeat; everything lives in your normal local save (no second storage blob, no netcode)
 • **Run timing:** wall-clock stamps for start/end, pause, and Safe Rooms; pause is not stamped in Safe Rooms or MP; death screen shows Active / Paused / Safe Rooms / Wall Clock
 • **Warrior:** Whirlwind kill-extension (+0.75s per kill, capped) so Cyclone Engine is a real chase
-• **Rogue:** Phantom Execution — boss hits a Shadow Clone within 400ms of your killing blow (clones stay decoys)
+• **Rogue:** Phantom Execution - boss hits a Shadow Clone within 400ms of your killing blow (clones stay decoys)
 
-*TL;DR: weapons have weight you can read, timing has payoff, biomes remix geometry, elites telegraph their cheat codes, and the Index finally tracks mastery. Check Ledger & Feats if you want receipts.*
+## **🔮 MAGE TUNE-UP**
+• Base damage brought up to **12** (parity with the other classes - mage was the lonely 10)
+• Energy Beam tick damage **0.4× → 0.6×**, and range falloff softened so kite-range beams actually pay rent instead of tickling from afar
+  *"If your beam felt like a laser pointer with opinions: same. It hits like a heavy now."*
+
+*TL;DR: weapons have weight you can read, timing has payoff, biomes remix geometry, elites telegraph their cheat codes, mage beam stopped being a sham, and the Index finally tracks mastery. Check Ledger & Feats if you want receipts.*
 `,
   },
 

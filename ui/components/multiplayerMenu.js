@@ -419,7 +419,7 @@
 			if (typeof window.showToast === 'function') {
 				window.showToast(hint, 3200);
 			}
-			console.log('[MultiplayerMenu] Blocked — Room 0 tutorial not finished');
+			console.log('[MultiplayerMenu] Blocked - Room 0 tutorial not finished');
 			return;
 		}
 		

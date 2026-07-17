@@ -186,7 +186,7 @@ const GearTooltipUI = {
             }
         }
 
-        // Weapon type — short pickup blurb only
+        // Weapon type - short pickup blurb only
         if (gear.slot === 'weapon' && gear.weaponType) {
             const info = typeof getWeaponTypePickupInfo === 'function'
                 ? getWeaponTypePickupInfo(gear.weaponType)

@@ -255,7 +255,7 @@ const Game = {
 
     // Door waiting state (for multiplayer)
     playersOnDoor: [], // Player IDs toggled ready at the exit door
-    doorReadyPlayers: null, // Set<playerId> — host authoritative ready toggles
+    doorReadyPlayers: null, // Set<playerId> - host authoritative ready toggles
     totalAlivePlayers: 0, // Total number of alive players
     _doorGKeyPrevLocal: false,
     _doorGKeyPrevByPlayer: null, // Map<playerId, boolean>
@@ -758,7 +758,7 @@ const Game = {
         }
 
         // High DPI Support - never force upscale on 1x displays.
-        // Gecko/Servo: cap at 1.5 (matches room static cache) — full 2x backbuffers thrash WebRender.
+        // Gecko/Servo: cap at 1.5 (matches room static cache) - full 2x backbuffers thrash WebRender.
         const deviceDpr = window.devicePixelRatio || 1;
         const dprCap = this.getDprCap ? this.getDprCap() : 2;
         const dpr = Math.min(dprCap, Math.max(1, deviceDpr));
@@ -2783,7 +2783,7 @@ const Game = {
             multiplayerManager.lastSentGameState = null;
             multiplayerManager.lastStateUpdate = 0;
 
-            // Respect lobby offline seats — don't sim ghosts that block doors
+            // Respect lobby offline seats - don't sim ghosts that block doors
             if (multiplayerManager.players) {
                 multiplayerManager.players.forEach(p => {
                     if (!p || p.id === this.getLocalPlayerId()) return;
@@ -2931,7 +2931,7 @@ const Game = {
     },
 
     /**
-     * Host: player dropped mid-run — save run snapshot, mark dead, stop simulating.
+     * Host: player dropped mid-run - save run snapshot, mark dead, stop simulating.
      * Lobby seat stays until host kicks from MP menu.
      */
     handlePlayerDisconnectedMidRun(playerId) {
@@ -2992,7 +2992,7 @@ const Game = {
     },
 
     /**
-     * Host: disconnected player rejoined — restore saved run state (not dead).
+     * Host: disconnected player rejoined - restore saved run state (not dead).
      */
     handlePlayerReconnectedMidRun(playerId) {
         if (!this.multiplayerEnabled || !this.isHost() || !playerId) return;
@@ -3058,7 +3058,7 @@ const Game = {
         }
     },
 
-    /** Host kick / leave lobby — purge sim + saved snapshot for that player. */
+    /** Host kick / leave lobby - purge sim + saved snapshot for that player. */
     handlePlayerRemovedFromLobby(playerId) {
         if (!playerId) return;
         if (this.disconnectedPlayerIds) this.disconnectedPlayerIds.delete(playerId);
@@ -6572,7 +6572,7 @@ const Game = {
                 const promptY = door.y + door.height + 35;
                 const localId = this.getLocalPlayerId();
                 const isReady = typeof this.isPlayerDoorReady === 'function' && this.isPlayerDoorReady(localId);
-                Input.drawInteractionPrompt(ctx, isReady ? 'cancel ready' : 'ready — enter next room', promptX, promptY);
+                Input.drawInteractionPrompt(ctx, isReady ? 'cancel ready' : 'ready - enter next room', promptX, promptY);
                 ctx.restore();
             }
         }
@@ -8074,7 +8074,7 @@ const Game = {
                         });
                     }
 
-                    // Add remote players (multiplayer only) — use simulated instances, not lobby snapshots
+                    // Add remote players (multiplayer only) - use simulated instances, not lobby snapshots
                     if (this.remotePlayerInstances && this.remotePlayerInstances.size > 0) {
                         this.remotePlayerInstances.forEach((instance, id) => {
                             if (instance && instance.alive && instance.hp > 0) {
@@ -8698,7 +8698,7 @@ const Game = {
 /**
  * Vector fat PS2 easter egg (solo Save Run booth).
  * Ode to Lost: leave it on for days, keep the run, chase room 200.
- * Front-on fat PS2 — grooved face, MC/controller ports, tray, reset/eject, blue USB bay.
+ * Front-on fat PS2 - grooved face, MC/controller ports, tray, reset/eject, blue USB bay.
  */
 function drawLostPs2EasterEgg(ctx, x, y, options = {}) {
     function roundRectPath(px, py, w, h, r) {
@@ -8850,7 +8850,7 @@ function drawLostPs2EasterEgg(ctx, x, y, options = {}) {
 
     // Right: RESET + EJECT buttons
     const btnX = bx + W - 18;
-    // Reset (top) — green power glyph
+    // Reset (top) - green power glyph
     ctx.fillStyle = '#2a2a30';
     roundRectPath(btnX, by + 5, 12, 11, 1.5);
     ctx.fill();
@@ -8888,7 +8888,7 @@ function drawLostPs2EasterEgg(ctx, x, y, options = {}) {
     ctx.textBaseline = 'top';
     ctx.fillText('RESET', btnX + 6, by + 13.5);
 
-    // Eject (bottom) — blue triangle
+    // Eject (bottom) - blue triangle
     ctx.fillStyle = '#2a2a30';
     roundRectPath(btnX, by + 18, 12, 9, 1.5);
     ctx.fill();

@@ -264,7 +264,7 @@ async function warmAudioLibraryFromConfig() {
     const config = await response.json();
     enqueueAudioUrls(collectTrackUrlsFromConfig(config), false);
   } catch (error) {
-    // Ignore — page-side MusicManager will also request a warm.
+    // Ignore - page-side MusicManager will also request a warm.
   }
 }
 
@@ -325,7 +325,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Cross-origin (fonts, analytics, etc.): network only — let browser handle.
+  // Cross-origin (fonts, analytics, etc.): network only - let browser handle.
   if (!isSameOrigin(url)) {
     return;
   }

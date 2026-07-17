@@ -75,7 +75,7 @@
 			return !!Onboarding.skipGuide();
 		}
 
-		// Pause menu: no live spotlight (Game.state === PAUSED) — use canSkipGuide
+		// Pause menu: no live spotlight (Game.state === PAUSED) - use canSkipGuide
 		if (typeof FeatureTutorials !== 'undefined'
 			&& FeatureTutorials.canSkipGuide
 			&& FeatureTutorials.canSkipGuide()
