@@ -624,6 +624,14 @@ const Game = {
                     return;
                 }
 
+                // Mobile control editor is topmost; its own handler closes it (or its
+                // nested popover/info modal) so don't toggle pause underneath it
+                if (typeof window !== 'undefined' && window.MobileControlEditor
+                    && typeof window.MobileControlEditor.isOpen === 'function'
+                    && window.MobileControlEditor.isOpen()) {
+                    return;
+                }
+
                 // Close multiplayer menu first if visible (before other handlers)
                 // Check window.multiplayerMenuVisible first (set by multiplayer menu component)
                 if (typeof window !== 'undefined' && window.multiplayerMenuVisible) {

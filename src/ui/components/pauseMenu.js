@@ -430,6 +430,11 @@
 			if (typeof window !== 'undefined' && window.UIIndexMachine && window.UIIndexMachine.isOpen && window.UIIndexMachine.isOpen()) {
 				return;
 			}
+			// Mobile control editor sits above the pause menu; let it consume Escape
+			if (typeof window !== 'undefined' && window.MobileControlEditor
+				&& window.MobileControlEditor.isOpen && window.MobileControlEditor.isOpen()) {
+				return;
+			}
 			if (document.querySelector('.confirm-dialog')) {
 				return;
 			}

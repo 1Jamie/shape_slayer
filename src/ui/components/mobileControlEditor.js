@@ -75,6 +75,7 @@
             this._escapeHandler = (e) => {
                 if (e.key === 'Escape') {
                     e.preventDefault();
+                    e.stopPropagation();
                     if (this.infoModal && !this.infoModal.hidden) {
                         this._hideInfo();
                         return;
@@ -86,7 +87,8 @@
                     this.close(false);
                 }
             };
-            document.addEventListener('keydown', this._escapeHandler);
+            // Capture so Escape closes the editor instead of reaching pause/game handlers
+            document.addEventListener('keydown', this._escapeHandler, true);
 
             this._pausedByEditor = false;
             if (typeof Game !== 'undefined' && Game.state === 'PLAYING' && typeof Game.togglePause === 'function') {
@@ -104,7 +106,7 @@
             this._clearTypeTriggers();
 
             if (this._escapeHandler) {
-                document.removeEventListener('keydown', this._escapeHandler);
+                document.removeEventListener('keydown', this._escapeHandler, true);
                 this._escapeHandler = null;
             }
 
