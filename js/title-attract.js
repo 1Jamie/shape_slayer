@@ -301,9 +301,6 @@
             if (typeof Game.triggerChromaticTrauma === 'function') {
                 Game.triggerChromaticTrauma(7, 0.55 + 0.35 * normalized);
             }
-            if (typeof Game.triggerHitPause === 'function') {
-                Game.triggerHitPause(0.03);
-            }
         }
 
         if (typeof createParticleBurst === 'function') {

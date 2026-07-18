@@ -1722,6 +1722,8 @@ const Game = {
 
     // Trigger hit pause (player heavy attacks only - keep short, never stack)
     triggerHitPause(duration = 0.1) {
+        // Attract mode: freezing the whole sim reads as lag, not impact
+        if (this.state === 'TITLE') return;
         const capped = Math.min(duration, 0.045);
         if (this.hitPauseTime <= 0) {
             this.hitPauseTime = capped;
