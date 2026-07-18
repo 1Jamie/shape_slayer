@@ -16,7 +16,7 @@ Add 5 new enemy types from ENEMY_IDEAS.md with progressive introduction and age-
 
 ### 1. Modify Intelligence Scaling System
 
-**File**: `js/enemies/enemy-base.js`
+**File**: `src/js/enemies/enemy-base.js`
 
 - Update `getIntelligenceLevel()` method to accept optional `introductionRoom` parameter
 - Calculate intelligence based on enemy age: `enemyAge = currentRoom - introductionRoom`
@@ -49,7 +49,7 @@ getIntelligenceLevel(roomNumber, introductionRoom = null) {
 
 #### 2.1 Hexagon Enemy (Splitter)
 
-**File**: `js/enemies/enemy-hexagon.js`
+**File**: `src/js/enemies/enemy-hexagon.js`
 
 - **Introduction Room**: 2
 - **Tier**: Basic (1.0x difficulty)
@@ -61,7 +61,7 @@ getIntelligenceLevel(roomNumber, introductionRoom = null) {
 
 #### 2.2 Trapezoid Enemy (Teleporter)
 
-**File**: `js/enemies/enemy-trapezoid.js`
+**File**: `src/js/enemies/enemy-trapezoid.js`
 
 - **Introduction Room**: 11
 - **Tier**: Mid (1.4x difficulty)
@@ -73,7 +73,7 @@ getIntelligenceLevel(roomNumber, introductionRoom = null) {
 
 #### 2.3 Cross Enemy (Exploder)
 
-**File**: `js/enemies/enemy-cross.js`
+**File**: `src/js/enemies/enemy-cross.js`
 
 - **Introduction Room**: 13
 - **Tier**: Mid (1.4x difficulty)
@@ -85,7 +85,7 @@ getIntelligenceLevel(roomNumber, introductionRoom = null) {
 
 #### 2.4 Gear Enemy (Turret)
 
-**File**: `js/enemies/enemy-gear.js`
+**File**: `src/js/enemies/enemy-gear.js`
 
 - **Introduction Room**: 15
 - **Tier**: High (2.2x difficulty)
@@ -97,7 +97,7 @@ getIntelligenceLevel(roomNumber, introductionRoom = null) {
 
 #### 2.5 Arrow Enemy (Sniper)
 
-**File**: `js/enemies/enemy-arrow.js`
+**File**: `src/js/enemies/enemy-arrow.js`
 
 - **Introduction Room**: 17
 - **Tier**: High (2.2x difficulty)
@@ -109,7 +109,7 @@ getIntelligenceLevel(roomNumber, introductionRoom = null) {
 
 ### 3. Update Enemy Spawning Logic
 
-**File**: `js/level.js`
+**File**: `src/js/level.js`
 
 - Define introduction rooms for all enemy types:
   ```javascript
@@ -138,7 +138,7 @@ getIntelligenceLevel(roomNumber, introductionRoom = null) {
 
 ### 4. Update Enemy Difficulty Multipliers
 
-**File**: `js/gear.js`
+**File**: `src/js/gear.js`
 
 - Add new enemy types to `ENEMY_DIFFICULTY` object:
   ```javascript
@@ -160,7 +160,7 @@ getIntelligenceLevel(roomNumber, introductionRoom = null) {
 
 ### 5. Update Multiplayer Sync
 
-**File**: `js/enemies/enemy-base.js`
+**File**: `src/js/enemies/enemy-base.js`
 
 - Update `deserializeEnemy()` method (around line 3638) to handle new enemy types:
   - Add cases for `HexagonEnemy`, `TrapezoidEnemy`, `CrossEnemy`, `GearEnemy`, `ArrowEnemy`
@@ -172,17 +172,17 @@ getIntelligenceLevel(roomNumber, introductionRoom = null) {
 
 - Add script tags for new enemy files after existing enemy includes (after line 85):
   ```html
-  <script src="js/enemies/enemy-hexagon.js"></script>
-  <script src="js/enemies/enemy-trapezoid.js"></script>
-  <script src="js/enemies/enemy-cross.js"></script>
-  <script src="js/enemies/enemy-gear.js"></script>
-  <script src="js/enemies/enemy-arrow.js"></script>
+  <script src="src/js/enemies/enemy-hexagon.js"></script>
+  <script src="src/js/enemies/enemy-trapezoid.js"></script>
+  <script src="src/js/enemies/enemy-cross.js"></script>
+  <script src="src/js/enemies/enemy-gear.js"></script>
+  <script src="src/js/enemies/enemy-arrow.js"></script>
   ```
 
 
 ### 7. Update Enemy Base Constructor
 
-**File**: `js/enemies/enemy-base.js`
+**File**: `src/js/enemies/enemy-base.js`
 
 - Modify constructor to accept and store `introductionRoom`:
   ```javascript
@@ -210,16 +210,16 @@ getIntelligenceLevel(roomNumber, introductionRoom = null) {
 
 ## Files to Create
 
-- `js/enemies/enemy-hexagon.js`
-- `js/enemies/enemy-trapezoid.js`
-- `js/enemies/enemy-cross.js`
-- `js/enemies/enemy-gear.js`
-- `js/enemies/enemy-arrow.js`
+- `src/js/enemies/enemy-hexagon.js`
+- `src/js/enemies/enemy-trapezoid.js`
+- `src/js/enemies/enemy-cross.js`
+- `src/js/enemies/enemy-gear.js`
+- `src/js/enemies/enemy-arrow.js`
 
 ## Files to Modify
 
-- `js/enemies/enemy-base.js` (intelligence scaling, constructor, multiplayer sync)
-- `js/level.js` (enemy spawning logic)
-- `js/gear.js` (difficulty multipliers)
+- `src/js/enemies/enemy-base.js` (intelligence scaling, constructor, multiplayer sync)
+- `src/js/level.js` (enemy spawning logic)
+- `src/js/gear.js` (difficulty multipliers)
 - `index.html` (script includes)
 - All existing enemy files (pass introductionRoom to super constructor)

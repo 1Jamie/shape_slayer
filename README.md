@@ -4,7 +4,7 @@
 
 Shape Slayer is a fast, skill-first top-down action roguelike. Pick a sentient shape, dive into procedurally generated arenas, stack gear affixes until the build gets weird, and see how far you can push a run. Gear Mode is the game now - Card Mode got deleted on purpose.
 
-Current version: **0.8.2** (see in-game patch notes / `js/version.js`).
+Current version: **0.8.2** (see in-game patch notes / `src/js/version.js`).
 
 ## Why You’ll Love It
 
@@ -21,7 +21,7 @@ Current version: **0.8.2** (see in-game patch notes / `js/version.js`).
 
 | How you want to play | What to do |
 | --- | --- |
-| **Solo or hot-seat** | Open `index.html` via a local server (`npm start` / `node server.js`) or just open the hosted page. Prefer HTTP over raw `file://` so nothing weird breaks. |
+| **Solo or hot-seat** | Open `index.html` via a local server (`npm start` / `node static-server.js`) or just open the hosted page. Prefer HTTP over raw `file://` so nothing weird breaks. |
 | **Squad up online** | Pause menu → create/join a lobby → share the six-character code. Host hits the Nexus portal when everyone’s ready. |
 
 Production multiplayer already points at `wss://shape-slayer.gpe.pet` if you don’t feel like self-hosting.
@@ -471,23 +471,55 @@ Mid/late rooms can roll a single elite affix. Pools change by biome.
 
 ## Want to Host Your Own Server?
 
+Single-process relay (no Redis):
+
 ```bash
-cd server
+cd multiplayer
 npm install
-npm start               # SERVER_MODE=single by default
-# Advanced:
-SERVER_MODE=multi WORKER_COUNT=4 npm start   # clustered (needs Docker/Redis)
-SERVER_MODE=slave MASTER_SERVER_IP=10.0.0.100 WORKER_COUNT=4 npm start   # scale-out
+npm start
 ```
 
 - Default WebSocket port: **4000**
-- Lobby / interpolation / reconnect knobs: `js/mp-config.js`
+- Lobby / interpolation / reconnect knobs: `src/js/mp-config.js`
 - Don’t want to self-host? Production URL (`wss://shape-slayer.gpe.pet`) ships ready.
+
+Redis directory mode gives every worker its own port, atomically claims lobby
+codes with Redis `SET NX EX`, and redirects joins to the worker that owns the
+lobby:
+
+```bash
+# From the repository root. The harness starts Redis when Docker or Podman is available.
+SERVER_MODE=multi WORKER_COUNT=2 REDIS_AUTO_MANAGE=true \
+  PUBLIC_HOST=127.0.0.1 npm run server -- --only=mp
+
+# If Redis is already running:
+SERVER_MODE=multi WORKER_COUNT=2 REDIS_AUTO_MANAGE=false \
+  REDIS_HOST=127.0.0.1 REDIS_PORT=6379 PUBLIC_HOST=127.0.0.1 \
+  npm run server -- --only=mp
+```
+
+On Atomic/Bazzite hosts where development runs inside distrobox, the harness
+can use host Podman through `host-spawn`. Manual equivalent:
+
+```bash
+host-spawn podman run -d --name shapeslayer-redis --replace \
+  -p 6379:6379 docker.io/library/redis:alpine
+```
+
+Automatic cross-worker lobby migration is opt-in with
+`ENABLE_LOBBY_MIGRATION=true`. It transfers the roster and player progression
+metadata, changes Redis ownership, redirects connected clients, and restores
+them using `persistentPlayerId`. Active game simulation remains host
+authoritative rather than becoming a Redis-backed world state.
+
+See [`multiplayer/README.md`](multiplayer/README.md) for relay configuration,
+redirect behavior, migration details, and reverse-proxy requirements.
 
 Local static game shell from repo root:
 
 ```bash
-npm start    # or: node server.js
+npm start    # or: node static-server.js
+# Use STATIC_PORT=3100 npm start when port 3000 is occupied.
 ```
 
 Full harness (MP + metrics ingest + dashboard):
@@ -501,7 +533,7 @@ npm run server
 Passion project. Readability, responsiveness, relentless fun. Break the build systems. Tell me what ridiculous combo you found.
 
 - **Bugs or ideas?** Open a GitHub issue.
-- **Want to contribute?** Fork it and go wild - vanilla JS + Canvas 2D for the game, DOM components under `ui/`, plain CSS under `css/ui/`. No framework, no render engine.
+- **Want to contribute?** Fork it and go wild - vanilla JS + Canvas 2D for the game, DOM components under `src/ui/`, plain CSS under `src/css/`. No framework, no render engine.
 - **Need help?** In-game debug panel (`Ctrl+D`), browser console, or server logs.
 
 Music so far is sourced from Pixabay (copyright-free audio): [https://pixabay.com](https://pixabay.com)
@@ -524,7 +556,7 @@ Music so far is sourced from Pixabay (copyright-free audio): [https://pixabay.co
 ## Progression & Saves
 
 - `SaveSystem` parks currency, shards, upgrades, gear meta, settings, onboarding, Index discoveries, ledger/feat progress, etc. in `localStorage`.
-- Update / launch / privacy modals surface from `js/version.js` when the version bumps.
+- Update / launch / privacy modals surface from `src/js/version.js` when the version bumps.
 - Solo Safe Room **Save Run** stores the real mid-run state (room, gear, items, HP, etc.) and resumes from that Safe Room - checkpoint consumes on load so you can’t duplicate infinite money. Multiplayer babysits itself instead.
 - While a saved run exists, Nexus mostly just wants you to hit the portal again (no sneaking a pile of meta upgrades into a mid-run demon build).
 
@@ -542,64 +574,82 @@ npm run test:combat-scaling
 npm run test:combat-economy
 npm run test:feature-tutorials
 npm run test:combat-ledger
-# …plus more under npm run test:*
+npm run test:boundaries
+npm run test:redis-directory
+npm run test:redis-ready
+npm test
+# Live integration test: requires Redis and a two-worker relay already running.
+ALLOW_TEST_MIGRATION=true node tests/mp-cluster-smoke.js
 ```
 
-Puppeteer-style MP checks still live under `tests/` - see `tests/README.md`.
+The live cluster smoke is deliberately small: two workers, a few WebSocket
+clients, and four concurrent Redis claims. It verifies ownership, both redirect
+directions, roster migration, reconnection, and post-migration routing without
+running a load test.
 
 ## Project Structure
 
 ```
 shape_slayer/
 ├── index.html                 # Game shell + script load order
-├── server.js                  # Optional static / PWA-friendly local server
+├── static-server.js           # Optional static / PWA-friendly local server
 ├── sw.js / manifest.json      # Service worker + PWA bits
-├── css/ui/                    # Hand-edited UI CSS (edit base.css directly; no Sass)
-├── js/
-│   ├── main.js                # Game loop, camera, state machine, run orchestration
-│   ├── combat.js              # Damage, weapon-type feel, perfect dodge/interrupt, legendaries
-│   ├── combat-scaling.js      # Room/boss/MP scaling (50-room gear cadence)
-│   ├── combat-economy.js      # Kill credits + affordability helpers
-│   ├── level.js               # Room generation hooks, bosses, Safe Rooms
-│   ├── biomes.js              # Biome defs + gear progression map
-│   ├── room-layout-generator.js
-│   ├── gear.js                # Loot rolls, weapon/armor types, affixes, legendaries, crafting
-│   ├── items/                 # Stackable passive items + pylons
-│   ├── players/               # Base + Warrior/Rogue/Tank/Mage (recovery, Parallel heavies)
-│   ├── enemies/ · bosses/     # Trash + boss kits; biome mods + elite affixes
-│   ├── multiplayer.js         # Client lobby / sync / prediction / combat FX
-│   ├── mp-config.js           # Multiplayer tuning
-│   ├── nexus.js               # Hub, class pads, gear upgrade stations
-│   ├── onboarding.js · room0-tutorial.js · feature-tutorials.js · coach-transition.js
-│   ├── voxel-fracture.js      # Hit punch-out / death shatter VFX
-│   ├── render.js · input.js · touch-controls.js · device-detection.js
-│   ├── audio.js · music-manager.js
-│   ├── save.js · run-checkpoint.js · feats-registry.js · ledger-manager.js
-│   ├── telemetry.js · debug.js · version.js
-│   └── …
-├── ui/                        # DOM UI (menus, HUD, Safe Room, Index + Combat Ledger, gear shops)
-├── server/                    # WebSocket host (single / clustered / slave)
-├── harness/                   # One-command MP + metrics + dashboard
-├── metrics/                   # Ingest service + analytics GUI
-├── tests/                     # Node tests, balance sims, Puppeteer checks
+├── src/                       # Playable client code only
+│   ├── css/                   # Hand-edited UI CSS (no Sass)
+│   ├── ui/                    # DOM menus, HUD, Safe Room, Index, shops
+│   └── js/
+│       ├── main.js            # Game loop, camera, state machine, run orchestration
+│       ├── combat.js          # Damage, weapon feel, perfect dodge/interrupt
+│       ├── combat-scaling.js  # Room/boss/MP scaling
+│       ├── combat-economy.js  # Kill credits + affordability helpers
+│       ├── level.js · biomes.js · room-layout-generator.js
+│       ├── gear.js · items/
+│       ├── players/ · enemies/ · bosses/
+│       ├── multiplayer.js · mp-config.js
+│       ├── nexus.js
+│       ├── onboarding.js · room0-tutorial.js · feature-tutorials.js
+│       ├── render.js · input.js · touch-controls.js · device-detection.js
+│       ├── audio.js · music-manager.js
+│       ├── save.js · run-checkpoint.js · feats-registry.js · ledger-manager.js
+│       └── telemetry.js · debug.js · version.js · …
+├── assets/                    # Browser-loaded audio, fonts, and PWA icons
+├── multiplayer/               # Gameplay WebSocket relay only
+├── metrics/                   # Telemetry system only
+│   ├── server/                # Receiver, validation, migrations, SQLite writer
+│   ├── gui/                   # Read/query API and separate dashboard app
+│   └── docs/
+├── harness/                   # Starts multiplayer + metrics processes; no app logic
+├── tools/                     # Audio pipeline, source recordings, icon generator, migrator
+├── tests/                     # Node tests, balance sims, browser checks, live MP smoke
 └── docs/                      # Design notes / living changelogs (not always player-facing)
 ```
 
-Card Mode used to live under `js/cards/` and a pile of door/hand UIs. Those files are gone. If a doc still talks about decks, it’s historical.
+Card Mode used to live under `src/js/cards/` and a pile of door/hand UIs. Those files are gone. If a doc still talks about decks, it’s historical.
+
+The four top-level runtime domains stay separate:
+
+- **Client:** root PWA shell plus `src/` and `assets/`.
+- **Multiplayer:** `multiplayer/` relays gameplay WebSocket messages; it does not receive telemetry.
+- **Telemetry:** the game-side sender is `src/js/telemetry.js`, while receiver/database/dashboard code stays under `metrics/`.
+- **Harness:** `harness/` only starts and stops backend processes. It does not serve the game, relay messages, or open the metrics database.
+
+`static-server.js` serves only root shell files, `src/`, and `assets/`. Backend, harness, test, documentation, and tool directories are intentionally outside its allowlist.
 
 ## Telemetry & Analytics
 
 - **Harness** (`npm run server`) can spin MP + metrics ingest + dashboard together; logs under `harness/logs/`.
-- **Client** (`js/telemetry.js`) ships per-run metrics from solo / host sessions when a run ends.
-- **Ingest** (`metrics/server`, port `4001`) validates payloads into SQLite.
-- **GUI** (`metrics/gui`, port `5000`) for summaries / run deep-dives.
+- **Gameplay telemetry sender** (`src/js/telemetry.js`) ships opted-in per-run data directly to the receiver. It never sends through the multiplayer relay or harness.
+- **Receiver/database writer** (`metrics/server`, port `4001`) validates `/ingest` payloads and writes SQLite.
+- **Dashboard** (`metrics/gui`, port `5000`) is a separate browser app backed by a read/query server for summaries and run deep-dives.
 
 Env knobs include `METRICS_PORT`, `METRICS_DB_PATH`, `METRICS_INGEST_TOKEN`. Details in `metrics/server/README.md`.
 
 ## Troubleshooting
 
-- **Can’t connect** - MP server running? URL in `mp-config.js` / same-origin host correct? Port `4000` reachable?
-- **Lobby missing / full** - codes are case-sensitive, expire ~1 hour, max 4 players. Restart server to clear ghosts.
+- **Can’t connect** - MP server running? URL in `src/js/mp-config.js` / same-origin host correct? Port `4000` reachable?
+- **Lobby missing / full** - codes are normalized to uppercase, max 4 players, and local lobbies expire after about an hour. In Redis directory mode, confirm Redis is reachable and the owner endpoint advertised by `PUBLIC_HOST` is reachable by clients.
+- **Redirect loop** - verify every worker advertises a distinct reachable port. The client stops after two redirects by default.
+- **Redis on Bazzite/distrobox** - use host Podman (`host-spawn podman`) or start Redis manually and set `REDIS_AUTO_MANAGE=false`.
 - **Performance** - debug FPS, shrink lobby, close tab farms; deep rooms soft-cap density instead of spawning a second city.
 - **Sound muted** - pause menu mute persists via `SaveSystem`.
 - **`file://` weirdness** - use `npm start` / any HTTP server.

@@ -27,7 +27,7 @@
 			}
 			
 			const script = document.createElement('script');
-			script.src = 'js/multiplayer.js';
+			script.src = 'src/js/multiplayer.js';
 			script.onload = () => {
 				console.log('[MultiplayerMenu] Multiplayer module loaded');
 				resolve(true);

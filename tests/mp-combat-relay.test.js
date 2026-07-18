@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 function loadProjectilesUtil() {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'projectiles-util.js'), 'utf-8');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'projectiles-util.js'), 'utf-8');
     const context = { console };
     vm.createContext(context);
     vm.runInContext(source, context, { filename: 'projectiles-util.js' });
@@ -75,7 +75,7 @@ test('hitEnemies serialize maps enemy objects to ids', () => {
 });
 
 test('resync_request and combat_fx are handled in mp-server-worker', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'server', 'mp-server-worker.js'), 'utf-8');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'multiplayer', 'mp-server-worker.js'), 'utf-8');
     assert.ok(source.includes("case 'resync_request'"));
     assert.ok(source.includes('handleResyncRequest'));
     assert.ok(source.includes("case 'combat_fx'"));
@@ -83,7 +83,7 @@ test('resync_request and combat_fx are handled in mp-server-worker', () => {
 });
 
 test('multiplayer client sends resync_request and handles combat_fx', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'multiplayer.js'), 'utf-8');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'multiplayer.js'), 'utf-8');
     assert.ok(source.includes("type: 'resync_request'"));
     assert.ok(source.includes('forceFullState'));
     assert.ok(source.includes('handleCombatFx'));
@@ -92,7 +92,7 @@ test('multiplayer client sends resync_request and handles combat_fx', () => {
 });
 
 test('applySyncedRoomLayout skips re-enter when layout hash unchanged', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'multiplayer.js'), 'utf-8');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'multiplayer.js'), 'utf-8');
     assert.ok(source.includes('sameLayout'));
     assert.ok(source.includes('beginClientRoomEnterTransition'));
     // Layout should also serialize during ENTERING_ROOM so clients can prepare early
@@ -100,14 +100,14 @@ test('applySyncedRoomLayout skips re-enter when layout hash unchanged', () => {
 });
 
 test('server player_state_batch updates lobby player class', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'server', 'mp-server-worker.js'), 'utf-8');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'multiplayer', 'mp-server-worker.js'), 'utf-8');
     assert.ok(source.includes('handlePlayerStateBatch'));
     assert.ok(source.includes('Keep lobby roster class in sync'));
     assert.ok(source.includes('player.class = frame.class'));
 });
 
 test('run class locks freeze class for the run', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'multiplayer.js'), 'utf-8');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'multiplayer.js'), 'utf-8');
     assert.ok(source.includes('lockRunClasses('));
     assert.ok(source.includes('clearRunClassLocks('));
     assert.ok(source.includes('resolvePlayerClass('));
@@ -116,12 +116,12 @@ test('run class locks freeze class for the run', () => {
 });
 
 test('boss-base serializes weakPoints', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'bosses', 'boss-base.js'), 'utf-8');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'bosses', 'boss-base.js'), 'utf-8');
     assert.ok(source.includes('weakPoints:'));
     assert.ok(source.includes('state.weakPoints'));
 });
 
 test('enemy first-spawn calls applyState', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'multiplayer.js'), 'utf-8');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'multiplayer.js'), 'utf-8');
     assert.ok(/Created enemy[\s\S]*applyState\(enemyUpdate\)/.test(source));
 });

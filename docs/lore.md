@@ -1551,16 +1551,16 @@ These entries are not deck cards. They are archive cards unlocked by boss clears
 This boss was previously named "Fractal Core" everywhere, including code identifiers. The rename below is **display/lore only** - internal ids are kept as-is unless the fight rewrite explicitly opts into a full code rename. Whoever implements the Super Hexagon rework should apply this mapping:
 
 *Display-facing strings to update (find/replace `"Fractal Core"` → `"Carrier"`):*
-- `js/bosses/boss-fractalcore.js` - `this.bossName = 'Fractal Core';` → `this.bossName = 'Carrier';`
-- `js/level.js` - boss spawn table entry `{ name: 'Fractal Core', constructor: BossFractalCore }` → `{ name: 'Carrier', constructor: BossFractalCore }`, plus inline comments referencing "Fractal Core" in the boss cycle
-- `js/biomes.js` - `bossTheme: 'Fractal Core'` (fractal biome def) → `bossTheme: 'Carrier'`
-- `js/enemies/enemy-base.js` - the spawn switch currently has `case 'Fractal Core':`. Add `case 'Carrier':` as the primary path and **keep `case 'Fractal Core':` as a fallthrough alias** so old multiplayer state/saves referencing the old name don't break: `case 'Carrier': case 'Fractal Core': /* existing spawn logic */`
+- `src/js/bosses/boss-fractalcore.js` - `this.bossName = 'Fractal Core';` → `this.bossName = 'Carrier';`
+- `src/js/level.js` - boss spawn table entry `{ name: 'Fractal Core', constructor: BossFractalCore }` → `{ name: 'Carrier', constructor: BossFractalCore }`, plus inline comments referencing "Fractal Core" in the boss cycle
+- `src/js/biomes.js` - `bossTheme: 'Fractal Core'` (fractal biome def) → `bossTheme: 'Carrier'`
+- `src/js/enemies/enemy-base.js` - the spawn switch currently has `case 'Fractal Core':`. Add `case 'Carrier':` as the primary path and **keep `case 'Fractal Core':` as a fallthrough alias** so old multiplayer state/saves referencing the old name don't break: `case 'Carrier': case 'Fractal Core': /* existing spawn logic */`
 - `README.md` - boss gauntlet list mentions ("Swarm King, Twin Prism, Fortress, Fractal Core, Vortex") → replace "Fractal Core" with "Carrier" in both occurrences
 - `docs/spec_sheet.md` and `docs/implementation_bosses.md` - update the "Fractal Core (Room 25)" headings/prose to "Carrier (Room 25)" when those docs are rewritten for the new fight; the old fragment/teleport spec in those files is stale once the ring rework lands and should be replaced, not just relabeled
 
 *Explicitly NOT renamed (still correct as-is):*
 - `BossFractalCore` class name and `boss-fractalcore.js` file name - internal id, no player-facing impact
-- `fractal` biome id (rooms 21–25) in `js/biomes.js` / `js/render.js` / `js/room-layout-generator.js` - fractal still describes the biome's recursive geometry
+- `fractal` biome id (rooms 21–25) in `src/js/biomes.js` / `src/js/render.js` / `src/js/room-layout-generator.js` - fractal still describes the biome's recursive geometry
 - `Fractal Conduit` card - stays named as-is; only its pre-order identity text changed (see entry above), not its card id or display name
 
 *New internal naming to use when building the ring engine (for consistency with the lore, not required but recommended):*

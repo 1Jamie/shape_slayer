@@ -4,11 +4,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-global.BiomeConfig = require('../js/biomes.js');
-const RoomLayoutGenerator = require('../js/room-layout-generator.js');
+global.BiomeConfig = require('../src/js/biomes.js');
+const RoomLayoutGenerator = require('../src/js/room-layout-generator.js');
 
 function loadBossBaseForTests() {
-    const source = fs.readFileSync(path.join(__dirname, '../js/bosses/boss-base.js'), 'utf8');
+    const source = fs.readFileSync(path.join(__dirname, '../src/js/bosses/boss-base.js'), 'utf8');
     const context = {
         module: { exports: {} },
         console,

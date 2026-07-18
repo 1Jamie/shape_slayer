@@ -385,7 +385,7 @@ const Game = {
             console.log('[Game] Loading multiplayer module...');
 
             const script = document.createElement('script');
-            script.src = 'js/multiplayer.js';
+            script.src = 'src/js/multiplayer.js';
             script.onload = () => {
                 this.multiplayerModuleLoaded = true;
                 console.log('[Game] Multiplayer module loaded');

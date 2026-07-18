@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { Input } = require(path.join(__dirname, '..', 'js', 'input.js'));
+const { Input } = require(path.join(__dirname, '..', 'src', 'js', 'input.js'));
 
 function keyEvent(overrides = {}) {
     return {

@@ -1,405 +1,352 @@
-# Shape Slayer Multiplayer Server
+# Shape Slayer Multiplayer Relay
 
-WebSocket-based multiplayer relay server for Shape Slayer game lobbies.
+The multiplayer service is a WebSocket relay for Shape Slayer game lobbies.
+Combat and world simulation remain host-authoritative; the relay manages lobby
+membership, routes gameplay frames, supports host reconnection/failover, and
+optionally uses Redis as a cross-worker lobby directory.
 
-## Quick Start
+It does not receive telemetry. Metrics ingestion and storage live under
+`metrics/`.
+
+## Quick start
+
+Single-process mode needs no Redis:
 
 ```bash
-cd server
+cd multiplayer
 npm install
 npm start
 ```
 
-Server runs on `ws://localhost:4000` (single-threaded by default).
+The relay listens on `ws://localhost:4000` by default.
 
-### Configuration
+## Runtime modes
 
-Configure via `.env` file (easiest):
+### `SERVER_MODE=single`
 
-```bash
-cp .env.example .env
-# Edit .env with your preferred settings
-nano .env
-npm start
-```
-
-All settings in `.env` can also be set via environment variables:
+One relay process owns every lobby. This is the default and is the simplest
+choice for development and modest deployments.
 
 ```bash
-SERVER_MODE=multi WORKER_COUNT=4 npm start
-```
-
-## Features
-
-- **Lobby Management**: Create/join lobbies with 6-character codes
-- **Host Authority**: First player controls game logic, server relays messages
-- **Host Migration**: Automatic failover if host disconnects
-- **Message Relay**: Low-latency forwarding between clients
-- **Auto Cleanup**: Removes lobbies older than 1 hour
-- **Multi-Core Support**: Optional clustering for high-scale deployments
-
-## Configuration
-
-### Basic Settings
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| Port | `4000` | WebSocket server port |
-| Max Players | `4` | Players per lobby |
-| Lobby Code | `6 chars` | Alphanumeric (no O/0, I/1) |
-| Lobby TTL | `1 hour` | Auto-delete inactive lobbies |
-
-### Environment Variables
-
-```bash
-# Server Mode (choose one)
-SERVER_MODE=single                  # 'single' | 'multi' | 'slave' (default: single)
-
-# Master server IP (required for slave mode)
-MASTER_SERVER_IP=10.0.0.100         # IP of master server
-
-# Worker configuration (multi/slave modes)
-WORKER_COUNT=4                      # Number of workers (default: 2)
-MAX_CONNECTIONS_PER_WORKER=1000     # Overload threshold (default: 500)
-MAX_LOBBIES_PER_WORKER=200          # Overload threshold (default: 100)
-
-# Server settings
-PORT=4000                           # WebSocket port (default: 4000)
-SERVER_ID=server-1                  # Unique server identifier
-LOG_LEVEL=debug                     # debug | info | warn | error
-LOG_HEALTH_METRICS=true             # Show worker stats (default: false)
-
-# Redis settings (multi/slave modes)
-REDIS_PORT=6379                     # Redis port (default: 6379)
-REDIS_PASSWORD=yourpassword         # Optional password
-REDIS_AUTO_MANAGE=true              # Auto-manage Docker (default: true)
-```
-
-## Scaling - Three Simple Modes
-
-### Mode 1: Single Server, Single Thread (Default)
-
-```bash
-npm start
-# or explicitly:
+cd multiplayer
 SERVER_MODE=single npm start
 ```
 
-**Capacity**: 100-1,000 concurrent players  
-**Requirements**: None  
-**Best for**: Most deployments, development, small-medium scale
+### `SERVER_MODE=multi`
 
-**How it works**: One process handles everything. Simple, reliable, no external dependencies.
+The master forks `WORKER_COUNT` workers. Each worker listens on a distinct
+port beginning at `PORT`:
 
----
+- worker 0: `PORT`
+- worker 1: `PORT + 1`
+- worker 2: `PORT + 2`
 
-### Mode 2: Single Server, Multi-Core (High Performance)
+Redis stores only the lobby ownership directory. A lobby remains on one relay
+worker during normal play; Redis is not used as a gameplay pub/sub bus.
 
 ```bash
-SERVER_MODE=multi WORKER_COUNT=4 npm start
+# From repository root; harness bootstraps Redis when possible.
+SERVER_MODE=multi WORKER_COUNT=2 REDIS_AUTO_MANAGE=true \
+  PUBLIC_HOST=127.0.0.1 npm run server -- --only=mp
+
+# Or use Redis that is already running.
+SERVER_MODE=multi WORKER_COUNT=2 REDIS_AUTO_MANAGE=false \
+  REDIS_HOST=127.0.0.1 REDIS_PORT=6379 PUBLIC_HOST=127.0.0.1 \
+  npm run server -- --only=mp
 ```
 
-**Capacity**: 1,000-5,000+ concurrent players  
-**Requirements**: Docker installed (for Redis)  
-**Best for**: High-traffic single server, production deployments
+### `SERVER_MODE=slave`
 
-**How it works**: 
-- Automatically creates Redis container in Docker
-- Spawns 4 worker processes (configure with WORKER_COUNT)
-- All workers share lobby state via Redis
-- No sticky sessions needed - Redis handles coordination
-- Acts as "master" ready to accept slave servers
+Slave mode starts workers that use a remote Redis directory. Set
+`MASTER_SERVER_IP` to the Redis host and ensure every worker's advertised
+`PUBLIC_HOST` and port are reachable by clients.
 
-**Note**: This is the same as "master" mode but without any slaves connected yet.
-
----
-
-### Mode 3: Multi-Server Cluster (Massive Scale)
-
-**Master Server** (10.0.0.100):
 ```bash
-SERVER_MODE=multi \
-WORKER_COUNT=4 \
-SERVER_ID=master \
+cd multiplayer
+SERVER_MODE=slave MASTER_SERVER_IP=10.0.0.100 \
+  WORKER_COUNT=2 SERVER_ID=relay-b PUBLIC_HOST=relay-b.example.com \
+  npm start
+```
+
+This mode shares lobby ownership through Redis; it is not a complete
+control-plane or global load-balancer. The deployment must expose and route
+the advertised per-worker WebSocket endpoints.
+
+## Redis directory and routing
+
+Lobby creation uses:
+
+```text
+SET lobby:<CODE> <ownership-json> EX <ttl> NX
+```
+
+`NX` makes code claims atomic across simultaneous workers. Ownership records
+include the server ID, worker ID, and public WebSocket endpoint. The owner
+refreshes the key TTL while the lobby exists.
+
+When a client joins through the wrong worker, that worker returns:
+
+```json
+{
+  "type": "redirect",
+  "data": {
+    "url": "ws://relay.example.com:4001",
+    "code": "A3X9K2",
+    "reason": "lobby_owner"
+  }
+}
+```
+
+The browser reconnects to `data.url` and retries the join. Redirect depth is
+connection-scoped and capped by `MAX_REDIRECT_HOPS` in
+`src/js/mp-config.js` (default: `2`); it is not stored on `window`.
+
+`PUBLIC_HOST` must be a hostname or address clients can reach. For TLS
+deployments set `PUBLIC_WS_SCHEME=wss` and arrange TLS termination/routing for
+every advertised worker endpoint.
+
+## Lobby migration
+
+Cross-worker migration is disabled unless both clustering and
+`ENABLE_LOBBY_MIGRATION=true` are enabled.
+
+The migration sequence is:
+
+1. Source worker serializes the lobby roster.
+2. Master forwards the snapshot to the target worker.
+3. Target imports the lobby and replaces its Redis ownership record.
+4. Master confirms the import before removing the source copy.
+5. Source sends redirect frames and closes the old sockets.
+6. Clients reconnect with `persistentPlayerId`.
+
+The snapshot preserves:
+
+- player and persistent IDs
+- host identity
+- names and classes
+- ready/disconnected status
+- currency and upgrades
+- safe-room metadata
+
+The server does not persist a complete authoritative in-flight world snapshot
+in Redis. Gameplay remains host-authoritative, so migration relies on client
+reconnection/state restoration for the active run.
+
+`ALLOW_TEST_MIGRATION=true` enables the internal
+`test_migrate_lobby` frame used only by `tests/mp-cluster-smoke.js`. Do not
+enable it in production.
+
+## Redis on Atomic/Bazzite with distrobox
+
+The harness tries container CLIs in this order:
+
+1. Docker
+2. local Podman
+3. `host-spawn podman`
+4. `distrobox-host-exec podman`
+
+Manual host-Podman setup:
+
+```bash
+host-spawn podman run -d --name shapeslayer-redis --replace \
+  -p 6379:6379 docker.io/library/redis:alpine
+
+SERVER_MODE=multi WORKER_COUNT=2 REDIS_AUTO_MANAGE=false \
+  PUBLIC_HOST=127.0.0.1 npm run server -- --only=mp
+```
+
+The harness verifies readiness with a raw RESP `PING`/`PONG`; it does not add
+a Redis framework client to the harness. The relay itself uses `ioredis`.
+
+## Configuration
+
+Copy the example file for direct relay launches:
+
+```bash
+cd multiplayer
+cp .env.example .env
 npm start
 ```
 
-**Slave Servers** (connect to master):
+Important environment variables:
+
 ```bash
-# Slave Server 1 (10.0.0.101)
-SERVER_MODE=slave \
-MASTER_SERVER_IP=10.0.0.100 \
-WORKER_COUNT=4 \
-SERVER_ID=slave-1 \
-npm start
+# Runtime
+SERVER_MODE=single               # single | multi | slave
+PORT=4000                        # first worker's port
+WORKER_COUNT=2
+SERVER_ID=server-1
+PUBLIC_HOST=localhost            # embedded in redirect URLs
+PUBLIC_WS_SCHEME=ws              # ws | wss
 
-# Slave Server 2 (10.0.0.102)
-SERVER_MODE=slave \
-MASTER_SERVER_IP=10.0.0.100 \
-WORKER_COUNT=4 \
-SERVER_ID=slave-2 \
-npm start
+# Redis (multi/slave)
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+REDIS_PASSWORD=
+REDIS_AUTO_MANAGE=true           # harness container bootstrap
+REDIS_CONTAINER_NAME=shapeslayer-redis
+REDIS_IMAGE=redis:alpine
+LOBBY_DIRECTORY_TTL_SECONDS=60
+
+# Migration/load monitoring
+ENABLE_LOAD_BALANCING=true
+ENABLE_LOBBY_MIGRATION=false
+
+# Limits
+MAX_PLAYERS_PER_LOBBY=4
+WS_MAX_PAYLOAD_BYTES=262144
+MAX_MESSAGES_PER_SOCKET_PER_SECOND=120
+
+# Logging
+LOG_LEVEL=info
+LOG_HEALTH_METRICS=false
+LOG_LOAD_BALANCING=false
 ```
 
-**Capacity**: 10,000+ concurrent players (scale horizontally)  
-**Requirements**: Docker on master, network connectivity between servers  
-**Best for**: Massive scale, geographic distribution
+See `config.js` and `.env.example` for the full set.
 
-**How it works**: 
-- Master runs Redis + game server
-- Slaves connect to master's Redis
-- All servers share lobby state
-- Players stay on original server (no transfers)
-- Load balancer distributes new connections
+## Protocol essentials
 
-**Load Balancer** (Caddy):
-```caddyfile
-yourdomain.com {
-    reverse_proxy 10.0.0.100:4000 10.0.0.101:4000 10.0.0.102:4000 {
-        lb_policy least_conn
-    }
-}
-```
+Create a lobby:
 
-## Reverse Proxy Setup
-
-### Caddy (Recommended)
-
-```caddyfile
-yourdomain.com {
-    reverse_proxy localhost:4000 {
-        lb_policy ip_hash    # Sticky sessions
-    }
-}
-```
-
-### Nginx
-
-```nginx
-upstream websocket_backend {
-    ip_hash;    # Sticky sessions
-    server localhost:4000;
-}
-
-server {
-    listen 80;
-    location / {
-        proxy_pass http://websocket_backend;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-    }
-}
-```
-
-## WebSocket Protocol
-
-### Client → Server
-
-**Create Lobby**
 ```json
 {
   "type": "create_lobby",
   "data": {
     "playerName": "Player1",
-    "class": "square"
+    "class": "square",
+    "persistentPlayerId": "stable-client-id"
   }
 }
 ```
 
-**Join Lobby**
+Join a lobby:
+
 ```json
 {
   "type": "join_lobby",
   "data": {
     "code": "A3X9K2",
     "playerName": "Player2",
-    "playerClass": "hexagon"
+    "playerClass": "hexagon",
+    "persistentPlayerId": "stable-client-id"
   }
 }
 ```
 
-**Game State (Host Only)**
-```json
-{
-  "type": "game_state",
-  "data": {
-    "players": [...],
-    "enemies": [...],
-    "projectiles": [...],
-    "roomNumber": 5
-  }
+Successful create/join frames include the lobby code, player ID, host status,
+and serialized player roster. Clustered joins may first receive the redirect
+frame shown above.
+
+Inbound frame types are explicitly allowlisted. WebSocket payload size and
+per-socket message rate are capped through configuration.
+
+## Reverse proxy requirements
+
+Single mode can use a conventional WebSocket reverse proxy to port `4000`.
+
+Directory mode does not depend on sticky sessions for correctness. Initial
+connections may reach any worker because the Redis directory redirects joins
+to the owner. However, every endpoint placed in Redis must be externally
+reachable. A proxy that exposes only port `4000` is insufficient if redirects
+advertise `4001`, `4002`, and so on.
+
+Example for a single relay:
+
+```caddyfile
+relay.example.com {
+    reverse_proxy localhost:4000
 }
 ```
 
-**Other Messages**: `leave_lobby`, `player_state`, `game_start`, `return_to_nexus`, `room_transition`, `enemy_damaged`, `enemy_state_update`, `player_damaged`, `loot_pickup`, `upgrade_purchase`, `currency_update`, `heartbeat`
-
-### Server → Client
-
-**Lobby Created**
-```json
-{
-  "type": "lobby_created",
-  "data": {
-    "code": "A3X9K2",
-    "playerId": "player-123",
-    "isHost": true,
-    "players": [...]
-  }
-}
-```
-
-**Lobby Joined**
-```json
-{
-  "type": "lobby_joined",
-  "data": {
-    "code": "A3X9K2",
-    "playerId": "player-456",
-    "isHost": false,
-    "players": [...]
-  }
-}
-```
-
-**Other Messages**: `player_joined`, `player_left`, `host_migrated`, `lobby_error`, `game_state`, `player_state`, `game_start`, `heartbeat_ack`
+For multi mode, expose each worker endpoint directly or configure distinct
+public routes/hosts that map to each worker and ensure `PUBLIC_HOST` plus the
+advertised ports match that topology.
 
 ## Testing
 
-```bash
-# Start server
-npm start
+Unit and boundary tests from the repository root:
 
-# Run test suite (in another terminal)
+```bash
+npm run test:boundaries
+npm run test:redis-directory
+npm run test:redis-ready
+npm test
+```
+
+Basic direct-relay test:
+
+```bash
+cd multiplayer
+npm start
+# another terminal
 node test-server.js
 ```
 
-Expected output:
-```
-✅ Lobby created successfully
-✅ Player joined lobby successfully  
-✅ Heartbeat acknowledged
-✅ Invalid lobby correctly rejected
-```
+Live two-worker Redis smoke:
 
-## Architecture
+```bash
+# Start Redis first, then:
+SERVER_MODE=multi WORKER_COUNT=2 REDIS_AUTO_MANAGE=false \
+  PUBLIC_HOST=127.0.0.1 ALLOW_TEST_MIGRATION=true \
+  npm run server -- --only=mp
 
-### Single-Threaded Mode (Default)
-```
-Client 1 ─┐
-Client 2 ─┼─→ Server Process (Port 4000) ─→ Relay messages
-Client 3 ─┘
+# Another terminal:
+node tests/mp-cluster-smoke.js
 ```
 
-All clients connect to one process. Simple and reliable.
+The smoke stays intentionally small. It checks:
 
-### Multi-Worker Mode (Optional)
-```
-                    ┌─→ Worker 1 (handles lobbies A-F)
-Reverse Proxy ─────┼─→ Worker 2 (handles lobbies G-M)
-(Sticky Sessions)   └─→ Worker 3 (handles lobbies N-Z)
-```
-
-Each worker handles subset of lobbies. Requires reverse proxy with sticky sessions (IP hash) to route clients consistently.
-
-**Load Balancing**: Master process monitors worker health (connections, lobbies, event loop lag) and migrates lobbies between workers if one becomes overloaded.
+- Redis ownership after create
+- wrong-worker redirects in both directions
+- redirected join and host notification
+- four concurrent `SET NX` claims with exactly one winner
+- migration redirect and Redis ownership transfer
+- host and peer reconnection on the target worker
+- preserved two-player roster
+- routing through the old worker after migration
 
 ## Troubleshooting
 
+### Redis is unavailable
+
+Multi/slave modes require Redis. Verify `REDIS_HOST`/`REDIS_PORT`, or use
+`REDIS_AUTO_MANAGE=true` through the root harness.
+
+### Lobby not found on owner worker
+
+This indicates a stale or incorrect directory record, or an interrupted
+migration. Confirm the endpoint stored in Redis matches the worker currently
+holding the lobby.
+
+### Redirect loop
+
+Confirm:
+
+- each worker listens on a distinct port
+- `PUBLIC_HOST` is client-reachable
+- all advertised worker ports/routes are exposed
+- a stale Redis ownership key is not pointing at the wrong worker
+
+The client stops after the configured redirect-hop limit.
+
 ### Port already in use
-```bash
-PORT=4001 npm start
-```
-
-### "Lobby not found" with multiple workers
-Using multi-worker without sticky sessions? Players connecting to different workers can't see each other's lobbies.
-
-**Solution**: Use single-threaded mode or add reverse proxy with sticky sessions.
-
-### High CPU usage
-Reduce worker count:
-```bash
-ENABLE_CLUSTERING=true WORKER_COUNT=2 npm start
-```
-
-### Debug connection issues
-```bash
-LOG_LEVEL=debug npm start
-```
-
-### Test connectivity
-```bash
-# Check if server is running
-curl -i -N -H "Connection: Upgrade" \
-  -H "Upgrade: websocket" \
-  -H "Sec-WebSocket-Version: 13" \
-  -H "Sec-WebSocket-Key: test" \
-  http://localhost:4000
-```
-
-## Production Deployment
-
-### Simple (Most Users)
-```bash
-# Single-threaded, behind Caddy/nginx
-npm start
-```
-
-### High Scale
-```bash
-# Multi-worker with reverse proxy + sticky sessions
-ENABLE_CLUSTERING=true WORKER_COUNT=4 npm start
-```
-
-### Using PM2
-```bash
-# Install PM2
-npm install -g pm2
-
-# Start server
-pm2 start mp-server.js --name shapeslayer-mp
-
-# Auto-restart on reboot
-pm2 startup
-pm2 save
-```
-
-### Docker
-```dockerfile
-FROM node:18-alpine
-WORKDIR /app
-COPY server/package*.json ./
-RUN npm install
-COPY server/ ./
-EXPOSE 4000
-CMD ["node", "mp-server.js"]
-```
 
 ```bash
-docker build -t shapeslayer-mp .
-docker run -p 4000:4000 shapeslayer-mp
+PORT=4100 SERVER_MODE=single npm start
 ```
 
-## Performance
-
-| Mode | Workers | Concurrent Players | CPU Cores |
-|------|---------|-------------------|-----------|
-| Single-threaded | 1 | 100-1,000 | 1 |
-| Multi-worker (2) | 2 | 500-2,000 | 2 |
-| Multi-worker (4) | 4 | 1,000-4,000 | 4 |
-| Multi-worker (8) | 8 | 2,000-8,000 | 8 |
-
-**Recommendation**: Start with single-threaded. Scale to multi-worker if you exceed 500 concurrent players.
+In multi mode reserve `WORKER_COUNT` consecutive ports beginning at `PORT`.
 
 ## Files
 
-- `mp-server.js` - Entry point (detects single/multi mode)
-- `mp-server-worker.js` - Worker process (handles WebSocket connections)
-- `mp-server-master.js` - Master process (coordinates workers)
-- `config.js` - Configuration and environment variables
-- `test-server.js` - Automated test suite
-- `package.json` - Dependencies
+- `mp-server.js` — selects single or clustered startup
+- `mp-server-master.js` — worker lifecycle, health monitoring, migration coordination
+- `mp-server-worker.js` — WebSocket connections, lobbies, relay, migration import/export
+- `redis-directory.js` — atomic claims and Redis ownership records
+- `config.js` — environment configuration and validation
+- `test-server.js` — basic direct-relay smoke
+- `package.json` — relay dependencies and scripts
 
 ## License
 

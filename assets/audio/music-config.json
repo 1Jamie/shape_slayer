@@ -1,7 +1,7 @@
 {
   "version": 1,
   "settings": {
-    "basePath": "audio/",
+    "basePath": "assets/audio/",
     "crossfadeSeconds": 1.8,
     "introFadeSeconds": 0.8,
     "outroFadeSeconds": 0.8,

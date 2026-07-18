@@ -286,7 +286,7 @@ async function runTests() {
     } catch (err) {
         console.error('\n❌ Test suite failed:', err.message);
         console.log('\nMake sure the server is running:');
-        console.log('  cd server && npm start\n');
+        console.log('  cd multiplayer && npm start\n');
         process.exit(1);
     }
 }

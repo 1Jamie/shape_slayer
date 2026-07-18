@@ -8,10 +8,10 @@ const fs = require('fs');
 const vm = require('vm');
 
 function loadSandbox(options = {}) {
-    const saveCode = fs.readFileSync(path.join(__dirname, '../js/save.js'), 'utf8');
-    const room0Code = fs.readFileSync(path.join(__dirname, '../js/room0-tutorial.js'), 'utf8');
-    const coachCode = fs.readFileSync(path.join(__dirname, '../js/coach-transition.js'), 'utf8');
-    const inputCode = fs.readFileSync(path.join(__dirname, '../js/input.js'), 'utf8');
+    const saveCode = fs.readFileSync(path.join(__dirname, '../src/js/save.js'), 'utf8');
+    const room0Code = fs.readFileSync(path.join(__dirname, '../src/js/room0-tutorial.js'), 'utf8');
+    const coachCode = fs.readFileSync(path.join(__dirname, '../src/js/coach-transition.js'), 'utf8');
+    const inputCode = fs.readFileSync(path.join(__dirname, '../src/js/input.js'), 'utf8');
 
     const localStorage = {
         _data: {},

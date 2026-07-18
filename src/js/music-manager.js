@@ -51,7 +51,7 @@ const MusicManager = {
                 throw new Error('Failed to acquire AudioManager music bus.');
             }
             
-            const response = await fetch('audio/music-config.json');
+            const response = await fetch('assets/audio/music-config.json');
             if (!response.ok) {
                 throw new Error(`Failed to load music-config.json (${response.status})`);
             }
@@ -256,7 +256,7 @@ const MusicManager = {
     },
     
     get basePath() {
-        return (this.config && this.config.settings && this.config.settings.basePath) || 'audio/';
+        return (this.config && this.config.settings && this.config.settings.basePath) || 'assets/audio/';
     },
     
     get crossfadeSeconds() {

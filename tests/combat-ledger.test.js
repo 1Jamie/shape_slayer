@@ -8,9 +8,9 @@ const fs = require('fs');
 const vm = require('vm');
 
 function loadLedgerHarness() {
-    const saveCode = fs.readFileSync(path.join(__dirname, '../js/save.js'), 'utf8');
-    const featsCode = fs.readFileSync(path.join(__dirname, '../js/feats-registry.js'), 'utf8');
-    const ledgerCode = fs.readFileSync(path.join(__dirname, '../js/ledger-manager.js'), 'utf8');
+    const saveCode = fs.readFileSync(path.join(__dirname, '../src/js/save.js'), 'utf8');
+    const featsCode = fs.readFileSync(path.join(__dirname, '../src/js/feats-registry.js'), 'utf8');
+    const ledgerCode = fs.readFileSync(path.join(__dirname, '../src/js/ledger-manager.js'), 'utf8');
 
     const localStorage = {
         _data: {},

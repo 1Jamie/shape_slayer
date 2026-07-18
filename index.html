@@ -11,123 +11,123 @@
     <meta name="apple-mobile-web-app-title" content="Shape Slayer">
     <title>Shape Slayer</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
-    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-    <link rel="stylesheet" href="css/ui/base.css">
-    <link rel="stylesheet" href="css/ui/mobile-controls.css">
+    <link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png">
+    <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+    <link rel="stylesheet" href="src/css/base.css">
+    <link rel="stylesheet" href="src/css/mobile-controls.css">
 </head>
 
 <body>
     <!-- Prevent back navigation (including side mouse button) - must load first -->
-    <script src="js/prevent-back-navigation.js"></script>
+    <script src="src/js/prevent-back-navigation.js"></script>
 
     <canvas id="gameCanvas"></canvas>
     <div id="ui-root"></div>
 
     <!-- Load scripts in dependency order -->
-    <script src="ui/core/eventBus.js"></script>
-    <script src="ui/core/domRoot.js"></script>
-    <script src="js/ui-dom-flag.js"></script>
-    <script src="ui/components/pauseButton.js"></script>
-    <script src="ui/components/featureTutorialSkip.js"></script>
-    <script src="ui/components/characterSheetButton.js"></script>
-    <script src="ui/components/pauseMenu.js"></script>
-    <script src="ui/components/privacyModal.js"></script>
-    <script src="ui/components/updateModal.js"></script>
-    <script src="ui/components/launchModal.js"></script>
-    <script src="ui/components/multiplayerMenu.js"></script>
-    <script src="ui/components/characterSheet.js"></script>
-    <script src="ui/components/indexMachine.js"></script>
-    <script src="ui/components/shardDisplay.js"></script>
-    <script src="ui/components/titleScreen.js"></script>
-    <script src="ui/components/hud.js"></script>
-    <script src="ui/components/gearUpgradeMenu.js"></script>
-    <script src="ui/components/safeRoomMenu.js"></script>
-    <script src="ui/components/interactionButton.js"></script>
-    <script src="ui/components/audioMenu.js"></script>
-    <script src="ui/components/deathOverlay.js"></script>
-    <script src="ui/components/roomInfo.js"></script>
-    <script src="ui/components/roomAndLevel.js"></script>
-    <script src="ui/components/otherPlayersHealth.js"></script>
-    <script src="ui/components/mobileCooldowns.js"></script>
-    <script src="js/mobile-control-layout.js"></script>
-    <script src="ui/components/mobileControls.js"></script>
-    <script src="ui/components/mobileControlEditor.js"></script>
-    <script src="ui/components/spectatorIndicator.js"></script>
-    <script src="ui/components/toast.js"></script>
-    <script src="js/audio.js"></script>
-    <script src="js/music-manager.js"></script>
-    <script src="js/utils.js"></script>
-    <script src="js/biomes.js"></script>
-    <script src="js/room-layout-generator.js"></script>
-    <script src="js/projectiles-util.js"></script>
-    <script src="js/render.js"></script>
-    <script src="js/touch-controls.js"></script>
-    <script src="js/device-detection.js"></script>
-    <script src="js/input.js"></script>
-    <script src="ui/core/controllerNavigation.js"></script>
-    <script src="js/gear.js"></script>
-    <script src="js/loot-selection.js"></script>
-    <script src="ui/components/gearTooltip.js"></script>
+    <script src="src/ui/core/eventBus.js"></script>
+    <script src="src/ui/core/domRoot.js"></script>
+    <script src="src/js/ui-dom-flag.js"></script>
+    <script src="src/ui/components/pauseButton.js"></script>
+    <script src="src/ui/components/featureTutorialSkip.js"></script>
+    <script src="src/ui/components/characterSheetButton.js"></script>
+    <script src="src/ui/components/pauseMenu.js"></script>
+    <script src="src/ui/components/privacyModal.js"></script>
+    <script src="src/ui/components/updateModal.js"></script>
+    <script src="src/ui/components/launchModal.js"></script>
+    <script src="src/ui/components/multiplayerMenu.js"></script>
+    <script src="src/ui/components/characterSheet.js"></script>
+    <script src="src/ui/components/indexMachine.js"></script>
+    <script src="src/ui/components/shardDisplay.js"></script>
+    <script src="src/ui/components/titleScreen.js"></script>
+    <script src="src/ui/components/hud.js"></script>
+    <script src="src/ui/components/gearUpgradeMenu.js"></script>
+    <script src="src/ui/components/safeRoomMenu.js"></script>
+    <script src="src/ui/components/interactionButton.js"></script>
+    <script src="src/ui/components/audioMenu.js"></script>
+    <script src="src/ui/components/deathOverlay.js"></script>
+    <script src="src/ui/components/roomInfo.js"></script>
+    <script src="src/ui/components/roomAndLevel.js"></script>
+    <script src="src/ui/components/otherPlayersHealth.js"></script>
+    <script src="src/ui/components/mobileCooldowns.js"></script>
+    <script src="src/js/mobile-control-layout.js"></script>
+    <script src="src/ui/components/mobileControls.js"></script>
+    <script src="src/ui/components/mobileControlEditor.js"></script>
+    <script src="src/ui/components/spectatorIndicator.js"></script>
+    <script src="src/ui/components/toast.js"></script>
+    <script src="src/js/audio.js"></script>
+    <script src="src/js/music-manager.js"></script>
+    <script src="src/js/utils.js"></script>
+    <script src="src/js/biomes.js"></script>
+    <script src="src/js/room-layout-generator.js"></script>
+    <script src="src/js/projectiles-util.js"></script>
+    <script src="src/js/render.js"></script>
+    <script src="src/js/touch-controls.js"></script>
+    <script src="src/js/device-detection.js"></script>
+    <script src="src/js/input.js"></script>
+    <script src="src/ui/core/controllerNavigation.js"></script>
+    <script src="src/js/gear.js"></script>
+    <script src="src/js/loot-selection.js"></script>
+    <script src="src/ui/components/gearTooltip.js"></script>
     <!-- Item system files -->
-    <script src="js/items/item-definitions.js"></script>
-    <script src="js/items/item-manager.js"></script>
-    <script src="js/items/item-ground.js"></script>
-    <script src="js/items/item-pylon.js"></script>
-    <script src="js/items/item-effects.js"></script>
-    <script src="js/items/item-visuals.js"></script>
+    <script src="src/js/items/item-definitions.js"></script>
+    <script src="src/js/items/item-manager.js"></script>
+    <script src="src/js/items/item-ground.js"></script>
+    <script src="src/js/items/item-pylon.js"></script>
+    <script src="src/js/items/item-effects.js"></script>
+    <script src="src/js/items/item-visuals.js"></script>
     <!-- Shared impulse physics (before player/enemy bases) -->
-    <script src="js/impulse-physics.js"></script>
+    <script src="src/js/impulse-physics.js"></script>
     <!-- Player class files -->
-    <script src="js/players/player-base.js"></script>
-    <script src="js/players/player-warrior.js"></script>
-    <script src="js/players/player-rogue.js"></script>
-    <script src="js/players/player-tank.js"></script>
-    <script src="js/players/player-mage.js"></script>
+    <script src="src/js/players/player-base.js"></script>
+    <script src="src/js/players/player-warrior.js"></script>
+    <script src="src/js/players/player-rogue.js"></script>
+    <script src="src/js/players/player-tank.js"></script>
+    <script src="src/js/players/player-mage.js"></script>
     <!-- Enemy files -->
-    <script src="js/enemies/telegraph/telegraph-manager.js"></script>
-    <script src="js/voxel-fracture.js"></script>
-    <script src="js/enemies/enemy-base.js"></script>
-    <script src="js/enemies/biome-enemy-mods.js"></script>
-    <script src="js/enemies/elite-enemy-affixes.js"></script>
-    <script src="js/enemies/enemy-index-catalog.js"></script>
-    <script src="js/enemies/enemy-basic.js"></script>
-    <script src="js/enemies/enemy-star.js"></script>
-    <script src="js/enemies/enemy-diamond.js"></script>
-    <script src="js/enemies/enemy-rectangle.js"></script>
-    <script src="js/enemies/enemy-octagon.js"></script>
+    <script src="src/js/enemies/telegraph/telegraph-manager.js"></script>
+    <script src="src/js/voxel-fracture.js"></script>
+    <script src="src/js/enemies/enemy-base.js"></script>
+    <script src="src/js/enemies/biome-enemy-mods.js"></script>
+    <script src="src/js/enemies/elite-enemy-affixes.js"></script>
+    <script src="src/js/enemies/enemy-index-catalog.js"></script>
+    <script src="src/js/enemies/enemy-basic.js"></script>
+    <script src="src/js/enemies/enemy-star.js"></script>
+    <script src="src/js/enemies/enemy-diamond.js"></script>
+    <script src="src/js/enemies/enemy-rectangle.js"></script>
+    <script src="src/js/enemies/enemy-octagon.js"></script>
     <!-- Boss files -->
-    <script src="js/bosses/hazards.js"></script>
-    <script src="js/bosses/boss-base.js"></script>
-    <script src="js/combat-scaling.js"></script>
-    <script src="js/combat-economy.js"></script>
-    <script src="js/bosses/boss-scaling.js"></script>
-    <script src="js/bosses/pheromone-polyline.js"></script>
-    <script src="js/bosses/boss-swarmking.js"></script>
-    <script src="js/bosses/boss-twinprism.js"></script>
-    <script src="js/bosses/boss-fortress.js"></script>
-    <script src="js/bosses/boss-fractalcore.js"></script>
-    <script src="js/bosses/boss-vortex.js"></script>
-    <script src="js/level.js"></script>
-    <script src="js/combat.js"></script>
-    <script src="js/ui.js"></script>
-    <script src="js/run-profiler.js"></script>
-    <script src="js/debug.js"></script>
-    <script src="js/save.js"></script>
-    <script src="js/feats-registry.js"></script>
-    <script src="js/ledger-manager.js"></script>
-    <script src="js/run-checkpoint.js"></script>
-    <script src="js/coach-transition.js"></script>
-    <script src="js/onboarding.js"></script>
-    <script src="js/feature-tutorials.js"></script>
-    <script src="js/room0-tutorial.js"></script>
-    <script src="js/version.js"></script>
-    <script src="js/mp-config.js"></script>
-    <script src="js/telemetry.js"></script>
-    <script src="js/interpolation.js"></script>
-    <script src="js/nexus.js"></script>
-    <script src="js/title-attract.js"></script>
-    <script src="js/main.js"></script>
+    <script src="src/js/bosses/hazards.js"></script>
+    <script src="src/js/bosses/boss-base.js"></script>
+    <script src="src/js/combat-scaling.js"></script>
+    <script src="src/js/combat-economy.js"></script>
+    <script src="src/js/bosses/boss-scaling.js"></script>
+    <script src="src/js/bosses/pheromone-polyline.js"></script>
+    <script src="src/js/bosses/boss-swarmking.js"></script>
+    <script src="src/js/bosses/boss-twinprism.js"></script>
+    <script src="src/js/bosses/boss-fortress.js"></script>
+    <script src="src/js/bosses/boss-fractalcore.js"></script>
+    <script src="src/js/bosses/boss-vortex.js"></script>
+    <script src="src/js/level.js"></script>
+    <script src="src/js/combat.js"></script>
+    <script src="src/js/ui.js"></script>
+    <script src="src/js/run-profiler.js"></script>
+    <script src="src/js/debug.js"></script>
+    <script src="src/js/save.js"></script>
+    <script src="src/js/feats-registry.js"></script>
+    <script src="src/js/ledger-manager.js"></script>
+    <script src="src/js/run-checkpoint.js"></script>
+    <script src="src/js/coach-transition.js"></script>
+    <script src="src/js/onboarding.js"></script>
+    <script src="src/js/feature-tutorials.js"></script>
+    <script src="src/js/room0-tutorial.js"></script>
+    <script src="src/js/version.js"></script>
+    <script src="src/js/mp-config.js"></script>
+    <script src="src/js/telemetry.js"></script>
+    <script src="src/js/interpolation.js"></script>
+    <script src="src/js/nexus.js"></script>
+    <script src="src/js/title-attract.js"></script>
+    <script src="src/js/main.js"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function () {

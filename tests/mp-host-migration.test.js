@@ -4,13 +4,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 test('hydrateHostAuthorityFromSnapshot exists on Game', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'main.js'), 'utf-8');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'main.js'), 'utf-8');
     assert.ok(source.includes('hydrateHostAuthorityFromSnapshot'));
     assert.ok(source.includes('Hydrated'));
 });
 
 test('host migration resets prediction and forces full state', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'multiplayer.js'), 'utf-8');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'multiplayer.js'), 'utf-8');
     assert.ok(source.includes('handleHostMigrated'));
     assert.ok(source.includes('resetPredictionState'));
     assert.ok(/host_migrated[\s\S]*forceFullState\s*=\s*true/.test(source) || source.includes('forceFullState = true'));
@@ -18,7 +18,7 @@ test('host migration resets prediction and forces full state', () => {
 });
 
 test('server assigns provisional host on host disconnect', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'server', 'mp-server-worker.js'), 'utf-8');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'multiplayer', 'mp-server-worker.js'), 'utf-8');
     assert.ok(source.includes('Provisional host'));
     assert.ok(source.includes('provisional: true'));
     // Must not only null host without replacement when others are connected
@@ -35,7 +35,7 @@ test('promote prefers snapshot HP over defaults', () => {
 });
 
 test('server keeps disconnected players in lobby until kick', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'server', 'mp-server-worker.js'), 'utf-8');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'multiplayer', 'mp-server-worker.js'), 'utf-8');
     assert.ok(source.includes('serializeLobbyPlayers'));
     assert.ok(source.includes('disconnected: !!p.disconnected'));
     assert.ok(source.includes('kick-only lobby removal') || source.includes('Stay in lobby until host kicks'));
@@ -43,8 +43,8 @@ test('server keeps disconnected players in lobby until kick', () => {
 });
 
 test('host saves snapshot on disconnect and restores on reconnect', () => {
-    const mp = fs.readFileSync(path.join(__dirname, '..', 'js', 'multiplayer.js'), 'utf-8');
-    const main = fs.readFileSync(path.join(__dirname, '..', 'js', 'main.js'), 'utf-8');
+    const mp = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'multiplayer.js'), 'utf-8');
+    const main = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'main.js'), 'utf-8');
     assert.ok(mp.includes('handlePlayerDisconnectedMidRun'));
     assert.ok(mp.includes('handlePlayerReconnectedMidRun'));
     assert.ok(mp.includes('player_reconnected'));
@@ -56,14 +56,14 @@ test('host saves snapshot on disconnect and restores on reconnect', () => {
 });
 
 test('door quorum excludes disconnected players', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'main.js'), 'utf-8');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'main.js'), 'utf-8');
     assert.ok(source.includes('isPlayerConnectedForMp(playerId)'));
     assert.ok(/checkDoorCollision[\s\S]*isPlayerConnectedForMp/.test(source));
 });
 
 test('exit door uses toggle ready instead of hold-to-advance', () => {
-    const main = fs.readFileSync(path.join(__dirname, '..', 'js', 'main.js'), 'utf-8');
-    const ui = fs.readFileSync(path.join(__dirname, '..', 'js', 'ui.js'), 'utf-8');
+    const main = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'main.js'), 'utf-8');
+    const ui = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'ui.js'), 'utf-8');
     assert.ok(main.includes('toggleDoorReadyForPlayer'));
     assert.ok(main.includes('didPlayerRequestDoorInteract'));
     assert.ok(main.includes('tryAdvanceWhenAllDoorReady'));
@@ -72,7 +72,7 @@ test('exit door uses toggle ready instead of hold-to-advance', () => {
 });
 
 test('non-host host_migrated clears lastConfirmedState but can keep history', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'multiplayer.js'), 'utf-8');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'multiplayer.js'), 'utf-8');
     assert.ok(source.includes('Stayed client under a new host') || source.includes('lastConfirmedState = null'));
     assert.ok(source.includes('expectedSequence = null'));
 });

@@ -45,6 +45,7 @@ const MultiplayerConfig = {
     RECONNECT_ATTEMPTS: 3,
     RECONNECT_DELAY: 2000, // milliseconds
     HEARTBEAT_INTERVAL: 30000, // milliseconds (30 seconds)
+    MAX_REDIRECT_HOPS: 2, // directory-owner redirects before aborting
 
     // State synchronization settings
     STATE_UPDATE_RATE: 30, // Hz - host sends game state at this rate (30 = 30 updates per second)

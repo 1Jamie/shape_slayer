@@ -2,7 +2,7 @@
 
 > **Updated:** 2026-07-14 (dead-code scrub pass)  
 > **Branch / state:** working tree on `main` (uncommitted)  
-> **Game version file:** `js/version.js` still reports `0.7.0` (not bumped for this WIP)  
+> **Game version file:** `src/js/version.js` still reports `0.7.0` (not bumped for this WIP)
 > **Diff scale (tracked vs `HEAD`):** **72** paths · **+3,779 / −13,694** (**net −9,915**)  
 > **Whole-file deletes alone:** **25** files · **−9,726** lines  
 > **Untracked new:** **16** files · **~7.2k** game/UI/test LOC (+ this doc)
@@ -28,7 +28,7 @@ Card runtime, door-pack UIs, and leftover call sites are gone. Portal is Gear-on
 
 | Layer | Contents |
 |-------|----------|
-| **Deleted** | Entire `js/cards/` (13), door pack UIs + `selection-doors.js`, canvas `ui-character-sheet.js`, deck/hand/mastery/mulligan/swap/room-modifier UI |
+| **Deleted** | Entire `src/js/cards/` (13), door pack UIs + `selection-doors.js`, canvas `ui-character-sheet.js`, deck/hand/mastery/mulligan/swap/room-modifier UI |
 | **New modules** | `combat-economy`, `voxel-fracture`, `onboarding`, `room0-tutorial`, `feature-tutorials`, `coach-transition`, gear/safe-room menus |
 | **New tests** | economy, run-credits, safe-room-meta, onboarding, room0, feature-tutorials |
 | **Heavily modified** | `main.js`, `save.js`, `gear.js`, `nexus.js`, enemies/bosses, `combat-scaling.js`, layout, music config, launch/privacy modals |
@@ -87,7 +87,7 @@ Shard helpers still use “card” naming; end-run UI may still say “Card Shar
 
 ## 2. Card System Removal
 
-### 2.1 Deleted runtime (`js/cards/`)
+### 2.1 Deleted runtime (`src/js/cards/`)
 
 | File | Former role |
 |------|-------------|
@@ -106,7 +106,7 @@ Shard helpers still use “card” naming; end-run UI may still say “Card Shar
 
 ### 2.2 Deleted UI
 
-`deckBuilder`, `deckUpgradeMenu`, `handHUD`, `masterySystem`, `mulligan`, `roomModifierSelection`, `swapPreview`, `doorOptions`, `upgradeSelection`, `doorModifierSelection`, plus `js/doors/selection-doors.js` and unused canvas `js/ui-character-sheet.js`.
+`deckBuilder`, `deckUpgradeMenu`, `handHUD`, `masterySystem`, `mulligan`, `roomModifierSelection`, `swapPreview`, `doorOptions`, `upgradeSelection`, `doorModifierSelection`, plus `src/js/doors/selection-doors.js` and unused canvas `src/js/ui-character-sheet.js`.
 
 ### 2.3 Scaffolding scrub (done 2026-07-14)
 
@@ -125,7 +125,7 @@ Track-wide impact of the pivot (incl. this scrub): **−13,694** deleted lines o
 
 ## 3. Gear Progression Overhaul
 
-Primary file: `js/gear.js`.
+Primary file: `src/js/gear.js`.
 
 ### 3.1 Meta-driven affix capacity
 
@@ -181,14 +181,14 @@ Room **0** tutorial exit is explicitly guarded so `0 % 5 === 0` does **not** ope
 
 `Game.inSafeRoom`, `enteringSafeRoom`, `setInSafeRoom` / `syncInSafeRoomFromCurrentRoom`, `Game.playerSafeRoomMeta` (MP map).
 
-### 4.3 Room content (`js/level.js`)
+### 4.3 Room content (`src/js/level.js`)
 
 - No enemies; starts cleared  
 - Hub **1600×900**, cyan `safe` biome  
 - Machines via `getSafeRoomMachines`: `gearUpgrade`, `affixReroll`, `healMaxHp`  
 - Nexus music while inside  
 
-### 4.4 Machines (`ui/components/safeRoomMenu.js`) - **Credits**
+### 4.4 Machines (`src/ui/components/safeRoomMenu.js`) - **Credits**
 
 | Machine | Effect |
 |---------|--------|
@@ -205,7 +205,7 @@ Gear rooms **9, 19, 29…** get `room.preBossHealer` near the exit → appears a
 
 ## 5. Nexus Gear Upgrade Stations
 
-### 5.1 Stations (`js/nexus.js` + `gearUpgradeMenu.js`)
+### 5.1 Stations (`src/js/nexus.js` + `gearUpgradeMenu.js`)
 
 | Station id | Purpose | Unlock gate (`getNexusMachineLock`) |
 |------------|---------|--------------------------------------|
@@ -243,7 +243,7 @@ Same as earlier pass: heal bonus, level-up/reroll caps, rarity forge +1/+2, and 
 
 ## 6. Combat Economy
 
-New module: `js/combat-economy.js` (`window.CombatEconomy`).
+New module: `src/js/combat-economy.js` (`window.CombatEconomy`).
 
 ### 6.1 Kill payouts
 
@@ -423,7 +423,7 @@ Safe Rooms remain denser (every **5**). The earlier interval-5 vs level-/10 mism
 
 ## 11. Voxel Fracture VFX
 
-`js/voxel-fracture.js` (~1827 lines).
+`src/js/voxel-fracture.js` (~1827 lines).
 
 ### Design
 
@@ -535,20 +535,20 @@ Heal stack: pre-boss +25% · Safe healer maxHP amplify · level-up +50%.
 
 | Path | ~Lines | Role |
 |------|--------|------|
-| `js/voxel-fracture.js` | 1827 | Fracture VFX |
-| `js/combat-economy.js` | 171 | Credit formulas + sim helpers |
-| `js/onboarding.js` | 607 | Nexus first-run coach |
-| `js/room0-tutorial.js` | 676 | Combat tutorial room |
-| `js/feature-tutorials.js` | 516 | Machine unlock coaches |
-| `js/coach-transition.js` | 116 | Spotlight tween |
-| `ui/components/gearUpgradeMenu.js` | 654 | Nexus shard shop |
-| `ui/components/safeRoomMenu.js` | 812 | In-run machines |
+| `src/js/voxel-fracture.js` | 1827 | Fracture VFX |
+| `src/js/combat-economy.js` | 171 | Credit formulas + sim helpers |
+| `src/js/onboarding.js` | 607 | Nexus first-run coach |
+| `src/js/room0-tutorial.js` | 676 | Combat tutorial room |
+| `src/js/feature-tutorials.js` | 516 | Machine unlock coaches |
+| `src/js/coach-transition.js` | 116 | Spotlight tween |
+| `src/ui/components/gearUpgradeMenu.js` | 654 | Nexus shard shop |
+| `src/ui/components/safeRoomMenu.js` | 812 | In-run machines |
 | `tests/*` (7 new) | ~1800 | Economy / tutorial coverage |
 | `docs/gear-mode-safe-rooms-update.md` | ~600 | This document |
 
 ### Deleted (whole files, −9,726)
 
-`js/cards/*` (13), `js/doors/selection-doors.js`, `js/ui-character-sheet.js`, `deckBuilder`, `deckUpgradeMenu`, `handHUD`, `masterySystem`, `mulligan`, `roomModifierSelection`, `swapPreview`, `doorOptions`, `upgradeSelection`, `doorModifierSelection`.
+`src/js/cards/*` (13), `src/js/doors/selection-doors.js`, `src/js/ui-character-sheet.js`, `deckBuilder`, `deckUpgradeMenu`, `handHUD`, `masterySystem`, `mulligan`, `roomModifierSelection`, `swapPreview`, `doorOptions`, `upgradeSelection`, `doorModifierSelection`.
 
 ### Modified hotspots
 

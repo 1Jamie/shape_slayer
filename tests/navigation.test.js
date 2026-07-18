@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const RoomLayoutGenerator = require('../js/room-layout-generator.js');
+const RoomLayoutGenerator = require('../src/js/room-layout-generator.js');
 
 const BLOCKED = 1;
 const WALKABLE = 0;
@@ -121,7 +121,7 @@ test('findUnstuckPosition retreats to the previous safe point', () => {
 });
 
 test('generated rooms keep boss pathfinding away from decor choke points', () => {
-    global.BiomeConfig = require('../js/biomes.js');
+    global.BiomeConfig = require('../src/js/biomes.js');
     const plan = RoomLayoutGenerator.buildRoomPlan(8, 'cards', 'normal', null);
     const layout = RoomLayoutGenerator.generateRoomLayout(plan, 'cards:8:normal:swarm:v1');
     const bossRadius = 60;

@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 function loadTelemetry() {
-    const scriptPath = path.join(__dirname, '..', 'js', 'telemetry.js');
+    const scriptPath = path.join(__dirname, '..', 'src', 'js', 'telemetry.js');
     const source = fs.readFileSync(scriptPath, 'utf-8');
     global.window = global;
     global.Game = {

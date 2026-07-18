@@ -584,7 +584,7 @@ The multiplayer server supports three deployment modes for different scale requi
 - `ENABLE_CLUSTERING`: true/false (legacy, use SERVER_MODE instead)
 - Redis settings (for multi/slave modes)
 
-**Configuration File** (`server/config.js`):
+**Configuration File** (`multiplayer/config.js`):
 - Centralized configuration management
 - Validates environment variables
 - Provides defaults for all settings
@@ -725,7 +725,7 @@ The multiplayer server supports three deployment modes for different scale requi
 - Disconnected players removed from lobby
 - Player-to-lobby map cleaned up on disconnect
 
-#### Client Configuration (`js/mp-config.js`)
+#### Client Configuration (`src/js/mp-config.js`)
 - **Server URL:** Configurable (default: `wss://shape-slayer.gpe.pet`)
 - **Connection Settings:** Reconnect attempts (3), delay (2s), heartbeat (30s)
 - **Lobby Settings:** Max players (4), code length (6)
@@ -923,7 +923,7 @@ npm test     # Run test suite
 
 **Test Results**: Outputs colored pass/fail with detailed logs.
 
-**Debug Flags System** (`js/debug.js`):
+**Debug Flags System** (`src/js/debug.js`):
 
 **Purpose**: Toggle verbose logging at runtime without code changes.
 
@@ -1329,7 +1329,7 @@ finalDamage = (baseDamage * gearMultiplier) * (1 - targetDefense) * critMultipli
 ```
 /game
   index.html
-  server.js           // HTTP development server (port 3000)
+  static-server.js    // HTTP development server (port 3000)
   /server             // Multiplayer server
     mp-server.js      // WebSocket multiplayer server (port 4000)
     package.json      // Server dependencies (ws library)
@@ -1389,10 +1389,10 @@ The enemy system uses a modular inheritance pattern:
 **Architecture**:
 
 Each player class has a corresponding configuration object at the top of its file:
-- `ROGUE_CONFIG` (`js/players/player-rogue.js`)
-- `WARRIOR_CONFIG` (`js/players/player-warrior.js`)
-- `TANK_CONFIG` (`js/players/player-tank.js`)
-- `MAGE_CONFIG` (`js/players/player-mage.js`)
+- `ROGUE_CONFIG` (`src/js/players/player-rogue.js`)
+- `WARRIOR_CONFIG` (`src/js/players/player-warrior.js`)
+- `TANK_CONFIG` (`src/js/players/player-tank.js`)
+- `MAGE_CONFIG` (`src/js/players/player-mage.js`)
 
 **Configuration Structure**:
 

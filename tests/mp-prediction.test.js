@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 function loadMpConfig() {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'mp-config.js'), 'utf-8');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'mp-config.js'), 'utf-8');
     const context = {
         window: { location: { protocol: 'http:', hostname: 'localhost' } },
         console
@@ -194,7 +194,7 @@ test('live drift apply nudges pose without rewriting velocity', () => {
 });
 
 test('player-base source has predictMovementStep and skipTransform applyState', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'players', 'player-base.js'), 'utf-8');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'players', 'player-base.js'), 'utf-8');
     assert.ok(source.includes('predictMovementStep('));
     assert.ok(source.includes('tryBeginPredictedDodge('));
     assert.ok(source.includes('syncPredictedMovementFromHost('));
@@ -206,7 +206,7 @@ test('player-base source has predictMovementStep and skipTransform applyState', 
 });
 
 test('multiplayer reconcilePrediction disables dodge on replay', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'multiplayer.js'), 'utf-8');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'multiplayer.js'), 'utf-8');
     assert.ok(source.includes('reconcilePrediction('));
     assert.ok(source.includes('recordPredictionFrame('));
     assert.ok(source.includes('resetPredictionState('));
@@ -222,7 +222,7 @@ test('multiplayer reconcilePrediction disables dodge on replay', () => {
 });
 
 test('debug panel exposes MP prediction section', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'debug.js'), 'utf-8');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'debug.js'), 'utf-8');
     assert.ok(source.includes('debugMpPredictionSection'));
     assert.ok(source.includes('updateMpPredictionSection'));
     assert.ok(source.includes('PREDICTION_DIVERGENCE'));

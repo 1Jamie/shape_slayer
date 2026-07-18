@@ -112,7 +112,7 @@ This document outlines the complete design for replacing the gear/loot system wi
 
 ### 1.1 Card Data Schema
 
-**File**: `js/cards/card-data.js`
+**File**: `src/js/cards/card-data.js`
 
 ```javascript
 {
@@ -311,7 +311,7 @@ Story-only cards are the bridge between the card system and the ending lore. The
 
 ### 1.2 Save System Extensions
 
-**File**: `js/save.js` - Extend `SaveSystem.getDefaultSave()`
+**File**: `src/js/save.js` - Extend `SaveSystem.getDefaultSave()`
 
 ```javascript
 {
@@ -2165,7 +2165,7 @@ This system creates a fascinating pre-game loop:
 
 ### 4.1 Deck Manager
 
-**File**: `js/cards/deck-manager.js`
+**File**: `src/js/cards/deck-manager.js`
 
 **State Variables** (stored in `Game` object):
 ```javascript
@@ -2333,7 +2333,7 @@ Game.activeTeamCards = [];      // Active team cards (multiplayer)
 
 ### 4.4 Card Effect Application
 
-**File**: `js/cards/card-effects.js`
+**File**: `src/js/cards/card-effects.js`
 
 **Effect Resolver**:
 - Stat modifiers: Apply to `player.damage`, `player.defense`, `player.moveSpeed`, etc.
@@ -2471,7 +2471,7 @@ Game.activeTeamCards = [];      // Active team cards (multiplayer)
 
 ### 5.1 Nexus UI
 
-**Deck Builder Panel** (`js/nexus.js`, `js/ui.js`):
+**Deck Builder Panel** (`src/js/nexus.js`, `src/js/ui.js`):
 - Card library browser (filter by category, search)
 - Deck slots (drag and drop cards)
 - Card preview (quality bands, effects, flavor text)
@@ -2527,7 +2527,7 @@ Game.activeTeamCards = [];      // Active team cards (multiplayer)
 
 ### 5.2 Run HUD
 
-**Hand Display** (`js/ui.js`):
+**Hand Display** (`src/js/ui.js`):
 - Show current cards in hand
 - Quality indicators (border glow, tier colors)
 - **Card Origin Icons**: Each card must display a small, non-intrusive icon in one corner (e.g., top-right) based on `card.origin`:
@@ -2627,7 +2627,7 @@ Game.activeTeamCards = [];      // Active team cards (multiplayer)
 
 ### 6.1 Multiplayer Protocol
 
-**File**: `js/multiplayer.js` - Extend `multiplayerManager`
+**File**: `src/js/multiplayer.js` - Extend `multiplayerManager`
 
 **New Message Types**:
 - `deck_sync`: Host sends deck seed + card IDs to clients
@@ -2693,7 +2693,7 @@ Game.activeTeamCards = [];      // Active team cards (multiplayer)
 
 ### 7.1 Migration Script
 
-**File**: `js/cards/migration.js`
+**File**: `src/js/cards/migration.js`
 
 **Migration Logic**:
 1. Check if migration already completed (`migratedFromGear` flag)
@@ -2761,7 +2761,7 @@ Game.activeTeamCards = [];      // Active team cards (multiplayer)
 ## Implementation Checklist
 
 ### Phase 1: Foundation
-- [ ] Create `js/cards/` directory structure
+- [ ] Create `src/js/cards/` directory structure
 - [ ] Define card data schema
 - [ ] Extend save system with card data
 - [ ] Create migration script

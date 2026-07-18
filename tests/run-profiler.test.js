@@ -13,7 +13,7 @@ function loadRunProfiler() {
         GameVersion: { VERSION: 'test' },
         Game: { roomNumber: 1 }
     };
-    vm.runInNewContext(fs.readFileSync(`${__dirname}/../js/run-profiler.js`, 'utf8'), context);
+    vm.runInNewContext(fs.readFileSync(`${__dirname}/../src/js/run-profiler.js`, 'utf8'), context);
     return context.window.RunProfiler;
 }
 

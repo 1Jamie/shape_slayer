@@ -31,33 +31,53 @@ const SERVER_MODE = process.env.SERVER_MODE || 'single';
 // ----------------------------------------------------------------------------
 // Set these to connect to your master server when running in slave mode
 // Example: MASTER_SERVER_IP='10.0.0.100' MASTER_SERVER_PORT=6379
+function parseIntEnv(name, fallback) {
+    const raw = process.env[name];
+    if (raw === undefined || raw === '') return fallback;
+    const value = parseInt(raw, 10);
+    return Number.isFinite(value) ? value : fallback;
+}
+
+function parseFloatEnv(name, fallback) {
+    const raw = process.env[name];
+    if (raw === undefined || raw === '') return fallback;
+    const value = parseFloat(raw);
+    return Number.isFinite(value) ? value : fallback;
+}
+
 const MASTER_SERVER_IP = process.env.MASTER_SERVER_IP || 'localhost';
-const MASTER_SERVER_PORT = parseInt(process.env.MASTER_SERVER_PORT) || 6379;
+const MASTER_SERVER_PORT = parseIntEnv('MASTER_SERVER_PORT', 6379);
 
 // ----------------------------------------------------------------------------
 // WORKER/THREADING CONFIGURATION
 // ----------------------------------------------------------------------------
 // Number of worker processes to spawn (only applies to 'multi' and 'slave' modes)
 // Recommendation: Use 2-4 workers, max (CPU cores - 2) to avoid OS starvation
-const WORKER_COUNT = parseInt(process.env.WORKER_COUNT) || 2;
+const WORKER_COUNT = parseIntEnv('WORKER_COUNT', 2);
 
 // Maximum connections per worker before considered overloaded
-const MAX_CONNECTIONS_PER_WORKER = parseInt(process.env.MAX_CONNECTIONS_PER_WORKER) || 500;
+const MAX_CONNECTIONS_PER_WORKER = parseIntEnv('MAX_CONNECTIONS_PER_WORKER', 500);
 
 // Maximum lobbies per worker before considered overloaded
-const MAX_LOBBIES_PER_WORKER = parseInt(process.env.MAX_LOBBIES_PER_WORKER) || 100;
+const MAX_LOBBIES_PER_WORKER = parseIntEnv('MAX_LOBBIES_PER_WORKER', 100);
 
 // Maximum messages per second per worker before overloaded
-const MAX_MESSAGES_PER_SECOND = parseInt(process.env.MAX_MESSAGES_PER_SECOND) || 1000;
+const MAX_MESSAGES_PER_SECOND = parseIntEnv('MAX_MESSAGES_PER_SECOND', 1000);
+
+// Per-socket inbound message rate (enforced); defaults below aggregate worker load threshold
+const MAX_MESSAGES_PER_SOCKET_PER_SECOND = parseIntEnv('MAX_MESSAGES_PER_SOCKET_PER_SECOND', 120);
 
 // Maximum event loop lag (ms) before worker considered overloaded
-const MAX_EVENT_LOOP_LAG = parseInt(process.env.MAX_EVENT_LOOP_LAG) || 100;
+const MAX_EVENT_LOOP_LAG = parseIntEnv('MAX_EVENT_LOOP_LAG', 100);
 
 // ----------------------------------------------------------------------------
 // SERVER CONFIGURATION
 // ----------------------------------------------------------------------------
 // WebSocket server port
-const PORT = parseInt(process.env.PORT) || 4000;
+const PORT = parseIntEnv('PORT', 4000);
+
+// Hostname clients use in redirect URLs (ws://PUBLIC_HOST:workerPort)
+const PUBLIC_HOST = process.env.PUBLIC_HOST || 'localhost';
 
 // Unique identifier for this server (useful for multi-server setups)
 const SERVER_ID = process.env.SERVER_ID || `server-${Date.now()}`;
@@ -69,7 +89,9 @@ const SERVER_REGION = process.env.SERVER_REGION || 'default';
 // REDIS CONFIGURATION (for 'multi' and 'slave' modes)
 // ----------------------------------------------------------------------------
 // Redis port (default: 6379)
-const REDIS_PORT = parseInt(process.env.REDIS_PORT) || 6379;
+const REDIS_PORT = parseIntEnv('REDIS_PORT', 6379);
+const REDIS_HOST = process.env.REDIS_HOST || '127.0.0.1';
+const LOBBY_DIRECTORY_TTL_SECONDS = parseIntEnv('LOBBY_DIRECTORY_TTL_SECONDS', 60);
 
 // Redis password (optional, leave empty if no password)
 const REDIS_PASSWORD = process.env.REDIS_PASSWORD || undefined;
@@ -87,19 +109,19 @@ const REDIS_CONTAINER_NAME = process.env.REDIS_CONTAINER_NAME || 'shapeslayer-re
 // LOBBY CONFIGURATION
 // ----------------------------------------------------------------------------
 // Maximum players per lobby
-const MAX_PLAYERS_PER_LOBBY = parseInt(process.env.MAX_PLAYERS_PER_LOBBY) || 4;
+const MAX_PLAYERS_PER_LOBBY = parseIntEnv('MAX_PLAYERS_PER_LOBBY', 4);
 
 // Lobby code length (characters)
-const LOBBY_CODE_LENGTH = parseInt(process.env.LOBBY_CODE_LENGTH) || 6;
+const LOBBY_CODE_LENGTH = parseIntEnv('LOBBY_CODE_LENGTH', 6);
 
 // Auto-cleanup lobbies older than this (milliseconds)
-const LOBBY_MAX_AGE = parseInt(process.env.LOBBY_MAX_AGE) || (60 * 60 * 1000); // 1 hour
+const LOBBY_MAX_AGE = parseIntEnv('LOBBY_MAX_AGE', 60 * 60 * 1000); // 1 hour
 
 // How often to check for old lobbies to cleanup (milliseconds)
-const LOBBY_CLEANUP_INTERVAL = parseInt(process.env.LOBBY_CLEANUP_INTERVAL) || (5 * 60 * 1000); // 5 minutes
+const LOBBY_CLEANUP_INTERVAL = parseIntEnv('LOBBY_CLEANUP_INTERVAL', 5 * 60 * 1000); // 5 minutes
 
 // Grace period before removing a disconnected player from a lobby (milliseconds)
-const DISCONNECT_GRACE_MS = parseInt(process.env.DISCONNECT_GRACE_MS) || 15000;
+const DISCONNECT_GRACE_MS = parseIntEnv('DISCONNECT_GRACE_MS', 15000);
 
 // ----------------------------------------------------------------------------
 // LOAD BALANCING CONFIGURATION (for 'multi' and 'slave' modes)
@@ -108,13 +130,13 @@ const DISCONNECT_GRACE_MS = parseInt(process.env.DISCONNECT_GRACE_MS) || 15000;
 const ENABLE_LOAD_BALANCING = process.env.ENABLE_LOAD_BALANCING !== 'false';
 
 // Health check interval (milliseconds)
-const HEALTH_CHECK_INTERVAL = parseInt(process.env.HEALTH_CHECK_INTERVAL) || 2000;
+const HEALTH_CHECK_INTERVAL = parseIntEnv('HEALTH_CHECK_INTERVAL', 2000);
 
 // Migration threshold (0.0-1.0) - minimum load difference to trigger migration
-const MIGRATION_THRESHOLD = parseFloat(process.env.MIGRATION_THRESHOLD) || 0.3;
+const MIGRATION_THRESHOLD = parseFloatEnv('MIGRATION_THRESHOLD', 0.3);
 
 // Migration cooldown (milliseconds) - min time between migrations for same lobby
-const MIGRATION_COOLDOWN = parseInt(process.env.MIGRATION_COOLDOWN) || 30000;
+const MIGRATION_COOLDOWN = parseIntEnv('MIGRATION_COOLDOWN', 30000);
 
 // ----------------------------------------------------------------------------
 // LOGGING CONFIGURATION
@@ -146,6 +168,7 @@ const config = {
     // Server configuration
     port: PORT,
     host: '0.0.0.0',
+    publicHost: PUBLIC_HOST,
     
     // Clustering configuration
     clustering: {
@@ -156,8 +179,10 @@ const config = {
     },
     
     // Load balancing configuration
+    // Directory+redirect model: automatic mid-match migration stays off until
+    // full state transfer lands; redis affinity handles cross-worker joins.
     loadBalancing: {
-        enabled: isClustered && ENABLE_LOAD_BALANCING,
+        enabled: isClustered && ENABLE_LOAD_BALANCING && process.env.ENABLE_LOBBY_MIGRATION === 'true',
         healthCheckInterval: HEALTH_CHECK_INTERVAL,
         thresholds: {
             maxConnections: MAX_CONNECTIONS_PER_WORKER,
@@ -177,6 +202,11 @@ const config = {
         cleanupInterval: LOBBY_CLEANUP_INTERVAL,
         disconnectGraceMs: DISCONNECT_GRACE_MS
     },
+
+    limits: {
+        maxPayloadBytes: parseIntEnv('WS_MAX_PAYLOAD_BYTES', 256 * 1024),
+        maxMessagesPerSocketPerSecond: MAX_MESSAGES_PER_SOCKET_PER_SECOND
+    },
     
     // Logging configuration
     logging: {
@@ -190,12 +220,13 @@ const config = {
         enabled: useRedis,
         isMaster: isMaster,
         isSlave: isSlave,
-        host: isSlave ? MASTER_SERVER_IP : 'localhost',
+        host: isSlave ? MASTER_SERVER_IP : REDIS_HOST,
         port: isSlave ? MASTER_SERVER_PORT : REDIS_PORT,
         password: REDIS_PASSWORD,
         autoManage: isMaster && REDIS_AUTO_MANAGE,
         containerName: REDIS_CONTAINER_NAME,
-        image: REDIS_IMAGE
+        image: REDIS_IMAGE,
+        lobbyTtlSeconds: LOBBY_DIRECTORY_TTL_SECONDS
     },
     
     // Server identification
@@ -203,6 +234,18 @@ const config = {
         id: SERVER_ID,
         region: SERVER_REGION
     }
+};
+
+/** Resolve this process's listen port and public WS endpoint. */
+config.resolveWorkerEndpoint = function resolveWorkerEndpoint() {
+    const workerIndex = parseIntEnv('WORKER_INDEX', 0);
+    const workerPort = parseIntEnv('WORKER_PORT', config.port + workerIndex);
+    const scheme = process.env.PUBLIC_WS_SCHEME || 'ws';
+    return {
+        workerIndex,
+        workerPort,
+        endpoint: `${scheme}://${config.publicHost}:${workerPort}`
+    };
 };
 
 // ============================================================================
@@ -240,8 +283,12 @@ console.log(`[Config] Server Mode: ${SERVER_MODE.toUpperCase()}`);
 if (SERVER_MODE === 'single') {
     console.log('[Config] Running in single-threaded mode (simplest, recommended for most users)');
 } else if (SERVER_MODE === 'multi') {
-    console.log(`[Config] Running in multi-core mode with ${WORKER_COUNT} workers + Redis`);
-    console.log('[Config] Redis will be auto-managed in Docker container');
+    console.log(`[Config] Running in multi-core mode with ${WORKER_COUNT} workers + Redis directory`);
+    if (REDIS_AUTO_MANAGE) {
+        console.log('[Config] Redis Docker auto-manage is enabled (harness owns container lifecycle)');
+    } else {
+        console.log(`[Config] Expect Redis at ${REDIS_HOST}:${REDIS_PORT}`);
+    }
 } else if (SERVER_MODE === 'slave') {
     console.log(`[Config] Running as slave server connecting to master at ${MASTER_SERVER_IP}`);
     console.log(`[Config] Workers: ${WORKER_COUNT}`);

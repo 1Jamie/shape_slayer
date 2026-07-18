@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 function loadMpConfig(location) {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'js', 'mp-config.js'), 'utf-8');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'mp-config.js'), 'utf-8');
     const context = {
         window: {
             location: location,

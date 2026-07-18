@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const ROOT = path.resolve(__dirname, '..');
 
 function loadCombatScaling() {
-    const source = fs.readFileSync(path.join(ROOT, 'js/combat-scaling.js'), 'utf8');
+    const source = fs.readFileSync(path.join(ROOT, 'src/js/combat-scaling.js'), 'utf8');
     const ctx = { console, Math, Game: { gameMode: 'gear', difficulty: 'normal', multiplayerEnabled: false } };
     ctx.window = ctx;
     ctx.globalThis = ctx;
@@ -91,10 +91,10 @@ test('applyEnemyScaling resolves CONFIG and scales HP', () => {
     ctx.window = ctx;
     ctx.globalThis = ctx;
     vm.createContext(ctx);
-    const telegraph = fs.readFileSync(path.join(ROOT, 'js/enemies/telegraph/telegraph-manager.js'), 'utf8');
-    const enemyBase = fs.readFileSync(path.join(ROOT, 'js/enemies/enemy-base.js'), 'utf8');
-    const enemyBasic = fs.readFileSync(path.join(ROOT, 'js/enemies/enemy-basic.js'), 'utf8');
-    const combatScaling = fs.readFileSync(path.join(ROOT, 'js/combat-scaling.js'), 'utf8');
+    const telegraph = fs.readFileSync(path.join(ROOT, 'src/js/enemies/telegraph/telegraph-manager.js'), 'utf8');
+    const enemyBase = fs.readFileSync(path.join(ROOT, 'src/js/enemies/enemy-base.js'), 'utf8');
+    const enemyBasic = fs.readFileSync(path.join(ROOT, 'src/js/enemies/enemy-basic.js'), 'utf8');
+    const combatScaling = fs.readFileSync(path.join(ROOT, 'src/js/combat-scaling.js'), 'utf8');
     vm.runInContext(`${telegraph}\nif (typeof TelegraphSystem !== 'undefined') globalThis.TelegraphSystem = TelegraphSystem;`, ctx);
     vm.runInContext(`${enemyBase}\nif (typeof EnemyBase !== 'undefined') globalThis.EnemyBase = EnemyBase;`, ctx);
     vm.runInContext(`${enemyBasic}\nif (typeof Enemy !== 'undefined') globalThis.Enemy = Enemy;\nif (typeof BASIC_ENEMY_CONFIG !== 'undefined') globalThis.BASIC_ENEMY_CONFIG = BASIC_ENEMY_CONFIG;`, ctx);
@@ -136,8 +136,8 @@ test('BossScaling shim exposes full public surface', () => {
     ctx.window = ctx;
     ctx.globalThis = ctx;
     vm.createContext(ctx);
-    vm.runInContext(fs.readFileSync(path.join(ROOT, 'js/combat-scaling.js'), 'utf8'), ctx);
-    vm.runInContext(fs.readFileSync(path.join(ROOT, 'js/bosses/boss-scaling.js'), 'utf8'), ctx);
+    vm.runInContext(fs.readFileSync(path.join(ROOT, 'src/js/combat-scaling.js'), 'utf8'), ctx);
+    vm.runInContext(fs.readFileSync(path.join(ROOT, 'src/js/bosses/boss-scaling.js'), 'utf8'), ctx);
 
     const required = [
         'BOSS_SCALING_PROFILES', 'BOSS_MODE_CONFIG', 'GEAR_BOSS_CYCLE', 'GEAR_FIRST_BOSS_ROOM',

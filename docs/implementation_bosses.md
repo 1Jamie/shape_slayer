@@ -7,7 +7,7 @@ Create 5 unique boss encounters starting at room 10, each with intro sequences, 
 
 ## Architecture
 
-- Create `js/boss-base.js` - Base boss class extending EnemyBase
+- Create `src/js/boss-base.js` - Base boss class extending EnemyBase
 - Create individual boss files for each encounter
 - Add boss intro system to `main.js`
 - Modify `level.js` to detect and spawn bosses
@@ -20,7 +20,7 @@ Create 5 unique boss encounters starting at room 10, each with intro sequences, 
 
 ### 1.1 Create Boss Base Class
 
-**File:** `js/boss-base.js`
+**File:** `src/js/boss-base.js`
 
 **Tasks:**
 
@@ -120,7 +120,7 @@ renderWeakPoints(ctx)
 
 ### 2.1 Swarm King (Room 10)
 
-**File:** `js/boss-swarmking.js`
+**File:** `src/js/boss-swarmking.js`
 
 **Boss Details:**
 
@@ -164,7 +164,7 @@ renderWeakPoints(ctx)
 
 ### 2.2 Twin Prism (Room 15)
 
-**File:** `js/boss-twinprism.js`
+**File:** `src/js/boss-twinprism.js`
 
 **Boss Details:**
 
@@ -207,7 +207,7 @@ renderWeakPoints(ctx)
 
 ### 2.3 Fortress (Room 20)
 
-**File:** `js/boss-fortress.js`
+**File:** `src/js/boss-fortress.js`
 
 **Boss Details:**
 
@@ -252,7 +252,7 @@ renderWeakPoints(ctx)
 
 ### 2.4 Fractal Core (Room 25)
 
-**File:** `js/boss-fractalcore.js`
+**File:** `src/js/boss-fractalcore.js`
 
 **Boss Details:**
 
@@ -298,7 +298,7 @@ renderWeakPoints(ctx)
 
 ### 2.5 Vortex (Room 30)
 
-**File:** `js/boss-vortex.js`
+**File:** `src/js/boss-vortex.js`
 
 **Boss Details:**
 
@@ -348,7 +348,7 @@ renderWeakPoints(ctx)
 
 ### 3.1 Boss Rendering System
 
-**File:** `js/render.js` or individual boss files
+**File:** `src/js/render.js` or individual boss files
 
 **Tasks:**
 
@@ -360,7 +360,7 @@ renderWeakPoints(ctx)
 
 ### 3.2 Boss Collision Updates
 
-**File:** `js/combat.js`
+**File:** `src/js/combat.js`
 
 **Tasks:**
 
@@ -371,7 +371,7 @@ renderWeakPoints(ctx)
 
 ### 3.3 Environmental Hazard System
 
-**File:** `js/hazards.js` (new file)
+**File:** `src/js/hazards.js` (new file)
 
 **Tasks:**
 
@@ -390,7 +390,7 @@ renderWeakPoints(ctx)
 
 ### 3.4 Boss Loot & Rewards
 
-**File:** `js/level.js` and `js/gear.js`
+**File:** `src/js/level.js` and `src/js/gear.js`
 
 **Tasks:**
 
@@ -417,19 +417,19 @@ renderWeakPoints(ctx)
 
 **New Files:**
 
-- `js/boss-base.js` - Base boss class
-- `js/boss-swarmking.js` - Swarm King boss
-- `js/boss-twinprism.js` - Twin Prism boss
-- `js/boss-fortress.js` - Fortress boss
-- `js/boss-fractalcore.js` - Fractal Core boss
-- `js/boss-vortex.js` - Vortex boss
-- `js/hazards.js` - Environmental hazard system
+- `src/js/boss-base.js` - Base boss class
+- `src/js/boss-swarmking.js` - Swarm King boss
+- `src/js/boss-twinprism.js` - Twin Prism boss
+- `src/js/boss-fortress.js` - Fortress boss
+- `src/js/boss-fractalcore.js` - Fractal Core boss
+- `src/js/boss-vortex.js` - Vortex boss
+- `src/js/hazards.js` - Environmental hazard system
 
 **Modified Files:**
 
-- `js/main.js` - Add boss intro system
-- `js/level.js` - Boss detection and spawning
-- `js/combat.js` - Weak point damage handling
+- `src/js/main.js` - Add boss intro system
+- `src/js/level.js` - Boss detection and spawning
+- `src/js/combat.js` - Weak point damage handling
 - `index.html` - Add new boss script tags
 
 ---
@@ -459,7 +459,7 @@ renderWeakPoints(ctx)
 - [ ] Create BossBase class extending EnemyBase with phase system, weak points, and environmental hazards
 - [ ] Implement boss intro sequence system in main.js with animation and skip functionality
 - [ ] Modify level.js to detect boss rooms (room % 5 === 0 && >= 10) and generate appropriate bosses
-- [ ] Create environmental hazard system (js/hazards.js) with Shockwave, DamageZone, PullField, Debris types
+- [ ] Create environmental hazard system (src/js/hazards.js) with Shockwave, DamageZone, PullField, Debris types
 - [ ] Implement Swarm King boss (room 10) with star shape, spike attacks, weak points, and minion spawning
 - [ ] Implement Twin Prism boss (room 15) with dual diamond mechanics, dash patterns, and center weak point
 - [ ] Implement Fortress boss (room 20) with rectangle shape, slam attacks, shockwaves, and corner weak points

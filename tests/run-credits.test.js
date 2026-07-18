@@ -8,7 +8,7 @@ const fs = require('fs');
 const vm = require('vm');
 
 function loadCurrencyHarness() {
-    const saveCode = fs.readFileSync(path.join(__dirname, '../js/save.js'), 'utf8');
+    const saveCode = fs.readFileSync(path.join(__dirname, '../src/js/save.js'), 'utf8');
     const localStorage = {
         _data: {},
         getItem(k) { return this._data[k] ?? null; },

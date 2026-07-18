@@ -8,7 +8,8 @@
   },
   "dependencies": {
     "ws": "^8.14.2",
-    "dotenv": "^16.0.3"
+    "dotenv": "^16.0.3",
+    "ioredis": "^5.4.2"
   },
   "keywords": ["websocket", "multiplayer", "game-server"],
   "author": "",

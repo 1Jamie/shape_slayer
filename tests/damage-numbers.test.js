@@ -45,7 +45,7 @@ async function startServers() {
         log('Starting multiplayer WebSocket server...', colors.yellow);
         
         // Start the multiplayer WebSocket server
-        const wsServerPath = path.join(__dirname, '../server/mp-server.js');
+        const wsServerPath = path.join(__dirname, '../multiplayer/mp-server.js');
         const wsServer = spawn('node', [wsServerPath], {
             stdio: 'pipe',
             env: { ...process.env, PORT: WS_SERVER_PORT, SERVER_MODE: 'single' }

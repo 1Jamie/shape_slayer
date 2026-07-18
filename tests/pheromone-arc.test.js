@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const PheromonePolyline = require('../js/bosses/pheromone-polyline.js');
+const PheromonePolyline = require('../src/js/bosses/pheromone-polyline.js');
 
 const {
     getPheromoneRouteLength,

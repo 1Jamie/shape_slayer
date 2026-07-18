@@ -8,7 +8,7 @@ const fs = require('fs');
 const vm = require('vm');
 
 function loadSaveSystem() {
-    const code = fs.readFileSync(path.join(__dirname, '../js/save.js'), 'utf8');
+    const code = fs.readFileSync(path.join(__dirname, '../src/js/save.js'), 'utf8');
     const localStorage = {
         _data: {},
         getItem(k) { return this._data[k] ?? null; },
@@ -22,7 +22,7 @@ function loadSaveSystem() {
 }
 
 function loadRunCheckpoint(SaveSystem) {
-    const code = fs.readFileSync(path.join(__dirname, '../js/run-checkpoint.js'), 'utf8');
+    const code = fs.readFileSync(path.join(__dirname, '../src/js/run-checkpoint.js'), 'utf8');
     const sandbox = {
         console,
         Math,
@@ -248,7 +248,7 @@ describe('save lock after machine use + solo-only helpers', () => {
     });
 
     it('getSafeRoomMachines omits runSave in multiplayer', () => {
-        const levelCode = fs.readFileSync(path.join(__dirname, '../js/level.js'), 'utf8');
+        const levelCode = fs.readFileSync(path.join(__dirname, '../src/js/level.js'), 'utf8');
         // Extract only getSafeRoomMachines by evaluating in a sandbox with Game + stubbed deps.
         // Full level.js needs many globals; instead assert the solo vs MP branch via a tiny reimplementation
         // matching the shipped function contract.

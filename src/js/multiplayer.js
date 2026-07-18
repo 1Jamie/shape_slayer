@@ -165,25 +165,35 @@ class MultiplayerManager {
     }
     
     // Connect to multiplayer server
-    connect() {
+    connect(targetUrl = null, redirectHops = 0) {
         return new Promise((resolve, reject) => {
             if (this.connected || this.connecting) {
                 resolve();
                 return;
             }
+
+            if (redirectHops > (MultiplayerConfig.MAX_REDIRECT_HOPS || 2)) {
+                const err = new Error('Multiplayer connection halted: maximum redirect depth reached');
+                console.error('[Multiplayer]', err.message);
+                reject(err);
+                return;
+            }
             
             this.connecting = true;
+            this._redirectHops = redirectHops;
+            const url = targetUrl || MultiplayerConfig.SERVER_URL;
 
-            console.log(`[Multiplayer] Connecting to ${MultiplayerConfig.SERVER_URL}`);
+            console.log(`[Multiplayer] Connecting to ${url}${redirectHops ? ` (redirect hop ${redirectHops})` : ''}`);
 
             try {
-                this.ws = new WebSocket(MultiplayerConfig.SERVER_URL);
+                this.ws = new WebSocket(url);
                 
                 this.ws.onopen = () => {
                     console.log('[Multiplayer] Connected to server');
                     this.connected = true;
                     this.connecting = false;
                     this.reconnectAttempts = 0;
+                    this._activeServerUrl = url;
                     this.startHeartbeat();
                     resolve();
                 };
@@ -203,6 +213,10 @@ class MultiplayerManager {
                     this.connected = false;
                     this.connecting = false;
                     this.stopHeartbeat();
+                    if (this._suppressDisconnectHandler) {
+                        this._suppressDisconnectHandler = false;
+                        return;
+                    }
                     this.handleDisconnect();
                 };
             } catch (err) {
@@ -211,6 +225,33 @@ class MultiplayerManager {
                 reject(err);
             }
         });
+    }
+
+    async followRedirect(data) {
+        const hops = (this._redirectHops || 0) + 1;
+        if (hops > (MultiplayerConfig.MAX_REDIRECT_HOPS || 2)) {
+            console.error('[Multiplayer] Maximum redirect depth reached.');
+            return;
+        }
+        const nextUrl = data && data.url;
+        if (!nextUrl) return;
+
+        const pendingJoin = this._pendingJoinPayload || null;
+        this._suppressDisconnectHandler = true;
+        try {
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.ws.close();
+            }
+        } catch (_e) {}
+        this.connected = false;
+        this.connecting = false;
+        this.stopHeartbeat();
+
+        await this.connect(nextUrl, hops);
+        if (pendingJoin) {
+            this._pendingJoinPayload = null;
+            this.send({ type: 'join_lobby', data: pendingJoin });
+        }
     }
     
     // Start heartbeat to keep connection alive
@@ -244,6 +285,11 @@ class MultiplayerManager {
                     break;
                 case 'lobby_error':
                     this.handleLobbyError(msg.data);
+                    break;
+                case 'redirect':
+                    this.followRedirect(msg.data).catch((err) => {
+                        console.error('[Multiplayer] Redirect follow failed:', err);
+                    });
                     break;
                 case 'player_joined':
                     this.handlePlayerJoined(msg.data);
@@ -540,9 +586,7 @@ class MultiplayerManager {
             this.persistentPlayerId = this.getOrCreatePersistentPlayerId();
         }
         
-        this.send({
-            type: 'join_lobby',
-            data: {
+        const joinPayload = {
                 code: code.toUpperCase(),
                 playerName: playerName || 'Player',
                 playerClass: playerClass || Game.selectedClass || 'square',
@@ -550,7 +594,14 @@ class MultiplayerManager {
                 upgrades: upgrades,
                 safeRoomMeta: safeRoomMeta,
                 persistentPlayerId: this.persistentPlayerId // Send persistent ID for reconnection
-            }
+            };
+        // Kept for hop-limited owner redirects (directory model).
+        this._pendingJoinPayload = joinPayload;
+        this._redirectHops = 0;
+
+        this.send({
+            type: 'join_lobby',
+            data: joinPayload
         });
     }
     

@@ -1,6 +1,43 @@
 const WebSocket = require('ws');
 const os = require('os');
 const config = require('./config');
+const { LobbyDirectory } = require('./redis-directory');
+
+const ALLOWED_MESSAGE_TYPES = new Set([
+    'create_lobby',
+    'join_lobby',
+    'leave_lobby',
+    'game_state',
+    'player_state',
+    'player_state_batch',
+    'game_start',
+    'return_to_nexus',
+    'room_transition',
+    'enemy_damaged',
+    'enemy_state_update',
+    'player_damaged',
+    'loot_pickup',
+    'gear_dropped',
+    'item_pylon_interact',
+    'item_pylon_interact_request',
+    'upgrade_purchase',
+    'upgrade_purchased',
+    'currency_update',
+    'damage_number',
+    'combat_fx',
+    'resync_request',
+    'player_leveled_up',
+    'final_stats',
+    'revive_players',
+    'shards_update',
+    'heartbeat',
+    'kick_player',
+    'update_player_name'
+]);
+
+if (process.env.ALLOW_TEST_MIGRATION === 'true') {
+    ALLOWED_MESSAGE_TYPES.add('test_migrate_lobby');
+}
 
 // Worker process - handles WebSocket connections and lobbies
 class WorkerProcess {
@@ -8,6 +45,8 @@ class WorkerProcess {
         this.wss = null;
         this.lobbies = new Map(); // code -> lobby object
         this.playerToLobby = new Map(); // ws -> lobby code
+        this.directory = null;
+        this.endpointInfo = config.resolveWorkerEndpoint();
         this.metrics = {
             connections: 0,
             messagesPerSecond: 0,
@@ -27,17 +66,34 @@ class WorkerProcess {
         };
     }
     
-    start() {
+    async start() {
         const cluster = require('cluster');
         const workerId = cluster.worker ? cluster.worker.id : 'standalone';
+
+        if (config.redis.enabled) {
+            this.directory = new LobbyDirectory({
+                ttlSeconds: config.redis.lobbyTtlSeconds
+            });
+            await this.directory.connect({
+                host: config.redis.host,
+                port: config.redis.port,
+                password: config.redis.password
+            });
+            console.log(
+                `[Worker ${workerId}] Redis directory connected at ${config.redis.host}:${config.redis.port}`
+            );
+        }
         
         // Create WebSocket server - bind to 0.0.0.0 to accept connections from any network interface
         this.wss = new WebSocket.Server({ 
-            port: config.port,
-            host: config.host
+            port: this.endpointInfo.workerPort,
+            host: config.host,
+            maxPayload: config.limits.maxPayloadBytes
         });
         
-        console.log(`[Worker ${workerId}] Started on port ${config.port}`);
+        console.log(
+            `[Worker ${workerId}] Started on port ${this.endpointInfo.workerPort} endpoint=${this.endpointInfo.endpoint}`
+        );
         
         this.wss.on('connection', (ws) => this.handleConnection(ws));
         
@@ -54,10 +110,24 @@ class WorkerProcess {
 
         // Start telemetry logging
         this.startTelemetryReporting();
+
+        if (this.directory) {
+            this.startDirectoryHeartbeat();
+        }
+    }
+
+    startDirectoryHeartbeat() {
+        setInterval(() => {
+            for (const code of this.lobbies.keys()) {
+                this.directory.refresh(code).catch(() => {});
+            }
+        }, Math.max(5000, Math.floor((config.redis.lobbyTtlSeconds * 1000) / 3)));
     }
     
     handleConnection(ws) {
         this.metrics.connections++;
+        ws._msgWindowStart = Date.now();
+        ws._msgWindowCount = 0;
         
         if (config.logging.level === 'debug') {
             console.log(`[Worker ${this.getWorkerId()}] New client connected (total: ${this.metrics.connections})`);
@@ -65,6 +135,18 @@ class WorkerProcess {
         
         ws.on('message', (message) => {
             this.metrics.messageCount++;
+
+            const now = Date.now();
+            if (now - ws._msgWindowStart >= 1000) {
+                ws._msgWindowStart = now;
+                ws._msgWindowCount = 0;
+            }
+            ws._msgWindowCount += 1;
+            if (ws._msgWindowCount > config.limits.maxMessagesPerSocketPerSecond) {
+                console.warn(`[Worker ${this.getWorkerId()}] Rate limit exceeded; closing socket`);
+                ws.close(1008, 'Rate limit exceeded');
+                return;
+            }
             
             const rawSize = typeof message === 'string'
                 ? Buffer.byteLength(message, 'utf8')
@@ -75,6 +157,13 @@ class WorkerProcess {
 
             try {
                 const msg = JSON.parse(message.toString());
+                if (!msg || typeof msg !== 'object' || typeof msg.type !== 'string') {
+                    return;
+                }
+                if (!ALLOWED_MESSAGE_TYPES.has(msg.type)) {
+                    console.warn('[Warning] Unknown message type:', msg.type);
+                    return;
+                }
                 this.handleMessage(ws, msg, rawSize);
             } catch (err) {
                 console.error('[Error] Failed to parse message:', err);
@@ -184,6 +273,9 @@ class WorkerProcess {
             case 'update_player_name':
                 this.handleUpdatePlayerName(ws, data);
                 break;
+            case 'test_migrate_lobby':
+                this.handleTestMigrateLobby(ws, data);
+                break;
             default:
                 console.warn('[Warning] Unknown message type:', type);
         }
@@ -202,13 +294,35 @@ class WorkerProcess {
         }));
     }
 
-    handleCreateLobby(ws, data) {
-        const code = this.generateLobbyCode();
+    async handleCreateLobby(ws, data) {
         const playerId = this.generatePlayerId();
         const persistentPlayerId = data.persistentPlayerId || null;
-        
-        // Use provided name if set, otherwise use Player 1
         const playerName = (data.playerName && data.playerName.trim()) ? data.playerName.trim().slice(0, 20) : 'Player 1';
+
+        let code = null;
+        for (let attempt = 0; attempt < 12; attempt++) {
+            const candidate = this.generateLobbyCode();
+            if (this.lobbies.has(candidate)) continue;
+            if (this.directory) {
+                const claimed = await this.directory.claim(candidate, {
+                    serverId: config.server.id,
+                    workerId: this.getWorkerId(),
+                    endpoint: this.endpointInfo.endpoint,
+                    createdAt: Date.now()
+                });
+                if (!claimed) continue;
+            }
+            code = candidate;
+            break;
+        }
+
+        if (!code) {
+            ws.send(JSON.stringify({
+                type: 'lobby_error',
+                data: { message: 'Unable to allocate lobby code' }
+            }));
+            return;
+        }
         
         const lobby = {
             code,
@@ -217,7 +331,7 @@ class WorkerProcess {
             players: [{
                 ws,
                 id: playerId,
-                persistentPlayerId: persistentPlayerId, // Store persistent ID for future reconnections
+                persistentPlayerId: persistentPlayerId,
                 name: playerName,
                 class: data.class || 'square',
                 ready: false,
@@ -237,10 +351,12 @@ class WorkerProcess {
         this.lobbies.set(code, lobby);
         this.playerToLobby.set(ws, code);
         
-        // Notify master of new lobby
-        this.notifyMaster('lobby_created', { code });
+        this.notifyMaster('lobby_created', {
+            code,
+            endpoint: this.endpointInfo.endpoint
+        });
         
-        console.log(`[Worker ${this.getWorkerId()}] Created lobby ${code} by ${data.playerName || 'Player 1'}`);
+        console.log(`[Worker ${this.getWorkerId()}] Created lobby ${code} by ${playerName}`);
         
         ws.send(JSON.stringify({
             type: 'lobby_created',
@@ -248,18 +364,50 @@ class WorkerProcess {
                 code,
                 playerId,
                 isHost: true,
-                players: this.serializeLobbyPlayers(lobby)
+                players: this.serializeLobbyPlayers(lobby),
+                endpoint: this.endpointInfo.endpoint
             }
         }));
     }
     
-    handleJoinLobby(ws, data) {
-        const { code, playerName, playerClass, persistentPlayerId } = data;
+    async handleJoinLobby(ws, data) {
+        const { playerName, playerClass, persistentPlayerId } = data;
+        const code = String(data.code || '').toUpperCase();
+
+        if (this.directory) {
+            const ownership = await this.directory.get(code);
+            if (!ownership) {
+                ws.send(JSON.stringify({
+                    type: 'lobby_error',
+                    data: { message: 'Lobby not found' }
+                }));
+                return;
+            }
+            if (ownership.endpoint && ownership.endpoint !== this.endpointInfo.endpoint) {
+                ws.send(JSON.stringify({
+                    type: 'redirect',
+                    data: {
+                        url: ownership.endpoint,
+                        code,
+                        reason: 'lobby_owner'
+                    }
+                }));
+                try { ws.close(1000, 'Redirect to lobby owner'); } catch (_e) {}
+                return;
+            }
+        }
         
         // Check if lobby exists locally
         let lobby = this.lobbies.get(code);
         
         if (!lobby) {
+            if (this.directory) {
+                ws.send(JSON.stringify({
+                    type: 'lobby_error',
+                    data: { message: 'Lobby not found on owner worker' }
+                }));
+                return;
+            }
             // Lobby might be on another worker, check with master
             this.lookupLobby(code, (found, workerId) => {
                 if (!found) {
@@ -267,9 +415,7 @@ class WorkerProcess {
                         type: 'lobby_error',
                         data: { message: 'Lobby not found' }
                     }));
-                } else if (workerId !== this.getWorkerId()) {
-                    // Lobby is on another worker - send error (client needs to reconnect)
-                    // In a production system, we could handle cross-worker joins
+                } else if (String(workerId) !== String(this.getWorkerId())) {
                     ws.send(JSON.stringify({
                         type: 'lobby_error',
                         data: { message: 'Lobby on different server, please retry' }
@@ -582,6 +728,7 @@ class WorkerProcess {
         
         if (lobby.players.length === 0) {
             this.lobbies.delete(code);
+            this.releaseDirectory(code);
             this.notifyMaster('lobby_deleted', { code });
             console.log(`[Worker ${this.getWorkerId()}] Deleted empty lobby ${code}`);
             return;
@@ -1070,6 +1217,14 @@ class WorkerProcess {
             case 'migrate_lobby':
                 this.handleLobbyMigration(data);
                 break;
+
+            case 'import_migrated_lobby':
+                this.handleImportMigratedLobby(data);
+                break;
+
+            case 'finalize_lobby_migration':
+                this.finalizeLobbyMigration(data);
+                break;
                 
             case 'least_loaded_worker_response':
                 // Not used in current implementation but could be useful
@@ -1093,7 +1248,7 @@ class WorkerProcess {
     }
     
     handleLobbyMigration(data) {
-        const { lobbyCode, targetWorkerId } = data;
+        const { lobbyCode, targetWorkerId, targetEndpoint } = data;
         const lobby = this.lobbies.get(lobbyCode);
         
         if (!lobby) {
@@ -1101,30 +1256,158 @@ class WorkerProcess {
             return;
         }
         
-        console.log(`[Worker ${this.getWorkerId()}] Migrating lobby ${lobbyCode} to worker ${targetWorkerId}`);
-        
-        // Notify all players in lobby that they need to reconnect
-        this.broadcastToLobby(lobby, {
-            type: 'lobby_migrating',
-            data: {
-                message: 'Server rebalancing, reconnecting...',
-                lobbyCode
+        console.log(`[Worker ${this.getWorkerId()}] Preparing migration of lobby ${lobbyCode} to worker ${targetWorkerId}`);
+
+        const snapshot = {
+            code: lobbyCode,
+            hostPlayerId: lobby.hostPlayerId,
+            maxPlayers: lobby.maxPlayers,
+            createdAt: lobby.createdAt,
+            players: lobby.players.map((p) => ({
+                id: p.id,
+                persistentPlayerId: p.persistentPlayerId || null,
+                name: p.name,
+                class: p.class,
+                ready: !!p.ready,
+                currency: p.currency || 0,
+                upgrades: p.upgrades || {},
+                safeRoomMeta: p.safeRoomMeta || {}
+            }))
+        };
+
+        this.notifyMaster('lobby_migrate_payload', {
+            lobbyCode,
+            targetWorkerId,
+            targetEndpoint,
+            snapshot
+        });
+    }
+
+    async handleImportMigratedLobby(data) {
+        const { lobbyCode, snapshot, sourceWorkerId } = data || {};
+        if (!lobbyCode || !snapshot) {
+            console.error(`[Worker ${this.getWorkerId()}] import_migrated_lobby missing payload`);
+            return;
+        }
+        if (this.lobbies.has(lobbyCode)) {
+            console.warn(`[Worker ${this.getWorkerId()}] Lobby ${lobbyCode} already local during import`);
+            this.notifyMaster('lobby_migrate_imported', { lobbyCode, sourceWorkerId, ok: true });
+            return;
+        }
+
+        const lobby = {
+            code: lobbyCode,
+            host: null,
+            hostPlayerId: snapshot.hostPlayerId,
+            players: (snapshot.players || []).map((p) => ({
+                ws: null,
+                id: p.id,
+                persistentPlayerId: p.persistentPlayerId || null,
+                name: p.name,
+                class: p.class || 'square',
+                ready: !!p.ready,
+                currency: p.currency || 0,
+                upgrades: p.upgrades || {},
+                safeRoomMeta: p.safeRoomMeta || {},
+                disconnected: true
+            })),
+            maxPlayers: snapshot.maxPlayers || config.lobby.maxPlayers,
+            createdAt: snapshot.createdAt || Date.now(),
+            awaitingReconnect: true
+        };
+
+        this.lobbies.set(lobbyCode, lobby);
+
+        if (this.directory) {
+            try {
+                await this.directory.transfer(lobbyCode, {
+                    serverId: config.server.id,
+                    workerId: this.getWorkerId(),
+                    endpoint: this.endpointInfo.endpoint,
+                    createdAt: Date.now(),
+                    migratedFrom: sourceWorkerId || null
+                });
+            } catch (err) {
+                console.error(`[Worker ${this.getWorkerId()}] Redis transfer failed for ${lobbyCode}:`, err.message);
+                this.lobbies.delete(lobbyCode);
+                this.notifyMaster('lobby_migrate_imported', {
+                    lobbyCode,
+                    sourceWorkerId,
+                    ok: false,
+                    error: err.message
+                });
+                return;
+            }
+        }
+
+        this.notifyMaster('lobby_created', {
+            code: lobbyCode,
+            endpoint: this.endpointInfo.endpoint
+        });
+        this.notifyMaster('lobby_migrate_imported', { lobbyCode, sourceWorkerId, ok: true });
+        console.log(
+            `[Worker ${this.getWorkerId()}] Imported migrated lobby ${lobbyCode} (${lobby.players.length} players awaiting reconnect)`
+        );
+    }
+
+    finalizeLobbyMigration(data) {
+        const { lobbyCode, targetEndpoint } = data || {};
+        const lobby = this.lobbies.get(lobbyCode);
+        if (!lobby) {
+            return;
+        }
+
+        console.log(`[Worker ${this.getWorkerId()}] Finalizing migration of lobby ${lobbyCode}`);
+
+        const redirectUrl = targetEndpoint || null;
+        if (redirectUrl) {
+            this.broadcastToLobby(lobby, {
+                type: 'redirect',
+                data: {
+                    url: redirectUrl,
+                    code: lobbyCode,
+                    reason: 'lobby_migrating'
+                }
+            });
+        } else {
+            this.broadcastToLobby(lobby, {
+                type: 'lobby_migrating',
+                data: {
+                    message: 'Server rebalancing, reconnecting...',
+                    lobbyCode
+                }
+            });
+        }
+
+        lobby.players.forEach((player) => {
+            if (player.ws && player.ws.readyState === WebSocket.OPEN) {
+                try {
+                    player.ws.close(1000, 'Server rebalancing');
+                } catch (_e) {}
+            }
+            if (player.ws) {
+                this.playerToLobby.delete(player.ws);
             }
         });
-        
-        // Close all connections gracefully
-        lobby.players.forEach(player => {
-            if (player.ws.readyState === WebSocket.OPEN) {
-                player.ws.close(1000, 'Server rebalancing');
-            }
-            this.playerToLobby.delete(player.ws);
-        });
-        
-        // Remove lobby
+
         this.lobbies.delete(lobbyCode);
-        
-        // Note: Clients will automatically reconnect and rejoin the lobby
-        // The lobby will be recreated on the target worker when the host reconnects
+        // Redis ownership already transferred by target; do not release.
+        this.notifyMaster('lobby_deleted', { code: lobbyCode });
+    }
+
+    handleTestMigrateLobby(ws, data) {
+        if (process.env.ALLOW_TEST_MIGRATION !== 'true') {
+            return;
+        }
+        const code = this.playerToLobby.get(ws) || (data && data.code);
+        if (!code || !this.lobbies.has(code)) {
+            ws.send(JSON.stringify({
+                type: 'lobby_error',
+                data: { message: 'No lobby to migrate' }
+            }));
+            return;
+        }
+        this.notifyMaster('request_test_migrate', { code: String(code).toUpperCase() });
     }
     
     broadcastToLobby(lobby, message, excludeWs = null) {
@@ -1135,7 +1418,7 @@ class WorkerProcess {
         
         const msgStr = JSON.stringify(message);
         lobby.players.forEach(player => {
-            if (player.ws !== excludeWs && player.ws.readyState === WebSocket.OPEN) {
+            if (player.ws && player.ws !== excludeWs && player.ws.readyState === WebSocket.OPEN) {
                 player.ws.send(msgStr);
             }
         });
@@ -1206,17 +1489,28 @@ class WorkerProcess {
                     
                     // Close all connections
                     lobby.players.forEach(p => {
-                        this.playerToLobby.delete(p.ws);
-                        if (p.ws.readyState === WebSocket.OPEN) {
-                            p.ws.close(1000, 'Lobby expired');
+                        if (p.ws) {
+                            this.playerToLobby.delete(p.ws);
+                            if (p.ws.readyState === WebSocket.OPEN) {
+                                p.ws.close(1000, 'Lobby expired');
+                            }
                         }
                     });
                     
                     this.lobbies.delete(code);
+                    this.releaseDirectory(code);
                     this.notifyMaster('lobby_deleted', { code });
                 }
             }
         }, config.lobby.cleanupInterval);
+    }
+
+    releaseDirectory(code) {
+        if (this.directory) {
+            this.directory.release(code).catch((err) => {
+                console.warn(`[Worker ${this.getWorkerId()}] Failed to release lobby ${code}:`, err.message);
+            });
+        }
     }
 
     recordMessageStat(type, rawSize) {
@@ -1283,7 +1577,10 @@ class WorkerProcess {
 
 // Start worker process
 const worker = new WorkerProcess();
-worker.start();
+worker.start().catch((error) => {
+    console.error('[Worker] Failed to start:', error);
+    process.exit(1);
+});
 
 module.exports = worker;
 

@@ -49,13 +49,27 @@ class MasterProcess {
         });
     }
     
-    forkWorker(preferredId = null) {
-        const worker = cluster.fork();
+    forkWorker(preferredIndex = null) {
+        const workerIndex =
+            preferredIndex === null || preferredIndex === undefined
+                ? this.workers.size
+                : preferredIndex;
+        const workerPort = config.port + workerIndex;
+        const scheme = process.env.PUBLIC_WS_SCHEME || 'ws';
+        const endpoint = `${scheme}://${config.publicHost}:${workerPort}`;
+
+        const worker = cluster.fork({
+            WORKER_INDEX: String(workerIndex),
+            WORKER_PORT: String(workerPort)
+        });
         const workerId = worker.id;
         
         this.workers.set(workerId, {
             worker,
             id: workerId,
+            workerIndex,
+            workerPort,
+            endpoint,
             startedAt: Date.now(),
             lobbies: new Set()
         });
@@ -72,7 +86,9 @@ class MasterProcess {
         // Setup IPC message handlers
         worker.on('message', (msg) => this.handleWorkerMessage(workerId, msg));
         
-        console.log(`[Master] Forked worker ${workerId} (PID: ${worker.process.pid})`);
+        console.log(
+            `[Master] Forked worker ${workerId} index=${workerIndex} port=${workerPort} endpoint=${endpoint} (PID: ${worker.process.pid})`
+        );
         
         return workerId;
     }
@@ -99,6 +115,18 @@ class MasterProcess {
                 
             case 'request_least_loaded_worker':
                 this.handleLeastLoadedWorkerRequest(workerId);
+                break;
+
+            case 'lobby_migrate_payload':
+                this.handleLobbyMigratePayload(workerId, data);
+                break;
+
+            case 'lobby_migrate_imported':
+                this.handleLobbyMigrateImported(workerId, data);
+                break;
+
+            case 'request_test_migrate':
+                this.handleRequestTestMigrate(workerId, data);
                 break;
                 
             default:
@@ -280,23 +308,100 @@ class MasterProcess {
             console.error(`[Master] Migration failed: invalid worker IDs`);
             return;
         }
-        
-        // Update directory
-        this.lobbyDirectory.set(lobbyCode, targetWorkerId);
+
+        if (!this.pendingMigrations) {
+            this.pendingMigrations = new Map();
+        }
+        this.pendingMigrations.set(lobbyCode, {
+            sourceWorkerId,
+            targetWorkerId,
+            targetEndpoint: targetWorker.endpoint || null,
+            startedAt: Date.now()
+        });
         this.lastMigrationTime.set(lobbyCode, Date.now());
         
-        // Update worker info
-        sourceWorker.lobbies.delete(lobbyCode);
-        targetWorker.lobbies.add(lobbyCode);
-        
-        // Send migration command to source worker
+        // Ask source for a serializable lobby snapshot; Redis transfer happens on target import.
         sourceWorker.worker.send({
             type: 'migrate_lobby',
             data: {
                 lobbyCode,
-                targetWorkerId
+                targetWorkerId,
+                targetEndpoint: targetWorker.endpoint || null
             }
         });
+    }
+
+    handleLobbyMigratePayload(sourceWorkerId, data) {
+        const { lobbyCode, targetWorkerId, targetEndpoint, snapshot } = data || {};
+        const targetWorker = this.workers.get(targetWorkerId);
+        if (!lobbyCode || !snapshot || !targetWorker) {
+            console.error('[Master] lobby_migrate_payload incomplete');
+            return;
+        }
+        targetWorker.worker.send({
+            type: 'import_migrated_lobby',
+            data: {
+                lobbyCode,
+                snapshot,
+                sourceWorkerId,
+                targetEndpoint: targetEndpoint || targetWorker.endpoint
+            }
+        });
+    }
+
+    handleLobbyMigrateImported(_targetWorkerId, data) {
+        const { lobbyCode, sourceWorkerId, ok, error } = data || {};
+        const pending = this.pendingMigrations && this.pendingMigrations.get(lobbyCode);
+        if (!pending) {
+            return;
+        }
+        const sourceWorker = this.workers.get(sourceWorkerId || pending.sourceWorkerId);
+        const targetWorker = this.workers.get(pending.targetWorkerId);
+
+        if (!ok) {
+            console.error(`[Master] Migration import failed for ${lobbyCode}: ${error || 'unknown'}`);
+            this.pendingMigrations.delete(lobbyCode);
+            return;
+        }
+
+        if (sourceWorker) {
+            sourceWorker.lobbies.delete(lobbyCode);
+            sourceWorker.worker.send({
+                type: 'finalize_lobby_migration',
+                data: {
+                    lobbyCode,
+                    targetEndpoint: pending.targetEndpoint || (targetWorker && targetWorker.endpoint) || null
+                }
+            });
+        }
+        if (targetWorker) {
+            targetWorker.lobbies.add(lobbyCode);
+            this.lobbyDirectory.set(lobbyCode, targetWorker.id);
+        }
+        this.pendingMigrations.delete(lobbyCode);
+        console.log(`[Master] Migration complete for lobby ${lobbyCode} -> worker ${pending.targetWorkerId}`);
+    }
+
+    handleRequestTestMigrate(sourceWorkerId, data) {
+        if (process.env.ALLOW_TEST_MIGRATION !== 'true') {
+            return;
+        }
+        const code = data && data.code;
+        if (!code) return;
+
+        let targetWorkerId = null;
+        for (const id of this.workers.keys()) {
+            if (String(id) !== String(sourceWorkerId)) {
+                targetWorkerId = id;
+                break;
+            }
+        }
+        if (targetWorkerId == null) {
+            console.error('[Master] test migrate needs at least 2 workers');
+            return;
+        }
+        console.log(`[Master] Test migrate requested for ${code}: ${sourceWorkerId} -> ${targetWorkerId}`);
+        this.migrateLobby(code, sourceWorkerId, targetWorkerId);
     }
     
     getLeastLoadedWorker() {

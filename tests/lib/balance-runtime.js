@@ -9,7 +9,7 @@ const vm = require('node:vm');
 const ROOT = path.resolve(__dirname, '../..');
 
 const SCRIPT_EXPORTS = {
-    'js/gear.js': [
+    'src/js/gear.js': [
         'getGearScaling',
         'calculateTierProbabilities',
         'generateGear',
@@ -21,24 +21,24 @@ const SCRIPT_EXPORTS = {
         'GEAR_TIERS',
         'rollBossTrophyTier'
     ],
-    'js/enemies/telegraph/telegraph-manager.js': ['TelegraphSystem'],
-    'js/enemies/enemy-base.js': ['EnemyBase'],
-    'js/enemies/enemy-basic.js': ['Enemy', 'BASIC_ENEMY_CONFIG'],
-    'js/enemies/enemy-star.js': ['StarEnemy', 'STAR_CONFIG'],
-    'js/enemies/enemy-diamond.js': ['DiamondEnemy', 'DIAMOND_CONFIG'],
-    'js/enemies/enemy-octagon.js': ['OctagonEnemy', 'OCTAGON_CONFIG'],
-    'js/enemies/enemy-rectangle.js': ['RectangleEnemy', 'RECTANGLE_CONFIG'],
-    'js/bosses/boss-base.js': ['BossBase'],
-    'js/bosses/boss-swarmking.js': ['BossSwarmKing'],
-    'js/bosses/boss-twinprism.js': ['BossTwinPrism'],
-    'js/bosses/boss-fortress.js': ['BossFortress'],
-    'js/bosses/boss-fractalcore.js': ['BossFractalCore'],
-    'js/bosses/boss-vortex.js': ['BossVortex'],
-    'js/combat-scaling.js': ['CombatScaling', 'BossScaling'],
-    'js/bosses/boss-scaling.js': ['BossScaling'],
-    'js/players/player-warrior.js': ['WARRIOR_CONFIG'],
-    'js/items/item-definitions.js': ['ITEM_DEFINITIONS', 'getRandomItem', 'logarithmicScale', 'ITEM_RARITY_WEIGHTS', 'BOSS_ITEM_RARITY_WEIGHTS'],
-    'js/items/item-manager.js': ['ItemManager']
+    'src/js/enemies/telegraph/telegraph-manager.js': ['TelegraphSystem'],
+    'src/js/enemies/enemy-base.js': ['EnemyBase'],
+    'src/js/enemies/enemy-basic.js': ['Enemy', 'BASIC_ENEMY_CONFIG'],
+    'src/js/enemies/enemy-star.js': ['StarEnemy', 'STAR_CONFIG'],
+    'src/js/enemies/enemy-diamond.js': ['DiamondEnemy', 'DIAMOND_CONFIG'],
+    'src/js/enemies/enemy-octagon.js': ['OctagonEnemy', 'OCTAGON_CONFIG'],
+    'src/js/enemies/enemy-rectangle.js': ['RectangleEnemy', 'RECTANGLE_CONFIG'],
+    'src/js/bosses/boss-base.js': ['BossBase'],
+    'src/js/bosses/boss-swarmking.js': ['BossSwarmKing'],
+    'src/js/bosses/boss-twinprism.js': ['BossTwinPrism'],
+    'src/js/bosses/boss-fortress.js': ['BossFortress'],
+    'src/js/bosses/boss-fractalcore.js': ['BossFractalCore'],
+    'src/js/bosses/boss-vortex.js': ['BossVortex'],
+    'src/js/combat-scaling.js': ['CombatScaling', 'BossScaling'],
+    'src/js/bosses/boss-scaling.js': ['BossScaling'],
+    'src/js/players/player-warrior.js': ['WARRIOR_CONFIG'],
+    'src/js/items/item-definitions.js': ['ITEM_DEFINITIONS', 'getRandomItem', 'logarithmicScale', 'ITEM_RARITY_WEIGHTS', 'BOSS_ITEM_RARITY_WEIGHTS'],
+    'src/js/items/item-manager.js': ['ItemManager']
 };
 
 /** Maps sim enemy type keys to constructor.name used in enemy-base item drop table. */
@@ -148,6 +148,20 @@ function createVmContext(options = {}) {
         performance: { now: () => Date.now() },
         createParticleBurst: () => {},
         AudioManager: { sounds: { bossSpawn: () => {} } },
+        document: {
+            createElement: () => ({
+                getContext: () => ({
+                    createRadialGradient: () => ({
+                        addColorStop: () => {}
+                    }),
+                    beginPath: () => {},
+                    arc: () => {},
+                    fill: () => {}
+                }),
+                width: 0,
+                height: 0
+            })
+        },
         Game: {
             gameMode: options.gameMode || 'gear',
             roomNumber: options.roomNumber || 1,
@@ -176,7 +190,7 @@ function createVmContext(options = {}) {
 }
 
 function loadLevelModule(ctx) {
-    const levelSource = fs.readFileSync(path.join(ROOT, 'js/level.js'), 'utf8');
+    const levelSource = fs.readFileSync(path.join(ROOT, 'src/js/level.js'), 'utf8');
     const cs = ctx.CombatScaling;
     if (!cs) {
         throw new Error('CombatScaling must be loaded before loadLevelModule');
@@ -198,7 +212,7 @@ function loadLevelModule(ctx) {
 }
 
 function loadPlayerProgressionConstants() {
-    const playerBaseSource = fs.readFileSync(path.join(ROOT, 'js/players/player-base.js'), 'utf8');
+    const playerBaseSource = fs.readFileSync(path.join(ROOT, 'src/js/players/player-base.js'), 'utf8');
     const xpBonusMatch = playerBaseSource.match(/const bonusXP = amount \* ([\d.]+)/);
     const levelDamageMatch = playerBaseSource.match(/this\.baseDamageBase = \(this\.baseDamageBase \|\| this\.baseDamage\) \* ([\d.]+)/);
     const levelHpMatch = playerBaseSource.match(/this\.baseMaxHpBase = \(this\.baseMaxHpBase \|\| this\.baseMaxHp\) \* ([\d.]+)/);
@@ -278,33 +292,33 @@ function enemyCountForRoom(roomNumber, constants, combatScaling, options = {}) {
 function createBalanceRuntime(options = {}) {
     const ctx = createVmContext(options);
 
-    loadGameScript(ctx, 'js/enemies/telegraph/telegraph-manager.js');
-    loadGameScript(ctx, 'js/enemies/enemy-base.js');
-    loadGameScript(ctx, 'js/enemies/enemy-basic.js');
-    loadGameScript(ctx, 'js/enemies/enemy-star.js');
-    loadGameScript(ctx, 'js/enemies/enemy-diamond.js');
-    loadGameScript(ctx, 'js/enemies/enemy-rectangle.js');
-    loadGameScript(ctx, 'js/enemies/enemy-octagon.js');
-    loadGameScript(ctx, 'js/bosses/boss-base.js');
-    loadGameScript(ctx, 'js/bosses/boss-swarmking.js');
-    loadGameScript(ctx, 'js/bosses/boss-twinprism.js');
-    loadGameScript(ctx, 'js/bosses/boss-fortress.js');
-    loadGameScript(ctx, 'js/bosses/boss-fractalcore.js');
-    loadGameScript(ctx, 'js/bosses/boss-vortex.js');
+    loadGameScript(ctx, 'src/js/enemies/telegraph/telegraph-manager.js');
+    loadGameScript(ctx, 'src/js/enemies/enemy-base.js');
+    loadGameScript(ctx, 'src/js/enemies/enemy-basic.js');
+    loadGameScript(ctx, 'src/js/enemies/enemy-star.js');
+    loadGameScript(ctx, 'src/js/enemies/enemy-diamond.js');
+    loadGameScript(ctx, 'src/js/enemies/enemy-rectangle.js');
+    loadGameScript(ctx, 'src/js/enemies/enemy-octagon.js');
+    loadGameScript(ctx, 'src/js/bosses/boss-base.js');
+    loadGameScript(ctx, 'src/js/bosses/boss-swarmking.js');
+    loadGameScript(ctx, 'src/js/bosses/boss-twinprism.js');
+    loadGameScript(ctx, 'src/js/bosses/boss-fortress.js');
+    loadGameScript(ctx, 'src/js/bosses/boss-fractalcore.js');
+    loadGameScript(ctx, 'src/js/bosses/boss-vortex.js');
     vm.runInContext(
-        `globalThis.BOSS_HP_GROWTH_PER_ROOM = ${readGameConstant(fs.readFileSync(path.join(ROOT, 'js/combat-scaling.js'), 'utf8'), 'BOSS_HP_GROWTH_PER_ROOM')};
-         globalThis.BOSS_DAMAGE_GROWTH_PER_ROOM = ${readGameConstant(fs.readFileSync(path.join(ROOT, 'js/combat-scaling.js'), 'utf8'), 'BOSS_DAMAGE_GROWTH_PER_ROOM')};`,
+        `globalThis.BOSS_HP_GROWTH_PER_ROOM = ${readGameConstant(fs.readFileSync(path.join(ROOT, 'src/js/combat-scaling.js'), 'utf8'), 'BOSS_HP_GROWTH_PER_ROOM')};
+         globalThis.BOSS_DAMAGE_GROWTH_PER_ROOM = ${readGameConstant(fs.readFileSync(path.join(ROOT, 'src/js/combat-scaling.js'), 'utf8'), 'BOSS_DAMAGE_GROWTH_PER_ROOM')};`,
         ctx
     );
-    loadGameScript(ctx, 'js/combat-scaling.js');
-    loadGameScript(ctx, 'js/bosses/boss-scaling.js');
-    loadGameScript(ctx, 'js/gear.js');
-    loadGameScript(ctx, 'js/items/item-definitions.js');
-    loadGameScript(ctx, 'js/items/item-manager.js');
+    loadGameScript(ctx, 'src/js/combat-scaling.js');
+    loadGameScript(ctx, 'src/js/bosses/boss-scaling.js');
+    loadGameScript(ctx, 'src/js/gear.js');
+    loadGameScript(ctx, 'src/js/items/item-definitions.js');
+    loadGameScript(ctx, 'src/js/items/item-manager.js');
     vm.runInContext('class PlayerBase { constructor() {} }', ctx);
-    loadGameScript(ctx, 'js/players/player-warrior.js');
+    loadGameScript(ctx, 'src/js/players/player-warrior.js');
 
-    const enemyBaseSource = fs.readFileSync(path.join(ROOT, 'js/enemies/enemy-base.js'), 'utf8');
+    const enemyBaseSource = fs.readFileSync(path.join(ROOT, 'src/js/enemies/enemy-base.js'), 'utf8');
     const itemDropChances = parseEnemyItemDropChances(enemyBaseSource);
 
     const level = loadLevelModule(ctx);

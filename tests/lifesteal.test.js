@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const ROOT = path.resolve(__dirname, '..');
 
 function loadCombat() {
-    const source = fs.readFileSync(path.join(ROOT, 'js/combat.js'), 'utf8');
+    const source = fs.readFileSync(path.join(ROOT, 'src/js/combat.js'), 'utf8');
     const ctx = {
         console,
         Math,

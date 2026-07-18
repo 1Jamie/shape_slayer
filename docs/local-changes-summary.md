@@ -28,7 +28,7 @@
 
 Landed before the room/boss work. Focus: **input, UI, telemetry**.
 
-- Full gamepad support + `ui/core/controllerNavigation.js` (DOM focus nav, platform button glyphs)
+- Full gamepad support + `src/ui/core/controllerNavigation.js` (DOM focus nav, platform button glyphs)
 - Touch controls refactor, CSS/SCSS overhaul, mobile UI component updates
 - Nexus flow, telemetry schema, metrics GUI, multiplayer baseline serialization
 
@@ -42,9 +42,9 @@ Rooms are **generated combat arenas** with obstacles, semantic roads, landmarks,
 
 | File | Lines | Role |
 |------|-------|------|
-| `js/biomes.js` | ~190 | Biome defs, gear vs cards progression |
-| `js/room-layout-generator.js` | **~3078** | Full layout pipeline |
-| `js/device-detection.js` | ~260 | Layered mobile/desktop detection |
+| `src/js/biomes.js` | ~190 | Biome defs, gear vs cards progression |
+| `src/js/room-layout-generator.js` | **~3078** | Full layout pipeline |
+| `src/js/device-detection.js` | ~260 | Layered mobile/desktop detection |
 
 ### Layout Pipeline Highlights
 
@@ -103,7 +103,7 @@ Rooms are **generated combat arenas** with obstacles, semantic roads, landmarks,
 
 ## 4. Universal Combat Scaling
 
-Centralized in `js/combat-scaling.js` (~1077 lines).
+Centralized in `src/js/combat-scaling.js` (~1077 lines).
 
 - Two-phase: `computeScalingFactors(ctx)` → `resolveEntityStats(profileId, config, factors)`
 - Stat groups: durability, offense, mobility, tempo (inverse divisor), cognition, density, XP
@@ -116,7 +116,7 @@ Centralized in `js/combat-scaling.js` (~1077 lines).
 
 ## 5. Sustain & Lifesteal Rework - **IMPLEMENTED**
 
-Previously blocked; now fully wired in `js/combat.js` (+380 lines in diff).
+Previously blocked; now fully wired in `src/js/combat.js` (+380 lines in diff).
 
 ### Lifesteal (`LIFESTEAL_CONFIG`)
 - Per-second heal cap: ~1.0–1.2% max HP/sec (flat, not scaling with lifesteal %)
@@ -200,7 +200,7 @@ Three-tier frame budget governor (2-second rolling window):
 
 ## 8. Run Performance Profiler - **NEW**
 
-`js/run-profiler.js` (~549 lines) - samples across a full run for export and analysis.
+`src/js/run-profiler.js` (~549 lines) - samples across a full run for export and analysis.
 
 ### Features
 - Reservoir sampling for frame/process/update/render phase timings
@@ -241,7 +241,7 @@ Three-tier frame budget governor (2-second rolling window):
 
 ---
 
-## 10. Server Hardening (`server.js`)
+## 10. Server Hardening (`static-server.js`)
 
 Dev server now has path traversal protection:
 - Allowlist: root files (`index.html`, `privacy.html`) + directories (`css`, `js`, `ui`, `audio`)
@@ -258,7 +258,7 @@ Dev server now has path traversal protection:
 | `docs/lore.md` | Full **Ending Design Document v1.0** (~1628 lines) |
 | `docs/lore-specification.md` | **Deleted** |
 | `docs/card-system-design-spec.md` | Memory fragments, legendary flavor, story-only cards |
-| `README.md`, `js/version.js`, `privacy.html`, `metrics/gui/public/app.js` | Typography cleanup (em-dash → hyphen) |
+| `README.md`, `src/js/version.js`, `privacy.html`, `metrics/gui/public/app.js` | Typography cleanup (em-dash → hyphen) |
 
 ---
 
@@ -333,13 +333,13 @@ test:device-detection → 8 tests
 ## 14. File Inventory
 
 ### Modified (47)
-`README.md`, `docs/card-system-design-spec.md`, `docs/lore.md`, `index.html`, `js/audio.js`, `js/bosses/*` (6), `js/cards/ground-cards.js`, `js/cards/ground.js`, `js/cards/player-cards.js`, `js/combat.js`, `js/debug.js`, `js/doors/selection-doors.js`, `js/enemies/*` (5), `js/gear.js`, `js/input.js`, `js/items/item-ground.js`, `js/items/item-pylon.js`, `js/level.js`, `js/main.js`, `js/multiplayer.js`, `js/players/*` (5), `js/render.js`, `js/touch-controls.js`, `js/ui.js`, `js/version.js`, `metrics/gui/public/app.js`, `package.json`, `privacy.html`, `server.js`, `ui/components/characterSheet.js`, `ui/components/hud.js`, `ui/components/roomAndLevel.js`
+`README.md`, `docs/card-system-design-spec.md`, `docs/lore.md`, `index.html`, `src/js/audio.js`, `src/js/bosses/*` (6), `src/js/cards/ground-cards.js`, `src/js/cards/ground.js`, `src/js/cards/player-cards.js`, `src/js/combat.js`, `src/js/debug.js`, `src/js/doors/selection-doors.js`, `src/js/enemies/*` (5), `src/js/gear.js`, `src/js/input.js`, `src/js/items/item-ground.js`, `src/js/items/item-pylon.js`, `src/js/level.js`, `src/js/main.js`, `src/js/multiplayer.js`, `src/js/players/*` (5), `src/js/render.js`, `src/js/touch-controls.js`, `src/js/ui.js`, `src/js/version.js`, `metrics/gui/public/app.js`, `package.json`, `privacy.html`, `server.js`, `src/ui/components/characterSheet.js`, `src/ui/components/hud.js`, `src/ui/components/roomAndLevel.js`
 
 ### Deleted (1)
 `docs/lore-specification.md`
 
 ### New / Untracked (19)
-`docs/local-changes-summary.md`, `js/biomes.js`, `js/bosses/boss-scaling.js`, `js/bosses/pheromone-polyline.js`, `js/combat-scaling.js`, `js/device-detection.js`, `js/room-layout-generator.js`, `js/run-profiler.js`, `tests/combat-scaling.test.js`, `tests/device-detection.test.js`, `tests/fortress-boss.test.js`, `tests/full-run-balance-sim.js`, `tests/gear-mode-balance-sim.js`, `tests/gear-render-opt.test.js`, `tests/lib/balance-runtime.js`, `tests/lifesteal.test.js`, `tests/navigation.test.js`, `tests/pheromone-arc.test.js`, `tests/room-layout-generator.test.js`, `tests/run-profiler.test.js`
+`docs/local-changes-summary.md`, `src/js/biomes.js`, `src/js/bosses/boss-scaling.js`, `src/js/bosses/pheromone-polyline.js`, `src/js/combat-scaling.js`, `src/js/device-detection.js`, `src/js/room-layout-generator.js`, `src/js/run-profiler.js`, `tests/combat-scaling.test.js`, `tests/device-detection.test.js`, `tests/fortress-boss.test.js`, `tests/full-run-balance-sim.js`, `tests/gear-mode-balance-sim.js`, `tests/gear-render-opt.test.js`, `tests/lib/balance-runtime.js`, `tests/lifesteal.test.js`, `tests/navigation.test.js`, `tests/pheromone-arc.test.js`, `tests/room-layout-generator.test.js`, `tests/run-profiler.test.js`
 
 ### Already Committed, Unpushed (47 files - see §1)
 Gamepad, touch controls, CSS, nexus, telemetry, metrics GUI, controller navigation.
