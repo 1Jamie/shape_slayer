@@ -1,9 +1,11 @@
 /* Shape Slayer service worker
  * Bump CACHE_VERSION when releasing (keep in sync with GameVersion.VERSION in js/version.js).
+ * A trailing ".N" suffix (e.g. 0.8.2.1) forces a cache refresh without changing the
+ * user-facing game version.
  * Shell is precached on install. Audio warms in the background so playback can start ASAP
  * while the library fills for full offline use.
  */
-const CACHE_VERSION = '0.8.2';
+const CACHE_VERSION = '0.8.2.1';
 const SHELL_CACHE = `shape-slayer-shell-v${CACHE_VERSION}`;
 const RUNTIME_CACHE = `shape-slayer-runtime-v${CACHE_VERSION}`;
 const AUDIO_WARM_CONCURRENCY = 2;
