@@ -450,21 +450,27 @@ const Game = {
             document.body.classList.add('pseudo-fullscreen');
         }
 
-        // Handle window resize
+        // Coalesce mobile toolbar/visualViewport resize bursts. Reallocating the
+        // canvas backing store for every intermediate Safari toolbar frame can
+        // interrupt touches and cause visible stalls.
+        let resizeFrame = 0;
+        let touchReinitTimer = 0;
         const handleResize = () => {
-            this.setupResponsiveCanvas();
-            // Force a reflow to ensure bounding rect is updated
-            if (this.canvas) {
-                void this.canvas.offsetWidth;
-            }
-            // Reinitialize touch controls with new canvas size after a brief delay
-            if (typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode()) {
-                setTimeout(() => {
-                    if (this.canvas && typeof Input !== 'undefined' && Input.initTouchControls) {
-                        Input.initTouchControls(this.canvas);
-                    }
-                }, 50);
-            }
+            if (resizeFrame) cancelAnimationFrame(resizeFrame);
+            resizeFrame = requestAnimationFrame(() => {
+                resizeFrame = 0;
+                this.setupResponsiveCanvas();
+                if (this.canvas) void this.canvas.offsetWidth;
+            });
+
+            clearTimeout(touchReinitTimer);
+            touchReinitTimer = setTimeout(() => {
+                if (this.canvas && typeof Input !== 'undefined' &&
+                    Input.isMobileUiMode && Input.isMobileUiMode() &&
+                    Input.initTouchControls) {
+                    Input.initTouchControls(this.canvas);
+                }
+            }, 100);
         };
 
         window.addEventListener('resize', handleResize);
@@ -472,10 +478,9 @@ const Game = {
         // Also listen to visualViewport resize (for mobile system UI changes)
         if (window.visualViewport) {
             window.visualViewport.addEventListener('resize', handleResize);
-            window.visualViewport.addEventListener('scroll', () => {
-                // Prevent scrolling and ensure canvas is positioned correctly
-                window.scrollTo(0, 0);
-            });
+            // MobileControlsDOM follows the canvas rect every frame; forcing
+            // scrollTo during Safari toolbar animation causes visible jitter.
+            window.visualViewport.addEventListener('scroll', handleResize);
         }
 
         // Handle orientation change
@@ -1235,7 +1240,7 @@ const Game = {
         if (DeviceDetection.isInstalledDisplayMode && DeviceDetection.isInstalledDisplayMode()) {
             return true;
         }
-        return !!(DeviceDetection.isMobile && DeviceDetection.isMobile());
+        return !!(DeviceDetection.isMobileDevice && DeviceDetection.isMobileDevice());
     },
 
     lockLandscapeOrientation() {

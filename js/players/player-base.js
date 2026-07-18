@@ -528,36 +528,25 @@ class PlayerBase {
                 input.getAbilityInputType &&
                 input.getAbilityInputType(this.playerClass, 'heavyAttack') === 'joystick-press-release';
 
-            if (usesHeavyJoystick && (this.playerClass === 'square' || this.playerClass === 'triangle' || this.playerClass === 'hexagon')) {
-                // Directional mobile heavies aim while held and fire on release.
-                // Mage uses this state only for its beam indicator; it does not charge.
+            if (usesHeavyJoystick) {
+                // Aim mode: hold to aim, fire on release (any class — family decides preview/charge).
                 if (input.touchButtons && input.touchButtons.heavyAttack) {
                     const button = input.touchButtons.heavyAttack;
 
-                    // Rotation is already updated by getAimDirection() which checks heavy attack joystick first
-                    // Update preview (subclass handles this)
                     this.updateHeavyAttackPreview(input);
 
-                    // Fire on release
                     if (button.justReleased) {
-                        // Rotation already updated above, fire the attack immediately
                         this.createHeavyAttack();
-                        this.applyHeavyAttackCooldown(); // Apply cooldown after firing
+                        this.applyHeavyAttackCooldown();
                         this.isChargingHeavy = false;
                         this.heavyChargeElapsed = 0;
-                        // Clear previews (subclass handles this)
                         this.clearHeavyAttackPreview();
-                    } else {
-                        // Warrior/Rogue retain their charge timer. Mage only aims its indicator.
-                        if (this.playerClass !== 'hexagon') {
-                            this.heavyChargeElapsed += deltaTime;
-                        }
-                    }
-                } else {
-                    // Button not found: retain charge timing only for actual charge attacks.
-                    if (this.playerClass !== 'hexagon') {
+                    } else if (this.playerClass !== 'hexagon') {
+                        // Warrior/Rogue retain charge timer; Mage indicator-only
                         this.heavyChargeElapsed += deltaTime;
                     }
+                } else if (this.playerClass !== 'hexagon') {
+                    this.heavyChargeElapsed += deltaTime;
                 }
             } else {
                 // Other classes: wait for windup
@@ -1491,32 +1480,26 @@ class PlayerBase {
                 Input.getAbilityInputType &&
                 Input.getAbilityInputType(this.playerClass, 'heavyAttack') === 'joystick-press-release';
 
-            if (usesHeavyJoystick && (this.playerClass === 'square' || this.playerClass === 'triangle' || this.playerClass === 'hexagon')) {
-                // Directional heavy: hold to aim, release to fire. Mage's hold is indicator-only.
+            if (usesHeavyJoystick) {
+                // Aim mode for any class: hold to aim facing, release to fire
                 if (input.touchButtons && input.touchButtons.heavyAttack) {
                     const button = input.touchButtons.heavyAttack;
                     heavyPressed = button.pressed;
 
-                    // Start charging when button is pressed (only if not already charging)
                     if (button.justPressed && this.heavyAttackCooldown <= 0 && !this.isChargingHeavy) {
                         this.startHeavyAttack();
-                        // Initialize preview based on class
                         this.initHeavyAttackPreview();
                     }
 
-                    // Rotation is already updated by getAimDirection() which checks heavy attack joystick first
-                    // Just update preview
                     if (this.isChargingHeavy && button.pressed) {
                         this.updateHeavyAttackPreview(input);
                     } else if (this.isChargingHeavy && !button.pressed) {
-                        // Button released, hide preview
                         this.clearHeavyAttackPreview();
                     }
                 }
-                // Note: Fire on release is handled in the charge update loop
-                return; // Heavy attack is handled above for these classes
+                return;
             } else {
-                // Other classes: check for heavy attack button release (press-and-release)
+                // Tap: fire on release along current facing
                 if (input.touchButtons && input.touchButtons.heavyAttack) {
                     heavyJustPressed = input.touchButtons.heavyAttack.justReleased;
                 }

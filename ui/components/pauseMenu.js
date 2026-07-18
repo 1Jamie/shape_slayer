@@ -300,6 +300,16 @@
 			updateRef: (fn) => { updateCameraDistanceButtons = fn; }
 		}));
 
+		const customizeControlsBtn = makeActionButton(
+			'Customize Mobile Controls',
+			() => {
+				if (typeof MobileControlEditor !== 'undefined' && MobileControlEditor.open) {
+					MobileControlEditor.open();
+				}
+			}
+		);
+		prefsSection.appendChild(customizeControlsBtn);
+
 		// --- Settings ---
 		const settingsSection = makeSection('Settings', 'pause-section--settings');
 		settingsSection.appendChild(makeActionButton(

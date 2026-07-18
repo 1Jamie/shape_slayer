@@ -5,7 +5,7 @@
  * Shell is precached on install. Audio warms in the background so playback can start ASAP
  * while the library fills for full offline use.
  */
-const CACHE_VERSION = '0.8.2.2';
+const CACHE_VERSION = '0.8.2.7';
 const SHELL_CACHE = `shape-slayer-shell-v${CACHE_VERSION}`;
 const RUNTIME_CACHE = `shape-slayer-runtime-v${CACHE_VERSION}`;
 const AUDIO_WARM_CONCURRENCY = 2;
@@ -19,7 +19,10 @@ const PRECACHE_URLS = [
   './icons/icon-512.png',
   './icons/icon-512-maskable.png',
   './icons/apple-touch-icon.png',
+  './fonts/orbitron/Orbitron-VariableFont_wght.ttf',
+  './fonts/orbitron/OFL.txt',
   './css/ui/base.css',
+  './css/ui/mobile-controls.css',
   './audio/music-config.json',
   './js/prevent-back-navigation.js',
   './ui/core/eventBus.js',
@@ -47,6 +50,9 @@ const PRECACHE_URLS = [
   './ui/components/roomAndLevel.js',
   './ui/components/otherPlayersHealth.js',
   './ui/components/mobileCooldowns.js',
+  './js/mobile-control-layout.js',
+  './ui/components/mobileControls.js',
+  './ui/components/mobileControlEditor.js',
   './ui/components/spectatorIndicator.js',
   './ui/components/toast.js',
   './js/audio.js',
@@ -118,10 +124,13 @@ const PRECACHE_URLS = [
   './js/title-attract.js',
   './js/main.js'
 ];
+const PRECACHE_HREFS = new Set(
+  PRECACHE_URLS.map((url) => new URL(url, self.registration.scope).href)
+);
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(SHELL_CACHE).then((cache) => cache.addAll(PRECACHE_URLS)).then(() => self.skipWaiting())
+    caches.open(SHELL_CACHE).then((cache) => cache.addAll(PRECACHE_URLS))
   );
 });
 
@@ -130,10 +139,12 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((keys) =>
       Promise.all(
         keys
+          // Never delete another application's caches on a shared origin.
+          .filter((key) => key.startsWith('shape-slayer-'))
           .filter((key) => key !== SHELL_CACHE && key !== RUNTIME_CACHE)
           .map((key) => caches.delete(key))
       )
-    ).then(() => self.clients.claim()).then(() => {
+    ).then(() => {
       // Fire-and-forget: do not block activation on the audio library.
       warmAudioLibraryFromConfig();
     })
@@ -345,7 +356,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  event.respondWith(cacheFirstShell(request));
+  if (PRECACHE_HREFS.has(url.href)) {
+    event.respondWith(cacheFirstShell(request));
+  }
+  // Unknown same-origin GETs stay network-managed. This avoids accidentally
+  // freezing future JSON/API endpoints behind shell cache-first behavior.
 });
 
 async function networkFirstNavigation(request) {
@@ -353,11 +368,15 @@ async function networkFirstNavigation(request) {
     const networkResponse = await fetch(request);
     if (networkResponse && networkResponse.ok) {
       const cache = await caches.open(SHELL_CACHE);
-      cache.put('./index.html', networkResponse.clone());
+      // Cache each navigation under its own URL. Never let privacy.html or an
+      // error page replace the offline game shell.
+      await cache.put(request, networkResponse.clone());
     }
     return networkResponse;
   } catch (error) {
-    const cached = await caches.match('./index.html') || await caches.match('./');
+    const cached = await caches.match(request) ||
+      await caches.match('./index.html') ||
+      await caches.match('./');
     if (cached) {
       return cached;
     }
@@ -374,11 +393,13 @@ async function cacheFirstShell(request) {
     const networkResponse = await fetch(request);
     if (networkResponse && networkResponse.ok) {
       const cache = await caches.open(SHELL_CACHE);
-      cache.put(request, networkResponse.clone());
+      await cache.put(request, networkResponse.clone());
     }
     return networkResponse;
   } catch (error) {
-    return caches.match('./index.html');
+    // Do not return HTML for a missing JS/CSS/image request. That masks the
+    // real offline failure as a misleading MIME or syntax error.
+    throw error;
   }
 }
 
@@ -390,7 +411,7 @@ async function cacheFirstRuntime(request) {
   const networkResponse = await fetch(request);
   if (networkResponse && networkResponse.ok) {
     const cache = await caches.open(RUNTIME_CACHE);
-    cache.put(request, networkResponse.clone());
+    await cache.put(request, networkResponse.clone());
   }
   return networkResponse;
 }

@@ -98,6 +98,8 @@ const SaveSystem = {
             selectedClass: null,
             controlMode: 'auto', // 'auto', 'mobile', 'desktop'
             cameraDistance: 'medium', // 'close', 'medium', 'far'
+            // null = formula default; object = customized absolute logical layout
+            mobileControlLayout: null,
             fullscreenEnabled: false,
             audioVolume: 0.5, // 0.0 to 1.0 (master)
             musicVolume: 1.0, // 0.0 to 1.0 (music bus)
@@ -225,6 +227,9 @@ const SaveSystem = {
                     selectedClass: parsed.selectedClass || defaults.selectedClass,
                     controlMode: parsed.controlMode || defaults.controlMode,
                     cameraDistance: parsed.cameraDistance || defaults.cameraDistance,
+                    mobileControlLayout: (parsed.mobileControlLayout && typeof parsed.mobileControlLayout === 'object')
+                        ? parsed.mobileControlLayout
+                        : defaults.mobileControlLayout,
                     fullscreenEnabled: parsed.fullscreenEnabled !== undefined ? parsed.fullscreenEnabled : defaults.fullscreenEnabled,
                     audioVolume: parsed.audioVolume !== undefined ? parsed.audioVolume : defaults.audioVolume,
                     musicVolume: parsed.musicVolume !== undefined ? parsed.musicVolume : (parsed.audioVolume !== undefined ? 1.0 : defaults.musicVolume),
@@ -406,6 +411,48 @@ const SaveSystem = {
             return true;
         }
         return false;
+    },
+
+    getMobileControlLayout() {
+        const save = this.load();
+        let layout = save.mobileControlLayout;
+        if (!layout || typeof layout !== 'object') return null;
+        // Migrate v1 → v2 in place when schema helpers are available
+        if (typeof MobileControlLayout !== 'undefined' && MobileControlLayout.migrateV1ToV2 &&
+            (!layout.version || layout.version < 2 || !layout.typesByClass)) {
+            const classId = save.selectedClass ||
+                (typeof Game !== 'undefined' && Game.player && Game.player.playerClass) ||
+                null;
+            layout = MobileControlLayout.migrateV1ToV2(layout, classId);
+            save.mobileControlLayout = layout;
+            this.save(save);
+        }
+        return layout;
+    },
+
+    setMobileControlLayout(layout) {
+        const save = this.load();
+        if (!layout) {
+            save.mobileControlLayout = null;
+            this.save(save);
+            return true;
+        }
+        if (typeof layout !== 'object' || !layout.controls) return false;
+        let toStore = layout;
+        if (typeof MobileControlLayout !== 'undefined' && MobileControlLayout.migrateV1ToV2) {
+            const classId = save.selectedClass ||
+                (typeof Game !== 'undefined' && Game.player && Game.player.playerClass) ||
+                null;
+            toStore = MobileControlLayout.migrateV1ToV2(layout, classId) || layout;
+            toStore.version = MobileControlLayout.VERSION || 2;
+        }
+        save.mobileControlLayout = toStore;
+        this.save(save);
+        return true;
+    },
+
+    resetMobileControlLayout() {
+        return this.setMobileControlLayout(null);
     },
 
     // Get fullscreen preference

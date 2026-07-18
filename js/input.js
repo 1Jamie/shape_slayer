@@ -115,8 +115,13 @@ const Input = {
         }
     },
 
-    // Get input type for a specific ability of a class
+    // Get input type for a specific ability of a class (per-class types + behavior adapters)
     getAbilityInputType(classType, ability) {
+        if (typeof MobileControlLayout !== 'undefined' && MobileControlLayout.resolveControlType) {
+            const layout = this._activeControlLayout;
+            const ctrl = layout && layout.controls ? layout.controls[ability] : null;
+            return MobileControlLayout.resolveControlType(ability, classType, ctrl, layout);
+        }
         if (!this.classInputConfig[classType]) return 'button';
         return this.classInputConfig[classType][ability] || 'button';
     },
@@ -512,6 +517,9 @@ const Input = {
             if (canvas) {
                 this._initGamepadControls(canvas);
             }
+            if (typeof MobileControlsDOM !== 'undefined' && MobileControlsDOM.refresh) {
+                MobileControlsDOM.refresh();
+            }
             return;
         }
 
@@ -520,6 +528,8 @@ const Input = {
             if (canvas) {
                 this.initTouchControls(canvas);
             }
+        } else if (typeof MobileControlsDOM !== 'undefined' && MobileControlsDOM.refresh) {
+            MobileControlsDOM.refresh();
         }
     },
 
@@ -1218,177 +1228,76 @@ const Input = {
         };
     },
 
+    /** True when on-screen controls are owned by the DOM layer (not canvas hit-testing). */
+    usesDomTouchControls() {
+        return typeof MobileControlsDOM !== 'undefined' &&
+            MobileControlsDOM.layer &&
+            !MobileControlsDOM.layer.hidden &&
+            !this.isGamepadMode();
+    },
+
     initTouchControls(canvas) {
         this._hadOnScreenTouchControls = true;
         this._touchControlsHiddenForGamepad = false;
 
-        // Use logical dimensions if available (Game.config), otherwise fallback to canvas dimensions
-        // This handles supersampling where canvas.width is 2x logical width
         const width = (typeof Game !== 'undefined' && Game.config) ? Game.config.width : canvas.width;
         const height = (typeof Game !== 'undefined' && Game.config) ? Game.config.height : canvas.height;
-
-        // Get mobile zoom level to adjust positioning
-        const mobileZoom = (typeof Game !== 'undefined' && Game.getViewZoom)
-            ? Game.getViewZoom()
-            : ((typeof Game !== 'undefined' && Game.mobileZoom) ? Game.mobileZoom : 1.0);
-
-        // Debug: Log initialization
-        if (typeof Game !== 'undefined' && Game.fullscreenEnabled) {
-            console.log(`[INIT TOUCH CONTROLS] Canvas: ${canvas.width}x${canvas.height}`);
-            const rect = canvas.getBoundingClientRect();
-            console.log(`[INIT TOUCH CONTROLS] Display rect: ${rect.width.toFixed(0)}x${rect.height.toFixed(0)} at (${rect.left.toFixed(0)}, ${rect.top.toFixed(0)})`);
-            console.log(`[INIT TOUCH CONTROLS] Mobile zoom: ${mobileZoom.toFixed(2)}`);
-        }
-
-        // Mobile-optimized layout for thumb reach
-        // Design philosophy: Left thumb controls movement, right thumb controls combat
-        // All controls positioned in bottom corners for natural thumb reach
-        // NO OVERLAPPING - proper spacing between all controls
-
-        // Scale control sizes based on screen width (but clamp to reasonable range)
-        const widthScale = Math.max(0.7, Math.min(1.3, width / 1280));
-        const baseMovementRadius = 60;
-        const baseAttackRadius = 55;
-        const baseButtonSize = 54;
-
-        const movementRadius = Math.floor(baseMovementRadius * widthScale);
-        const basicAttackRadius = Math.floor(baseAttackRadius * widthScale);
-        const buttonSize = Math.floor(baseButtonSize * widthScale);
-        const buttonHeight = buttonSize;
-
-        // Check if mobile
         const isMobile = this.isMobileUiMode();
-        
-        // Offset controls away from notches/home indicators on mobile
-        let safeAreaOffsetY = 0;
-        let safeAreaOffsetX = 0;
-        if (isMobile && typeof canvas.getBoundingClientRect === 'function') {
+
+        let displayScaleX = 1;
+        let displayScaleY = 1;
+        if (isMobile && canvas && typeof canvas.getBoundingClientRect === 'function') {
             const displayRect = canvas.getBoundingClientRect();
-            const scaleX = displayRect.width > 0 ? width / displayRect.width : 1;
-            const scaleY = displayRect.height > 0 ? height / displayRect.height : 1;
-            const safe = this.getSafeAreaInsets();
-            safeAreaOffsetY = safe.bottom * scaleY;
-            safeAreaOffsetX = safe.left * scaleX;
-        }
-        
-        // Note: Controls are rendered in screen space (canvas coordinates), not world space
-        // Zoom affects world view, not screen space, so controls don't need zoom adjustment
-
-        // RIGHT SIDE - Combat controls (right thumb zone)
-        // Radial layout: Main attack joystick in center, ability buttons arranged around it
-        // Position: Lower for better thumb reach, but ensure all controls stay on screen
-        const rightX = width - Math.max(130, width * 0.10); // ~10% from right edge, min 130px
-
-        // Radial button layout around the central joystick
-        // Create a cohesive cluster with proper spacing (increased spacing to prevent accidental hits)
-        const radialRadius = basicAttackRadius + Math.floor(58 * widthScale); // Distance from center (scaled)
-
-        // Ensure all buttons/joysticks stay on screen (account for radial radius + button size)
-        // Calculate AFTER radialRadius is defined
-        const maxControlReach = Math.max(basicAttackRadius + radialRadius + buttonSize / 2, 140);
-        const safeBottomMarginRight = maxControlReach + 20; // max reach + padding
-        
-        // On mobile, position controls lower for better thumb reach
-        // Use a smaller fixed offset from bottom - prioritize percentage over safe margin
-        // This ensures controls are positioned lower on the screen
-        const mobileBottomOffset = Math.max(height * 0.20, 100); // At least 20% from bottom, minimum 100px
-        const rightY = (isMobile
-            ? height - mobileBottomOffset // Mobile: fixed offset from bottom
-            : height - Math.max(140, height * 0.18)) - safeAreaOffsetY; // Desktop: ~18% from bottom
-        
-        // Debug: Log control positioning to verify changes
-        if (isMobile) {
-            const percentFromBottom = ((height - rightY) / height * 100).toFixed(1);
-            console.log(`[TOUCH CONTROLS] Mobile positioning: height=${height}, rightY=${rightY.toFixed(0)}, ${percentFromBottom}% from bottom, mobileBottomOffset=${mobileBottomOffset.toFixed(0)}, safeAreaOffsetY=${safeAreaOffsetY.toFixed(0)}`);
+            displayScaleX = displayRect.width > 0 ? width / displayRect.width : 1;
+            displayScaleY = displayRect.height > 0 ? height / displayRect.height : 1;
         }
 
-        // Basic attack joystick (CENTRAL - primary action, main right thumb position)
-        const centerX = rightX;
-        const centerY = rightY;
-        this.touchJoysticks.basicAttack = new VirtualJoystick(centerX, centerY, basicAttackRadius, 20);
+        const layoutOptions = {
+            isMobile,
+            safeInsets: this.getSafeAreaInsets(),
+            displayScaleX,
+            displayScaleY
+        };
 
-        // LEFT SIDE - Movement joystick (left thumb zone)
-        // Position: Aligned with center of right cluster (centerY) for consistent thumb height
-        const leftX = Math.max(100, width * 0.08) + safeAreaOffsetX; // ~8% from left edge, min 100px
-        // On mobile, align with right cluster center; on desktop, use original positioning
-        const leftY = isMobile
-            ? centerY // Mobile: same height as right cluster center
-            : height - Math.max(120, height * 0.16); // Desktop: ~16% from bottom
-        this.touchJoysticks.movement = new VirtualJoystick(leftX, leftY, movementRadius, 20);
+        const layout = (typeof MobileControlLayout !== 'undefined')
+            ? MobileControlLayout.getEffectiveLayout(width, height, layoutOptions)
+            : null;
 
-        // Position buttons at angles around the circle (3 buttons: Heavy, Special, Dodge)
-        // Angles optimized for thumb reach: Heavy (upper-left), Special (upper-right), Dodge (bottom)
-        const angles = [
-            Math.PI * 0.7,   // Heavy: ~126 degrees (upper-left, easily reachable)
-            Math.PI * 0.3,   // Special: ~54 degrees (upper-right, easily reachable)
-            Math.PI * 1.5    // Dodge: 270 degrees (bottom, natural thumb position)
-        ];
+        if (layout && layout.controls) {
+            const m = layout.controls.movement;
+            const a = layout.controls.basicAttack;
+            const h = layout.controls.heavyAttack;
+            const s = layout.controls.specialAbility;
+            const d = layout.controls.dodge;
 
-        // Heavy attack button (upper-left of center joystick)
-        const heavyAngle = angles[0];
-        const heavyX = centerX + Math.cos(heavyAngle) * radialRadius;
-        const heavyY = centerY + Math.sin(heavyAngle) * radialRadius;
-        this.touchButtons.heavyAttack = new TouchButton(
-            heavyX - buttonSize / 2,
-            heavyY - buttonHeight / 2,
-            buttonSize,
-            buttonHeight,
-            'Heavy'
-        );
+            this.touchJoysticks.movement = new VirtualJoystick(m.x, m.y, m.radius, m.deadZone);
+            this.touchJoysticks.basicAttack = new VirtualJoystick(a.x, a.y, a.radius, a.deadZone);
 
-        // Heavy attack joystick (for warrior class - directional charge attack)
-        // Centered on button position - REDUCED SIZE for mobile
-        const abilityJoystickRadius = Math.floor(buttonSize * 0.52);
-        this.touchJoysticks.heavyAttack = new VirtualJoystick(
-            heavyX,
-            heavyY,
-            abilityJoystickRadius,
-            14
-        );
+            this.touchButtons.heavyAttack = new TouchButton(h.x - h.w / 2, h.y - h.h / 2, h.w, h.h, h.label || 'Heavy');
+            this.touchJoysticks.heavyAttack = new VirtualJoystick(h.x, h.y, h.radius, h.deadZone);
 
-        // Special ability button (upper-right of center joystick)
-        const specialAngle = angles[1];
-        const specialX = centerX + Math.cos(specialAngle) * radialRadius;
-        const specialY = centerY + Math.sin(specialAngle) * radialRadius;
-        this.touchButtons.specialAbility = new TouchButton(
-            specialX - buttonSize / 2,
-            specialY - buttonHeight / 2,
-            buttonSize,
-            buttonHeight,
-            'Spcl'
-        );
+            this.touchButtons.specialAbility = new TouchButton(s.x - s.w / 2, s.y - s.h / 2, s.w, s.h, s.label || 'Spcl');
+            this.touchJoysticks.specialAbility = new VirtualJoystick(s.x, s.y, s.radius, s.deadZone);
 
-        // Special ability joystick (for directional abilities - centered on button position)
-        // REDUCED SIZE for mobile
-        this.touchJoysticks.specialAbility = new VirtualJoystick(
-            specialX,
-            specialY,
-            abilityJoystickRadius,
-            14
-        );
+            this.touchButtons.dodge = new TouchButton(d.x - d.w / 2, d.y - d.h / 2, d.w, d.h, d.label || 'Dodge');
+            this.touchJoysticks.dodge = new VirtualJoystick(d.x, d.y, d.radius, d.deadZone);
 
-        // Dodge button (bottom of center joystick)
-        const dodgeAngle = angles[2];
-        const dodgeX = centerX + Math.cos(dodgeAngle) * radialRadius;
-        const dodgeY = centerY + Math.sin(dodgeAngle) * radialRadius;
-        this.touchButtons.dodge = new TouchButton(
-            dodgeX - buttonSize / 2,
-            dodgeY - buttonHeight / 2,
-            buttonSize,
-            buttonHeight,
-            'Dodge'
-        );
+            this._activeControlLayout = layout;
+        } else {
+            // Fallback if layout module missing
+            this.touchJoysticks.basicAttack = new VirtualJoystick(width - 130, height - 140, 55, 20);
+            this.touchJoysticks.movement = new VirtualJoystick(100, height - 140, 60, 20);
+            this.touchButtons.heavyAttack = new TouchButton(width - 220, height - 220, 54, 54, 'Heavy');
+            this.touchJoysticks.heavyAttack = new VirtualJoystick(width - 193, height - 193, 28, 14);
+            this.touchButtons.specialAbility = new TouchButton(width - 100, height - 220, 54, 54, 'Spcl');
+            this.touchJoysticks.specialAbility = new VirtualJoystick(width - 73, height - 193, 28, 14);
+            this.touchButtons.dodge = new TouchButton(width - 157, height - 80, 54, 54, 'Dodge');
+            this.touchJoysticks.dodge = new VirtualJoystick(width - 130, height - 53, 28, 14);
+        }
 
-        // Dodge joystick (for triangle/rogue class - directional dash attack)
-        // Centered on button position - REDUCED SIZE for mobile
-        this.touchJoysticks.dodge = new VirtualJoystick(
-            dodgeX,
-            dodgeY,
-            abilityJoystickRadius,
-            14
-        );
-
-        // Character sheet button removed - now handled by DOM UI
+        if (typeof MobileControlsDOM !== 'undefined' && MobileControlsDOM.onInputSurfaceReady) {
+            MobileControlsDOM.onInputSurfaceReady();
+        }
     },
 
     // Handle touch start
@@ -1479,6 +1388,12 @@ const Input = {
             }
 
             // Character sheet button removed - now handled by DOM UI
+
+            // On-screen gameplay controls are owned by MobileControlsDOM (pointer capture).
+            // Skip canvas hit-testing so empty canvas areas do not steal move/aim.
+            if (this.usesDomTouchControls()) {
+                return;
+            }
 
             // Priority-based touch assignment for mobile usability
             // Check buttons FIRST (they have smaller hit areas), then joysticks
@@ -1637,6 +1552,9 @@ const Input = {
             CharacterSheet.lastTouchY = touch.clientY;
         }
 
+        // DOM layer owns gameplay control pointers
+        if (this.usesDomTouchControls()) return;
+
         // Get fresh bounding rect to ensure correct coordinates after resize/fullscreen
         void canvas.offsetWidth; // Force reflow
         const rect = canvas.getBoundingClientRect();
@@ -1772,6 +1690,17 @@ const Input = {
         if (!this.isTouchMode()) return;
 
         const touches = Array.from(e.changedTouches);
+
+        // DOM layer owns release / finalJoystickState for gameplay controls
+        if (this.usesDomTouchControls()) {
+            touches.forEach(touch => {
+                delete this.activeTouches[touch.identifier];
+            });
+            if (Object.keys(this.activeTouches).length === 0) {
+                this.touchActive = false;
+            }
+            return;
+        }
 
         touches.forEach(touch => {
             const touchId = touch.identifier;
@@ -1914,6 +1843,7 @@ const Input = {
         }
 
         // Update joystick snap-back animations (skip for gamepad - we set values directly)
+        // DOM controls also set magnitude directly; snap-back is visual-only for inactive sticks.
         if (!this.isGamepadMode()) {
             for (const joystick of Object.values(this.touchJoysticks)) {
                 if (joystick) {
@@ -1922,12 +1852,26 @@ const Input = {
             }
         }
 
-        // Reset justPressed/justReleased flags (button state itself is preserved)
+        // Reset justPressed/justReleased flags after gameplay has consumed them this frame
         for (const button of Object.values(this.touchButtons)) {
             if (button && !this.isGamepadMode()) {
-                // Touch buttons manage their own lifecycle via touch events
                 button.update(deltaTime);
             }
+        }
+
+        // Keep DOM layer visibility/layout in sync (cheap when hidden)
+        if (typeof MobileControlsDOM !== 'undefined' && MobileControlsDOM.refresh &&
+            (this._domRefreshCooldown || 0) <= 0) {
+            // Full refresh is relatively heavy; throttle to ~4Hz for visibility checks
+            this._domRefreshCooldown = 0.25;
+            if (MobileControlsDOM.shouldShow && MobileControlsDOM.layer) {
+                const want = MobileControlsDOM.shouldShow();
+                if (want === MobileControlsDOM.layer.hidden) {
+                    MobileControlsDOM.refresh();
+                }
+            }
+        } else if (this._domRefreshCooldown > 0) {
+            this._domRefreshCooldown -= deltaTime;
         }
     },
 
@@ -1974,6 +1918,14 @@ const Input = {
             if (this.touchJoysticks.specialAbility && this.touchJoysticks.specialAbility.active &&
                 this.touchJoysticks.specialAbility.getMagnitude() > 0.1) {
                 const angle = this.touchJoysticks.specialAbility.getAngle();
+                this.lastAimAngle = angle;
+                return angle;
+            }
+
+            // Dodge aim stick (any class with Aim type on dodge)
+            if (this.touchJoysticks.dodge && this.touchJoysticks.dodge.active &&
+                this.touchJoysticks.dodge.getMagnitude() > 0.1) {
+                const angle = this.touchJoysticks.dodge.getAngle();
                 this.lastAimAngle = angle;
                 return angle;
             }
@@ -2219,11 +2171,13 @@ const Input = {
         };
     },
 
-    // Render touch controls
+    // Render touch controls (legacy canvas path — DOM layer is canonical when available)
     render(ctx) {
         if (!this.isMobileUiMode()) return;
         // Gamepad uses the touch code path internally but has no on-screen controls to draw
         if (this.isGamepadMode()) return;
+        // DOM mobile controls replace canvas drawing + hit-testing
+        if (typeof MobileControlsDOM !== 'undefined') return;
 
         // Get player for cooldown data
         const player = (typeof Game !== 'undefined') ? Game.player : null;

@@ -5,7 +5,44 @@
 	let subtitleEl;
 	let promptEl;
 	let versionEl;
+	let installBtn;
+	let installPromptEvent = null;
 	let pauseBtnHidden = false;
+
+	function isInstalledPwa() {
+		return (window.matchMedia && (
+			window.matchMedia('(display-mode: standalone)').matches ||
+			window.matchMedia('(display-mode: fullscreen)').matches
+		)) || window.navigator.standalone === true;
+	}
+
+	function isIosInstallCandidate() {
+		const ua = navigator.userAgent || '';
+		const ios = /iPad|iPhone|iPod/.test(ua) ||
+			(navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+		return ios && !isInstalledPwa();
+	}
+
+	async function promptInstall(e) {
+		e.preventDefault();
+		e.stopPropagation();
+		if (installPromptEvent) {
+			installPromptEvent.prompt();
+			await installPromptEvent.userChoice;
+			installPromptEvent = null;
+		} else if (isIosInstallCandidate() && window.showToast) {
+			window.showToast('In Safari, tap Share, then Add to Home Screen.', 4500);
+		}
+	}
+
+	window.addEventListener('beforeinstallprompt', (event) => {
+		event.preventDefault();
+		installPromptEvent = event;
+	});
+
+	window.addEventListener('appinstalled', () => {
+		installPromptEvent = null;
+	});
 
 	function isTitleVisible() {
 		return typeof Game !== 'undefined' && Game.state === 'TITLE';
@@ -135,7 +172,8 @@
 			'  </div>',
 			'  <div class="title-screen__prompt" id="title-screen-prompt"></div>',
 			'  <div class="title-screen__version" id="title-screen-version"></div>',
-			'</div>'
+			'</div>',
+			'<button class="title-screen__install" id="title-screen-install" type="button" hidden>Install App</button>'
 		].join('');
 
 		root.appendChild(layer);
@@ -145,6 +183,15 @@
 		subtitleEl = document.getElementById('title-screen-subtitle');
 		promptEl = document.getElementById('title-screen-prompt');
 		versionEl = document.getElementById('title-screen-version');
+		installBtn = document.getElementById('title-screen-install');
+		if (installBtn) {
+			installBtn.addEventListener('click', promptInstall);
+			installBtn.addEventListener('touchend', (e) => {
+				e.preventDefault();
+				e.stopPropagation();
+				promptInstall(e);
+			}, { passive: false });
+		}
 		renderStartPrompt();
 
 		layer.addEventListener('click', function (e) {
@@ -181,6 +228,11 @@
 			wasVisible = false;
 			requestAnimationFrame(refresh);
 			return;
+		}
+
+		if (installBtn) {
+			installBtn.hidden = isInstalledPwa() ||
+				(!installPromptEvent && !isIosInstallCandidate());
 		}
 
 		if (!wasVisible) {

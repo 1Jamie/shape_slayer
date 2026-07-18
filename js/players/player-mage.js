@@ -510,17 +510,30 @@ class Mage extends PlayerBase {
     // Override handleSpecialAbility for blink hold-scale (touch/pad) vs immediate cursor blink (M&K)
     handleSpecialAbility(input) {
         if (input.isTouchMode && input.isTouchMode()) {
-            // Mobile/controller: hold to charge distance, release to fire (auto-fire at max in updateClassAbilities)
             if (input.touchButtons && input.touchButtons.specialAbility) {
                 const button = input.touchButtons.specialAbility;
-                if (button.justPressed && this.specialCooldown <= 0 && !this.blinkDecoyActive) {
-                    this.blinkCharging = true;
-                    this.blinkHoldElapsed = 0;
-                    this.updateBlinkPreview(input);
-                }
-                if (button.justReleased && this.specialCooldown <= 0 && this.blinkCharging && !this.blinkDecoyActive) {
-                    this.updateBlinkPreview(input);
-                    this.activateBlink(input);
+                const specialType = (input.getAbilityInputType &&
+                    input.getAbilityInputType(this.playerClass, 'specialAbility')) || 'joystick-press-release';
+
+                if (specialType === 'button') {
+                    // Tap: fire immediately along current facing (no drag / hold aim)
+                    if (button.justPressed && this.specialCooldown <= 0 && !this.blinkDecoyActive) {
+                        this.blinkCharging = false;
+                        this.blinkHoldElapsed = 0;
+                        this.blinkPreviewActive = false;
+                        this.activateBlink(input);
+                    }
+                } else {
+                    // Aim-then-release (or hold-aim adapted to press-release): hold scales distance
+                    if (button.justPressed && this.specialCooldown <= 0 && !this.blinkDecoyActive) {
+                        this.blinkCharging = true;
+                        this.blinkHoldElapsed = 0;
+                        this.updateBlinkPreview(input);
+                    }
+                    if (button.justReleased && this.specialCooldown <= 0 && this.blinkCharging && !this.blinkDecoyActive) {
+                        this.updateBlinkPreview(input);
+                        this.activateBlink(input);
+                    }
                 }
             }
         } else {

@@ -639,7 +639,7 @@ class Tank extends PlayerBase {
         }
     }
     
-    // Override handleSpecialAbility for shield press-and-hold behavior
+    // Override handleSpecialAbility for shield (hold / toggle by control type)
     handleSpecialAbility(input) {
         // Check for special ability input (Spacebar or touch button)
         let specialJustPressed = false;
@@ -650,18 +650,32 @@ class Tank extends PlayerBase {
             if (input.touchButtons && input.touchButtons.specialAbility) {
                 const button = input.touchButtons.specialAbility;
                 specialPressed = button.pressed;
-                
-                // Shield: press-and-hold (directional, continuous)
-                if (button.justPressed && this.specialCooldown <= 0 && !this.shieldActive) {
-                    this.activateShield(input);
-                }
-                // Deactivate shield when button is released
-                if (button.justReleased && this.shieldActive) {
-                    this.shieldActive = false;
-                    this.shieldElapsed = 0;
-                    // Start wave animation
-                    this.shieldWaveActive = true;
-                    this.shieldWaveElapsed = 0;
+                const specialType = (input.getAbilityInputType &&
+                    input.getAbilityInputType(this.playerClass, 'specialAbility')) || 'joystick-continuous';
+
+                if (specialType === 'button') {
+                    // Tap: toggle shield on press
+                    if (button.justPressed && this.specialCooldown <= 0) {
+                        if (!this.shieldActive) {
+                            this.activateShield(input);
+                        } else {
+                            this.shieldActive = false;
+                            this.shieldElapsed = 0;
+                            this.shieldWaveActive = true;
+                            this.shieldWaveElapsed = 0;
+                        }
+                    }
+                } else {
+                    // Aim modes: hold to raise, release to drop
+                    if (button.justPressed && this.specialCooldown <= 0 && !this.shieldActive) {
+                        this.activateShield(input);
+                    }
+                    if (button.justReleased && this.shieldActive) {
+                        this.shieldActive = false;
+                        this.shieldElapsed = 0;
+                        this.shieldWaveActive = true;
+                        this.shieldWaveElapsed = 0;
+                    }
                 }
             }
         } else {

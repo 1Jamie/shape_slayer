@@ -258,7 +258,7 @@
 			container.style.alignItems = 'flex-start';
 			container.style.transform = 'none';
 
-			// Hide cooldowns container on mobile (cooldowns are built into touch controls)
+			// Hide cooldowns container on mobile (cooldowns are built into DOM mobile controls)
 			const cdContainer = document.getElementById('dom-cooldowns-container');
 			if (cdContainer) {
 				cdContainer.style.display = 'none';
@@ -417,7 +417,7 @@
 		}
 
 		// Desktop cooldown bars (event-driven preferred, fallback to raw fields)
-		// Mobile: hide cooldowns (they're built into touch controls)
+		// Mobile: hide cooldowns (they're built into DOM mobile controls)
 		if (isMobile) {
 			// Ensure cooldowns are completely hidden on mobile
 			if (cdWrap) {
