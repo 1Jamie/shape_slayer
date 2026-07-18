@@ -304,14 +304,20 @@ const Game = {
     baseZoom: 1.1, // Desktop zoom level (10% closer)
     mobileZoom: 0.9, // Mobile default: pull back so more of the arena is visible
     cameraDistance: 'medium', // 'close' | 'medium' | 'far' (from save / pause menu)
+    // Desktop: close-in / neutral / pulled back
     CAMERA_DISTANCE_MULT: { close: 1.15, medium: 1.0, far: 0.85 },
+    // Mobile: shifted out one step — old far is the new medium (default), with a wider far
+    CAMERA_DISTANCE_MULT_MOBILE: { close: 1.0, medium: 0.85, far: 0.7 },
     bossIntroZoom: 1.3, // Extra zoom during boss intro (30% closer total)
 
     /** Effective world zoom for the current platform + camera-distance setting. */
     getViewZoom() {
         const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
         const platformZoom = isMobile ? (this.mobileZoom || 0.9) : (this.baseZoom || 1.1);
-        const mult = (this.CAMERA_DISTANCE_MULT && this.CAMERA_DISTANCE_MULT[this.cameraDistance]) || 1.0;
+        const table = isMobile
+            ? (this.CAMERA_DISTANCE_MULT_MOBILE || this.CAMERA_DISTANCE_MULT)
+            : this.CAMERA_DISTANCE_MULT;
+        const mult = (table && table[this.cameraDistance]) || 1.0;
         return platformZoom * mult;
     },
 
@@ -433,6 +439,9 @@ const Game = {
         // Setup fullscreen API event listeners
         this.setupFullscreenListeners();
 
+        // Installed PWA / mobile: fullscreen chrome + force landscape
+        this.setupLandscapeMode();
+
         if (this.fullscreenEnabled &&
             typeof DeviceDetection !== 'undefined' &&
             DeviceDetection.supportsElementFullscreen &&
@@ -473,6 +482,8 @@ const Game = {
         window.addEventListener('orientationchange', () => {
             setTimeout(() => {
                 this.setupResponsiveCanvas();
+                this.updatePortraitRotateOverlay();
+                this.lockLandscapeOrientation();
                 if (typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode()) {
                     Input.initTouchControls(this.canvas);
                 }
@@ -1161,6 +1172,9 @@ const Game = {
                                 }
                             }, 100); // Increased delay for mobile devices
                         }
+
+                        this.updatePortraitRotateOverlay();
+                        this.lockLandscapeOrientation();
                     });
                 });
             });
@@ -1169,6 +1183,87 @@ const Game = {
         document.addEventListener('fullscreenchange', fullscreenChange);
         document.addEventListener('webkitfullscreenchange', fullscreenChange);
         document.addEventListener('mozfullscreenchange', fullscreenChange);
+    },
+
+    setupLandscapeMode() {
+        this.ensurePortraitRotateOverlay();
+        this.updatePortraitRotateOverlay();
+        this.lockLandscapeOrientation();
+
+        const refresh = () => {
+            setTimeout(() => {
+                this.updatePortraitRotateOverlay();
+                this.lockLandscapeOrientation();
+            }, 100);
+        };
+
+        window.addEventListener('orientationchange', refresh);
+        window.addEventListener('resize', () => {
+            this.updatePortraitRotateOverlay();
+        });
+
+        // Some browsers only allow orientation.lock after a user gesture.
+        const lockOnGesture = () => {
+            this.lockLandscapeOrientation();
+        };
+        ['pointerdown', 'touchstart', 'click'].forEach((eventType) => {
+            window.addEventListener(eventType, lockOnGesture, { once: true, capture: true });
+        });
+    },
+
+    ensurePortraitRotateOverlay() {
+        if (this._rotateOverlay || typeof document === 'undefined') {
+            return this._rotateOverlay || null;
+        }
+
+        const overlay = document.createElement('div');
+        overlay.id = 'rotate-landscape-overlay';
+        overlay.setAttribute('aria-live', 'polite');
+        overlay.innerHTML = [
+            '<div class="rotate-landscape-icon" aria-hidden="true"></div>',
+            '<p>Rotate your device to landscape to play Shape Slayer.</p>'
+        ].join('');
+        document.body.appendChild(overlay);
+        this._rotateOverlay = overlay;
+        return overlay;
+    },
+
+    shouldForceLandscape() {
+        if (typeof DeviceDetection === 'undefined') {
+            return false;
+        }
+        if (DeviceDetection.isInstalledDisplayMode && DeviceDetection.isInstalledDisplayMode()) {
+            return true;
+        }
+        return !!(DeviceDetection.isMobile && DeviceDetection.isMobile());
+    },
+
+    lockLandscapeOrientation() {
+        if (!this.shouldForceLandscape()) {
+            return Promise.resolve(false);
+        }
+        if (typeof DeviceDetection === 'undefined' || !DeviceDetection.lockLandscapeOrientation) {
+            return Promise.resolve(false);
+        }
+        return DeviceDetection.lockLandscapeOrientation();
+    },
+
+    updatePortraitRotateOverlay() {
+        const overlay = this.ensurePortraitRotateOverlay();
+        if (!overlay) {
+            return;
+        }
+
+        const forceLandscape = this.shouldForceLandscape();
+        const isPortrait = typeof DeviceDetection !== 'undefined' && DeviceDetection.isPortraitViewport
+            ? DeviceDetection.isPortraitViewport()
+            : (typeof window !== 'undefined' && window.innerHeight > window.innerWidth);
+
+        const show = forceLandscape && isPortrait;
+        overlay.classList.toggle('is-visible', show);
+        if (document.body) {
+            document.body.classList.toggle('portrait-blocked', show);
+        }
     },
 
     // Toggle fullscreen

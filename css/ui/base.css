@@ -1836,3 +1836,110 @@ body {
   font-size: clamp(11px, 3.2vw, 16px);
 }
 
+/* Short landscape screens (phones): slim the chrome so the combat sim gets room */
+@media (max-height: 520px) {
+  .title-screen {
+    padding: 10px clamp(12px, 3vw, 32px) 12px;
+  }
+
+  .title-screen__top {
+    gap: 4px;
+    padding-top: 2px;
+  }
+
+  .title-screen__word {
+    font-size: clamp(24px, 5.5vh, 44px);
+  }
+
+  .title-screen__gem svg {
+    width: clamp(28px, 6vh, 44px);
+    height: clamp(28px, 6vh, 44px);
+  }
+
+  .title-screen__subtitle {
+    font-size: clamp(10px, 2.6vh, 14px);
+  }
+
+  .title-screen__bottom {
+    gap: 8px;
+  }
+
+  .title-screen__currency {
+    font-size: clamp(10px, 2.4vh, 13px);
+    gap: 2px;
+  }
+
+  .title-screen__prompt {
+    font-size: clamp(11px, 2.8vh, 15px);
+  }
+
+  .title-screen__version {
+    font-size: clamp(9px, 2vh, 11px);
+  }
+}
+
+/* Portrait rotate gate — game is landscape-only on mobile / installed PWA */
+#rotate-landscape-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 18px;
+  padding: 24px;
+  background: #0a0a0a;
+  color: #ffffff;
+  text-align: center;
+  font-family: "Orbitron", sans-serif;
+  pointer-events: auto;
+}
+
+#rotate-landscape-overlay.is-visible {
+  display: flex;
+}
+
+#rotate-landscape-overlay .rotate-landscape-icon {
+  width: 72px;
+  height: 72px;
+  border: 3px solid #4a90e2;
+  border-radius: 10px;
+  position: relative;
+  animation: rotate-phone-hint 1.6s ease-in-out infinite;
+}
+
+#rotate-landscape-overlay .rotate-landscape-icon::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  width: 18px;
+  height: 4px;
+  margin-left: -9px;
+  border-radius: 2px;
+  background: #4a90e2;
+}
+
+#rotate-landscape-overlay p {
+  max-width: 280px;
+  font-size: 15px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+@keyframes rotate-phone-hint {
+  0%,
+  20% {
+    transform: rotate(0deg);
+  }
+  45%,
+  70% {
+    transform: rotate(90deg);
+  }
+  100% {
+    transform: rotate(90deg);
+  }
+}
+
+

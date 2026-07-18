@@ -41,6 +41,8 @@ const MAGE_CONFIG = {
     // Special Ability (Blink)
     specialCooldown: 5.0,          // Special ability cooldown (seconds)
     blinkRange: 250,               // Maximum blink distance (pixels)
+    blinkHoldMaxTime: 0.6,         // Mobile/controller hold time to reach max blink range (seconds)
+    blinkMinRange: 60,             // Mobile/controller tap minimum blink distance (pixels)
     blinkDecoyDuration: 2.0,       // How long decoy lasts (seconds) - NOT USED, decoy uses health
     blinkDecoyMaxHealth: 30,       // Starting health for decoy
     blinkDecoyHealthDecay: 8,      // HP lost per second for decoy
@@ -138,11 +140,17 @@ class Mage extends PlayerBase {
         this.blinkKnockbackVx = 0;
         this.blinkKnockbackVy = 0;
 
-        // Blink preview system
+        // Blink preview / hold-charge system (mobile/controller)
         this.blinkPreviewActive = false;
         this.blinkPreviewX = 0;
         this.blinkPreviewY = 0;
         this.blinkPreviewDistance = 0;
+        this.blinkHoldElapsed = 0;
+        this.blinkCharging = false;
+
+        // Beam heavy-attack aim telegraph (mobile/controller)
+        this.beamPreviewActive = false;
+        this.beamPreviewAngle = 0;
 
         // Class modifier storage
         this.projectileCountBonus = 0;
@@ -481,52 +489,47 @@ class Mage extends PlayerBase {
         }
     }
 
-    // Override handleSpecialAbility for blink preview behavior
-    handleSpecialAbility(input) {
-        // Check for special ability input (Spacebar or touch button)
-        let specialJustPressed = false;
-        let specialPressed = false;
+    getBlinkMaxRange() {
+        return 400 + (this.blinkRangeBonus || 0);
+    }
 
+    getBlinkHoldDistance() {
+        const maxRange = this.getBlinkMaxRange();
+        const minRange = MAGE_CONFIG.blinkMinRange;
+        const holdMax = MAGE_CONFIG.blinkHoldMaxTime;
+        const progress = holdMax > 0 ? Math.min(1, this.blinkHoldElapsed / holdMax) : 1;
+        return minRange + progress * (maxRange - minRange);
+    }
+
+    resetBlinkHoldState() {
+        this.blinkHoldElapsed = 0;
+        this.blinkCharging = false;
+        this.blinkPreviewActive = false;
+    }
+
+    // Override handleSpecialAbility for blink hold-scale (touch/pad) vs immediate cursor blink (M&K)
+    handleSpecialAbility(input) {
         if (input.isTouchMode && input.isTouchMode()) {
-            // Touch mode: check for special ability button
+            // Mobile/controller: hold to charge distance, release to fire (auto-fire at max in updateClassAbilities)
             if (input.touchButtons && input.touchButtons.specialAbility) {
                 const button = input.touchButtons.specialAbility;
-                specialPressed = button.pressed;
-
-                // Blink: press-and-release (directional, one-time)
-                specialJustPressed = button.justReleased;
-
-                // Show preview while holding
-                if (button.pressed && this.specialCooldown <= 0 && !this.blinkDecoyActive) {
+                if (button.justPressed && this.specialCooldown <= 0 && !this.blinkDecoyActive) {
+                    this.blinkCharging = true;
+                    this.blinkHoldElapsed = 0;
                     this.updateBlinkPreview(input);
                 }
-                // Don't clear preview on release - it will be cleared in activateBlink after use
+                if (button.justReleased && this.specialCooldown <= 0 && this.blinkCharging && !this.blinkDecoyActive) {
+                    this.updateBlinkPreview(input);
+                    this.activateBlink(input);
+                }
             }
         } else {
-            // Keyboard/mouse mode: check for Spacebar
+            // Keyboard/mouse: immediate blink toward cursor on spacebar press (no hold/release)
             const spaceJustPressed = input.getKeyState(' ') && !this.lastSpacebar;
             this.lastSpacebar = input.getKeyState(' ');
-            specialJustPressed = spaceJustPressed;
-            specialPressed = input.getKeyState(' ');
-
-            // Show preview for blink while spacebar held
-            if (specialPressed && this.specialCooldown <= 0 && !this.blinkDecoyActive) {
-                this.updateBlinkPreview(input);
-            } else if (!specialPressed && !specialJustPressed) {
-                // Only clear preview if spacebar was released earlier (not on the frame it's released)
-                this.blinkPreviewActive = false;
+            if (spaceJustPressed && this.specialCooldown <= 0) {
+                this.activateBlink(input);
             }
-        }
-
-        // Check if cooldown ready and not already using another ability
-        if (specialJustPressed && this.specialCooldown <= 0) {
-            // For hexagon blink, update preview one last time before activating
-            if (input.isTouchMode && input.isTouchMode()) {
-                this.updateBlinkPreview(input);
-            }
-
-            // Activate blink
-            this.activateBlink(input);
         }
     }
 
@@ -538,26 +541,27 @@ class Mage extends PlayerBase {
     updateBlinkPreview(input) {
         this.blinkPreviewActive = true;
 
-        // Get target position based on input method
+        const maxRange = this.getBlinkMaxRange();
         let targetX, targetY;
-        let distance = 400; // Max blink range
+        let distance = maxRange;
 
-        if (input.isTouchMode && input.isTouchMode() && input.touchJoysticks && input.touchJoysticks.specialAbility) {
-            // Touch mode: use joystick direction and magnitude
-            const joystick = input.touchJoysticks.specialAbility;
-            if (joystick.active && joystick.getMagnitude() > 0.1) {
-                const dir = joystick.getDirection();
-                const mag = joystick.getMagnitude();
-                // Distance scales with magnitude: 0.2 magnitude = 80px, 1.0 magnitude = 400px
-                distance = 80 + (mag * 320); // Range from 80px to 400px
-                targetX = this.x + dir.x * distance;
-                targetY = this.y + dir.y * distance;
-            } else {
-                // Joystick not active, use facing direction with minimum distance
-                targetX = this.x + Math.cos(this.rotation) * 200;
-                targetY = this.y + Math.sin(this.rotation) * 200;
-                distance = 200;
+        if (input.isTouchMode && input.isTouchMode()) {
+            // Touch/controller: stick aims angle only; distance scales with hold time
+            distance = this.getBlinkHoldDistance();
+            let angle = this.rotation;
+
+            const joystick = input.touchJoysticks && input.touchJoysticks.specialAbility;
+            if (joystick && joystick.active && joystick.getMagnitude() > 0.1) {
+                angle = joystick.getAngle ? joystick.getAngle() : Math.atan2(
+                    joystick.getDirection().y,
+                    joystick.getDirection().x
+                );
+            } else if (input.getAimDirection) {
+                angle = input.getAimDirection();
             }
+
+            targetX = this.x + Math.cos(angle) * distance;
+            targetY = this.y + Math.sin(angle) * distance;
         } else {
             // Mouse mode: use world mouse position (accounts for camera)
             const worldMouse = Input.getWorldMousePos ? Input.getWorldMousePos() : input.mouse;
@@ -568,14 +572,14 @@ class Mage extends PlayerBase {
             const dist = Math.sqrt(dx * dx + dy * dy);
 
             if (dist > 0) {
-                distance = Math.min(400, dist);
+                distance = Math.min(maxRange, dist);
                 const angle = Math.atan2(dy, dx);
                 targetX = this.x + Math.cos(angle) * distance;
                 targetY = this.y + Math.sin(angle) * distance;
             } else {
-                targetX = this.x + Math.cos(this.rotation) * 200;
-                targetY = this.y + Math.sin(this.rotation) * 200;
-                distance = 200;
+                targetX = this.x + Math.cos(this.rotation) * MAGE_CONFIG.blinkMinRange;
+                targetY = this.y + Math.sin(this.rotation) * MAGE_CONFIG.blinkMinRange;
+                distance = MAGE_CONFIG.blinkMinRange;
             }
         }
 
@@ -608,96 +612,41 @@ class Mage extends PlayerBase {
         const oldX = this.x;
         const oldY = this.y;
 
-        // Get target position (use preview if available, otherwise calculate)
+        // Get target position (use hold-scaled preview on touch/pad; cursor on M&K)
         let targetX, targetY;
-        let usedPreview = false;
 
-        // For touch mode, prioritize stored joystick state from button release
         if (input.isTouchMode && input.isTouchMode()) {
-            // Check if button has stored final joystick state (captured on release)
-            const button = input.touchButtons && input.touchButtons.specialAbility;
-            if (button && button.finalJoystickState) {
-                // Use the stored joystick state from when button was released
-                const state = button.finalJoystickState;
-                if (state.magnitude > 0.1) {
-                    const distance = 80 + (state.magnitude * 320);
-                    targetX = this.x + state.direction.x * distance;
-                    targetY = this.y + state.direction.y * distance;
-                    // Clear the stored state after using it
-                    button.finalJoystickState = null;
-                } else {
-                    // Magnitude too low, use preview or fallback
-                    const previewDistance = Math.sqrt(
-                        (this.blinkPreviewX - this.x) ** 2 +
-                        (this.blinkPreviewY - this.y) ** 2
-                    );
-                    if (this.blinkPreviewActive || previewDistance > 20) {
-                        targetX = this.blinkPreviewX;
-                        targetY = this.blinkPreviewY;
-                        usedPreview = true;
-                    } else {
-                        targetX = this.x + Math.cos(this.rotation) * 200;
-                        targetY = this.y + Math.sin(this.rotation) * 200;
-                    }
-                    button.finalJoystickState = null;
-                }
-            } else {
-                // No stored state, check preview position
-                const previewDistance = Math.sqrt(
-                    (this.blinkPreviewX - this.x) ** 2 +
-                    (this.blinkPreviewY - this.y) ** 2
-                );
-
-                if (this.blinkPreviewActive || previewDistance > 20) {
-                    // Use preview position
-                    targetX = this.blinkPreviewX;
-                    targetY = this.blinkPreviewY;
-                    usedPreview = true;
-                } else if (input.touchJoysticks && input.touchJoysticks.specialAbility) {
-                    // Preview not active, try to use current joystick state
-                    const joystick = input.touchJoysticks.specialAbility;
-                    if (joystick.active && joystick.getMagnitude() > 0.1) {
-                        const dir = joystick.getDirection();
-                        const mag = joystick.getMagnitude();
-                        const distance = 80 + (mag * 320);
-                        targetX = this.x + dir.x * distance;
-                        targetY = this.y + dir.y * distance;
-                    } else {
-                        // Fallback: use facing direction with default distance
-                        targetX = this.x + Math.cos(this.rotation) * 200;
-                        targetY = this.y + Math.sin(this.rotation) * 200;
-                    }
-                } else {
-                    // Fallback: use facing direction
-                    targetX = this.x + Math.cos(this.rotation) * 200;
-                    targetY = this.y + Math.sin(this.rotation) * 200;
-                }
-            }
-        } else {
-            // Mouse mode: use preview if available, otherwise mouse position
             if (this.blinkPreviewActive) {
                 targetX = this.blinkPreviewX;
                 targetY = this.blinkPreviewY;
-                usedPreview = true;
             } else {
-                // Mouse mode: use world mouse position (accounts for camera)
-                const worldMouse = Input.getWorldMousePos ? Input.getWorldMousePos() : input.mouse;
-                const mouseX = worldMouse.x || this.x;
-                const mouseY = worldMouse.y || this.y;
-                targetX = mouseX;
-                targetY = mouseY;
+                // Fallback: facing direction at current hold distance (or min hop)
+                const distance = this.blinkCharging ? this.getBlinkHoldDistance() : MAGE_CONFIG.blinkMinRange;
+                targetX = this.x + Math.cos(this.rotation) * distance;
+                targetY = this.y + Math.sin(this.rotation) * distance;
             }
+
+            // Clear any stored joystick magnitude state — distance is hold-based now
+            const button = input.touchButtons && input.touchButtons.specialAbility;
+            if (button) {
+                button.finalJoystickState = null;
+            }
+        } else {
+            // Mouse mode: blink toward world mouse position
+            const worldMouse = Input.getWorldMousePos ? Input.getWorldMousePos() : input.mouse;
+            targetX = worldMouse.x || this.x;
+            targetY = worldMouse.y || this.y;
         }
 
-        // Clear preview after using it
-        this.blinkPreviewActive = false;
+        // Clear preview / hold charge after using it
+        this.resetBlinkHoldState();
 
         const dx = targetX - this.x;
         const dy = targetY - this.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
 
         let newX, newY;
-        const maxBlinkRange = 400 + this.blinkRangeBonus; // Apply class modifier
+        const maxBlinkRange = this.getBlinkMaxRange();
         if (distance > maxBlinkRange) {
             // Clamp to max range
             const angle = Math.atan2(dy, dx);
@@ -924,6 +873,27 @@ class Mage extends PlayerBase {
 
     // Override updateClassAbilities for Mage-specific updates
     updateClassAbilities(deltaTime, input) {
+        // Mobile/controller blink: tick hold charge, update aim preview, auto-fire at max hold
+        // Charging is started on justPressed in handleSpecialAbility (so taps still get the min hop).
+        if (input && input.isTouchMode && input.isTouchMode() &&
+            input.touchButtons && input.touchButtons.specialAbility) {
+            const button = input.touchButtons.specialAbility;
+            const canCharge = this.blinkCharging && button.pressed &&
+                this.specialCooldown <= 0 && !this.blinkDecoyActive;
+
+            if (canCharge) {
+                this.blinkHoldElapsed += deltaTime;
+                this.updateBlinkPreview(input);
+
+                if (this.blinkHoldElapsed >= MAGE_CONFIG.blinkHoldMaxTime) {
+                    this.activateBlink(input);
+                }
+            } else if (this.blinkCharging && !button.pressed) {
+                // Released without firing (blocked / cancelled) — clear charge state
+                this.resetBlinkHoldState();
+            }
+        }
+
         // Update beam charge cooldowns - follow EXACT same pattern as dodge charges in base class update()
         // Tick down cooldowns for each charge
         for (let i = 0; i < this.maxBeamCharges; i++) {
@@ -1263,8 +1233,102 @@ class Mage extends PlayerBase {
         }
     }
 
+    // Beam aim telegraph (mobile/controller hold-to-aim)
+    initHeavyAttackPreview() {
+        this.beamPreviewActive = true;
+        this.beamPreviewAngle = this.rotation;
+    }
+
+    updateHeavyAttackPreview(input) {
+        if (!input || !input.isTouchMode || !input.isTouchMode()) return;
+
+        this.beamPreviewActive = true;
+
+        if (input.touchJoysticks && input.touchJoysticks.heavyAttack) {
+            const joystick = input.touchJoysticks.heavyAttack;
+            if (joystick.active && joystick.getMagnitude() > 0.1) {
+                this.beamPreviewAngle = joystick.getAngle ? joystick.getAngle() : this.rotation;
+            } else {
+                this.beamPreviewAngle = this.rotation;
+            }
+        } else {
+            this.beamPreviewAngle = this.rotation;
+        }
+    }
+
+    clearHeavyAttackPreview() {
+        this.beamPreviewActive = false;
+    }
+
     // Override renderClassVisuals for Mage-specific visuals
     renderClassVisuals(ctx) {
+        // Draw beam aim telegraph while charging heavy on mobile/controller
+        if (this.beamPreviewActive) {
+            ctx.save();
+
+            const reachMult = typeof getWeaponMeleeReachMult === 'function'
+                ? getWeaponMeleeReachMult(this)
+                : (this.weaponRangeMultiplier || 1.0);
+            const beamRange = MAGE_CONFIG.beamRange * reachMult;
+            const beamWidth = MAGE_CONFIG.beamWidth;
+            const halfW = beamWidth / 2;
+            const angle = this.beamPreviewAngle;
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+            const px = -sin; // perpendicular
+            const py = cos;
+
+            const x1 = this.x + px * halfW;
+            const y1 = this.y + py * halfW;
+            const x2 = this.x - px * halfW;
+            const y2 = this.y - py * halfW;
+            const x3 = this.x + cos * beamRange - px * halfW;
+            const y3 = this.y + sin * beamRange - py * halfW;
+            const x4 = this.x + cos * beamRange + px * halfW;
+            const y4 = this.y + sin * beamRange + py * halfW;
+
+            const pulse = Math.sin(Date.now() / 150) * 0.2 + 0.8;
+
+            // Soft fill corridor
+            ctx.fillStyle = `rgba(156, 39, 176, ${0.12 * pulse})`;
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x4, y4);
+            ctx.lineTo(x3, y3);
+            ctx.lineTo(x2, y2);
+            ctx.closePath();
+            ctx.fill();
+
+            // Dashed corridor edges
+            ctx.strokeStyle = `rgba(186, 104, 200, ${0.7 * pulse})`;
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x4, y4);
+            ctx.moveTo(x2, y2);
+            ctx.lineTo(x3, y3);
+            ctx.stroke();
+
+            // End cap
+            ctx.strokeStyle = `rgba(225, 190, 231, ${0.55 * pulse})`;
+            ctx.beginPath();
+            ctx.moveTo(x4, y4);
+            ctx.lineTo(x3, y3);
+            ctx.stroke();
+
+            // Center aim line
+            ctx.strokeStyle = `rgba(206, 147, 216, ${0.5 * pulse})`;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            ctx.lineTo(this.x + cos * beamRange, this.y + sin * beamRange);
+            ctx.stroke();
+
+            ctx.setLineDash([]);
+            ctx.restore();
+        }
+
         // Draw blink decoy - semi-transparent clone at old position
         if (this.blinkDecoyActive) {
             // Calculate alpha based on decoy health (health-based fade)

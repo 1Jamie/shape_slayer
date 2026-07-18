@@ -110,8 +110,8 @@ const Input = {
         },
         hexagon: { // Mage
             dodge: 'button',                        // Standard dodge
-            heavyAttack: 'joystick-press-release',  // Energy beam (charge-based, aim with drag)
-            specialAbility: 'joystick-press-release' // Blink (directional teleport with aim)
+            heavyAttack: 'joystick-press-release',  // Energy beam (hold to aim with telegraph, release to fire)
+            specialAbility: 'joystick-press-release' // Blink (stick aims angle; hold time scales distance; auto-fire at max)
         }
     },
 

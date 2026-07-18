@@ -298,6 +298,38 @@ const DeviceDetection = {
         if (this.isIos()) return false;
         const el = document.documentElement;
         return !!(el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen);
+    },
+
+    // Installed PWA / home-screen app (fullscreen or standalone display mode).
+    isInstalledDisplayMode() {
+        if (typeof window === 'undefined') return false;
+        try {
+            if (window.matchMedia('(display-mode: fullscreen)').matches) return true;
+            if (window.matchMedia('(display-mode: standalone)').matches) return true;
+            if (window.matchMedia('(display-mode: minimal-ui)').matches) return true;
+        } catch (e) {
+            // ignore
+        }
+        // iOS Safari legacy home-screen flag
+        if (typeof navigator !== 'undefined' && navigator.standalone === true) return true;
+        return false;
+    },
+
+    isPortraitViewport() {
+        if (typeof window === 'undefined') return false;
+        if (typeof window.orientation === 'number') {
+            return window.orientation === 0 || window.orientation === 180;
+        }
+        return window.innerHeight > window.innerWidth;
+    },
+
+    // Best-effort landscape lock. Works reliably in installed Android PWAs / fullscreen;
+    // may require a user gesture elsewhere and is limited on iOS.
+    lockLandscapeOrientation() {
+        if (typeof screen === 'undefined' || !screen.orientation || typeof screen.orientation.lock !== 'function') {
+            return Promise.resolve(false);
+        }
+        return screen.orientation.lock('landscape').then(() => true).catch(() => false);
     }
 };
 

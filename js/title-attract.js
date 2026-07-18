@@ -22,6 +22,9 @@
 
     let width = 1280;
     let height = 720;
+    let canvasW = 1280;
+    let canvasH = 720;
+    let viewScale = 1; // <1 on small screens: sim runs in a larger virtual arena, drawn zoomed out
     let initialized = false;
     let arenaRoom = null;
     let hero = null;
@@ -44,6 +47,21 @@
         particles: null,
         discoverFromEnemy: null
     };
+
+    // Phones render the world 1:1 which reads huge and cramped — zoom out so the
+    // arena feels like a battlefield instead of a close-up.
+    function computeViewScale(w, h) {
+        const scale = Math.min(w / 1100, h / 700, 1);
+        return Math.max(0.55, scale);
+    }
+
+    function applyViewSize(w, h) {
+        canvasW = w;
+        canvasH = h;
+        viewScale = computeViewScale(w, h);
+        width = Math.round(w / viewScale);
+        height = Math.round(h / viewScale);
+    }
 
     function rand(min, max) {
         return min + Math.random() * (max - min);
@@ -976,8 +994,7 @@
     }
 
     function init(w, h) {
-        width = w || 1280;
-        height = h || 720;
+        applyViewSize(w || 1280, h || 720);
         timeSec = 0;
         heroHeavyTimer = rand(2, 4);
         heroSpecialTimer = rand(4, 7);
@@ -992,10 +1009,12 @@
     }
 
     function resize(w, h) {
-        width = w || width;
-        height = h || height;
+        const nextW = w || canvasW;
+        const nextH = h || canvasH;
+        if (initialized && nextW === canvasW && nextH === canvasH) return;
+        applyViewSize(nextW, nextH);
         if (!initialized) {
-            init(width, height);
+            init(canvasW, canvasH);
             return;
         }
         if (arenaRoom) {
@@ -1007,7 +1026,7 @@
 
     function update(dt) {
         if (!initialized) {
-            init(width, height);
+            init(canvasW, canvasH);
         }
         timeSec += dt;
 
@@ -1039,13 +1058,16 @@
 
     function render(ctx) {
         if (!initialized) {
-            init(width, height);
+            init(canvasW, canvasH);
         }
         if (!ctx) return;
 
         ctx.save();
         if (typeof Game !== 'undefined' && Game.screenShakeOffset) {
             ctx.translate(Game.screenShakeOffset.x || 0, Game.screenShakeOffset.y || 0);
+        }
+        if (viewScale !== 1) {
+            ctx.scale(viewScale, viewScale);
         }
 
         drawGrid(ctx);

@@ -529,7 +529,8 @@ class PlayerBase {
                 input.getAbilityInputType(this.playerClass, 'heavyAttack') === 'joystick-press-release';
 
             if (usesHeavyJoystick && (this.playerClass === 'square' || this.playerClass === 'triangle' || this.playerClass === 'hexagon')) {
-                // Warrior/Triangle/Mage on mobile: for joystick-press-release mode, check for button release
+                // Directional mobile heavies aim while held and fire on release.
+                // Mage uses this state only for its beam indicator; it does not charge.
                 if (input.touchButtons && input.touchButtons.heavyAttack) {
                     const button = input.touchButtons.heavyAttack;
 
@@ -547,12 +548,16 @@ class PlayerBase {
                         // Clear previews (subclass handles this)
                         this.clearHeavyAttackPreview();
                     } else {
-                        // Continue charging while button is held
-                        this.heavyChargeElapsed += deltaTime;
+                        // Warrior/Rogue retain their charge timer. Mage only aims its indicator.
+                        if (this.playerClass !== 'hexagon') {
+                            this.heavyChargeElapsed += deltaTime;
+                        }
                     }
                 } else {
-                    // Button not found, just continue charging (fallback)
-                    this.heavyChargeElapsed += deltaTime;
+                    // Button not found: retain charge timing only for actual charge attacks.
+                    if (this.playerClass !== 'hexagon') {
+                        this.heavyChargeElapsed += deltaTime;
+                    }
                 }
             } else {
                 // Other classes: wait for windup
@@ -1486,8 +1491,8 @@ class PlayerBase {
                 Input.getAbilityInputType &&
                 Input.getAbilityInputType(this.playerClass, 'heavyAttack') === 'joystick-press-release';
 
-            if (usesHeavyJoystick && (this.playerClass === 'square' || this.playerClass === 'triangle')) {
-                // Warrior/Triangle: use joystick for directional charge attack (press and hold to aim, release to fire)
+            if (usesHeavyJoystick && (this.playerClass === 'square' || this.playerClass === 'triangle' || this.playerClass === 'hexagon')) {
+                // Directional heavy: hold to aim, release to fire. Mage's hold is indicator-only.
                 if (input.touchButtons && input.touchButtons.heavyAttack) {
                     const button = input.touchButtons.heavyAttack;
                     heavyPressed = button.pressed;
@@ -3830,7 +3835,7 @@ class PlayerBase {
         }
 
         let scale = 1.0;
-        if (this.isChargingHeavy) {
+        if (this.isChargingHeavy && this.playerClass !== 'hexagon') {
             const windup = Math.max(this.heavyAttackWindup, 0.0001);
             const chargeProgress = Math.min(this.heavyChargeElapsed / windup, 1);
             scale = 1.0 + chargeProgress * 0.3;
