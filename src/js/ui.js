@@ -909,37 +909,14 @@ function handleCharacterSheetScroll(x, y, deltaY) {
 // Convert world coordinates to screen coordinates (accounting for camera and zoom)
 // Expose worldToScreen globally for DOM components
 window.worldToScreen = function worldToScreen(worldX, worldY) {
-    // Get current zoom level
-    const zoom = (typeof Game !== 'undefined' && Game.getViewZoom)
-        ? Game.getViewZoom()
-        : (typeof Game !== 'undefined' && Game.baseZoom ? Game.baseZoom : 1.1);
-
-    if (typeof Game !== 'undefined' && Game.camera && Game.state === 'PLAYING') {
-        const centerX = Game.config.width / 2;
-        const centerY = Game.config.height / 2;
-
-        // Apply zoom to world-to-screen conversion
-        const worldDeltaX = (worldX - Game.camera.x) * zoom;
-        const worldDeltaY = (worldY - Game.camera.y) * zoom;
-
-        return {
-            x: centerX + worldDeltaX,
-            y: centerY + worldDeltaY
-        };
-    }
-
-    if (typeof Game !== 'undefined' && Game.nexusCamera && Game.state === 'NEXUS') {
-        const centerX = Game.config.width / 2;
-        const centerY = Game.config.height / 2;
-
-        // Apply zoom to world-to-screen conversion
-        const worldDeltaX = (worldX - Game.nexusCamera.x) * zoom;
-        const worldDeltaY = (worldY - Game.nexusCamera.y) * zoom;
-
-        return {
-            x: centerX + worldDeltaX,
-            y: centerY + worldDeltaY
-        };
+    if (typeof Game !== 'undefined' && Game.config) {
+        const camera = Game.state === 'NEXUS' ? Game.nexusCamera : Game.camera;
+        if (camera && typeof camera.worldToScreen === 'function') {
+            return camera
+                .setViewSize(Game.config.width, Game.config.height)
+                .setZoom(Game.getViewZoom ? Game.getViewZoom() : (Game.baseZoom || 1.1))
+                .worldToScreen(worldX, worldY);
+        }
     }
 
     // No camera - world coords are screen coords
@@ -949,25 +926,10 @@ window.worldToScreen = function worldToScreen(worldX, worldY) {
 // Check if enemy is within viewport (visible on screen)
 function isEnemyInViewport(enemy, camera, zoom, canvasWidth, canvasHeight) {
     if (!enemy || !camera) return false;
-
-    // Calculate visible world space bounds
-    const halfVisibleWorldW = (canvasWidth / 2) / zoom;
-    const halfVisibleWorldH = (canvasHeight / 2) / zoom;
-
-    // Get viewport bounds in world coordinates
-    const viewportLeft = camera.x - halfVisibleWorldW;
-    const viewportRight = camera.x + halfVisibleWorldW;
-    const viewportTop = camera.y - halfVisibleWorldH;
-    const viewportBottom = camera.y + halfVisibleWorldH;
-
-    // Check if enemy is within bounds (with some padding for size)
-    const padding = enemy.size || 20;
-    return (
-        enemy.x + padding >= viewportLeft &&
-        enemy.x - padding <= viewportRight &&
-        enemy.y + padding >= viewportTop &&
-        enemy.y - padding <= viewportBottom
-    );
+    return camera
+        .setViewSize(canvasWidth, canvasHeight)
+        .setZoom(zoom)
+        .inView(enemy.x, enemy.y, enemy.size || 20);
 }
 
 // Calculate arrow position and angle for off-screen enemy indicator

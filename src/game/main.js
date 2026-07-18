@@ -135,19 +135,28 @@ const Game = {
     roomEnterTransition: null,
     nexusPrewarm: null,
     nexusPrewarmComplete: false,
-    lastTime: 0,
+    get lastTime() { return window.engine ? window.engine.lastTime : (this._lastTime || 0); },
+    set lastTime(v) { if (window.engine) { window.engine.lastTime = v; } else { this._lastTime = v; } },
     gameOverMusicPlaying: false,
 
     // Fixed timestep variables
-    accumulator: 0, // Accumulated real time for fixed timestep updates
-    fixedTimestep: 1 / 60, // 60 Hz fixed timestep (0.016666... seconds)
-    maxCatchupUpdates: 5, // Maximum fixed updates per frame to prevent stuttering
-    accumulatorTruncateThreshold: 0.1, // Drop catch-up after severe stalls to avoid spiral of death
+    get accumulator() { return window.engine ? window.engine.accumulator : (this._accumulator || 0); },
+    set accumulator(v) { if (window.engine) { window.engine.accumulator = v; } else { this._accumulator = v; } },
+    get fixedTimestep() { return window.engine ? window.engine.fixedTimestep : (this._fixedTimestep || 1 / 60); },
+    set fixedTimestep(v) { if (window.engine) { window.engine.fixedTimestep = v; } else { this._fixedTimestep = v; } },
+    get maxCatchupUpdates() { return window.engine ? window.engine.maxCatchupUpdates : (this._maxCatchupUpdates || 5); },
+    set maxCatchupUpdates(v) { if (window.engine) { window.engine.maxCatchupUpdates = v; } else { this._maxCatchupUpdates = v; } },
+    get accumulatorTruncateThreshold() { return window.engine ? window.engine.accumulatorTruncateThreshold : (this._accumulatorTruncateThreshold || 0.1); },
+    set accumulatorTruncateThreshold(v) { if (window.engine) { window.engine.accumulatorTruncateThreshold = v; } else { this._accumulatorTruncateThreshold = v; } },
     frameRenderTimings: null,
     currentFrameTimings: null,
-    lastAccumulatorTruncated: false,
-    frameBudgetSamples: [],
-    renderQuality: {
+    get lastAccumulatorTruncated() { return window.engine ? window.engine.lastAccumulatorTruncated : (this._lastAccumulatorTruncated || false); },
+    set lastAccumulatorTruncated(v) { if (window.engine) { window.engine.lastAccumulatorTruncated = v; } else { this._lastAccumulatorTruncated = v; } },
+    get frameBudgetSamples() { return window.engine ? window.engine.frameBudgetSamples : (this._frameBudgetSamples || []); },
+    set frameBudgetSamples(v) { if (window.engine) { window.engine.frameBudgetSamples = v; } else { this._frameBudgetSamples = v; } },
+    get renderQuality() { return this._renderQuality || this._defaultRenderQuality; },
+    set renderQuality(v) { this._renderQuality = v; },
+    _defaultRenderQuality: {
         vignetteScale: 0.5,
         maxSceneryLights: Infinity,
         gearRingPoints: 64,
@@ -195,27 +204,22 @@ const Game = {
         fpsInterval: 1000 / 60
     },
 
-    // Camera system for following player in larger room (and nexus)
-    camera: {
-        x: 640,          // Camera world position X (center of viewport)
-        y: 360,          // Camera world position Y (center of viewport)
-        targetX: 640,    // Desired camera X (where camera wants to be)
-        targetY: 360,    // Desired camera Y (where camera wants to be)
-        offsetX: 0,      // Movement-based offset X
-        offsetY: 0,      // Movement-based offset Y
-        smoothSpeed: 5,  // Lerp speed (higher = faster following)
-        offsetAmount: 60, // Max offset from center based on movement
-        deadzone: 20     // Minimum movement before applying offset
-    },
+    // Game-owned camera instances use generic engine spatial math.
+    camera: new Engine.Camera({
+        x: 640, y: 360,
+        smoothSpeed: 5,
+        offsetAmount: 60,
+        deadzone: 20,
+        viewWidth: 1280,
+        viewHeight: 720
+    }),
 
-    // Nexus-specific camera (separate from combat camera)
-    nexusCamera: {
-        x: 900,
-        y: 550,
-        targetX: 900,
-        targetY: 550,
-        smoothSpeed: 3   // Slower for nexus (less combat, more relaxed)
-    },
+    nexusCamera: new Engine.Camera({
+        x: 900, y: 550,
+        smoothSpeed: 3,
+        viewWidth: 1280,
+        viewHeight: 720
+    }),
 
     // Game objects
     player: null,
@@ -223,7 +227,8 @@ const Game = {
     projectiles: (typeof createProjectileList === 'function' ? createProjectileList() : []),
     _projectilePool: [],
     previousProjectiles: [], // Previous projectile state for interpolation (clients)
-    particles: [],
+    get particles() { return window.Renderer ? window.Renderer.particles : (this._particles || []); },
+    set particles(v) { if (window.Renderer) { window.Renderer.particles = v; } else { this._particles = v; } },
     damageNumbers: [],
     explosions: [], // Visual explosions from enemy deaths (Volatile Spawn modifier)
     remotePlayers: [], // Multiplayer: other players in the lobby
@@ -276,11 +281,16 @@ const Game = {
     pendingDoorReadyToggle: false, // Client one-shot door ready request
 
     // Screen shake system
-    screenShakeOffset: { x: 0, y: 0 },
-    screenShakeIntensity: 0,
-    screenShakeDuration: 0,
-    screenShakeDirection: null, // 'player' for vertical bias, 'boss' for horizontal bias, null for omnidirectional
-    hitPauseTime: 0, // Brief gameplay freeze on player heavy attacks only
+    get screenShakeOffset() { return window.Renderer ? window.Renderer.screenShakeOffset : (this._screenShakeOffset || { x: 0, y: 0 }); },
+    set screenShakeOffset(v) { if (window.Renderer) { window.Renderer.screenShakeOffset = v; } else { this._screenShakeOffset = v; } },
+    get screenShakeIntensity() { return window.Renderer ? window.Renderer.screenShakeIntensity : (this._screenShakeIntensity || 0); },
+    set screenShakeIntensity(v) { if (window.Renderer) { window.Renderer.screenShakeIntensity = v; } else { this._screenShakeIntensity = v; } },
+    get screenShakeDuration() { return window.Renderer ? window.Renderer.screenShakeDuration : (this._screenShakeDuration || 0); },
+    set screenShakeDuration(v) { if (window.Renderer) { window.Renderer.screenShakeDuration = v; } else { this._screenShakeDuration = v; } },
+    get screenShakeDirection() { return window.Renderer ? window.Renderer.screenShakeDirection : (this._screenShakeDirection || null); },
+    set screenShakeDirection(v) { if (window.Renderer) { window.Renderer.screenShakeDirection = v; } else { this._screenShakeDirection = v; } },
+    get hitPauseTime() { return window.engine ? window.engine.hitPauseTime : (this._hitPauseTime || 0); },
+    set hitPauseTime(v) { if (window.engine) { window.engine.hitPauseTime = v; } else { this._hitPauseTime = v; } },
 
     // Background pause flags
     backgroundPauseActive: false,
@@ -341,9 +351,12 @@ const Game = {
     },
 
     // FPS tracking
-    fps: 0,
-    lastFpsUpdate: 0,
-    frameCount: 0,
+    get fps() { return window.engine ? window.engine.fps : (this._fps || 0); },
+    set fps(v) { if (window.engine) { window.engine.fps = v; } else { this._fps = v; } },
+    get lastFpsUpdate() { return window.engine ? window.engine.lastFpsUpdate : (this._lastFpsUpdate || 0); },
+    set lastFpsUpdate(v) { if (window.engine) { window.engine.lastFpsUpdate = v; } else { this._lastFpsUpdate = v; } },
+    get frameCount() { return window.engine ? window.engine.frameCount : (this._frameCount || 0); },
+    set frameCount(v) { if (window.engine) { window.engine.frameCount = v; } else { this._frameCount = v; } },
 
     // Input state tracking
     lastGKeyState: false,
@@ -367,9 +380,12 @@ const Game = {
     deathScreenStartTime: 0,
 
     // Game loop control (for background execution in multiplayer)
-    useSetTimeoutLoop: false,
-    timeoutId: null,
-    loopStopped: false,
+    get useSetTimeoutLoop() { return window.engine ? window.engine.useSetTimeoutLoop : (this._useSetTimeoutLoop || false); },
+    set useSetTimeoutLoop(v) { if (window.engine) { window.engine.useSetTimeoutLoop = v; } else { this._useSetTimeoutLoop = v; } },
+    get timeoutId() { return window.engine ? window.engine.timeoutId : (this._timeoutId || null); },
+    set timeoutId(v) { if (window.engine) { window.engine.timeoutId = v; } else { this._timeoutId = v; } },
+    get loopStopped() { return window.engine ? window.engine.loopStopped : (this._loopStopped || false); },
+    set loopStopped(v) { if (window.engine) { window.engine.loopStopped = v; } else { this._loopStopped = v; } },
     pseudoFullscreenActive: false,
 
     // Load multiplayer module dynamically
@@ -772,7 +788,6 @@ const Game = {
 
         console.log('Game initialized successfully');
         this.updateMusicForCurrentRoom();
-        this.start();
     },
 
     applyDeferredBootModals() {
@@ -1324,18 +1339,8 @@ const Game = {
         }
     },
 
-    // Handle visibility change (for multiplayer background execution)
-    handleVisibilityChange() {
-        const isHidden = document.hidden;
-
-        if (this.multiplayerEnabled && isHidden) {
-            this.useSetTimeoutLoop = true;
-            console.log('[Game] Switched to setTimeout loop (background)');
-        } else {
-            this.useSetTimeoutLoop = false;
-            console.log('[Game] Switched to RAF loop (foreground)');
-        }
-
+    // Handle visibility change (delegated from Engine.Core)
+    handleVisibilityChange(isHidden) {
         const isMobile = this.isMobileDevice;
         if (isMobile && isHidden) {
             this.backgroundPauseActive = true;
@@ -1357,190 +1362,22 @@ const Game = {
         }
     },
 
-    // Stop the game loop
-    stopGameLoop() {
-        this.loopStopped = true;
-        if (this.timeoutId) {
-            clearTimeout(this.timeoutId);
-            this.timeoutId = null;
-        }
-    },
-
-    // Start the game loop
-    start() {
-        this.lastTime = performance.now();
-        this.accumulator = 0; // Reset accumulator for fixed timestep
-        this.useSetTimeoutLoop = false;
-        this.loopStopped = false;
-
-        // Setup visibility listener for multiplayer background execution
-        document.addEventListener('visibilitychange', () => {
-            this.handleVisibilityChange();
-        });
-
-        this.gameLoop();
-    },
-
-    // Main game loop
-    gameLoop(currentTime = 0) {
-        // Check if loop should stop
-        if (this.loopStopped) return;
-
-        // Handle initial call or restart
-        if (!currentTime) {
-            currentTime = performance.now();
-        }
-
-        // Calculate real time delta (for metrics and accumulation)
-        const realDeltaTime = (currentTime - this.lastTime) / 1000;
-        this.lastTime = currentTime;
-
-        // Cap real delta time to prevent huge jumps (max 250ms to prevent spiral of death)
-        const cappedRealDeltaTime = Math.min(realDeltaTime, 0.25);
-
-        // Accumulate real time for fixed timestep updates. Severe spikes are truncated
-        // so the browser does not lock up trying to run many catch-up updates.
-        this.lastAccumulatorTruncated = realDeltaTime > (this.accumulatorTruncateThreshold || 0.1);
-        if (this.lastAccumulatorTruncated) {
-            this.accumulator = 0;
-        } else {
-            this.accumulator += cappedRealDeltaTime;
-        }
-
-        // Measure CPU process time
-        const processStart = performance.now();
-        let updateTime = 0;
-
-        // Hit pause: freeze gameplay sim only - VFX/particles keep moving so it reads as impact, not lag
-        if (this.hitPauseTime > 0) {
-            this.hitPauseTime -= cappedRealDeltaTime;
-            if (this.hitPauseTime <= 0) {
-                this.hitPauseTime = 0;
-            }
-
-            const juiceDt = Math.min(cappedRealDeltaTime, this.fixedTimestep);
-            if (typeof updateVoxelParticles === 'function') {
-                updateVoxelParticles(juiceDt);
-            }
-            this.updateScreenShake(juiceDt);
-            if (typeof updateDamageNumbers === 'function') {
-                updateDamageNumbers(juiceDt);
-            }
-
-            this.render();
-
-            if (this.useSetTimeoutLoop) {
-                this.timeoutId = setTimeout(() => this.gameLoop(performance.now()), 1000 / 60);
-            } else {
-                requestAnimationFrame((time) => this.gameLoop(time));
-            }
-            return;
-        }
-
-        // FPS tracking (uses real time delta)
-        this.frameCount++;
-        if (currentTime - this.lastFpsUpdate >= 1000) {
-            this.fps = this.frameCount;
-            this.frameCount = 0;
-            this.lastFpsUpdate = currentTime;
-        }
-
-        // Check if multiplayer is enabled
-        const inMultiplayer = this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
-
-        // Update and render based on state
-        // In multiplayer, continue updating even when pause menu is shown (showPauseMenu is visual only)
-
-        // Run fixed timestep updates (catch-up if behind)
-        const maxUpdates = this.maxCatchupUpdates || 5;
-        let updatesRun = 0;
-        while (this.accumulator >= this.fixedTimestep && updatesRun < maxUpdates) {
-            const updateStart = performance.now();
-            if (this.state === 'PLAYING') {
-                this.update(this.fixedTimestep);
-            } else if (this.state === 'ENTERING_ROOM') {
-                this.updateRoomEnterTransition();
-            } else if (this.state === 'TITLE') {
-                if (typeof TitleAttract !== 'undefined' && TitleAttract.update) {
-                    TitleAttract.update(this.fixedTimestep);
-                }
-                this.updateTitleExitTransition(this.fixedTimestep);
-            } else if (this.state === 'NEXUS') {
-                if (typeof updateNexus !== 'undefined') {
-                    updateNexus(this.ctx, this.fixedTimestep);
-                }
-                this.tickNexusPrewarm();
-                this.updateTitleExitTransition(this.fixedTimestep);
-            }
-            if (typeof updateVoxelParticles === 'function') {
-                updateVoxelParticles(this.fixedTimestep);
-            }
-            updateTime += performance.now() - updateStart;
-            this.accumulator -= this.fixedTimestep;
-            updatesRun++;
-        }
-
-        // Note: In multiplayer, showPauseMenu doesn't stop updates - game continues running
-
-        // Render once per frame (variable rate, smooth visuals)
-        const renderStart = performance.now();
-        this.currentFrameTimings = {
-            static: 0,
-            world: 0,
-            worldGlow: 0,
-            worldBodies: 0,
-            vignette: 0,
-            postFx: 0,
-            ui: 0
-        };
-        this.render();
-        const renderTime = performance.now() - renderStart;
-        const renderTimings = this.currentFrameTimings || {};
-        this.frameRenderTimings = Object.assign({}, renderTimings, {
-            update: updateTime,
-            render: renderTime,
-            catchupUpdates: updatesRun,
-            accumulatorMs: this.accumulator * 1000,
-            accumulatorTruncated: this.lastAccumulatorTruncated,
-            snapshot: typeof this.buildDebugMetricsSnapshot === 'function' ? this.buildDebugMetricsSnapshot() : null
-        });
-        this.updateFrameBudgetGovernor(realDeltaTime * 1000, renderTime);
-
-        const processEnd = performance.now();
-        const processTime = processEnd - processStart;
-
-        // Update debug panel metrics with actual CPU time and frame time
-        if (typeof DebugPanel !== 'undefined') {
-            DebugPanel.update(realDeltaTime, processTime, this.frameRenderTimings);
-        }
-
-        if (typeof RunProfiler !== 'undefined' && RunProfiler.isActive()) {
-            RunProfiler.recordFrame(realDeltaTime, processTime, this.frameRenderTimings, {
-                state: this.state,
-                roomNumber: this.roomNumber,
-                catchupUpdates: updatesRun,
-                accumulatorTruncated: this.lastAccumulatorTruncated
-            });
-        }
-
-        // Continue the loop - use setTimeout in background for multiplayer, RAF otherwise
-        if (this.useSetTimeoutLoop) {
-            this.timeoutId = setTimeout(() => this.gameLoop(performance.now()), 1000 / 60);
-        } else {
-            requestAnimationFrame((time) => this.gameLoop(time));
-        }
-    },
-
     // Trigger screen shake
     triggerScreenShake(intensity, duration, direction = null) {
-        const shouldReplace = this.screenShakeDuration <= 0 || intensity >= this.screenShakeIntensity;
-        if (shouldReplace) {
-            this.screenShakeIntensity = intensity;
-            this.screenShakeDuration = duration;
-            this.screenShakeDirection = direction; // 'player' or 'boss' for directional bias
+        const bias = direction === 'player'
+            ? Engine.FX.ShakeBias.VERTICAL
+            : (direction === 'boss' ? Engine.FX.ShakeBias.HORIZONTAL : Engine.FX.ShakeBias.NONE);
+        if (window.Renderer && window.Renderer.triggerScreenShake) {
+            window.Renderer.triggerScreenShake(intensity, duration, bias);
         } else {
-            // Preserve stronger shake; briefly extend for follow-up hits
-            this.screenShakeDuration = Math.max(this.screenShakeDuration, duration * 0.45);
+            const shouldReplace = this.screenShakeDuration <= 0 || intensity >= this.screenShakeIntensity;
+            if (shouldReplace) {
+                this.screenShakeIntensity = intensity;
+                this.screenShakeDuration = duration;
+                this.screenShakeDirection = bias;
+            } else {
+                this.screenShakeDuration = Math.max(this.screenShakeDuration, duration * 0.45);
+            }
         }
     },
 
@@ -1635,9 +1472,7 @@ const Game = {
         const currentZoom = this.getViewZoom();
         const centerX = logicalWidth / 2;
         const centerY = logicalHeight / 2;
-        ctx.translate(centerX + this.screenShakeOffset.x, centerY + this.screenShakeOffset.y);
-        ctx.scale(currentZoom, currentZoom);
-        ctx.translate(-this.camera.x, -this.camera.y);
+        Renderer.applyCameraTransform(ctx, centerX, centerY, this.camera.x, this.camera.y, currentZoom);
 
         // Draw solid outer-wall fill for safe rooms so non-traversable space is clearly blocked
         if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'safe') {
@@ -1747,39 +1582,37 @@ const Game = {
 
     // Update screen shake
     updateScreenShake(deltaTime) {
-        if (this.screenShakeDuration > 0) {
-            this.screenShakeDuration -= deltaTime;
+        if (window.Renderer && window.Renderer.updateScreenShake) {
+            window.Renderer.updateScreenShake(deltaTime);
+        } else {
+            if (this.screenShakeDuration > 0) {
+                this.screenShakeDuration -= deltaTime;
+                const baseShake = this.screenShakeIntensity * 10;
+                let xOffset = 0;
+                let yOffset = 0;
 
-            // Generate random shake offset with directional bias
-            let xOffset, yOffset;
-            const baseShake = this.screenShakeIntensity * 10;
+                if (this.screenShakeDirection === 'player') {
+                    xOffset = (Math.random() - 0.5) * baseShake * 0.15;
+                    yOffset = (Math.random() - 0.5) * baseShake * 1.2;
+                } else if (this.screenShakeDirection === 'boss') {
+                    const angle = Math.random() * Math.PI * 2;
+                    const radius = Math.random() * baseShake;
+                    xOffset = Math.cos(angle) * radius * 1.1;
+                    yOffset = Math.sin(angle) * radius * 0.9;
+                } else {
+                    xOffset = (Math.random() - 0.5) * baseShake;
+                    yOffset = (Math.random() - 0.5) * baseShake;
+                }
 
-            if (this.screenShakeDirection === 'player') {
-                // Player damage: Almost purely vertical (like being knocked back/staggered upward)
-                // Very minimal horizontal movement, strong vertical movement
-                xOffset = (Math.random() - 0.5) * baseShake * 0.15; // 15% horizontal - very minimal
-                yOffset = (Math.random() - 0.5) * baseShake * 1.2;  // 120% vertical - stronger vertical
-            } else if (this.screenShakeDirection === 'boss') {
-                // Boss damage: Circular/explosive pattern (like impact radiating outward)
-                // Use circular pattern with slight emphasis on horizontal
-                const angle = Math.random() * Math.PI * 2;
-                const radius = Math.random() * baseShake;
-                xOffset = Math.cos(angle) * radius * 1.1;  // Slight horizontal emphasis
-                yOffset = Math.sin(angle) * radius * 0.9; // Slight vertical reduction
-            } else {
-                // Default: Omnidirectional (equal in all directions)
-                xOffset = (Math.random() - 0.5) * baseShake;
-                yOffset = (Math.random() - 0.5) * baseShake;
-            }
+                this.screenShakeOffset.x = xOffset;
+                this.screenShakeOffset.y = yOffset;
 
-            this.screenShakeOffset.x = xOffset;
-            this.screenShakeOffset.y = yOffset;
-
-            if (this.screenShakeDuration <= 0) {
-                this.screenShakeDuration = 0;
-                this.screenShakeOffset.x = 0;
-                this.screenShakeOffset.y = 0;
-                this.screenShakeDirection = null;
+                if (this.screenShakeDuration <= 0) {
+                    this.screenShakeDuration = 0;
+                    this.screenShakeOffset.x = 0;
+                    this.screenShakeOffset.y = 0;
+                    this.screenShakeDirection = null;
+                }
             }
         }
     },
@@ -1827,11 +1660,7 @@ const Game = {
             && Room0Tutorial.isExitCoachActive()) {
             const override = Room0Tutorial.getCameraOverride();
             if (override && Number.isFinite(override.x) && Number.isFinite(override.y)) {
-                this.camera.targetX = override.x;
-                this.camera.targetY = override.y;
-                const lerpFactor = 1 - Math.exp(-this.camera.smoothSpeed * deltaTime);
-                this.camera.x += (this.camera.targetX - this.camera.x) * lerpFactor;
-                this.camera.y += (this.camera.targetY - this.camera.y) * lerpFactor;
+                this.camera.setTarget(override.x, override.y).update(deltaTime);
                 return;
             }
         }
@@ -1883,32 +1712,7 @@ const Game = {
 
         if (!targetPlayer || !targetPlayer.alive) return;
 
-        // Calculate movement-based offset
-        const playerVelX = targetPlayer.vx || 0;
-        const playerVelY = targetPlayer.vy || 0;
-        const speed = Math.sqrt(playerVelX * playerVelX + playerVelY * playerVelY);
-
-        if (speed > this.camera.deadzone) {
-            // Player is moving - apply offset in movement direction
-            const dirX = playerVelX / speed;
-            const dirY = playerVelY / speed;
-
-            // Scale offset based on speed (up to offsetAmount)
-            const offsetScale = Math.min(speed / 300, 1); // Max offset at 300 speed
-            this.camera.offsetX = dirX * this.camera.offsetAmount * offsetScale;
-            this.camera.offsetY = dirY * this.camera.offsetAmount * offsetScale;
-        } else {
-            // Player is stationary - gradually reduce offset
-            this.camera.offsetX *= 0.9;
-            this.camera.offsetY *= 0.9;
-
-            // Snap to zero if very small
-            if (Math.abs(this.camera.offsetX) < 0.1) this.camera.offsetX = 0;
-            if (Math.abs(this.camera.offsetY) < 0.1) this.camera.offsetY = 0;
-        }
-
-        // Calculate target camera position (player position + offset)
-        // Local predicted player: include decaying reconcile correction so camera doesn't pop
+        // Resolve the follow point; engine camera owns look-ahead, clamping, and smoothing.
         let followX = targetPlayer.x;
         let followY = targetPlayer.y;
         if (targetPlayer === this.player && typeof targetPlayer.getPredictedRenderPosition === 'function') {
@@ -1916,55 +1720,26 @@ const Game = {
             followX = rp.x;
             followY = rp.y;
         }
-        this.camera.targetX = followX + this.camera.offsetX;
-        this.camera.targetY = followY + this.camera.offsetY;
-
-        // Clamp camera to room boundaries (prevent showing outside room)
-        // Account for zoom - with zoom, we see less world space, so bounds are tighter
-        if (typeof currentRoom !== 'undefined' && currentRoom) {
-            const currentZoom = this.getViewZoom();
-
-            // Visible world space is smaller when zoomed
-            const halfVisibleWorldW = (this.config.width / 2) / currentZoom;
-            const halfVisibleWorldH = (this.config.height / 2) / currentZoom;
-
-            // If the room is smaller than the viewport on an axis, center on that axis
-            // (avoids asymmetric side/top buffers from inverted clamp bounds)
-            if (currentRoom.width <= halfVisibleWorldW * 2) {
-                this.camera.targetX = currentRoom.width / 2;
-            } else {
-                this.camera.targetX = Math.max(halfVisibleWorldW, Math.min(currentRoom.width - halfVisibleWorldW, this.camera.targetX));
-            }
-            if (currentRoom.height <= halfVisibleWorldH * 2) {
-                this.camera.targetY = currentRoom.height / 2;
-            } else {
-                this.camera.targetY = Math.max(halfVisibleWorldH, Math.min(currentRoom.height - halfVisibleWorldH, this.camera.targetY));
-            }
-        }
-
-        // Smooth lerp toward target
-        const lerpFactor = 1 - Math.exp(-this.camera.smoothSpeed * deltaTime);
-        this.camera.x += (this.camera.targetX - this.camera.x) * lerpFactor;
-        this.camera.y += (this.camera.targetY - this.camera.y) * lerpFactor;
+        this.camera
+            .setViewSize(this.config.width, this.config.height)
+            .setZoom(this.getViewZoom())
+            .follow({
+                x: followX,
+                y: followY,
+                vx: targetPlayer.vx || 0,
+                vy: targetPlayer.vy || 0
+            }, deltaTime, typeof currentRoom !== 'undefined' ? currentRoom : null);
     },
 
     // Initialize camera position (when entering room or starting game)
     initializeCamera() {
         if (this.player) {
-            this.camera.x = this.player.x;
-            this.camera.y = this.player.y;
-            this.camera.targetX = this.player.x;
-            this.camera.targetY = this.player.y;
-            this.camera.offsetX = 0;
-            this.camera.offsetY = 0;
+            this.camera.snapTo(this.player.x, this.player.y);
         } else {
             // Default to room center
             const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : 2400;
             const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : 1350;
-            this.camera.x = roomWidth / 2;
-            this.camera.y = roomHeight / 2;
-            this.camera.targetX = this.camera.x;
-            this.camera.targetY = this.camera.y;
+            this.camera.snapTo(roomWidth / 2, roomHeight / 2);
         }
     },
 
@@ -1980,36 +1755,17 @@ const Game = {
             camOverride = FeatureTutorials.getCameraOverride();
         }
         if (camOverride) {
-            this.nexusCamera.targetX = camOverride.x;
-            this.nexusCamera.targetY = camOverride.y;
+            this.nexusCamera.setTarget(camOverride.x, camOverride.y);
         } else {
             // Target camera on player position
-            this.nexusCamera.targetX = this.player.x;
-            this.nexusCamera.targetY = this.player.y;
+            this.nexusCamera.setTarget(this.player.x, this.player.y);
         }
 
-        // Clamp to nexus boundaries (account for zoom)
-        const currentZoom = this.getViewZoom();
-
-        // Visible world space is smaller when zoomed
-        const halfVisibleWorldW = (this.config.width / 2) / currentZoom;
-        const halfVisibleWorldH = (this.config.height / 2) / currentZoom;
-
-        if (nexusRoom.width <= halfVisibleWorldW * 2) {
-            this.nexusCamera.targetX = nexusRoom.width / 2;
-        } else {
-            this.nexusCamera.targetX = Math.max(halfVisibleWorldW, Math.min(nexusRoom.width - halfVisibleWorldW, this.nexusCamera.targetX));
-        }
-        if (nexusRoom.height <= halfVisibleWorldH * 2) {
-            this.nexusCamera.targetY = nexusRoom.height / 2;
-        } else {
-            this.nexusCamera.targetY = Math.max(halfVisibleWorldH, Math.min(nexusRoom.height - halfVisibleWorldH, this.nexusCamera.targetY));
-        }
-
-        // Smooth lerp toward target
-        const lerpFactor = 1 - Math.exp(-this.nexusCamera.smoothSpeed * deltaTime);
-        this.nexusCamera.x += (this.nexusCamera.targetX - this.nexusCamera.x) * lerpFactor;
-        this.nexusCamera.y += (this.nexusCamera.targetY - this.nexusCamera.y) * lerpFactor;
+        this.nexusCamera
+            .setViewSize(this.config.width, this.config.height)
+            .setZoom(this.getViewZoom())
+            .clampToBounds(nexusRoom)
+            .update(deltaTime);
     },
 
     // Initialize nexus camera
@@ -2021,20 +1777,11 @@ const Game = {
             camOverride = FeatureTutorials.getCameraOverride();
         }
         if (camOverride) {
-            this.nexusCamera.x = camOverride.x;
-            this.nexusCamera.y = camOverride.y;
-            this.nexusCamera.targetX = camOverride.x;
-            this.nexusCamera.targetY = camOverride.y;
+            this.nexusCamera.snapTo(camOverride.x, camOverride.y);
         } else if (this.player) {
-            this.nexusCamera.x = this.player.x;
-            this.nexusCamera.y = this.player.y;
-            this.nexusCamera.targetX = this.player.x;
-            this.nexusCamera.targetY = this.player.y;
+            this.nexusCamera.snapTo(this.player.x, this.player.y);
         } else if (typeof nexusRoom !== 'undefined' && nexusRoom) {
-            this.nexusCamera.x = nexusRoom.width / 2;
-            this.nexusCamera.y = nexusRoom.height / 2;
-            this.nexusCamera.targetX = this.nexusCamera.x;
-            this.nexusCamera.targetY = this.nexusCamera.y;
+            this.nexusCamera.snapTo(nexusRoom.width / 2, nexusRoom.height / 2);
         }
     },
 
@@ -3044,7 +2791,7 @@ const Game = {
             return;
         }
         if (this.state === 'NEXUS' || (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'safe')) {
-            MusicManager.setNexus().catch(err => {
+            MusicManager.setHub().catch(err => {
                 console.error('[Music] Failed to set nexus music:', err);
             });
             return;
@@ -3054,7 +2801,7 @@ const Game = {
         }
         if (this.isBossRoom(this.roomNumber)) {
             const phase = this.getActiveBossPhase();
-            MusicManager.setBossPhase(this.roomNumber, phase).catch(err => {
+            MusicManager.setEncounterPhase(this.roomNumber, phase).catch(err => {
                 console.error('[Music] Failed to set boss music:', err);
             });
         } else {
@@ -3086,8 +2833,8 @@ const Game = {
         }
         const nexusContext = this.state === 'NEXUS' || this.pausedFromState === 'NEXUS';
         if (nexusContext) {
-            if (typeof MusicManager.setNexus === 'function') {
-                MusicManager.setNexus().catch(err => {
+            if (typeof MusicManager.setHub === 'function') {
+                MusicManager.setHub().catch(err => {
                     console.error('[Music] Failed to reaffirm nexus music during pause:', err);
                 });
             }
@@ -3105,8 +2852,8 @@ const Game = {
         }
         const nexusContext = this.state === 'NEXUS' || this.pausedFromState === 'NEXUS';
         if (nexusContext) {
-            if (typeof MusicManager.setNexus === 'function') {
-                MusicManager.setNexus().then(() => {
+            if (typeof MusicManager.setHub === 'function') {
+                MusicManager.setHub().then(() => {
                     this.updateMusicForCurrentRoom();
                 }).catch(err => {
                     console.error('[Music] Failed to resume nexus music after pause:', err);
@@ -4300,7 +4047,7 @@ const Game = {
     pickupGear(gear) {
         // Play gear pickup sound
         if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-            AudioManager.sounds.gearPickup();
+            AudioManager.sounds.pickupChime();
         }
 
         const oldGear = this.player.equipGear(gear);
@@ -5691,81 +5438,25 @@ const Game = {
     },
 
     updateFrameBudgetGovernor(frameTimeMs, renderTimeMs) {
-        const adaptiveEnabled = typeof DebugFlags === 'undefined' || DebugFlags.ADAPTIVE_RENDER_QUALITY !== false;
-        const baseQuality = this.getBaseRenderQuality();
-        if (!adaptiveEnabled) {
-            this.frameBudgetSamples.length = 0;
-            this.renderQuality = baseQuality;
-            this.debugFrameBudget = { frameAvg: 0, renderAvg: 0 };
-            return;
-        }
-
-        const now = performance.now();
-        this.frameBudgetSamples.push({ time: now, frame: frameTimeMs, render: renderTimeMs });
-        const cutoff = now - 2000;
-        while (this.frameBudgetSamples.length > 0 && this.frameBudgetSamples[0].time < cutoff) {
-            this.frameBudgetSamples.shift();
-        }
-
-        let frameSum = 0;
-        let renderSum = 0;
-        for (let i = 0; i < this.frameBudgetSamples.length; i++) {
-            frameSum += this.frameBudgetSamples[i].frame;
-            renderSum += this.frameBudgetSamples[i].render;
-        }
-        const count = Math.max(1, this.frameBudgetSamples.length);
-        const frameAvg = frameSum / count;
-        const renderAvg = renderSum / count;
-        this.debugFrameBudget = { frameAvg, renderAvg };
-
-        const thresholds = this.getFrameBudgetThresholds();
-        if (frameAvg > thresholds.heavyFrame || renderAvg > thresholds.heavyRender) {
-            this.renderQuality = {
-                vignetteScale: thresholds.heavyVignetteScale,
-                maxSceneryLights: 36,
-                gearRingPoints: 24,
-                groundLootAnimatedRing: false,
-                remoteFullRender: false,
-                maxBeamLights: 4,
-                damageFxScale: 0.5,
-                voxelParticleCap: 64
-            };
-        } else if (frameAvg > thresholds.mediumFrame || renderAvg > thresholds.mediumRender) {
-            this.renderQuality = {
-                vignetteScale: thresholds.mediumVignetteScale,
-                maxSceneryLights: 64,
-                gearRingPoints: 32,
-                groundLootAnimatedRing: false,
-                remoteFullRender: true,
-                maxBeamLights: 4,
-                damageFxScale: 0.75,
-                voxelParticleCap: 192
-            };
-        } else if (frameAvg < thresholds.restoreFrame && renderAvg < thresholds.restoreRender) {
-            this.renderQuality = baseQuality;
-        }
+        if (window.engine) window.engine.updateFrameBudgetGovernor(frameTimeMs, renderTimeMs);
     },
 
     isGeckoFamilyEngine() {
-        return typeof DeviceDetection !== 'undefined'
-            && typeof DeviceDetection.isGeckoFamily === 'function'
-            && DeviceDetection.isGeckoFamily();
+        return window.engine ? window.engine.isGeckoFamilyEngine() : false;
     },
 
-    // Servo: shadowBlur largely unimplemented. Firefox: live shadows are WebRender-expensive.
     preferSpriteShadows() {
-        return this.isGeckoFamilyEngine();
+        return window.engine ? window.engine.preferSpriteShadows() : false;
     },
 
     getDprCap() {
-        return this.isGeckoFamilyEngine() ? 1.5 : 2;
+        return window.engine ? window.engine.getDprCap() : 2;
     },
 
     getBaseRenderQuality() {
         const gecko = this.isGeckoFamilyEngine();
         return {
             vignetteScale: 0.5,
-            // Soft scenery cap on Gecko so crowded rooms don't explode before the governor wakes.
             maxSceneryLights: gecko ? 96 : Infinity,
             gearRingPoints: 64,
             groundLootAnimatedRing: true,
@@ -5776,20 +5467,38 @@ const Game = {
         };
     },
 
-    getFrameBudgetThresholds() {
-        if (this.isGeckoFamilyEngine()) {
+    getRenderQualityForTier(tier) {
+        const tiers = Engine.Render.QualityTier;
+        const thresholds = this.getFrameBudgetThresholds();
+        if (tier === tiers.LOW) {
             return {
-                mediumFrame: 28,
-                mediumRender: 20,
-                heavyFrame: 32,
-                heavyRender: 24,
-                restoreFrame: 24,
-                restoreRender: 17,
-                mediumVignetteScale: 0.4,
-                heavyVignetteScale: 0.33
+                vignetteScale: thresholds.heavyVignetteScale,
+                maxSceneryLights: 36,
+                gearRingPoints: 24,
+                groundLootAnimatedRing: false,
+                remoteFullRender: false,
+                maxBeamLights: 4,
+                damageFxScale: 0.5,
+                voxelParticleCap: 64
             };
         }
-        return {
+        if (tier === tiers.MEDIUM) {
+            return {
+                vignetteScale: thresholds.mediumVignetteScale,
+                maxSceneryLights: 64,
+                gearRingPoints: 32,
+                groundLootAnimatedRing: false,
+                remoteFullRender: true,
+                maxBeamLights: 4,
+                damageFxScale: 0.75,
+                voxelParticleCap: 192
+            };
+        }
+        return this.getBaseRenderQuality();
+    },
+
+    getFrameBudgetThresholds() {
+        return window.engine ? window.engine.getFrameBudgetThresholds() : {
             mediumFrame: 30,
             mediumRender: 22,
             heavyFrame: 34,
@@ -5892,7 +5601,13 @@ const Game = {
                 groundItemsVisible: lists.groundItems ? lists.groundItems.length : 0,
                 groundItemsTotal: this.groundItems ? this.groundItems.length : 0
             },
-            subTimings: Object.assign({}, this.renderSubTimings || {})
+            subTimings: {
+                groundLoot: (this.renderSubTimings && this.renderSubTimings.groundLoot) || 0,
+                detailRings: (this.renderSubTimings && this.renderSubTimings.gearRings) || 0,
+                remoteActors: (this.renderSubTimings && this.renderSubTimings.remotePlayers) || 0,
+                worldGlow: (this.renderSubTimings && this.renderSubTimings.worldGlow) || 0,
+                worldBodies: (this.renderSubTimings && this.renderSubTimings.worldBodies) || 0
+            }
         };
     },
 
@@ -9412,9 +9127,105 @@ if (typeof window !== 'undefined') {
 }
 
 // Start the game when page loads
-window.addEventListener('load', () => {
-    Game.init();
-});
+if (typeof window !== 'undefined' && window.addEventListener) {
+    window.addEventListener('load', () => {
+        const game = Game;
+
+        // Setup getters/setters/methods on the game instance
+        game.setup = function() {
+            this.init();
+        };
+        game.tick = function(dt) {
+            if (this.state === 'PLAYING') {
+                this.update(dt);
+            } else if (this.state === 'ENTERING_ROOM') {
+                this.updateRoomEnterTransition();
+            } else if (this.state === 'TITLE') {
+                if (typeof TitleAttract !== 'undefined' && TitleAttract.update) {
+                    TitleAttract.update(dt);
+                }
+                this.updateTitleExitTransition(dt);
+            } else if (this.state === 'NEXUS') {
+                if (typeof updateNexus !== 'undefined') {
+                    updateNexus(this.ctx, dt);
+                }
+                this.tickNexusPrewarm();
+                this.updateTitleExitTransition(dt);
+            }
+            if (typeof updateVoxelParticles === 'function') {
+                updateVoxelParticles(dt);
+            }
+        };
+        game.draw = function(ctx, alpha) {
+            this.currentFrameTimings = {
+                static: 0,
+                world: 0,
+                worldGlow: 0,
+                worldBodies: 0,
+                vignette: 0,
+                postFx: 0,
+                ui: 0
+            };
+            this.render();
+        };
+        game.onFrameEnd = function({ realDeltaTime, processTime, updateTime, renderTime, updatesRun, accumulatorTruncated }) {
+            this.frameRenderTimings = Object.assign({}, this.currentFrameTimings || {}, {
+                update: updateTime,
+                render: renderTime,
+                catchupUpdates: updatesRun,
+                accumulatorMs: window.engine.accumulator * 1000,
+                accumulatorTruncated: accumulatorTruncated,
+                snapshot: typeof this.buildDebugMetricsSnapshot === 'function' ? this.buildDebugMetricsSnapshot() : null
+            });
+
+            // Update debug panel metrics with actual CPU time and frame time
+            if (typeof DebugPanel !== 'undefined') {
+                DebugPanel.update(realDeltaTime, processTime, this.frameRenderTimings);
+            }
+
+            if (typeof RunProfiler !== 'undefined' && RunProfiler.isActive()) {
+                RunProfiler.recordFrame(realDeltaTime, processTime, this.frameRenderTimings, {
+                    state: this.state,
+                    roomNumber: this.roomNumber,
+                    catchupUpdates: updatesRun,
+                    accumulatorTruncated: accumulatorTruncated
+                });
+            }
+        };
+
+        window.engine = new Engine.Core({
+            onInit: () => game.setup(),
+            onUpdate: (dt) => game.tick(dt),
+            onRender: (ctx, alpha) => game.draw(ctx, alpha),
+            preferBackgroundTimeout: () => !!(
+                game.multiplayerEnabled &&
+                typeof multiplayerManager !== 'undefined' &&
+                multiplayerManager &&
+                multiplayerManager.lobbyCode
+            ),
+            onQualityChange: (tier, frameBudget) => {
+                game.renderQuality = game.getRenderQualityForTier(tier);
+                game.debugFrameBudget = frameBudget;
+            },
+            onHitPauseTick: (dt) => {
+                if (typeof updateVoxelParticles === 'function') {
+                    updateVoxelParticles(dt);
+                }
+                if (typeof game.updateScreenShake === 'function') {
+                    game.updateScreenShake(dt);
+                }
+                if (typeof updateDamageNumbers === 'function') {
+                    updateDamageNumbers(dt);
+                }
+            },
+            onFrameEnd: (metrics) => game.onFrameEnd(metrics),
+            onVisibilityChange: (isHidden) => game.handleVisibilityChange(isHidden)
+        });
+
+        window.Game = game;
+        window.engine.start();
+    });
+}
 
 // Debug console commands
 window.toggleEnemyStealth = function () {

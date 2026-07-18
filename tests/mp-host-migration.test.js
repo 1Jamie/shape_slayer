@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 test('hydrateHostAuthorityFromSnapshot exists on Game', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'main.js'), 'utf-8');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'game', 'main.js'), 'utf-8');
     assert.ok(source.includes('hydrateHostAuthorityFromSnapshot'));
     assert.ok(source.includes('Hydrated'));
 });
@@ -44,7 +44,7 @@ test('server keeps disconnected players in lobby until kick', () => {
 
 test('host saves snapshot on disconnect and restores on reconnect', () => {
     const mp = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'multiplayer.js'), 'utf-8');
-    const main = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'main.js'), 'utf-8');
+    const main = fs.readFileSync(path.join(__dirname, '..', 'src', 'game', 'main.js'), 'utf-8');
     assert.ok(mp.includes('handlePlayerDisconnectedMidRun'));
     assert.ok(mp.includes('handlePlayerReconnectedMidRun'));
     assert.ok(mp.includes('player_reconnected'));
@@ -56,13 +56,13 @@ test('host saves snapshot on disconnect and restores on reconnect', () => {
 });
 
 test('door quorum excludes disconnected players', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'main.js'), 'utf-8');
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'game', 'main.js'), 'utf-8');
     assert.ok(source.includes('isPlayerConnectedForMp(playerId)'));
     assert.ok(/checkDoorCollision[\s\S]*isPlayerConnectedForMp/.test(source));
 });
 
 test('exit door uses toggle ready instead of hold-to-advance', () => {
-    const main = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'main.js'), 'utf-8');
+    const main = fs.readFileSync(path.join(__dirname, '..', 'src', 'game', 'main.js'), 'utf-8');
     const ui = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'ui.js'), 'utf-8');
     assert.ok(main.includes('toggleDoorReadyForPlayer'));
     assert.ok(main.includes('didPlayerRequestDoorInteract'));

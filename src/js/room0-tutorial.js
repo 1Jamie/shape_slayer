@@ -596,6 +596,7 @@ const Room0Tutorial = {
         const viewH = viewHalfH * 2;
         const exitRect = this.isExitCoachActive() ? this.getExitSpotlightRect() : null;
 
+        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
         const padX = isMobile ? 14 : 18;
         const boxW = Math.min(isMobile ? 300 : 400, viewW - 40);
         const titleFont = isMobile ? 'bold 15px Orbitron' : 'bold 17px Orbitron';

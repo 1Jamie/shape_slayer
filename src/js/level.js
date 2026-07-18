@@ -586,7 +586,7 @@ function checkRoomCleared() {
             }
         }
 
-        if (currentRoom.type === 'boss' && typeof MusicManager !== 'undefined' && MusicManager.currentCategory === 'boss') {
+        if (currentRoom.type === 'boss' && typeof MusicManager !== 'undefined' && MusicManager.currentCategory === 'encounter') {
             MusicManager.fadeOutCurrent().catch(err => {
                 console.error('[Music] Failed to fade out boss music after room clear:', err);
             });
@@ -745,7 +745,7 @@ function generateBoss(roomNumber) {
 
     // Play boss spawn sound
     if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-        AudioManager.sounds.bossSpawn();
+        AudioManager.sounds.majorSpawn();
     }
 
     // Determine which boss to spawn based on room number and game mode

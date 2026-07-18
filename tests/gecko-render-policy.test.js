@@ -2,10 +2,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const fs = require('node:fs');
-const { DeviceDetection } = require(path.join(__dirname, '..', 'src', 'js', 'device-detection.js'));
+const { DeviceDetection } = require(path.join(__dirname, '..', 'src', 'engine', 'system.js'));
 
 function loadGameHelpers() {
-    const mainPath = path.join(__dirname, '..', 'src', 'js', 'main.js');
+    const mainPath = path.join(__dirname, '..', 'src', 'game', 'main.js');
     const src = fs.readFileSync(mainPath, 'utf8');
     // Mirror Game helper methods under test (main.js Game object is browser-bound).
     const Game = {

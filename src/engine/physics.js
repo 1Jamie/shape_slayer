@@ -1,15 +1,15 @@
 /**
- * Shared impulse accumulator for players and enemies.
+ * Shared impulse accumulator for dynamic entities.
  * Forces add into impulseVx/Vy, integrate through a collision-aware moveFn,
  * and optionally trigger wall-slam damage when a high-speed impulse is blocked.
  */
 const ImpulsePhysics = {
     DEFAULTS: {
-        playerMaxSpeed: 800,
+        primaryMaxSpeed: 800,
         enemyMaxSpeed: 900,
-        playerDecay: 0.2125,
+        primaryDecay: 0.2125,
         enemyDecay: 0.5,
-        playerCutoff: 12,
+        primaryCutoff: 12,
         enemyCutoff: 1,
         maxDuration: 2.0,
         wallSlamSpeedThreshold: 220,
@@ -359,9 +359,11 @@ const ImpulsePhysics = {
     }
 };
 
-if (typeof window !== 'undefined') {
-    window.ImpulsePhysics = ImpulsePhysics;
-}
+window.Engine = window.Engine || {};
+window.Engine.Physics = ImpulsePhysics;
+
+// Support existing global and Node imports
+window.ImpulsePhysics = ImpulsePhysics;
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = ImpulsePhysics;
 }

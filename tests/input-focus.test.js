@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { Input } = require(path.join(__dirname, '..', 'src', 'js', 'input.js'));
+const { Input } = require(path.join(__dirname, '..', 'src', 'engine', 'input.js'));
 
 function keyEvent(overrides = {}) {
     return {
@@ -89,4 +89,15 @@ test('_resetPointerState clears mouse buttons', () => {
     Input._resetPointerState('blur');
     assert.equal(Input.mouseLeft, false);
     assert.equal(Input.mouseRight, false);
+});
+
+test('configure injects world-coordinate and aim hooks', () => {
+    Input.mouse = { x: 10, y: 20 };
+    Input.configure({
+        screenToWorld: (x, y) => ({ x: x + 100, y: y + 200 }),
+        getAimOrigin: () => ({ x: 100, y: 200 })
+    });
+
+    assert.deepEqual(Input.getWorldMousePos(), { x: 110, y: 220 });
+    assert.equal(Input.getAimDirection(), Math.atan2(20, 10));
 });

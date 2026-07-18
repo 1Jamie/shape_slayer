@@ -3085,8 +3085,8 @@ class MultiplayerManager {
             showItemPickupMessage(itemName, itemRarity);
         }
         
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.sounds.gearPickup) {
-            AudioManager.sounds.gearPickup();
+        if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.sounds.pickupChime) {
+            AudioManager.sounds.pickupChime();
         }
         
         console.log(`[Multiplayer] Pylon pickup: ${itemId} from ${pylonId}`);

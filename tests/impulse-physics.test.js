@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const ROOT = path.resolve(__dirname, '..');
 
 function loadImpulsePhysics() {
-    const source = fs.readFileSync(path.join(ROOT, 'src/js/impulse-physics.js'), 'utf8');
+    const source = fs.readFileSync(path.join(ROOT, 'src/engine/physics.js'), 'utf8');
     const ctx = { console, Math, module: { exports: {} }, exports: {} };
     ctx.window = ctx;
     ctx.globalThis = ctx;

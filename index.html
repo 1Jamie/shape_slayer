@@ -18,8 +18,24 @@
 </head>
 
 <body>
-    <!-- Prevent back navigation (including side mouse button) - must load first -->
-    <script src="src/js/prevent-back-navigation.js"></script>
+    <!-- Engine files -->
+    <script src="src/engine/utils.js"></script>
+    <script src="src/engine/system.js"></script>
+    <script src="src/engine/proc.js"></script>
+    <script src="src/engine/graphics.js"></script>
+    <script src="src/engine/fx.js"></script>
+    <script src="src/engine/render-host.js"></script>
+    <script src="src/engine/camera.js"></script>
+    <script src="src/engine/loop.js"></script>
+    <script src="src/engine/renderer.js"></script>
+    <script src="src/engine/profiler.js"></script>
+    <script src="src/engine/physics.js"></script>
+    <script src="src/engine/audio.js"></script>
+    <script src="src/engine/music.js"></script>
+    <script src="src/engine/touch.js"></script>
+    <script src="src/engine/input.js"></script>
+    <script src="src/engine/net.js"></script>
+    <script src="src/engine/shell.js"></script>
 
     <canvas id="gameCanvas"></canvas>
     <div id="ui-root"></div>
@@ -27,7 +43,6 @@
     <!-- Load scripts in dependency order -->
     <script src="src/ui/core/eventBus.js"></script>
     <script src="src/ui/core/domRoot.js"></script>
-    <script src="src/js/ui-dom-flag.js"></script>
     <script src="src/ui/components/pauseButton.js"></script>
     <script src="src/ui/components/featureTutorialSkip.js"></script>
     <script src="src/ui/components/characterSheetButton.js"></script>
@@ -55,16 +70,12 @@
     <script src="src/ui/components/mobileControlEditor.js"></script>
     <script src="src/ui/components/spectatorIndicator.js"></script>
     <script src="src/ui/components/toast.js"></script>
-    <script src="src/js/audio.js"></script>
-    <script src="src/js/music-manager.js"></script>
-    <script src="src/js/utils.js"></script>
+    <script src="src/game/presentation/text-renderer.js"></script>
     <script src="src/js/biomes.js"></script>
     <script src="src/js/room-layout-generator.js"></script>
     <script src="src/js/projectiles-util.js"></script>
-    <script src="src/js/render.js"></script>
-    <script src="src/js/touch-controls.js"></script>
-    <script src="src/js/device-detection.js"></script>
-    <script src="src/js/input.js"></script>
+    <script src="src/game/presentation/render-adapters.js"></script>
+    <script src="src/game/input-map.js"></script>
     <script src="src/ui/core/controllerNavigation.js"></script>
     <script src="src/js/gear.js"></script>
     <script src="src/js/loot-selection.js"></script>
@@ -77,7 +88,7 @@
     <script src="src/js/items/item-effects.js"></script>
     <script src="src/js/items/item-visuals.js"></script>
     <!-- Shared impulse physics (before player/enemy bases) -->
-    <script src="src/js/impulse-physics.js"></script>
+
     <!-- Player class files -->
     <script src="src/js/players/player-base.js"></script>
     <script src="src/js/players/player-warrior.js"></script>
@@ -111,7 +122,7 @@
     <script src="src/js/level.js"></script>
     <script src="src/js/combat.js"></script>
     <script src="src/js/ui.js"></script>
-    <script src="src/js/run-profiler.js"></script>
+    <script src="src/game/run-profiler.js"></script>
     <script src="src/js/debug.js"></script>
     <script src="src/js/save.js"></script>
     <script src="src/js/feats-registry.js"></script>
@@ -127,7 +138,7 @@
     <script src="src/js/interpolation.js"></script>
     <script src="src/js/nexus.js"></script>
     <script src="src/js/title-attract.js"></script>
-    <script src="src/js/main.js"></script>
+    <script src="src/game/main.js"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function () {

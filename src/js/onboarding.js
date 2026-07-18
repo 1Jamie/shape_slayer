@@ -617,6 +617,7 @@ const Onboarding = {
         const viewH = viewHalfH * 2;
         const rect = this.getSpotlightRect();
 
+        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
         const padX = isMobile ? 14 : 18;
         const boxW = Math.min(isMobile ? 300 : 420, viewW - 40);
         const titleFont = isMobile ? 'bold 15px Orbitron' : 'bold 17px Orbitron';

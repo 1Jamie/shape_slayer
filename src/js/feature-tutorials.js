@@ -587,6 +587,7 @@ const FeatureTutorials = {
         const viewW = viewHalfW * 2;
         const viewH = viewHalfH * 2;
 
+        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
         const padX = isMobile ? 14 : 16;
         const cardW = Math.min(isMobile ? 300 : 400, Math.max(240, Math.min(rect.w + 80, viewW - 40)));
         const lineHeight = isMobile ? 15 : 16;

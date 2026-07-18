@@ -37,9 +37,9 @@ test('resolvePathWithinRoot blocks escape attempts', () => {
 test('resolveUrlPathWithinRoot enforces allowlists', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'path-security-url-'));
     try {
-        fs.mkdirSync(path.join(root, 'src', 'js'), { recursive: true });
+        fs.mkdirSync(path.join(root, 'src', 'game'), { recursive: true });
         fs.writeFileSync(path.join(root, 'index.html'), 'ok');
-        fs.writeFileSync(path.join(root, 'src', 'js', 'main.js'), 'ok');
+        fs.writeFileSync(path.join(root, 'src', 'game', 'main.js'), 'ok');
 
         const options = {
             defaultFile: 'index.html',
@@ -48,7 +48,7 @@ test('resolveUrlPathWithinRoot enforces allowlists', () => {
         };
 
         assert.ok(resolveUrlPathWithinRoot(root, '/', options));
-        assert.ok(resolveUrlPathWithinRoot(root, '/src/js/main.js', options));
+        assert.ok(resolveUrlPathWithinRoot(root, '/src/game/main.js', options));
         assert.strictEqual(resolveUrlPathWithinRoot(root, '/metrics/secret', options), null);
         assert.strictEqual(resolveUrlPathWithinRoot(root, '/src/js/../../etc/passwd', options), null);
     } finally {

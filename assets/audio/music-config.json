@@ -115,9 +115,9 @@
       }
     }
   ],
-  "bosses": [
+  "encounters": [
     {
-      "id": "boss-10",
+      "id": "encounter-10",
       "rooms": [10],
       "name": "Swarm King",
       "phases": {
@@ -142,7 +142,7 @@
       }
     },
     {
-      "id": "boss-20",
+      "id": "encounter-20",
       "rooms": [20],
       "name": "Twin Prism",
       "phases": {
@@ -167,7 +167,7 @@
       }
     },
     {
-      "id": "boss-30",
+      "id": "encounter-30",
       "rooms": [30],
       "name": "Fortress",
       "phases": {
@@ -192,7 +192,7 @@
       }
     },
     {
-      "id": "boss-40",
+      "id": "encounter-40",
       "rooms": [40],
       "name": "Fractal Core",
       "phases": {
@@ -217,7 +217,7 @@
       }
     },
     {
-      "id": "boss-50",
+      "id": "encounter-50",
       "rooms": [50],
       "name": "Vortex",
       "phases": {
@@ -261,7 +261,7 @@
         "avoidImmediateRepeat": true
       }
     },
-    "nexus": {
+    "hub": {
       "tracks": [
         "waiting-time-175800.mp3"
       ],
@@ -287,12 +287,12 @@
       "cycle-gamma",
       "cycle-delta"
     ],
-    "boss": [
-      "boss-10",
-      "boss-20",
-      "boss-30",
-      "boss-40",
-      "boss-50"
+    "encounter": [
+      "encounter-10",
+      "encounter-20",
+      "encounter-30",
+      "encounter-40",
+      "encounter-50"
     ]
   }
 }

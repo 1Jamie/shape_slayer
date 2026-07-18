@@ -13,7 +13,10 @@ function loadRunProfiler() {
         GameVersion: { VERSION: 'test' },
         Game: { roomNumber: 1 }
     };
-    vm.runInNewContext(fs.readFileSync(`${__dirname}/../src/js/run-profiler.js`, 'utf8'), context);
+    context.window.Engine = {};
+    context.Engine = context.window.Engine;
+    vm.runInNewContext(fs.readFileSync(`${__dirname}/../src/engine/profiler.js`, 'utf8'), context);
+    vm.runInNewContext(fs.readFileSync(`${__dirname}/../src/game/run-profiler.js`, 'utf8'), context);
     return context.window.RunProfiler;
 }
 
@@ -38,7 +41,7 @@ test('RunProfiler aggregates frame samples and ranks phases', () => {
             snapshot: {
                 qualityTier: i % 4 === 0 ? 'medium' : 'normal',
                 counts: { enemiesVisible: 5 + i, enemiesTotal: 8 },
-                subTimings: { groundLoot: 0.4, gearRings: 0.2, remotePlayers: 0 }
+                subTimings: { groundLoot: 0.4, detailRings: 0.2, remoteActors: 0 }
             }
         }, { state: 'PLAYING', roomNumber: 1 });
         RunProfiler.lastSampleTime = 0;
@@ -57,7 +60,7 @@ test('RunProfiler aggregates frame samples and ranks phases', () => {
             snapshot: {
                 qualityTier: 'heavy',
                 counts: { enemiesVisible: 12, enemiesTotal: 15 },
-                subTimings: { groundLoot: 1.2, gearRings: 0.5, remotePlayers: 0 }
+                subTimings: { groundLoot: 1.2, detailRings: 0.5, remoteActors: 0 }
             }
         }, { state: 'PLAYING', roomNumber: 2 });
         RunProfiler.lastSampleTime = 0;

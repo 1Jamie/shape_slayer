@@ -1,65 +1,6 @@
-// Rendering functions
-
-// Particle class for visual effects
-class Particle {
-    constructor(x, y, vx, vy, color, size, life) {
-        this.x = x;
-        this.y = y;
-        this.vx = vx;
-        this.vy = vy;
-        this.color = color;
-        this.size = size;
-        this.life = life;
-        this.maxLife = life;
-        this.alpha = 1.0;
-    }
-
-    update(deltaTime) {
-        this.x += this.vx * deltaTime;
-        this.y += this.vy * deltaTime;
-        this.life -= deltaTime;
-
-        // Fade out over time
-        this.alpha = this.life / this.maxLife;
-
-        // Apply gravity
-        this.vy += 200 * deltaTime;
-
-        return this.life > 0;
-    }
-
-    render(ctx) {
-        ctx.save();
-        ctx.globalAlpha = this.alpha;
-        ctx.fillStyle = this.color;
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-    }
-}
-
-// Particle pooling
-const particlePool = [];
-const MAX_POOL_SIZE = 200;
-
-function getParticle() {
-    if (particlePool.length > 0) {
-        return particlePool.pop();
-    }
-    return null;
-}
-
-function releaseParticle(p) {
-    if (particlePool.length < MAX_POOL_SIZE) {
-        particlePool.push(p);
-    }
-}
-
 // Create burst of particles at position
 function createParticleBurst(x, y, color, count = 10) {
-    if (typeof Game === 'undefined') return;
-    if (!Game.particles) Game.particles = [];
+    if (typeof Engine === 'undefined' || !Engine.Renderer) return;
 
     for (let i = 0; i < count; i++) {
         const angle = (Math.PI * 2 / count) * i + Math.random() * 0.5;
@@ -67,28 +8,12 @@ function createParticleBurst(x, y, color, count = 10) {
         const vx = Math.cos(angle) * speed;
         const vy = Math.sin(angle) * speed;
 
-        let particle = getParticle();
-        if (!particle) {
-            particle = new Particle(x, y, vx, vy, color, 3 + Math.random() * 3, 0.5);
-        } else {
-            particle.x = x;
-            particle.y = y;
-            particle.vx = vx;
-            particle.vy = vy;
-            particle.color = color;
-            particle.size = 3 + Math.random() * 3;
-            particle.life = 0.5;
-            particle.maxLife = 0.5;
-            particle.alpha = 1.0;
-        }
-
-        Game.particles.push(particle);
+        Engine.Renderer.submitParticle(x, y, vx, vy, color, 3 + Math.random() * 3, 0.5);
     }
 }
 
 function createDirectionalParticleBurst(x, y, dirX, dirY, color, options = {}) {
-    if (typeof Game === 'undefined') return;
-    if (!Game.particles) Game.particles = [];
+    if (typeof Engine === 'undefined' || !Engine.Renderer) return;
 
     const count = options.count || 12;
     const spread = options.spread !== undefined ? options.spread : Math.PI / 5;
@@ -111,31 +36,16 @@ function createDirectionalParticleBurst(x, y, dirX, dirY, color, options = {}) {
         const vx = Math.cos(angle) * speed;
         const vy = Math.sin(angle) * speed;
 
-        let particle = getParticle();
         const particleSize = baseSize + Math.random() * (options.sizeVariance || 2);
         const particleLife = life * (0.8 + Math.random() * 0.4);
-
-        if (!particle) {
-            particle = new Particle(x, y, vx, vy, safeColor, particleSize, particleLife);
-        } else {
-            particle.x = x;
-            particle.y = y;
-            particle.vx = vx;
-            particle.vy = vy;
-            particle.color = safeColor;
-            particle.size = particleSize;
-            particle.life = particleLife;
-            particle.maxLife = particleLife;
-            particle.alpha = 1.0;
-        }
 
         // Slight perpendicular drift for ribbon effect
         const perpX = -normY;
         const perpY = normX;
-        particle.vx += perpX * baseSpeed * 0.15 * (Math.random() - 0.5);
-        particle.vy += perpY * baseSpeed * 0.15 * (Math.random() - 0.5);
+        const finalVx = vx + perpX * baseSpeed * 0.15 * (Math.random() - 0.5);
+        const finalVy = vy + perpY * baseSpeed * 0.15 * (Math.random() - 0.5);
 
-        Game.particles.push(particle);
+        Engine.Renderer.submitParticle(x, y, finalVx, finalVy, safeColor, particleSize, particleLife);
     }
 }
 
@@ -293,24 +203,10 @@ function renderBurnEffect(ctx, enemy) {
         const offset = Math.random() * enemy.size;
         const px = enemy.x + Math.cos(angle) * offset;
         const py = enemy.y + Math.sin(angle) * offset;
+        const vy = -50 - Math.random() * 30; // Rise upward
 
-        let particle = getParticle();
-        if (!particle) {
-            particle = new Particle(px, py, 0, -50 - Math.random() * 30, '#ff6600', 2 + Math.random() * 2, 0.3);
-        } else {
-            particle.x = px;
-            particle.y = py;
-            particle.vx = 0;
-            particle.vy = -50 - Math.random() * 30; // Rise upward
-            particle.color = '#ff6600';
-            particle.size = 2 + Math.random() * 2;
-            particle.life = 0.3;
-            particle.maxLife = 0.3;
-            particle.alpha = 1.0;
-        }
-
-        if (typeof Game !== 'undefined' && Game.particles) {
-            Game.particles.push(particle);
+        if (typeof Engine !== 'undefined' && Engine.Renderer) {
+            Engine.Renderer.submitParticle(px, py, 0, vy, '#ff6600', 2 + Math.random() * 2, 0.3);
         }
     }
 
@@ -363,22 +259,16 @@ function renderFreezeEffect(ctx, enemy) {
 
 // Update and render particles
 function updateParticles(deltaTime) {
-    if (!Game || !Game.particles) return;
-
-    Game.particles = Game.particles.filter(particle => {
-        const alive = particle.update(deltaTime);
-        if (!alive) {
-            releaseParticle(particle);
-        }
-        return alive;
-    });
+    if (typeof Engine !== 'undefined' && Engine.Renderer) {
+        Engine.Renderer.updateParticles(deltaTime);
+    }
 }
 
 function renderParticles(ctx) {
-    if (!Game || !Game.particles) return;
+    if (typeof Engine === 'undefined' || !Engine.Renderer || !Game) return;
 
     // Viewport Culling
-    let viewX = 0, viewY = 0, viewW = 2400, viewH = 1350;
+    let viewX = undefined, viewY = undefined, viewW = undefined, viewH = undefined;
 
     if (Game.camera && Game.config) {
         const zoom = (Game.getViewZoom && Game.getViewZoom()) || 1.0;
@@ -393,13 +283,7 @@ function renderParticles(ctx) {
         viewH = screenH + padding * 2;
     }
 
-    Game.particles.forEach(particle => {
-        // Simple AABB check
-        if (particle.x >= viewX && particle.x <= viewX + viewW &&
-            particle.y >= viewY && particle.y <= viewY + viewH) {
-            particle.render(ctx);
-        }
-    });
+    Engine.Renderer.renderParticles(ctx, viewX, viewY, viewW, viewH);
 }
 
 // Biome definitions for different room ranges
@@ -2986,18 +2870,15 @@ function renderRoomLayoutDebug(ctx) {
     ctx.restore();
 }
 
-const Renderer = {
-    // Clear canvas with background color
-    clear(ctx, width, height, color = '#1a1a2e') {
-        ctx.fillStyle = color;
-        ctx.fillRect(0, 0, width, height);
-    },
-
+// Extend Renderer namespace with game-specific methods
+if (typeof window !== 'undefined') {
+    window.Renderer = window.Renderer || {};
+    
     // Door Cache System
-    doorCache: new Map(),
-
+    window.Renderer.doorCache = new Map();
+    
     // Helper to get or create a cached door sprite
-    getCachedDoor(width, height) {
+    window.Renderer.getCachedDoor = function(width, height) {
         // Round dimensions to reduce fragmentation
         const keyWidth = Math.ceil(width);
         const keyHeight = Math.ceil(height);
@@ -3041,10 +2922,10 @@ const Renderer = {
 
         this.doorCache.set(key, canvas);
         return canvas;
-    },
+    };
 
     // Draw door
-    door(ctx, x, y, width, height, pulse = 0) {
+    window.Renderer.door = function(ctx, x, y, width, height, pulse = 0) {
         // Check debug flag
         if (typeof DebugFlags !== 'undefined' && DebugFlags.USE_CACHING === false) {
             // Fallback to original rendering
@@ -3088,44 +2969,9 @@ const Renderer = {
         ctx.scale(pulseScale, pulseScale);
 
         // Draw cached image centered
-        const offset = cachedCanvas.width / 2;
-        // Note: Our cache has padding, so center of canvas is width/2, height/2
-        // But the door rect inside the cache is at (padding, padding) with size (width, height)
-        // So the center of the door in the cache is at (padding + width/2, padding + height/2)
-        // Which is exactly canvas.width/2 and canvas.height/2 if padding is symmetric
-
         ctx.drawImage(cachedCanvas, -cachedCanvas.width / 2, -cachedCanvas.height / 2);
 
         ctx.restore();
-    },
-
-    // Draw polygon (for pentagon and hexagon shapes)
-    polygon(ctx, x, y, radius, sides, rotation, color) {
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(rotation);
-
-        ctx.fillStyle = color;
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 2;
-
-        ctx.beginPath();
-        for (let i = 0; i < sides; i++) {
-            const angle = (Math.PI * 2 / sides) * i - Math.PI / 2;
-            const px = Math.cos(angle) * radius;
-            const py = Math.sin(angle) * radius;
-
-            if (i === 0) {
-                ctx.moveTo(px, py);
-            } else {
-                ctx.lineTo(px, py);
-            }
-        }
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.restore();
-    }
-};
+    };
+}
 

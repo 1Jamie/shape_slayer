@@ -1826,7 +1826,7 @@ class PlayerBase {
 
             // Play player death sound
             if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-                AudioManager.sounds.playerDeath();
+                AudioManager.sounds.avatarDefeat();
             }
 
             this.hp = 0;
@@ -4929,8 +4929,8 @@ class PlayerBase {
     }
 
     onClientDeath(_rawState) {
-        if (this.canPlayClientAudio() && AudioManager.sounds.playerDeath) {
-            AudioManager.sounds.playerDeath();
+        if (this.canPlayClientAudio() && AudioManager.sounds.avatarDefeat) {
+            AudioManager.sounds.avatarDefeat();
         }
     }
 

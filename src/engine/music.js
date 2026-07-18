@@ -13,7 +13,7 @@ const MusicManager = {
     fallbackWarmQueued: new Set(),
     fallbackWarmRunning: false,
     currentSetId: null,
-    currentCategory: null, // 'normal', 'boss', 'pause', 'title', 'nexus', 'gameOver'
+    currentCategory: null,
     lastNonPauseSetId: null,
     lastNonPauseCategory: null,
     currentTrack: null,
@@ -89,9 +89,9 @@ const MusicManager = {
             this.config.roomSets.forEach((set) => addTracks(set && set.tracks));
         }
 
-        if (Array.isArray(this.config.bosses)) {
-            this.config.bosses.forEach((boss) => {
-                const phases = boss && boss.phases;
+        if (Array.isArray(this.config.encounters)) {
+            this.config.encounters.forEach((entry) => {
+                const phases = entry && entry.phases;
                 if (!phases || typeof phases !== 'object') {
                     return;
                 }
@@ -319,23 +319,23 @@ const MusicManager = {
         this.lastNonPauseSetId = resolved.id;
     },
     
-    async setBossPhase(roomNumber, phaseIndex) {
+    async setEncounterPhase(roomNumber, phaseIndex) {
         await this.init();
         this.ensureInitialized();
         
-        const resolved = this.resolveBossPhase(roomNumber, phaseIndex);
+        const resolved = this.resolveEncounterPhase(roomNumber, phaseIndex);
         if (!resolved) {
-            console.warn(`[MusicManager] No boss playlist resolved for room ${roomNumber} phase ${phaseIndex}.`);
+            console.warn(`[MusicManager] No encounter playlist resolved for room ${roomNumber} phase ${phaseIndex}.`);
             return;
         }
         
-        if (resolved.id === this.currentSetId && this.currentCategory === 'boss' && this.currentTrack && resolved.loop === this.currentLoop) {
+        if (resolved.id === this.currentSetId && this.currentCategory === 'encounter' && this.currentTrack && resolved.loop === this.currentLoop) {
             this.resumeIfNeeded();
             return;
         }
         
-        await this.playSet(resolved, 'boss');
-        this.lastNonPauseCategory = 'boss';
+        await this.playSet(resolved, 'encounter');
+        this.lastNonPauseCategory = 'encounter';
         this.lastNonPauseSetId = resolved.id;
     },
     
@@ -396,24 +396,24 @@ const MusicManager = {
         this.lastNonPauseSetId = titleSet.id;
     },
 
-    async setNexus() {
+    async setHub() {
         await this.init();
         this.ensureInitialized();
         
-        const nexusSet = this.getSpecialSet('nexus');
-        if (!nexusSet) {
-            console.warn('[MusicManager] No nexus playlist defined.');
+        const hubSet = this.getSpecialSet('hub');
+        if (!hubSet) {
+            console.warn('[MusicManager] No hub playlist defined.');
             return;
         }
         
-        if (this.currentCategory === 'nexus' && this.currentSetId === nexusSet.id) {
+        if (this.currentCategory === 'hub' && this.currentSetId === hubSet.id) {
             this.resumeIfNeeded();
             return;
         }
         
-        await this.playSet(nexusSet, 'nexus');
-        this.lastNonPauseCategory = 'nexus';
-        this.lastNonPauseSetId = nexusSet.id;
+        await this.playSet(hubSet, 'hub');
+        this.lastNonPauseCategory = 'hub';
+        this.lastNonPauseSetId = hubSet.id;
     },
     
     async playGameOver() {
@@ -805,26 +805,26 @@ const MusicManager = {
         return this.normalizeSet(set);
     },
     
-    resolveBossPhase(roomNumber, phaseIndex) {
-        if (!this.config || !Array.isArray(this.config.bosses)) {
+    resolveEncounterPhase(roomNumber, phaseIndex) {
+        if (!this.config || !Array.isArray(this.config.encounters)) {
             return null;
         }
         
-        const bossEntry = this.config.bosses.find(boss => {
-            if (!Array.isArray(boss.rooms)) return false;
-            return boss.rooms.includes(roomNumber);
+        const encounterEntry = this.config.encounters.find(entry => {
+            if (!Array.isArray(entry.rooms)) return false;
+            return entry.rooms.includes(roomNumber);
         });
         
         let normalized = null;
         
-        if (bossEntry && bossEntry.phases) {
-            const phases = bossEntry.phases;
+        if (encounterEntry && encounterEntry.phases) {
+            const phases = encounterEntry.phases;
             let phaseNumber = phaseIndex;
             while (phaseNumber >= 1) {
                 const phaseConfig = phases[String(phaseNumber)];
                 if (phaseConfig && Array.isArray(phaseConfig.tracks) && phaseConfig.tracks.length > 0) {
                     normalized = this.normalizeSet({
-                        id: bossEntry.id || `boss-${roomNumber}`,
+                        id: encounterEntry.id || `encounter-${roomNumber}`,
                         tracks: phaseConfig.tracks,
                         selection: phaseConfig.selection,
                         loop: phaseConfig.selection?.mode !== 'shuffle'
@@ -839,16 +839,16 @@ const MusicManager = {
             return normalized;
         }
         
-        const fallbackKey = this.getFallbackKey('boss', roomNumber);
-        const fallbackSetId = this.randomAssignments.get(fallbackKey) || this.pickRandomFallback('boss');
+        const fallbackKey = this.getFallbackKey('encounter', roomNumber);
+        const fallbackSetId = this.randomAssignments.get(fallbackKey) || this.pickRandomFallback('encounter');
         if (!fallbackSetId) return null;
         this.randomAssignments.set(fallbackKey, fallbackSetId);
-        const fallbackBoss = this.config.bosses.find(b => (b.id || '').toString() === fallbackSetId);
-        if (!fallbackBoss) return null;
-        const basePhase = fallbackBoss.phases?.['1'];
+        const fallbackEncounter = this.config.encounters.find(entry => (entry.id || '').toString() === fallbackSetId);
+        if (!fallbackEncounter) return null;
+        const basePhase = fallbackEncounter.phases?.['1'];
         if (!basePhase) return null;
         return this.normalizeSet({
-            id: fallbackBoss.id,
+            id: fallbackEncounter.id,
             tracks: basePhase.tracks,
             selection: basePhase.selection,
             loop: basePhase.selection?.mode !== 'shuffle'
@@ -891,14 +891,14 @@ const MusicManager = {
     },
     
     getFallbackKey(type, roomNumber) {
-        if (type === 'boss') {
-            if (roomNumber < 10) return 'boss-pre-10';
+        if (type === 'encounter') {
+            if (roomNumber < 10) return 'encounter-pre-10';
             const cycleIndex = Math.floor((roomNumber - 10) / 10);
-            return `boss-${cycleIndex}`;
+            return `encounter-${cycleIndex}`;
         }
         
         if (roomNumber < 10) {
-            return roomNumber <= 4 ? 'normal-opening' : 'normal-preboss';
+            return roomNumber <= 4 ? 'normal-opening' : 'normal-pre-event';
         }
         
         const cycleIndex = Math.floor((roomNumber - 10) / 10);
@@ -906,3 +906,8 @@ const MusicManager = {
     }
 };
 
+window.Engine = window.Engine || {};
+window.Engine.Music = MusicManager;
+
+// Expose MusicManager globally
+window.MusicManager = MusicManager;

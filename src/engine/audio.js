@@ -78,8 +78,8 @@ const AudioManager = {
             
             this.tryResumeContext();
             
-            if (typeof Game !== 'undefined' && Game && typeof Game.updateMusicForCurrentRoom === 'function') {
-                Game.updateMusicForCurrentRoom();
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('audiocontextresume'));
             }
         } catch (error) {
             console.error('Failed to initialize AudioManager:', error);
@@ -91,8 +91,8 @@ const AudioManager = {
         if (this.context && this.context.state === 'suspended') {
             this.context.resume().then(() => {
                 this.onContextUnlocked();
-                if (typeof Game !== 'undefined' && Game && typeof Game.updateMusicForCurrentRoom === 'function') {
-                    Game.updateMusicForCurrentRoom();
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('audiocontextresume'));
                 }
             }).catch(error => {
                 console.warn('AudioManager resume failed:', error);
@@ -656,7 +656,7 @@ const AudioManager = {
             // Fan of knives - multiple quick zaps
             for (let i = 0; i < 7; i++) {
                 setTimeout(() => {
-                    AudioManager.playZap(0.05, 1.3 + i * 0.1, 0.2);
+                     AudioManager.playZap(0.05, 1.3 + i * 0.1, 0.2);
                 }, i * 20);
             }
         },
@@ -767,7 +767,7 @@ const AudioManager = {
         },
         
         // UI sounds
-        gearPickup() {
+        pickupChime() {
             AudioManager.playChime(523, 0.25, 0.25);
         },
         
@@ -781,7 +781,7 @@ const AudioManager = {
             AudioManager.playSweep(200, 400, 0.4, 'sine', 0.25);
         },
         
-        bossSpawn() {
+        majorSpawn() {
             AudioManager.playSweep(100, 300, 0.5, 'sawtooth', 0.3);
             setTimeout(() => AudioManager.playExplosion(1.2), 300);
         },
@@ -838,7 +838,7 @@ const AudioManager = {
             setTimeout(() => AudioManager.playChime(620, 0.16, 0.16), 80);
         },
         
-        playerDeath() {
+        avatarDefeat() {
             AudioManager.playSweep(400, 100, 0.6, 'triangle', 0.3);
         }
     }
@@ -861,6 +861,9 @@ window.addEventListener('keydown', () => {
     unlockAudioContext();
 }, { once: true });
 
+window.Engine = window.Engine || {};
+window.Engine.Audio = AudioManager;
+
 // Expose AudioManager globally
 window.AudioManager = AudioManager;
 
@@ -870,4 +873,3 @@ if (document.readyState === 'complete') {
 } else {
     window.addEventListener('load', () => AudioManager.init());
 }
-

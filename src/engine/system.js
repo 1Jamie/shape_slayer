@@ -333,6 +333,11 @@ const DeviceDetection = {
     }
 };
 
+if (typeof window !== 'undefined') {
+    window.Engine = window.Engine || {};
+    window.Engine.System = DeviceDetection;
+    window.DeviceDetection = DeviceDetection;
+}
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { DeviceDetection };
 }

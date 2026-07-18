@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { DeviceDetection } = require(path.join(__dirname, '..', 'src', 'js', 'device-detection.js'));
+const { DeviceDetection } = require(path.join(__dirname, '..', 'src', 'engine', 'system.js'));
 
 function mockEnv({ ua, platform, maxTouchPoints = 0, userAgentData = null, media = {} }) {
     const queries = {
