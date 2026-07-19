@@ -97,6 +97,9 @@ test('four domain locations remain separate', () => {
         'src/engine/ui/modal-stack.js',
         'src/engine/ui/root.js',
         'src/engine/ui/toast.js',
+        'src/engine/ui/boot-cinematic.js',
+        'src/engine/ui/boot-screen.js',
+        'src/engine/boot.js',
         'src/engine/utils.js'
     ];
     for (const relativePath of required) {
@@ -157,6 +160,9 @@ test('Engine files must not reference game content or game paths', () => {
         'src/engine/ui/modal-stack.js',
         'src/engine/ui/root.js',
         'src/engine/ui/toast.js',
+        'src/engine/ui/boot-cinematic.js',
+        'src/engine/ui/boot-screen.js',
+        'src/engine/boot.js',
         'src/engine/utils.js'
     ];
 
@@ -227,6 +233,18 @@ test('index.html script tags order: engine scripts must precede game scripts', (
         `Engine script (${scripts[lastEngineIndex]}) loaded after game script (${scripts[firstGameIndex]})`
     );
 
+    const cinematicIndex = scripts.indexOf('src/engine/ui/boot-cinematic.js');
+    const bootScreenIndex = scripts.indexOf('src/engine/ui/boot-screen.js');
+    const bootIndex = scripts.indexOf('src/engine/boot.js');
+    const toastIndex = scripts.indexOf('src/engine/ui/toast.js');
+    assert.ok(cinematicIndex !== -1, 'index.html must load engine boot-cinematic.js');
+    assert.ok(bootScreenIndex !== -1, 'index.html must load engine boot-screen.js');
+    assert.ok(bootIndex !== -1, 'index.html must load engine boot.js');
+    assert.ok(toastIndex !== -1 && bootScreenIndex > toastIndex, 'boot-screen.js must follow engine UI deps');
+    assert.ok(cinematicIndex < bootScreenIndex, 'boot-cinematic.js must load before boot-screen.js');
+    assert.ok(bootIndex === bootScreenIndex + 1, 'boot.js must load immediately after boot-screen.js');
+    assert.ok(bootIndex < firstGameIndex, 'Engine.Boot must load before any game scripts');
+
     for (const src of scripts) {
         assert.equal(
             src.includes('src/js/') || src.includes('src/ui/'),
@@ -234,6 +252,23 @@ test('index.html script tags order: engine scripts must precede game scripts', (
             `index.html still references retired path: ${src}`
         );
     }
+});
+
+test('main.js gates Engine.Core start on Engine.Boot.start', () => {
+    const main = read('src/game/main.js');
+    assert.match(main, /Engine\.Boot\.start\s*\(/);
+    assert.match(main, /Engine\.Boot\.runtime/);
+    assert.match(main, /new Engine\.Core\s*\(/);
+    assert.match(
+        main,
+        /Engine\.Boot\.start[\s\S]*?\.then\s*\([\s\S]*?startCore\s*\(/,
+        'Core start must run only after Boot.start resolves'
+    );
+    assert.match(
+        main,
+        /startCore\s*\(\)[\s\S]*?Engine\.Boot\.handoff\s*\(/,
+        'App must report ready via Engine.Boot.handoff after Core starts'
+    );
 });
 
 test('boot manifests must not reference retired src/js or src/ui paths', () => {
@@ -367,6 +402,7 @@ test('Assert expected engine namespaces defined on the window object', () => {
         { file: 'src/engine/profiler.js', ns: 'Engine.Profiler' },
         { file: 'src/engine/render-host.js', ns: 'Engine.Render' },
         { file: 'src/engine/ui/bus.js', ns: 'Engine.UI' },
+        { file: 'src/engine/boot.js', ns: 'Engine.Boot' },
         { file: 'src/engine/utils.js', ns: 'Engine.Utils' }
     ];
 

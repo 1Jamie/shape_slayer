@@ -1625,6 +1625,440 @@ body {
   font-size: 9px !important;
 }
 
+/* Engine boot intro (above title chrome until handoff).
+   High-contrast diagnostic look: absolute black, a faint engine grid, pure
+   white type with a single cyan accent. Edges stay laser-crisp — no soft
+   gradients, no blur. */
+.engine-boot-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 11000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  background-color: #020205;
+  background-image:
+    linear-gradient(rgba(0, 229, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 229, 255, 0.045) 1px, transparent 1px);
+  background-size: 48px 48px;
+  background-position: center center;
+  color: #ffffff;
+  font-family: "Orbitron", sans-serif;
+  text-align: center;
+  opacity: 1;
+  overflow: hidden;
+  isolation: isolate;
+  transition: opacity 700ms cubic-bezier(0.45, 0, 0.2, 1);
+}
+
+/* Cinematic stage: the engine renders its primitive tech-demo here. */
+.engine-boot-screen__stage {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* While the cinematic runs, the DOM panel stays mounted as the accessible
+   narration but is visually replaced by the stage canvas. */
+.engine-boot-screen--cinematic .engine-boot-screen__panel {
+  opacity: 0;
+}
+
+/* Read/write head: a single crisp line scanning down while initializing. */
+.engine-boot-screen__scanline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 2%,
+    rgba(0, 229, 255, 0.55) 30%,
+    rgba(0, 229, 255, 0.9) 50%,
+    rgba(0, 229, 255, 0.55) 70%,
+    transparent 98%
+  );
+  pointer-events: none;
+  animation: engine-boot-scan 2100ms cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* When the boot outcome lands, the sweep finishes the pass it is on (JS adds
+   the scan-done class at the iteration boundary) so the final reveal never
+   cuts the line off mid-screen. The keyframe cycle already ends faded out at
+   the bottom, so stopping at the boundary is seamless. */
+.engine-boot-screen--scan-done .engine-boot-screen__scanline {
+  animation: none;
+  opacity: 0;
+}
+
+.engine-boot-screen--exiting {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.engine-boot-screen[hidden] {
+  display: none !important;
+}
+
+/* The signature lockup scales from ONE unit (the panel font-size). Every
+   size, gap, and rule below is in em of that unit, so the composition keeps
+   identical proportions on every device — small phones, tablets, 1080p,
+   ultrawide, and 4K just render the same artwork at different scales.
+   vmin tracks the limiting screen dimension (height on landscape phones and
+   ultrawide, width on portrait), so no aspect ratio distorts the layout. */
+.engine-boot-screen__panel {
+  font-size: clamp(9px, 2.4vmin, 52px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55em;
+  padding: 1.5em;
+  max-width: 94vw;
+  position: relative;
+  z-index: 1;
+}
+
+/* The engine's four primitives pulse in sequence while the system spins up,
+   then lock solid on ready. Rendered with clip-path so edges stay crisp. */
+.engine-boot-screen__shapes {
+  display: flex;
+  gap: 0.9em;
+  margin-top: 0.7em;
+  animation: engine-boot-fade-up 700ms cubic-bezier(0.22, 0.7, 0.3, 1) 1700ms both;
+}
+
+.engine-boot-screen__shape {
+  width: 0.85em;
+  height: 0.85em;
+  opacity: 0.3;
+  animation: engine-boot-shape-pulse 1600ms cubic-bezier(0.45, 0, 0.2, 1) infinite;
+}
+
+.engine-boot-screen__shape--square {
+  background: #4a90e2;
+  animation-delay: 0ms;
+}
+
+.engine-boot-screen__shape--triangle {
+  background: #ff1493;
+  clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+  animation-delay: 400ms;
+}
+
+.engine-boot-screen__shape--pentagon {
+  background: #c72525;
+  clip-path: polygon(50% 0%, 100% 38%, 81% 100%, 19% 100%, 0% 38%);
+  animation-delay: 800ms;
+}
+
+.engine-boot-screen__shape--hexagon {
+  background: #673ab7;
+  clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%);
+  animation-delay: 1200ms;
+}
+
+.engine-boot-screen--ready .engine-boot-screen__shape {
+  animation: engine-boot-shape-lock 450ms cubic-bezier(0.22, 0.7, 0.3, 1) both;
+}
+
+.engine-boot-screen--error .engine-boot-screen__shape {
+  animation: none;
+  opacity: 0.18;
+}
+
+/* Staged reveal: "Powered by" -> "Shape Engine" -> version -> rule -> status.
+   Animations use only transform/opacity/filter (never layout properties such
+   as letter-spacing), so the lockup NEVER reflows or re-wraps mid-animation. */
+.engine-boot-screen__brand {
+  font-size: 0.95em;
+  font-weight: 500;
+  letter-spacing: 0.34em;
+  margin-right: -0.34em; /* re-center: trailing tracking on the last glyph */
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.62);
+  animation: engine-boot-fade-up 900ms cubic-bezier(0.22, 0.7, 0.3, 1) both;
+}
+
+.engine-boot-screen__title {
+  /* vw cap guarantees "SHAPE ENGINE" stays on one line on the narrowest
+     portrait phones; the em term rules everywhere else. */
+  font-size: min(2.6em, 7vw);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  margin-right: -0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: #ffffff;
+  text-shadow: 0 0 6px rgba(0, 229, 255, 0.55);
+  animation:
+    engine-boot-title-in 1100ms cubic-bezier(0.22, 0.7, 0.3, 1) 500ms both,
+    engine-boot-title-hum 1600ms cubic-bezier(0.45, 0, 0.55, 1) 1600ms infinite;
+}
+
+.engine-boot-screen__version {
+  font-size: 1em;
+  letter-spacing: 0.3em;
+  margin-right: -0.3em;
+  white-space: nowrap;
+  color: #00e5ff;
+  animation: engine-boot-fade-up 800ms cubic-bezier(0.22, 0.7, 0.3, 1) 1250ms both;
+}
+
+.engine-boot-screen__rule {
+  width: min(16em, 70vw);
+  height: 1px;
+  margin-top: 0.9em;
+  background: linear-gradient(90deg, transparent, rgba(0, 229, 255, 0.8), transparent);
+  transform-origin: center;
+  animation: engine-boot-rule-in 900ms cubic-bezier(0.22, 0.7, 0.3, 1) 1550ms both;
+}
+
+.engine-boot-screen__status {
+  margin-top: 0.6em;
+  font-size: 0.9em;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.85);
+  min-height: 1.4em;
+  min-width: 13ch;
+  white-space: nowrap;
+  transition:
+    color 450ms cubic-bezier(0.45, 0, 0.2, 1),
+    text-shadow 450ms cubic-bezier(0.45, 0, 0.2, 1);
+  animation: engine-boot-fade-up 700ms cubic-bezier(0.22, 0.7, 0.3, 1) 1900ms both;
+}
+
+.engine-boot-screen__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6em;
+  justify-content: center;
+  margin-top: 0.75em;
+}
+
+.engine-boot-screen__button {
+  appearance: none;
+  border: 1px solid rgba(0, 229, 255, 0.65);
+  background: rgba(0, 229, 255, 0.08);
+  color: #ffffff;
+  font: inherit;
+  font-size: 0.85em;
+  letter-spacing: 0.06em;
+  padding: 0.55em 1.2em;
+  border-radius: 0;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.engine-boot-screen__button:hover,
+.engine-boot-screen__button:focus-visible {
+  border-color: #00e5ff;
+  background: rgba(0, 229, 255, 0.18);
+  outline: none;
+}
+
+.engine-boot-screen__button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.engine-boot-screen__button--secondary {
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.engine-boot-screen--error .engine-boot-screen__status {
+  color: #ff4d4d;
+  text-shadow: 0 0 6px rgba(255, 77, 77, 0.45);
+}
+
+.engine-boot-screen--error .engine-boot-screen__status,
+.engine-boot-screen--error .engine-boot-screen__rule,
+.engine-boot-screen--error .engine-boot-screen__brand,
+.engine-boot-screen--error .engine-boot-screen__title,
+.engine-boot-screen--error .engine-boot-screen__version,
+.engine-boot-screen--error .engine-boot-screen__shapes {
+  animation-delay: 0ms;
+  animation-duration: 300ms;
+}
+
+.engine-boot-screen--ready .engine-boot-screen__status {
+  color: #00e5ff;
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.6);
+  animation: engine-boot-ready-pulse 650ms cubic-bezier(0.22, 0.7, 0.3, 1) both;
+}
+
+.engine-boot-screen--ready .engine-boot-screen__title {
+  animation: engine-boot-ready-wake 650ms cubic-bezier(0.22, 0.7, 0.3, 1) both;
+}
+
+.engine-boot-screen--reduced .engine-boot-screen__brand,
+.engine-boot-screen--reduced .engine-boot-screen__title,
+.engine-boot-screen--reduced .engine-boot-screen__version,
+.engine-boot-screen--reduced .engine-boot-screen__rule,
+.engine-boot-screen--reduced .engine-boot-screen__status,
+.engine-boot-screen--reduced .engine-boot-screen__shapes,
+.engine-boot-screen--reduced .engine-boot-screen__shape,
+.engine-boot-screen--reduced .engine-boot-screen__scanline {
+  animation: none;
+}
+
+.engine-boot-screen--reduced .engine-boot-screen__shape {
+  opacity: 1;
+}
+
+.engine-boot-screen--reduced .engine-boot-screen__scanline {
+  opacity: 0;
+}
+
+.engine-boot-screen--reduced,
+.engine-boot-screen--reduced.engine-boot-screen--exiting {
+  transition: none;
+}
+
+@keyframes engine-boot-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Tracking-in effect via transform only: scaleX condenses toward the final
+   width without ever changing layout, so the line can never wrap mid-reveal. */
+@keyframes engine-boot-title-in {
+  0% {
+    opacity: 0;
+    transform: scaleX(1.18);
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+@keyframes engine-boot-rule-in {
+  from {
+    opacity: 0;
+    transform: scaleX(0);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+/* Signature-cyan breathing on the wordmark while the engine initializes. */
+@keyframes engine-boot-title-hum {
+  0%, 100% { text-shadow: 0 0 6px rgba(0, 229, 255, 0.55); }
+  50% { text-shadow: 0 0 14px rgba(0, 229, 255, 0.95); }
+}
+
+@keyframes engine-boot-scan {
+  0% { transform: translateY(0); opacity: 0; }
+  8% { opacity: 1; }
+  92% { opacity: 1; }
+  100% { transform: translateY(100vh); opacity: 0; }
+}
+
+@keyframes engine-boot-shape-pulse {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  18% {
+    opacity: 1;
+    transform: scale(1.22);
+  }
+  36% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+}
+
+@keyframes engine-boot-shape-lock {
+  0% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(1.18);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes engine-boot-ready-pulse {
+  0% {
+    opacity: 0;
+    transform: scale(0.96);
+    text-shadow: 0 0 0 rgba(0, 229, 255, 0);
+  }
+  48% {
+    opacity: 1;
+    transform: scale(1.045);
+    text-shadow: 0 0 18px rgba(0, 229, 255, 0.85);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    text-shadow: 0 0 8px rgba(0, 229, 255, 0.6);
+  }
+}
+
+@keyframes engine-boot-ready-wake {
+  0% { transform: scale(1); }
+  45% {
+    transform: scale(1.018);
+    text-shadow: 0 0 18px rgba(0, 229, 255, 0.9);
+  }
+  100% {
+    transform: scale(1);
+    text-shadow: 0 0 6px rgba(0, 229, 255, 0.55);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .engine-boot-screen__brand,
+  .engine-boot-screen__title,
+  .engine-boot-screen__version,
+  .engine-boot-screen__rule,
+  .engine-boot-screen__status,
+  .engine-boot-screen__shapes,
+  .engine-boot-screen__shape,
+  .engine-boot-screen__scanline {
+    animation: none;
+  }
+
+  .engine-boot-screen__shape {
+    opacity: 1;
+  }
+
+  .engine-boot-screen__scanline {
+    opacity: 0;
+  }
+
+  .engine-boot-screen {
+    animation: none;
+    transition: none;
+  }
+}
+
 /* Title screen chrome (DOM overlay over procedural attract canvas) */
 .title-screen {
   position: fixed;

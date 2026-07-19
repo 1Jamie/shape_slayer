@@ -420,8 +420,12 @@ const Game = {
     init() {
         console.log('Initializing Shape Slayer...');
 
-        // Get canvas and context
-        this.canvas = document.getElementById('gameCanvas');
+        // Prefer canvas/context published by Engine.Boot; fall back to DOM lookup.
+        const bootRuntime = (typeof Engine !== 'undefined' && Engine.Boot && Engine.Boot.runtime)
+            ? Engine.Boot.runtime
+            : null;
+        this.canvas = (bootRuntime && bootRuntime.canvas)
+            || document.getElementById('gameCanvas');
         if (!this.canvas) {
             console.error('Canvas element not found!');
             return;
@@ -430,7 +434,7 @@ const Game = {
         // Prevent text selection and right-click context menu on canvas
         this.canvas.style.userSelect = 'none';
 
-        this.ctx = this.canvas.getContext('2d');
+        this.ctx = (bootRuntime && bootRuntime.ctx) || this.canvas.getContext('2d');
 
         // Set internal canvas dimensions (game resolution)
         this.canvas.width = this.config.width;
@@ -9058,7 +9062,7 @@ if (typeof window !== 'undefined') {
     window.drawLostPs2EasterEgg = drawLostPs2EasterEgg;
 }
 
-// Start the game when page loads
+// Start the game when page loads — only after Engine.Boot completes.
 if (typeof window !== 'undefined' && window.addEventListener) {
     window.addEventListener('load', () => {
         const game = Game;
@@ -9125,37 +9129,65 @@ if (typeof window !== 'undefined' && window.addEventListener) {
             }
         };
 
-        window.engine = new Engine.Core({
-            onInit: () => game.setup(),
-            onUpdate: (dt) => game.tick(dt),
-            onRender: (ctx, alpha) => game.draw(ctx, alpha),
-            preferBackgroundTimeout: () => !!(
-                game.multiplayerEnabled &&
-                typeof multiplayerManager !== 'undefined' &&
-                multiplayerManager &&
-                multiplayerManager.lobbyCode
-            ),
-            onQualityChange: (tier, frameBudget) => {
-                game.renderQuality = game.getRenderQualityForTier(tier);
-                game.debugFrameBudget = frameBudget;
-            },
-            onHitPauseTick: (dt) => {
-                if (typeof updateVoxelParticles === 'function') {
-                    updateVoxelParticles(dt);
-                }
-                if (typeof game.updateScreenShake === 'function') {
-                    game.updateScreenShake(dt);
-                }
-                if (typeof updateDamageNumbers === 'function') {
-                    updateDamageNumbers(dt);
-                }
-            },
-            onFrameEnd: (metrics) => game.onFrameEnd(metrics),
-            onVisibilityChange: (isHidden) => game.handleVisibilityChange(isHidden)
-        });
+        const startCore = () => {
+            window.engine = new Engine.Core({
+                onInit: () => game.setup(),
+                onUpdate: (dt) => game.tick(dt),
+                onRender: (ctx, alpha) => game.draw(ctx, alpha),
+                preferBackgroundTimeout: () => !!(
+                    game.multiplayerEnabled &&
+                    typeof multiplayerManager !== 'undefined' &&
+                    multiplayerManager &&
+                    multiplayerManager.lobbyCode
+                ),
+                onQualityChange: (tier, frameBudget) => {
+                    game.renderQuality = game.getRenderQualityForTier(tier);
+                    game.debugFrameBudget = frameBudget;
+                },
+                onHitPauseTick: (dt) => {
+                    if (typeof updateVoxelParticles === 'function') {
+                        updateVoxelParticles(dt);
+                    }
+                    if (typeof game.updateScreenShake === 'function') {
+                        game.updateScreenShake(dt);
+                    }
+                    if (typeof updateDamageNumbers === 'function') {
+                        updateDamageNumbers(dt);
+                    }
+                },
+                onFrameEnd: (metrics) => game.onFrameEnd(metrics),
+                onVisibilityChange: (isHidden) => game.handleVisibilityChange(isHidden)
+            });
 
-        window.Game = game;
-        window.engine.start();
+            window.Game = game;
+            window.engine.start();
+        };
+
+        const bootOptions = {
+            canvasId: 'gameCanvas',
+            logicalW: game.config.width,
+            logicalH: game.config.height || 720
+        };
+
+        const bootPromise = (typeof Engine !== 'undefined' && Engine.Boot && typeof Engine.Boot.start === 'function')
+            ? Engine.Boot.start(bootOptions)
+            : Promise.resolve(null);
+
+        Promise.resolve(bootPromise).then((runtime) => {
+            if (runtime && runtime.ok === false) {
+                console.error('Engine boot failed; game start blocked.', runtime);
+                return;
+            }
+            // The boot cover is still up. Start the game beneath it, then
+            // report ready so the engine can run the final reveal on a
+            // fully-initialized frame.
+            startCore();
+            if (typeof Engine !== 'undefined' && Engine.Boot && typeof Engine.Boot.handoff === 'function') {
+                Engine.Boot.handoff();
+            }
+        }).catch((error) => {
+            console.error('Engine boot failed; game start blocked.', error);
+        });
     });
 }
 
