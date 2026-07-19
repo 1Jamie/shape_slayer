@@ -2710,6 +2710,20 @@ class PlayerBase {
         return oldGear;
     }
 
+    // Strip run gear (weapon/armor/accessory) and refresh stats/visuals.
+    // Used when abandoning a run or returning to the Nexus between runs.
+    clearEquippedGear() {
+        this.weapon = null;
+        this.armor = null;
+        this.accessory = null;
+        if (typeof this.updateEffectiveStats === 'function') {
+            this.updateEffectiveStats();
+        }
+        if (typeof this.updateGearVisuals === 'function') {
+            this.updateGearVisuals();
+        }
+    }
+
     // Apply pull force from boss/environmental hazard into the shared impulse vector
     applyPullForce(sourceX, sourceY, strength, radius) {
         const dx = sourceX - this.x;

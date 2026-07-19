@@ -37,6 +37,15 @@ const GearTooltipUI = {
         }
     },
 
+    hide() {
+        if (this.element) {
+            this.element.style.display = 'none';
+        }
+        this.isVisible = false;
+        this._tipSeatId = null;
+        this._tipPlayer = null;
+    },
+
     update() {
         if (!this.element) this.init();
 
@@ -44,6 +53,18 @@ const GearTooltipUI = {
         // Use LootSelection to get current state
         if (typeof LootSelection === 'undefined') {
             // console.warn('[GearTooltipUI] LootSelection is undefined');
+            return;
+        }
+
+        // Ground-loot tooltips only belong in an active run. Without this, the
+        // DOM node can stick after death/return because NEXUS never calls update.
+        if (typeof Game !== 'undefined' && Game.state !== 'PLAYING') {
+            if (this.isVisible) this.hide();
+            return;
+        }
+
+        if (typeof Game !== 'undefined' && Game.player && !Game.player.alive) {
+            if (this.isVisible) this.hide();
             return;
         }
 
@@ -89,8 +110,7 @@ const GearTooltipUI = {
 
         if (!selectedGear) {
             if (this.isVisible) {
-                this.element.style.display = 'none';
-                this.isVisible = false;
+                this.hide();
                 console.log('[GearTooltipUI] Hiding tooltip (no gear selected)');
             }
             return;

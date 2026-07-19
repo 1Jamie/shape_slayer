@@ -3952,6 +3952,7 @@ const Game = {
 
                 // Credit rewards immediately on game over screen
                 this.creditRewards();
+                this.hideGroundLootUi();
             }
 
             console.log(`[Host] Remote player ${playerId} died!`);
@@ -5369,6 +5370,7 @@ const Game = {
         if (typeof groundLoot !== 'undefined') {
             groundLoot.length = 0;
         }
+        this.hideGroundLootUi();
         this.cleanupRunState();
 
         if (typeof initNexus !== 'undefined') {
@@ -7537,6 +7539,40 @@ const Game = {
         }
     },
 
+    // Clear equipped run gear from local (and local-coop) players.
+    // Checkpoint exit must NOT call this — resume keeps gear.
+    clearRunEquippedGear() {
+        const clearOne = (player) => {
+            if (player && typeof player.clearEquippedGear === 'function') {
+                player.clearEquippedGear();
+            }
+        };
+
+        clearOne(this.player);
+
+        if (this.localSplitEnabled && this.remotePlayerInstances) {
+            const p2 = this.remotePlayerInstances.get(this.localSplitPlayerId);
+            clearOne(p2);
+        }
+
+        // Host MP remote sims also drop run gear between runs
+        if (this.multiplayerEnabled && this.isHost && this.isHost() && this.remotePlayerInstances) {
+            this.remotePlayerInstances.forEach((playerInstance, playerId) => {
+                if (playerId === this.localSplitPlayerId) return;
+                clearOne(playerInstance);
+            });
+        }
+    },
+
+    hideGroundLootUi() {
+        if (typeof LootSelection !== 'undefined' && typeof LootSelection.reset === 'function') {
+            LootSelection.reset();
+        }
+        if (typeof GearTooltipUI !== 'undefined' && typeof GearTooltipUI.hide === 'function') {
+            GearTooltipUI.hide();
+        }
+    },
+
     // Credit rewards immediately on game over / death
     creditRewards() {
         if (this.rewardsCredited) return;
@@ -7836,6 +7872,9 @@ const Game = {
         if (typeof groundLoot !== 'undefined') {
             groundLoot.length = 0;
         }
+
+        this.hideGroundLootUi();
+        this.clearRunEquippedGear();
 
         this.cleanupRunState();
 
@@ -8154,6 +8193,11 @@ const Game = {
             this.player.alive = true;
             this.player.playerId = this.getLocalPlayerId();
         }
+
+        // New runs never inherit previous-run gear (returnToNexus also clears;
+        // this is a safety net if startGame is reached another way).
+        this.clearRunEquippedGear();
+        this.hideGroundLootUi();
 
         // Reset tracking before the first room is generated and telemetry starts.
         this.enemiesKilled = 0;
