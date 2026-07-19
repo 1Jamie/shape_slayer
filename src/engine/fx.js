@@ -156,10 +156,438 @@
         return true;
     }
 
+    function normalizeSegment(segment) {
+        if (!segment) return null;
+        const a = segment.a || { x: segment.x1, y: segment.y1 };
+        const b = segment.b || { x: segment.x2, y: segment.y2 };
+        if (![a.x, a.y, b.x, b.y].every(Number.isFinite)) return null;
+        return {
+            a: { x: a.x, y: a.y },
+            b: { x: b.x, y: b.y }
+        };
+    }
+
+    function normalizeBounds(bounds = {}) {
+        const left = Number.isFinite(bounds.left) ? bounds.left : Number(bounds.x) || 0;
+        const top = Number.isFinite(bounds.top) ? bounds.top : Number(bounds.y) || 0;
+        const right = Number.isFinite(bounds.right)
+            ? bounds.right
+            : left + Math.max(0, Number(bounds.width) || 0);
+        const bottom = Number.isFinite(bounds.bottom)
+            ? bounds.bottom
+            : top + Math.max(0, Number(bounds.height) || 0);
+        return { left, top, right, bottom, width: right - left, height: bottom - top };
+    }
+
+    function segmentTouchesBounds(segment, bounds) {
+        const minX = Math.min(segment.a.x, segment.b.x);
+        const maxX = Math.max(segment.a.x, segment.b.x);
+        const minY = Math.min(segment.a.y, segment.b.y);
+        const maxY = Math.max(segment.a.y, segment.b.y);
+        return maxX >= bounds.left && minX <= bounds.right
+            && maxY >= bounds.top && minY <= bounds.bottom;
+    }
+
+    function cross(ax, ay, bx, by) {
+        return ax * by - ay * bx;
+    }
+
+    function castRay(originX, originY, angle, radius, segments) {
+        const dx = Math.cos(angle);
+        const dy = Math.sin(angle);
+        let nearest = radius;
+        for (const segment of segments) {
+            const sx = segment.b.x - segment.a.x;
+            const sy = segment.b.y - segment.a.y;
+            const denominator = cross(dx, dy, sx, sy);
+            if (Math.abs(denominator) < 1e-9) continue;
+            const qx = segment.a.x - originX;
+            const qy = segment.a.y - originY;
+            const distance = cross(qx, qy, sx, sy) / denominator;
+            const along = cross(qx, qy, dx, dy) / denominator;
+            if (distance >= 0 && distance <= nearest && along >= 0 && along <= 1) nearest = distance;
+        }
+        return {
+            x: originX + dx * nearest,
+            y: originY + dy * nearest,
+            angle
+        };
+    }
+
+    class ShadowCaster {
+        constructor(options = {}) {
+            this.maxLights = Math.max(0, Math.floor(options.maxLights ?? 16));
+            this.maxRays = Math.max(3, Math.floor(options.maxRays ?? 128));
+            this.occluders = [];
+            this.visibleOccluders = [];
+            this.viewBounds = null;
+            this.activeContext = null;
+            this.lightCount = 0;
+        }
+
+        setOccluders(segments) {
+            this.occluders = Array.from(segments || [], normalizeSegment).filter(Boolean);
+            return this;
+        }
+
+        begin(ctx, viewBounds) {
+            if (!ctx || typeof ctx.save !== 'function') throw new TypeError('A Canvas2D context is required.');
+            this.viewBounds = normalizeBounds(viewBounds);
+            const bounds = this.viewBounds;
+            const corners = [
+                { x: bounds.left, y: bounds.top },
+                { x: bounds.right, y: bounds.top },
+                { x: bounds.right, y: bounds.bottom },
+                { x: bounds.left, y: bounds.bottom }
+            ];
+            this.visibleOccluders = this.occluders.filter(segment => segmentTouchesBounds(segment, bounds));
+            for (let index = 0; index < corners.length; index++) {
+                this.visibleOccluders.push({
+                    a: corners[index],
+                    b: corners[(index + 1) % corners.length]
+                });
+            }
+            this.lightCount = 0;
+            this.activeContext = ctx;
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            return this;
+        }
+
+        drawLight(ctx, x, y, radius, color = '#ffffff') {
+            if (!this.viewBounds || this.activeContext !== ctx) {
+                throw new Error('ShadowCaster.begin must be called before drawLight.');
+            }
+            if (this.lightCount >= this.maxLights || radius <= 0) return false;
+            const bounds = this.viewBounds;
+            if (x + radius < bounds.left || x - radius > bounds.right
+                || y + radius < bounds.top || y - radius > bounds.bottom) return false;
+
+            const nearby = this.visibleOccluders.filter(segment => {
+                const minX = Math.min(segment.a.x, segment.b.x);
+                const maxX = Math.max(segment.a.x, segment.b.x);
+                const minY = Math.min(segment.a.y, segment.b.y);
+                const maxY = Math.max(segment.a.y, segment.b.y);
+                return maxX >= x - radius && minX <= x + radius
+                    && maxY >= y - radius && minY <= y + radius;
+            });
+            const epsilon = 0.00001;
+            let angles = [];
+            const baseRayCount = Math.min(this.maxRays, 24);
+            for (let index = 0; index < baseRayCount; index++) {
+                angles.push(index * Math.PI * 2 / baseRayCount);
+            }
+            for (const segment of nearby) {
+                for (const point of [segment.a, segment.b]) {
+                    const angle = Math.atan2(point.y - y, point.x - x);
+                    angles.push(angle - epsilon, angle, angle + epsilon);
+                }
+            }
+            if (!angles.length) {
+                const steps = Math.min(this.maxRays, 32);
+                for (let index = 0; index < steps; index++) angles.push(index * Math.PI * 2 / steps);
+            }
+            angles.sort((a, b) => a - b);
+            if (angles.length > this.maxRays) {
+                const reduced = [];
+                const stride = angles.length / this.maxRays;
+                for (let index = 0; index < this.maxRays; index++) {
+                    reduced.push(angles[Math.floor(index * stride)]);
+                }
+                angles = reduced;
+            }
+            const points = angles.map(angle => castRay(x, y, angle, radius, nearby));
+            if (points.length < 3) return false;
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(points[0].x, points[0].y);
+            for (let index = 1; index < points.length; index++) ctx.lineTo(points[index].x, points[index].y);
+            ctx.closePath();
+            ctx.clip();
+            const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+            gradient.addColorStop(0, color);
+            gradient.addColorStop(1, 'transparent');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+            ctx.restore();
+            this.lightCount++;
+            return true;
+        }
+
+        end(ctx) {
+            if (!this.activeContext) return false;
+            const target = ctx || this.activeContext;
+            if (target !== this.activeContext) throw new Error('ShadowCaster.end context must match begin.');
+            target.restore();
+            this.activeContext = null;
+            this.viewBounds = null;
+            this.visibleOccluders = [];
+            return true;
+        }
+    }
+
+    class ParticleSystem {
+        constructor(options = {}) {
+            this.particleCap = Math.max(0, Math.floor(options.particleCap ?? 1000));
+            this.count = 0;
+            this.gravityX = Number(options.gravityX) || 0;
+            this.gravityY = Number(options.gravityY) || 0;
+            this.x = new Float32Array(this.particleCap);
+            this.y = new Float32Array(this.particleCap);
+            this.vx = new Float32Array(this.particleCap);
+            this.vy = new Float32Array(this.particleCap);
+            this.size = new Float32Array(this.particleCap);
+            this.life = new Float32Array(this.particleCap);
+            this.maxLife = new Float32Array(this.particleCap);
+            this.gravity = new Float32Array(this.particleCap);
+            this.drag = new Float32Array(this.particleCap);
+            this.bounce = new Float32Array(this.particleCap);
+            this.colors = new Array(this.particleCap);
+            this.circleColliders = [];
+            this.segmentColliders = [];
+        }
+
+        setParticleCap(cap) {
+            const nextCap = Math.max(0, Math.floor(cap));
+            if (nextCap === this.particleCap) return this;
+            const nextCount = Math.min(this.count, nextCap);
+            for (const name of [
+                'x', 'y', 'vx', 'vy', 'size', 'life',
+                'maxLife', 'gravity', 'drag', 'bounce'
+            ]) {
+                const values = new Float32Array(nextCap);
+                values.set(this[name].subarray(0, nextCount));
+                this[name] = values;
+            }
+            const colors = new Array(nextCap);
+            for (let index = 0; index < nextCount; index++) colors[index] = this.colors[index];
+            this.colors = colors;
+            this.particleCap = nextCap;
+            this.count = nextCount;
+            return this;
+        }
+
+        spawn(options = {}) {
+            if (this.count >= this.particleCap) return -1;
+            const index = this.count++;
+            const life = Math.max(0.0001, Number(options.life) || 1);
+            this.x[index] = Number(options.x) || 0;
+            this.y[index] = Number(options.y) || 0;
+            this.vx[index] = Number(options.vx) || 0;
+            this.vy[index] = Number(options.vy) || 0;
+            this.size[index] = Math.max(0, Number(options.size) || 1);
+            this.life[index] = life;
+            this.maxLife[index] = life;
+            this.gravity[index] = Number(options.gravity) || 0;
+            this.drag[index] = Math.max(0, Number(options.drag) || 0);
+            this.bounce[index] = Math.max(0, Math.min(1, Number(options.bounce) || 0));
+            this.colors[index] = options.color || '#ffffff';
+            return index;
+        }
+
+        setColliders(colliders = {}) {
+            this.circleColliders = Array.from(colliders.circles || []).filter(collider => {
+                return collider && Number.isFinite(collider.x) && Number.isFinite(collider.y)
+                    && Number.isFinite(collider.radius);
+            });
+            this.segmentColliders = Array.from(colliders.segments || [], normalizeSegment).filter(Boolean);
+            return this;
+        }
+
+        addCircleCollider(collider) {
+            return this.setColliders({
+                circles: this.circleColliders.concat(collider),
+                segments: this.segmentColliders
+            });
+        }
+
+        addSegmentCollider(segment) {
+            return this.setColliders({
+                circles: this.circleColliders,
+                segments: this.segmentColliders.concat(segment)
+            });
+        }
+
+        _reflect(index, nx, ny) {
+            const projection = this.vx[index] * nx + this.vy[index] * ny;
+            if (projection >= 0) return;
+            const scale = (1 + this.bounce[index]) * projection;
+            this.vx[index] -= scale * nx;
+            this.vy[index] -= scale * ny;
+        }
+
+        _collide(index) {
+            const radius = this.size[index];
+            for (const collider of this.circleColliders) {
+                const dx = this.x[index] - collider.x;
+                const dy = this.y[index] - collider.y;
+                const minimum = radius + Math.max(0, collider.radius);
+                const distanceSquared = dx * dx + dy * dy;
+                if (distanceSquared >= minimum * minimum) continue;
+                const distance = Math.sqrt(distanceSquared) || 1;
+                const nx = distanceSquared > 0 ? dx / distance : 1;
+                const ny = distanceSquared > 0 ? dy / distance : 0;
+                this.x[index] = collider.x + nx * minimum;
+                this.y[index] = collider.y + ny * minimum;
+                this._reflect(index, nx, ny);
+            }
+            for (const segment of this.segmentColliders) {
+                const sx = segment.b.x - segment.a.x;
+                const sy = segment.b.y - segment.a.y;
+                const lengthSquared = sx * sx + sy * sy;
+                if (lengthSquared <= 1e-12) continue;
+                const amount = Math.max(0, Math.min(1,
+                    ((this.x[index] - segment.a.x) * sx + (this.y[index] - segment.a.y) * sy)
+                    / lengthSquared
+                ));
+                const closestX = segment.a.x + sx * amount;
+                const closestY = segment.a.y + sy * amount;
+                let dx = this.x[index] - closestX;
+                let dy = this.y[index] - closestY;
+                const distanceSquared = dx * dx + dy * dy;
+                if (distanceSquared >= radius * radius) continue;
+                const distance = Math.sqrt(distanceSquared);
+                if (distance > 1e-6) {
+                    dx /= distance;
+                    dy /= distance;
+                } else {
+                    const inverseLength = 1 / Math.sqrt(lengthSquared);
+                    dx = -sy * inverseLength;
+                    dy = sx * inverseLength;
+                    if (this.vx[index] * dx + this.vy[index] * dy > 0) {
+                        dx = -dx;
+                        dy = -dy;
+                    }
+                }
+                this.x[index] = closestX + dx * radius;
+                this.y[index] = closestY + dy * radius;
+                this._reflect(index, dx, dy);
+            }
+        }
+
+        _remove(index) {
+            const last = --this.count;
+            if (index === last) {
+                this.colors[last] = undefined;
+                return;
+            }
+            for (const field of [
+                this.x, this.y, this.vx, this.vy, this.size, this.life,
+                this.maxLife, this.gravity, this.drag, this.bounce
+            ]) {
+                field[index] = field[last];
+            }
+            this.colors[index] = this.colors[last];
+            this.colors[last] = undefined;
+        }
+
+        update(deltaTime) {
+            const dt = Math.max(0, Number(deltaTime) || 0);
+            for (let index = this.count - 1; index >= 0; index--) {
+                this.life[index] -= dt;
+                if (this.life[index] <= 0) {
+                    this._remove(index);
+                    continue;
+                }
+                this.vx[index] += this.gravityX * dt;
+                this.vy[index] += (this.gravityY + this.gravity[index]) * dt;
+                const damping = Math.max(0, 1 - this.drag[index] * dt);
+                this.vx[index] *= damping;
+                this.vy[index] *= damping;
+                this.x[index] += this.vx[index] * dt;
+                this.y[index] += this.vy[index] * dt;
+                this._collide(index);
+            }
+            return this.count;
+        }
+
+        render(ctx, viewBounds) {
+            const bounds = viewBounds ? normalizeBounds(viewBounds) : null;
+            ctx.save();
+            for (let index = 0; index < this.count; index++) {
+                const radius = this.size[index];
+                if (bounds && (this.x[index] + radius < bounds.left
+                    || this.x[index] - radius > bounds.right
+                    || this.y[index] + radius < bounds.top
+                    || this.y[index] - radius > bounds.bottom)) continue;
+                ctx.globalAlpha = Math.max(0, this.life[index] / this.maxLife[index]);
+                ctx.fillStyle = this.colors[index];
+                ctx.beginPath();
+                ctx.arc(this.x[index], this.y[index], radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.restore();
+            return this.count;
+        }
+
+        clear() {
+            this.count = 0;
+            this.colors.fill(undefined);
+        }
+
+        toArray() {
+            const result = [];
+            for (let index = 0; index < this.count; index++) {
+                result.push({
+                    x: this.x[index],
+                    y: this.y[index],
+                    vx: this.vx[index],
+                    vy: this.vy[index],
+                    color: this.colors[index],
+                    size: this.size[index],
+                    life: this.life[index],
+                    maxLife: this.maxLife[index]
+                });
+            }
+            return result;
+        }
+    }
+
+    function burst(systemOrOptions, maybeOptions) {
+        const system = systemOrOptions instanceof ParticleSystem ? systemOrOptions : FX.Particles;
+        const options = systemOrOptions instanceof ParticleSystem ? (maybeOptions || {}) : (systemOrOptions || {});
+        const count = Math.max(0, Math.floor(options.count ?? 12));
+        const baseAngle = Number(options.angle) || 0;
+        const spread = Number.isFinite(options.spread) ? options.spread : Math.PI * 2;
+        const random = options.rng && typeof options.rng.next === 'function'
+            ? () => options.rng.next()
+            : (typeof options.rng === 'function' ? options.rng : Math.random);
+        const range = (value, fallback) => {
+            if (Array.isArray(value)) return value[0] + (value[1] - value[0]) * random();
+            return Number.isFinite(value) ? value : fallback;
+        };
+        let spawned = 0;
+        for (let index = 0; index < count; index++) {
+            const angle = baseAngle + (random() - 0.5) * spread;
+            const speed = range(options.speed, 100);
+            const colors = Array.isArray(options.color) ? options.color : null;
+            const result = system.spawn({
+                x: options.x,
+                y: options.y,
+                vx: Math.cos(angle) * speed + (Number(options.vx) || 0),
+                vy: Math.sin(angle) * speed + (Number(options.vy) || 0),
+                color: colors ? colors[Math.floor(random() * colors.length)] : options.color,
+                size: range(options.size, 2),
+                life: range(options.life, 0.5),
+                gravity: options.gravity,
+                drag: options.drag,
+                bounce: options.bounce
+            });
+            if (result < 0) break;
+            spawned++;
+        }
+        return spawned;
+    }
+
     FX.LightMask = new LightMaskBuffer();
     FX.LightMask.create = options => new LightMaskBuffer(options);
     FX.Post = FX.Post || {};
     FX.Post.chromaticAberration = chromaticAberration;
+    FX.ShadowCaster = ShadowCaster;
+    FX.ParticleSystem = ParticleSystem;
+    FX.Particles = FX.Particles || new ParticleSystem({ particleCap: 2000, gravityY: 200 });
+    FX.burst = burst;
 
     if (typeof module !== 'undefined' && module.exports) {
         module.exports = FX;

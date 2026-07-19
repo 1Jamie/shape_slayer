@@ -99,7 +99,7 @@ When a client joins through the wrong worker, that worker returns:
 
 The browser reconnects to `data.url` and retries the join. Redirect depth is
 connection-scoped and capped by `MAX_REDIRECT_HOPS` in
-`src/js/mp-config.js` (default: `2`); it is not stored on `window`.
+`src/game/networking/mp-config.js` (default: `2`); it is not stored on `window`.
 
 `PUBLIC_HOST` must be a hostname or address clients can reach. For TLS
 deployments set `PUBLIC_WS_SCHEME=wss` and arrange TLS termination/routing for

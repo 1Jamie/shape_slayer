@@ -9,56 +9,6 @@ Engine.FX.ShakeBias = Engine.FX.ShakeBias || Object.freeze({
     HORIZONTAL: 'horizontal'
 });
 
-class Particle {
-    constructor(x, y, vx, vy, color, size, life) {
-        this.x = x;
-        this.y = y;
-        this.vx = vx;
-        this.vy = vy;
-        this.color = color;
-        this.size = size;
-        this.life = life;
-        this.maxLife = life;
-        this.alpha = 1.0;
-    }
-
-    update(deltaTime) {
-        this.x += this.vx * deltaTime;
-        this.y += this.vy * deltaTime;
-        this.life -= deltaTime;
-        this.alpha = this.life / this.maxLife;
-
-        // Apply constant gravity downward
-        this.vy += 200 * deltaTime;
-
-        return this.life > 0;
-    }
-
-    render(ctx) {
-        ctx.save();
-        ctx.globalAlpha = this.alpha;
-        ctx.fillStyle = this.color;
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-    }
-}
-
-// Particle pool limit configuration
-const MAX_POOL_SIZE = 200;
-const particlePool = [];
-
-function getParticle() {
-    return particlePool.length > 0 ? particlePool.pop() : null;
-}
-
-function releaseParticle(p) {
-    if (particlePool.length < MAX_POOL_SIZE) {
-        particlePool.push(p);
-    }
-}
-
 const Renderer = {
     // Screen shake accumulator state
     screenShakeOffset: { x: 0, y: 0 },
@@ -66,8 +16,15 @@ const Renderer = {
     screenShakeDuration: 0,
     screenShakeDirection: null,
 
-    // Particles system
-    particles: [],
+    // Compatibility facade over the typed SoA effect store.
+    get particles() {
+        return Engine.FX.Particles.toArray();
+    },
+
+    set particles(values) {
+        Engine.FX.Particles.clear();
+        for (const value of values || []) Engine.FX.Particles.spawn(value);
+    },
 
     // Clear canvas host
     clear(ctx, width, height, color = '#1a1a2e') {
@@ -156,40 +113,18 @@ const Renderer = {
 
     // Flat Particle submission pipeline
     submitParticle(x, y, vx, vy, color, size, life) {
-        let p = getParticle();
-        if (p) {
-            p.x = x;
-            p.y = y;
-            p.vx = vx;
-            p.vy = vy;
-            p.color = color;
-            p.size = size;
-            p.life = life;
-            p.maxLife = life;
-            p.alpha = 1.0;
-        } else {
-            p = new Particle(x, y, vx, vy, color, size, life);
-        }
-        this.particles.push(p);
+        return Engine.FX.Particles.spawn({ x, y, vx, vy, color, size, life });
     },
 
     updateParticles(deltaTime) {
-        this.particles = this.particles.filter(p => {
-            const alive = p.update(deltaTime);
-            if (!alive) {
-                releaseParticle(p);
-            }
-            return alive;
-        });
+        return Engine.FX.Particles.update(deltaTime);
     },
 
     renderParticles(ctx, viewX, viewY, viewW, viewH) {
-        const useCulling = viewX !== undefined;
-        this.particles.forEach(p => {
-            if (!useCulling || (p.x >= viewX && p.x <= viewX + viewW && p.y >= viewY && p.y <= viewY + viewH)) {
-                p.render(ctx);
-            }
-        });
+        const viewBounds = viewX === undefined
+            ? null
+            : { x: viewX, y: viewY, width: viewW, height: viewH };
+        return Engine.FX.Particles.render(ctx, viewBounds);
     }
 };
 
@@ -203,5 +138,5 @@ if (typeof window !== 'undefined') {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { Engine, Particle };
+    module.exports = { Engine, Particle: Engine.FX.ParticleSystem };
 }

@@ -1,19 +1,27 @@
+function getParticleSystem() {
+    if (typeof Engine !== 'undefined' && Engine.FX && Engine.FX.Particles) return Engine.FX.Particles;
+    return null;
+}
+
 // Create burst of particles at position
 function createParticleBurst(x, y, color, count = 10) {
-    if (typeof Engine === 'undefined' || !Engine.Renderer) return;
-
-    for (let i = 0; i < count; i++) {
-        const angle = (Math.PI * 2 / count) * i + Math.random() * 0.5;
-        const speed = 100 + Math.random() * 100;
-        const vx = Math.cos(angle) * speed;
-        const vy = Math.sin(angle) * speed;
-
-        Engine.Renderer.submitParticle(x, y, vx, vy, color, 3 + Math.random() * 3, 0.5);
-    }
+    const particles = getParticleSystem();
+    if (!particles || !Engine.FX || typeof Engine.FX.burst !== 'function') return;
+    Engine.FX.burst(particles, {
+        x,
+        y,
+        count,
+        color,
+        speed: [100, 200],
+        size: [3, 6],
+        life: 0.5,
+        spread: Math.PI * 2
+    });
 }
 
 function createDirectionalParticleBurst(x, y, dirX, dirY, color, options = {}) {
-    if (typeof Engine === 'undefined' || !Engine.Renderer) return;
+    const particles = getParticleSystem();
+    if (!particles || !Engine.FX || typeof Engine.FX.burst !== 'function') return;
 
     const count = options.count || 12;
     const spread = options.spread !== undefined ? options.spread : Math.PI / 5;
@@ -25,28 +33,19 @@ function createDirectionalParticleBurst(x, y, dirX, dirY, color, options = {}) {
     const normX = magnitude > 0.0001 ? dirX / magnitude : 1;
     const normY = magnitude > 0.0001 ? dirY / magnitude : 0;
     const baseAngle = Math.atan2(normY, normX);
-
     const safeColor = color || '#ffffff';
 
-    for (let i = 0; i < count; i++) {
-        const offset = (Math.random() - 0.5) * spread * 2;
-        const speedScale = 0.6 + Math.random() * 0.6;
-        const angle = baseAngle + offset;
-        const speed = baseSpeed * speedScale;
-        const vx = Math.cos(angle) * speed;
-        const vy = Math.sin(angle) * speed;
-
-        const particleSize = baseSize + Math.random() * (options.sizeVariance || 2);
-        const particleLife = life * (0.8 + Math.random() * 0.4);
-
-        // Slight perpendicular drift for ribbon effect
-        const perpX = -normY;
-        const perpY = normX;
-        const finalVx = vx + perpX * baseSpeed * 0.15 * (Math.random() - 0.5);
-        const finalVy = vy + perpY * baseSpeed * 0.15 * (Math.random() - 0.5);
-
-        Engine.Renderer.submitParticle(x, y, finalVx, finalVy, safeColor, particleSize, particleLife);
-    }
+    Engine.FX.burst(particles, {
+        x,
+        y,
+        count,
+        color: safeColor,
+        angle: baseAngle,
+        spread: spread * 2,
+        speed: [baseSpeed * 0.6, baseSpeed * 1.2],
+        size: [baseSize, baseSize + (options.sizeVariance || 2)],
+        life: [life * 0.8, life * 1.2]
+    });
 }
 
 // Create lightning arc visual effect between two points
@@ -205,8 +204,17 @@ function renderBurnEffect(ctx, enemy) {
         const py = enemy.y + Math.sin(angle) * offset;
         const vy = -50 - Math.random() * 30; // Rise upward
 
-        if (typeof Engine !== 'undefined' && Engine.Renderer) {
-            Engine.Renderer.submitParticle(px, py, 0, vy, '#ff6600', 2 + Math.random() * 2, 0.3);
+        const particles = getParticleSystem();
+        if (particles) {
+            particles.spawn({
+                x: px,
+                y: py,
+                vx: 0,
+                vy,
+                color: '#ff6600',
+                size: 2 + Math.random() * 2,
+                life: 0.3
+            });
         }
     }
 
@@ -259,31 +267,29 @@ function renderFreezeEffect(ctx, enemy) {
 
 // Update and render particles
 function updateParticles(deltaTime) {
-    if (typeof Engine !== 'undefined' && Engine.Renderer) {
-        Engine.Renderer.updateParticles(deltaTime);
-    }
+    const particles = getParticleSystem();
+    if (particles) particles.update(deltaTime);
 }
 
 function renderParticles(ctx) {
-    if (typeof Engine === 'undefined' || !Engine.Renderer || !Game) return;
+    if (!Game) return;
 
-    // Viewport Culling
-    let viewX = undefined, viewY = undefined, viewW = undefined, viewH = undefined;
-
+    let viewBounds = null;
     if (Game.camera && Game.config) {
         const zoom = (Game.getViewZoom && Game.getViewZoom()) || 1.0;
-        const padding = 100; // Margin for particles
-
+        const padding = 100;
         const screenW = Game.config.width / zoom;
         const screenH = Game.config.height / zoom;
-
-        viewX = Game.camera.x - screenW / 2 - padding;
-        viewY = Game.camera.y - screenH / 2 - padding;
-        viewW = screenW + padding * 2;
-        viewH = screenH + padding * 2;
+        viewBounds = {
+            x: Game.camera.x - screenW / 2 - padding,
+            y: Game.camera.y - screenH / 2 - padding,
+            width: screenW + padding * 2,
+            height: screenH + padding * 2
+        };
     }
 
-    Engine.Renderer.renderParticles(ctx, viewX, viewY, viewW, viewH);
+    const particles = getParticleSystem();
+    if (particles) particles.render(ctx, viewBounds);
 }
 
 // Biome definitions for different room ranges
@@ -355,18 +361,14 @@ function getBiomeForRoom(roomNumber) {
     return RENDER_FALLBACK_BIOMES.endless;
 }
 
-// Pattern cache to avoid recreating patterns every frame
-const patternCache = new Map();
-
 // Helper to get or create a cached pattern for a biome
 function getBiomeGridPattern(ctx, biome, isMask, isParallax) {
     const cacheKey = `${biome.pattern}_${biome.gridColor}_${biome.accentColor}_${isMask}_${isParallax}`;
+    return Engine.Graphics.PatternCache.get(ctx, cacheKey, () => buildBiomeGridPatternTile(biome, isMask, isParallax));
+}
 
-    if (patternCache.has(cacheKey)) {
-        return patternCache.get(cacheKey);
-    }
-
-    // Create offscreen canvas for the pattern tile
+function buildBiomeGridPatternTile(biome, isMask, isParallax) {
+    // Pattern tiles are retained by CanvasPattern; do not borrow from CanvasPool.
     const patternCanvas = document.createElement('canvas');
     const pCtx = patternCanvas.getContext('2d');
 
@@ -486,9 +488,7 @@ function getBiomeGridPattern(ctx, biome, isMask, isParallax) {
     }
 
     // Create pattern
-    const pattern = ctx.createPattern(patternCanvas, 'repeat');
-    patternCache.set(cacheKey, pattern);
-    return pattern;
+    return patternCanvas;
 }
 
 function drawBiomeGrid(ctx, roomNumber, isVignetteMask = false, forceNoCulling = false) {
@@ -603,6 +603,10 @@ function getRoomStaticCacheScale(room) {
 }
 
 function releaseRoomRenderCaches(room) {
+    if (room && room.renderCache && room.renderCache.staticLayer) {
+        try { room.renderCache.staticLayer.release(room.renderCache.key); } catch (e) {}
+    }
+
     if (!room || !room.renderCache) return;
     const cache = room.renderCache;
     if (cache.staticSceneCanvas) {
@@ -754,36 +758,38 @@ function bakeRoomStaticSceneCache(room, roomNumber) {
 
     const cacheKey = getRoomStaticCacheKey(room, roomNumber);
     const cacheScale = getRoomStaticCacheScale(room);
-    const canvasWidth = Math.max(1, Math.floor((room.width || 2400) * cacheScale));
-    const canvasHeight = Math.max(1, Math.floor((room.height || 1350) * cacheScale));
+    const logicalW = room.width || 2400;
+    const logicalH = room.height || 1350;
     const existing = room.renderCache;
-    if (existing && existing.key === cacheKey && existing.scale === cacheScale && existing.staticSceneCanvas && existing.staticSceneCanvas.width === canvasWidth && existing.staticSceneCanvas.height === canvasHeight) {
+    if (existing && existing.key === cacheKey && existing.scale === cacheScale && existing.staticLayer) {
         return existing;
     }
 
     releaseRoomRenderCaches(room);
 
-    const canvas = document.createElement('canvas');
-    canvas.width = canvasWidth;
-    canvas.height = canvasHeight;
-    const cacheCtx = canvas.getContext('2d');
-    cacheCtx.imageSmoothingEnabled = true;
-    cacheCtx.save();
-    cacheCtx.scale(cacheScale, cacheScale);
-    cacheCtx.clearRect(0, 0, room.width || 2400, room.height || 1350);
-    if (typeof drawBiomeGrid === 'function') drawBiomeGrid(cacheCtx, roomNumber || room.number || 1, false, true);
-    if (typeof renderRoomVisualMotifs === 'function') renderRoomVisualMotifs(cacheCtx, roomNumber || room.number || 1);
-    if (typeof renderRoomSemanticScenery === 'function') renderRoomSemanticScenery(cacheCtx, roomNumber || room.number || 1, { skipAmbientLife: true, skipDebrisInteractiveFixtures: true });
-    if (typeof renderRoomBoundaries === 'function') renderRoomBoundaries(cacheCtx, roomNumber || room.number || 1);
-    if (typeof renderRoomObstacles === 'function') renderRoomObstacles(cacheCtx, roomNumber || room.number || 1);
-    cacheCtx.restore();
+    const staticLayer = new Engine.Render.StaticLayer();
+    staticLayer.bake(cacheKey, {
+        logicalW,
+        logicalH,
+        dprCap: cacheScale,
+        draw: (cacheCtx) => {
+            cacheCtx.imageSmoothingEnabled = true;
+            cacheCtx.clearRect(0, 0, logicalW, logicalH);
+            if (typeof drawBiomeGrid === 'function') drawBiomeGrid(cacheCtx, roomNumber || room.number || 1, false, true);
+            if (typeof renderRoomVisualMotifs === 'function') renderRoomVisualMotifs(cacheCtx, roomNumber || room.number || 1);
+            if (typeof renderRoomSemanticScenery === 'function') renderRoomSemanticScenery(cacheCtx, roomNumber || room.number || 1, { skipAmbientLife: true, skipDebrisInteractiveFixtures: true });
+            if (typeof renderRoomBoundaries === 'function') renderRoomBoundaries(cacheCtx, roomNumber || room.number || 1);
+            if (typeof renderRoomObstacles === 'function') renderRoomObstacles(cacheCtx, roomNumber || room.number || 1);
+        }
+    });
 
     room.renderCache = {
         key: cacheKey,
         scale: cacheScale,
-        staticSceneCanvas: canvas,
-        width: room.width || 2400,
-        height: room.height || 1350
+        staticLayer,
+        staticSceneCanvas: null,
+        width: logicalW,
+        height: logicalH
     };
     return room.renderCache;
 }
@@ -798,12 +804,8 @@ function renderCachedRoomStaticLayer(ctx, roomNumber) {
     if (typeof currentRoom === 'undefined' || !currentRoom) return false;
     if (typeof DebugFlags !== 'undefined' && DebugFlags.USE_CACHING === false) return false;
     const cache = prepareRoomRenderCaches(currentRoom, roomNumber);
-    if (!cache || !cache.staticSceneCanvas) return false;
-    ctx.save();
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(cache.staticSceneCanvas, 0, 0, cache.width, cache.height);
-    ctx.restore();
-    return true;
+    if (!cache || !cache.staticLayer) return false;
+    return !!cache.staticLayer.draw(ctx, cache.key);
 }
 
 // Render room background with biome styling (should be called inside camera transform)

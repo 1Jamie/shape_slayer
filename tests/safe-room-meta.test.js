@@ -8,7 +8,7 @@ const fs = require('fs');
 const vm = require('vm');
 
 function loadSaveSystem() {
-    const code = fs.readFileSync(path.join(__dirname, '../src/js/save.js'), 'utf8');
+    const code = fs.readFileSync(path.join(__dirname, '../src/game/content/save.js'), 'utf8');
     const localStorage = {
         _data: {},
         getItem(k) { return this._data[k] ?? null; },
@@ -17,6 +17,7 @@ function loadSaveSystem() {
     };
     const sandbox = { console, localStorage, window: {}, Math, Object, Array, String, Number, Boolean, JSON };
     sandbox.window = sandbox;
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/engine/save.js'), 'utf8'), sandbox);
     vm.runInNewContext(code + '\nthis.SaveSystem = SaveSystem;', sandbox);
     return sandbox.SaveSystem;
 }
@@ -24,7 +25,7 @@ function loadSaveSystem() {
 function loadGearHelpers() {
     // Minimal stubs for gear.js rarity helpers - evaluate only the helpers via a trimmed environment
     // Re-implement critical bits for unit tests by requiring exported API if available.
-    const gearPath = path.join(__dirname, '../src/js/gear.js');
+    const gearPath = path.join(__dirname, '../src/game/content/gear.js');
     const code = fs.readFileSync(gearPath, 'utf8');
     const sandbox = {
         console,

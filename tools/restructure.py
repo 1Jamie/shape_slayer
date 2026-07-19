@@ -175,23 +175,31 @@ def tool_moves(projection: Projection) -> list[Move]:
 def replace_client_paths(text: str) -> str:
     replacements = (
         ("css/ui/", "src/css/"),
-        ("./js/", "./src/js/"),
-        ("./ui/", "./src/ui/"),
+        ("./src/js/", "./src/game/"),
+        ("./src/ui/", "./src/game/ui/"),
+        ("./js/", "./src/game/"),
+        ("./ui/", "./src/game/ui/"),
         ("./audio/", "./assets/audio/"),
         ("./icons/", "./assets/icons/"),
         ("./fonts/", "./assets/fonts/"),
-        ('"js/', '"src/js/'),
-        ("'js/", "'src/js/"),
-        ('"ui/', '"src/ui/'),
-        ("'ui/", "'src/ui/"),
+        ('"src/js/', '"src/game/'),
+        ("'src/js/", "'src/game/"),
+        ('"src/ui/', '"src/game/ui/'),
+        ("'src/ui/", "'src/game/ui/"),
+        ('"js/', '"src/game/'),
+        ("'js/", "'src/game/"),
+        ('"ui/', '"src/game/ui/'),
+        ("'ui/", "'src/game/ui/"),
         ('"audio/', '"assets/audio/'),
         ("'audio/", "'assets/audio/"),
         ('"icons/', '"assets/icons/'),
         ("'icons/", "'assets/icons/"),
         ('"fonts/', '"assets/fonts/'),
         ("'fonts/", "'assets/fonts/"),
-        ("../js/", "../src/js/"),
-        ("../ui/", "../src/ui/"),
+        ("../src/js/", "../src/game/"),
+        ("../src/ui/", "../src/game/ui/"),
+        ("../js/", "../src/game/"),
+        ("../ui/", "../src/game/ui/"),
     )
     for old, new in replacements:
         text = text.replace(old, new)
@@ -214,8 +222,10 @@ def replace_test_segments(text: str) -> str:
         "allowedTopLevelDirectories: new Set(['js'])",
         "allowedTopLevelDirectories: new Set(['src'])",
     )
-    text = text.replace("'/js/main.js'", "'/src/js/main.js'")
-    text = text.replace("'/js/../../etc/passwd'", "'/src/js/../../etc/passwd'")
+    text = text.replace("'/js/main.js'", "'/src/game/main.js'")
+    text = text.replace("'/src/js/main.js'", "'/src/game/main.js'")
+    text = text.replace("'/js/../../etc/passwd'", "'/src/game/../../etc/passwd'")
+    text = text.replace("'/src/js/../../etc/passwd'", "'/src/game/../../etc/passwd'")
     return text
 
 
@@ -235,8 +245,8 @@ def rewrite_client_assets(projection: Projection) -> list[str]:
         "index.html": replace_client_paths,
         "manifest.json": replace_client_paths,
         "sw.js": lambda text: bump_cache_version(replace_client_paths(text)),
-        "src/js/main.js": replace_client_paths,
-        "src/js/music-manager.js": replace_client_paths,
+        "src/game/main.js": replace_client_paths,
+        "src/engine/music.js": replace_client_paths,
         "assets/audio/music-config.json": replace_client_paths,
         "src/css/base.css": lambda text: text.replace(
             "../../fonts/", "../../assets/fonts/"
@@ -255,7 +265,7 @@ def rewrite_client_assets(projection: Projection) -> list[str]:
             changed.append(path)
 
     for path in sorted(projection.files):
-        if path.startswith(("src/js/", "src/ui/")) and path.endswith(".js"):
+        if path.startswith(("src/game/", "src/engine/")) and path.endswith(".js"):
             if projection.rewrite(path, replace_client_paths):
                 changed.append(path)
 
@@ -268,8 +278,8 @@ def rewrite_client_assets(projection: Projection) -> list[str]:
     for path in ["README.md", *sorted(p for p in projection.files if p.startswith("docs/") and p.endswith(".md"))]:
         def docs_transform(text: str) -> str:
             text = text.replace("css/ui/", "src/css/")
-            text = re.sub(r"(?<![\w/])js/", "src/js/", text)
-            text = re.sub(r"(?<![\w/])ui/", "src/ui/", text)
+            text = re.sub(r"(?<![\w/])js/", "src/game/", text)
+            text = re.sub(r"(?<![\w/])ui/", "src/game/ui/", text)
             text = re.sub(r"(?<![\w/])icons/", "assets/icons/", text)
             text = re.sub(r"(?<![\w/])fonts/", "assets/fonts/", text)
             return text
@@ -393,9 +403,10 @@ def verify_projection(projection: Projection, completed_phases: set[str]) -> lis
             if path_exists(files, old):
                 errors.append(f"old client path remains: {old}/")
         for required in (
-            "src/js/main.js",
-            "src/js/telemetry.js",
-            "src/ui/core/eventBus.js",
+            "src/game/main.js",
+            "src/game/networking/telemetry.js",
+            "src/engine/ui/bus.js",
+            "src/game/ui/core/controllerNavigation.js",
             "src/css/base.css",
             "assets/audio/music-config.json",
             "assets/fonts/orbitron/Orbitron-VariableFont_wght.ttf",
@@ -403,6 +414,9 @@ def verify_projection(projection: Projection, completed_phases: set[str]) -> lis
         ):
             if required not in files:
                 errors.append(f"migrated client file missing: {required}")
+        for retired in ("src/js", "src/ui"):
+            if path_exists(files, retired):
+                errors.append(f"retired client path remains: {retired}/")
 
         static_path = "static-server.js" if "static-server.js" in files else "server.js"
         static_server = projection.text(static_path)
@@ -416,19 +430,19 @@ def verify_projection(projection: Projection, completed_phases: set[str]) -> lis
             "index.html": r"(?:src|href)=[\"'](?:js|ui|css|audio|icons|fonts)/",
             "sw.js": r"[\"']\./(?:js|ui|css|audio|icons|fonts)/",
             "manifest.json": r"[\"']icons/",
-            "src/js/main.js": r"[\"']js/",
-            "src/js/music-manager.js": r"[\"']audio/",
+            "src/game/main.js": r"[\"'](?:js|src/js)/",
+            "src/engine/music.js": r"[\"']audio/",
             "assets/audio/music-config.json": r"[\"']audio/",
         }
         for path, pattern in stale_checks.items():
-            if re.search(pattern, projection.text(path)):
+            if path in files and re.search(pattern, projection.text(path)):
                 errors.append(f"stale runtime path remains in {path}: {pattern}")
         for path in files:
-            if path.startswith(("src/js/", "src/ui/")) and path.endswith(".js"):
-                if re.search(r"[\"'](?:js|ui|css|audio|icons|fonts)/", projection.text(path)):
+            if path.startswith(("src/game/", "src/engine/")) and path.endswith(".js"):
+                if re.search(r"[\"'](?:js|ui|css|audio|icons|fonts|src/js|src/ui)/", projection.text(path)):
                     errors.append(f"stale client runtime path remains in {path}")
             if path.startswith("tests/") and path.endswith(".js"):
-                if re.search(r"\.\./js/|[\"']js/", projection.text(path)):
+                if re.search(r"\.\./js/|src/js/|src/ui/|[\"']js/", projection.text(path)):
                     errors.append(f"stale client test path remains in {path}")
 
     if "rename-relay" in completed_phases:
@@ -484,8 +498,8 @@ def verify_projection(projection: Projection, completed_phases: set[str]) -> lis
         ):
             if required not in files:
                 errors.append(f"tool file missing: {required}")
-        if "src/js/boss-base.js" in files:
-            errors.append("unused duplicate src/js/boss-base.js remains")
+        if "src/js/boss-base.js" in files or "src/game/boss-base.js" in files:
+            errors.append("unused duplicate boss-base.js remains outside entities/bosses/")
     return errors
 
 
@@ -562,7 +576,7 @@ def print_plan(moves: list[Move], rewrites: list[str], deletes: list[Delete]) ->
 
 def completed_phases_from_tree(projection: Projection) -> set[str]:
     completed: set[str] = set()
-    if projection.has("src/js") and projection.has("assets"):
+    if (projection.has("src/game") or projection.has("src/js")) and projection.has("assets"):
         completed.add("client-assets")
     if projection.has("multiplayer") and projection.has("static-server.js"):
         completed.add("rename-relay")
@@ -619,12 +633,12 @@ def main() -> int:
         else:
             moves = tool_moves(projection)
             rewrites = []
-            duplicate = "src/js/boss-base.js"
-            if duplicate in projection.files:
-                # Runtime references use src/js/bosses/boss-base.js; this is the stale copy.
-                deletion = Delete(duplicate)
-                all_deletes.append(deletion)
-                projection.delete(deletion)
+            for duplicate in ("src/js/boss-base.js", "src/game/boss-base.js"):
+                if duplicate in projection.files:
+                    # Runtime references use src/game/entities/bosses/boss-base.js.
+                    deletion = Delete(duplicate)
+                    all_deletes.append(deletion)
+                    projection.delete(deletion)
         all_moves.extend(moves)
         all_rewrites.extend(rewrites)
         completed.add(phase)

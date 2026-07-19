@@ -50,7 +50,7 @@ test('resolveUrlPathWithinRoot enforces allowlists', () => {
         assert.ok(resolveUrlPathWithinRoot(root, '/', options));
         assert.ok(resolveUrlPathWithinRoot(root, '/src/game/main.js', options));
         assert.strictEqual(resolveUrlPathWithinRoot(root, '/metrics/secret', options), null);
-        assert.strictEqual(resolveUrlPathWithinRoot(root, '/src/js/../../etc/passwd', options), null);
+        assert.strictEqual(resolveUrlPathWithinRoot(root, '/src/game/../../etc/passwd', options), null);
     } finally {
         fs.rmSync(root, { recursive: true, force: true });
     }

@@ -44,7 +44,7 @@ The engine must detect the mode at runtime and select a valid executor without f
 
 The current client is approximately 98,000 lines of JavaScript across `src/js` and `src/ui`. Its core characteristics are:
 
-- a fixed 60 Hz simulation loop in `src/js/main.js`;
+- a fixed 60 Hz simulation loop in `src/game/main.js`;
 - Canvas 2D rendering on the main thread;
 - classic scripts loaded in dependency order;
 - mutable class instances and normal JavaScript arrays as canonical world state;
@@ -58,7 +58,7 @@ Useful foundations already exist:
 - fixed-timestep simulation and catch-up control;
 - render quality tiers and Gecko-specific policy;
 - run profiling and frame-phase measurements;
-- typed-array particle storage in `src/js/voxel-fracture.js`;
+- typed-array particle storage in `src/game/presentation/voxel-fracture.js`;
 - isolated helpers such as impulse physics, interpolation, and combat scaling.
 
 ## 4. Target boundaries

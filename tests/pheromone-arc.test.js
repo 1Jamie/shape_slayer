@@ -1,7 +1,38 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const PheromonePolyline = require('../src/js/bosses/pheromone-polyline.js');
+const path = require('node:path');
+const vm = require('node:vm');
+const fs = require('node:fs');
 
+const ROOT = path.join(__dirname, '..');
+
+function loadPolylineApis() {
+    const sandbox = {
+        console,
+        Math,
+        Object,
+        Array,
+        Number,
+        JSON,
+        window: {},
+        module: { exports: {} },
+        exports: {}
+    };
+    sandbox.window = sandbox;
+    sandbox.globalThis = sandbox;
+    vm.runInNewContext(fs.readFileSync(path.join(ROOT, 'src/engine/physics.js'), 'utf8'), sandbox);
+    vm.runInNewContext(fs.readFileSync(path.join(ROOT, 'src/engine/proc.js'), 'utf8'), sandbox);
+    vm.runInNewContext(
+        fs.readFileSync(path.join(ROOT, 'src/game/entities/bosses/pheromone-polyline.js'), 'utf8'),
+        sandbox
+    );
+    return {
+        Polyline: sandbox.Engine.Proc.Polyline,
+        PheromonePolyline: sandbox.PheromonePolyline || sandbox.module.exports
+    };
+}
+
+const { Polyline, PheromonePolyline } = loadPolylineApis();
 const {
     getPheromoneRouteLength,
     getPheromonePointAtArc,
@@ -23,6 +54,13 @@ function assertPointRoundTrip(points, x, y, label) {
     const pt = getPheromonePointAtArc(points, arc);
     assert.ok(Math.hypot(pt.x - x, pt.y - y) < POSITION_TOLERANCE, `${label}: point drift`);
 }
+
+test('Engine.Proc.Polyline and PheromonePolyline facade stay aligned', () => {
+    const points = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 50 }];
+    assert.equal(Polyline.routeLength(points), getPheromoneRouteLength(points));
+    assert.deepEqual(Polyline.pointAtArc(points, 125), getPheromonePointAtArc(points, 125));
+    assert.equal(Polyline.arcAtPoint(points, 100, 25), getPheromoneArcAtPoint(points, 100, 25));
+});
 
 test('straight line arc round-trip at 0, midpoint, and end', () => {
     const points = [{ x: 0, y: 0 }, { x: 200, y: 0 }];
@@ -62,6 +100,9 @@ test('validatePheromoneCoverage accepts relay spans and rejects gaps', () => {
         { startArc: 120, endArc: 200 }
     ], len), false);
     assert.equal(validatePheromoneCoverage([
+        { startArc: 0, endArc: 200 }
+    ], len), true);
+    assert.equal(Polyline.validateCoverage([
         { startArc: 0, endArc: 200 }
     ], len), true);
 });

@@ -1,6 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const RoomLayoutGenerator = require('../src/js/room-layout-generator.js');
+
+global.window = global;
+require('../src/engine/physics.js');
+require('../src/engine/proc.js');
+const RoomLayoutGenerator = require('../src/game/simulation/room-layout-generator.js');
 
 const BLOCKED = 1;
 const WALKABLE = 0;
@@ -121,7 +125,7 @@ test('findUnstuckPosition retreats to the previous safe point', () => {
 });
 
 test('generated rooms keep boss pathfinding away from decor choke points', () => {
-    global.BiomeConfig = require('../src/js/biomes.js');
+    global.BiomeConfig = require('../src/game/content/biomes.js');
     const plan = RoomLayoutGenerator.buildRoomPlan(8, 'cards', 'normal', null);
     const layout = RoomLayoutGenerator.generateRoomLayout(plan, 'cards:8:normal:swarm:v1');
     const bossRadius = 60;
@@ -139,15 +143,17 @@ test('generated rooms keep boss pathfinding away from decor choke points', () =>
     }
 });
 
-test('resolveCircleCollision chooses symmetric axis based on progress', () => {
+test('resolveCircleCollision prefers Engine.Proc push-out then stays walkable', () => {
     const layout = makeGridLayout([
         '...',
         '.#.',
         '...'
     ]);
     const resolved = RoomLayoutGenerator.resolveCircleCollision(layout, 50, 45, 10, 20, 20);
-    assert.equal(resolved.x, 50);
-    assert.equal(resolved.y, 20);
+    assert.equal(resolved.collided, true);
+    assert.equal(RoomLayoutGenerator.isPointWalkable(layout, resolved.x, resolved.y, 10), true);
+    // Proc grid resolution may differ from legacy axis-slide, but must leave the blocked cell.
+    assert.ok(!(resolved.x === 50 && resolved.y === 45));
 });
 
 test('pathfinding queue processes requests correctly', () => {

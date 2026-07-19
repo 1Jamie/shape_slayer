@@ -8,10 +8,10 @@ const fs = require('fs');
 const vm = require('vm');
 
 function loadSandbox(options = {}) {
-    const saveCode = fs.readFileSync(path.join(__dirname, '../src/js/save.js'), 'utf8');
-    const room0Code = fs.readFileSync(path.join(__dirname, '../src/js/room0-tutorial.js'), 'utf8');
-    const coachCode = fs.readFileSync(path.join(__dirname, '../src/js/coach-transition.js'), 'utf8');
-    const inputCode = fs.readFileSync(path.join(__dirname, '../src/js/input.js'), 'utf8');
+    const saveCode = fs.readFileSync(path.join(__dirname, '../src/game/content/save.js'), 'utf8');
+    const room0Code = fs.readFileSync(path.join(__dirname, '../src/game/content/room0-tutorial.js'), 'utf8');
+    const coachCode = fs.readFileSync(path.join(__dirname, '../src/game/content/coach-transition.js'), 'utf8');
+    const inputCode = fs.readFileSync(path.join(__dirname, '../src/game/simulation/input.js'), 'utf8');
 
     const localStorage = {
         _data: {},
@@ -72,6 +72,8 @@ function loadSandbox(options = {}) {
     };
     sandbox.window = Object.assign(sandbox.window, sandbox);
 
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/engine/save.js'), 'utf8'), sandbox);
+    if (sandbox.window && sandbox.window.Engine) sandbox.Engine = sandbox.window.Engine;
     vm.runInNewContext(
         saveCode + '\nthis.SaveSystem = SaveSystem;\n'
         + coachCode + '\nthis.CoachTransition = CoachTransition;\n'

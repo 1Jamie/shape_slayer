@@ -401,7 +401,7 @@ const Game = {
             console.log('[Game] Loading multiplayer module...');
 
             const script = document.createElement('script');
-            script.src = 'src/js/multiplayer.js';
+            script.src = 'src/game/networking/multiplayer.js';
             script.onload = () => {
                 this.multiplayerModuleLoaded = true;
                 console.log('[Game] Multiplayer module loaded');
@@ -983,17 +983,16 @@ const Game = {
 
         // High DPI Support - never force upscale on 1x displays.
         // Gecko/Servo: cap at 1.5 (matches room static cache) - full 2x backbuffers thrash WebRender.
-        const deviceDpr = window.devicePixelRatio || 1;
         const dprCap = this.getDprCap ? this.getDprCap() : 2;
-        const dpr = Math.min(dprCap, Math.max(1, deviceDpr));
-        this.dpr = dpr; // Store for use in other rendering methods
+        const configured = Engine.Render.configureCanvas(this.canvas, {
+            logicalW: canvasWidth,
+            logicalH: canvasHeight,
+            dprCap
+        });
+        this.dpr = configured.dpr;
+        this.ctx = configured.ctx;
 
-        // Set canvas resolution (internal rendering size) scaled by DPR
-        this.canvas.width = canvasWidth * dpr;
-        this.canvas.height = canvasHeight * dpr;
-
-        // Set CSS size to match logical canvas size exactly (1:1, no stretching)
-        // This ensures canvas fills viewport without distortion
+        // Keep viewport framing styles owned by the game shell.
         this.canvas.style.width = canvasWidth + 'px';
         this.canvas.style.height = canvasHeight + 'px';
         this.canvas.style.maxWidth = '100vw';
@@ -1005,10 +1004,6 @@ const Game = {
         this.canvas.style.left = '0';
         this.canvas.style.margin = '0';
         this.canvas.style.padding = '0';
-
-        // Scale the context so drawing commands use logical pixels
-        this.ctx.setTransform(1, 0, 0, 1, 0, 0);
-        this.ctx.scale(dpr, dpr);
 
         // Enable high-quality image smoothing
         this.ctx.imageSmoothingEnabled = true;
@@ -1433,33 +1428,26 @@ const Game = {
     },
 
     ensureWorldRenderTarget(pixelWidth, pixelHeight, dpr) {
+        const pool = Engine.Graphics.CanvasPool;
+        let acquired = false;
         if (!this.offscreenCanvas) {
-            this.offscreenCanvas = document.createElement('canvas');
+            this.offscreenCanvas = pool.acquire(pixelWidth, pixelHeight);
             this.offscreenCtx = this.offscreenCanvas.getContext('2d');
+            acquired = true;
         }
         if (this.offscreenCanvas.width !== pixelWidth || this.offscreenCanvas.height !== pixelHeight) {
-            this.offscreenCanvas.width = pixelWidth;
-            this.offscreenCanvas.height = pixelHeight;
+            pool.release(this.offscreenCanvas);
+            this.offscreenCanvas = pool.acquire(pixelWidth, pixelHeight);
+            this.offscreenCtx = this.offscreenCanvas.getContext('2d');
+            acquired = true;
+        }
+        if (acquired) {
+            // Pooled canvases can arrive pre-sized (skipping the resize branch) and
+            // with a stale transform from a previous user, so always reset here.
             this.offscreenCtx.setTransform(1, 0, 0, 1, 0, 0);
             this.offscreenCtx.scale(dpr, dpr);
         }
         return this.offscreenCtx;
-    },
-
-    ensureChannelBuffer(logicalWidth, logicalHeight, pixelWidth, pixelHeight, dpr, processScale) {
-        const scaledPixelW = Math.max(1, Math.floor(pixelWidth * processScale));
-        const scaledPixelH = Math.max(1, Math.floor(pixelHeight * processScale));
-        if (!this.channelCanvas) {
-            this.channelCanvas = document.createElement('canvas');
-            this.channelCtx = this.channelCanvas.getContext('2d');
-        }
-        if (this.channelCanvas.width !== scaledPixelW || this.channelCanvas.height !== scaledPixelH) {
-            this.channelCanvas.width = scaledPixelW;
-            this.channelCanvas.height = scaledPixelH;
-        }
-        this.channelCtx.setTransform(1, 0, 0, 1, 0, 0);
-        this.channelCtx.scale(dpr * processScale, dpr * processScale);
-        return this.channelCtx;
     },
 
     renderPlayingWorldLayer(ctx) {
@@ -1472,7 +1460,15 @@ const Game = {
         const currentZoom = this.getViewZoom();
         const centerX = logicalWidth / 2;
         const centerY = logicalHeight / 2;
-        Renderer.applyCameraTransform(ctx, centerX, centerY, this.camera.x, this.camera.y, currentZoom);
+        Engine.Render.applyCamera(ctx, {
+            x: this.camera.x,
+            y: this.camera.y,
+            zoom: currentZoom,
+            centerX,
+            centerY,
+            offsetX: this.screenShakeOffset.x,
+            offsetY: this.screenShakeOffset.y
+        });
 
         // Draw solid outer-wall fill for safe rooms so non-traversable space is clearly blocked
         if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'safe') {
@@ -1525,58 +1521,41 @@ const Game = {
     },
 
     applyChromaticAberrationFromOffscreen(traumaParams) {
-        const dpr = this.dpr || 1;
         const logicalWidth = this.config.width;
         const logicalHeight = this.config.height;
-        const pixelWidth = logicalWidth * dpr;
-        const pixelHeight = logicalHeight * dpr;
         const adaptiveEnabled = typeof DebugFlags === 'undefined' || DebugFlags.ADAPTIVE_RENDER_QUALITY !== false;
         const processScale = adaptiveEnabled && this.renderQuality && this.renderQuality.damageFxScale
             ? this.renderQuality.damageFxScale
             : 1;
-
-        const channelCtx = this.ensureChannelBuffer(
-            logicalWidth, logicalHeight, pixelWidth, pixelHeight, dpr, processScale
-        );
         const intensity = traumaParams.intensity;
         const offset = traumaParams.offset * processScale;
 
         this.ctx.clearRect(0, 0, logicalWidth, logicalHeight);
-
         if (intensity < 0.18) {
             this.ctx.drawImage(this.offscreenCanvas, 0, 0, logicalWidth, logicalHeight);
             return;
         }
 
-        this.ctx.drawImage(this.offscreenCanvas, 0, 0, logicalWidth, logicalHeight);
-        this.ctx.globalCompositeOperation = 'lighter';
-        this.ctx.globalAlpha = intensity;
-
-        const drawTintedChannel = (color, xOffset) => {
-            channelCtx.globalCompositeOperation = 'copy';
-            channelCtx.drawImage(this.offscreenCanvas, 0, 0, logicalWidth, logicalHeight);
-            channelCtx.globalCompositeOperation = 'multiply';
-            channelCtx.fillStyle = color;
-            channelCtx.fillRect(0, 0, logicalWidth, logicalHeight);
-            this.ctx.drawImage(this.channelCanvas, xOffset, 0, logicalWidth, logicalHeight);
-        };
-
-        drawTintedChannel('#FF0000', -offset);
-        drawTintedChannel('#0000FF', offset);
-
-        this.ctx.globalAlpha = 1;
-        this.ctx.globalCompositeOperation = 'source-over';
+        Engine.FX.Post.chromaticAberration(this.ctx, {
+            source: this.offscreenCanvas,
+            x: 0,
+            y: 0,
+            width: logicalWidth,
+            height: logicalHeight,
+            offset,
+            intensity,
+            replace: true
+        });
     },
 
-    // Trigger hit pause (player heavy attacks only - keep short, never stack)
-    triggerHitPause(duration = 0.1) {
+    // Trigger hit pause — ~1 frame sells weight; longer / stacking reads as hitch
+    triggerHitPause(duration = 0.016) {
         // Attract mode: freezing the whole sim reads as lag, not impact
         if (this.state === 'TITLE') return;
-        const capped = Math.min(duration, 0.045);
+        const capped = Math.min(Math.max(0, duration), 0.02);
+        // Never extend an active pause (cleave / slam refresh = stutter)
         if (this.hitPauseTime <= 0) {
             this.hitPauseTime = capped;
-        } else {
-            this.hitPauseTime = Math.min(this.hitPauseTime + capped * 0.2, 0.045);
         }
     },
 
@@ -5372,31 +5351,8 @@ const Game = {
     },
 
     getCachedGlowSprite(color) {
-        if (!this.glowCache) {
-            this.glowCache = new Map();
-        }
         const key = color || 'rgba(255,255,255,0.75)';
-        if (this.glowCache.has(key)) {
-            return this.glowCache.get(key);
-        }
-
-        const size = 128;
-        const canvas = document.createElement('canvas');
-        const diameter = size * 2;
-        const padding = 4;
-        canvas.width = diameter + padding * 2;
-        canvas.height = diameter + padding * 2;
-        const gCtx = canvas.getContext('2d');
-        const center = size + padding;
-        const grad = gCtx.createRadialGradient(center, center, size * 0.1, center, center, size);
-        grad.addColorStop(0, key);
-        grad.addColorStop(1, 'rgba(0,0,0,0)');
-        gCtx.fillStyle = grad;
-        gCtx.beginPath();
-        gCtx.arc(center, center, size, 0, Math.PI * 2);
-        gCtx.fill();
-        this.glowCache.set(key, canvas);
-        return canvas;
+        return Engine.Graphics.GlowAtlas.get(key);
     },
 
     prewarmRenderCaches() {
@@ -5470,31 +5426,34 @@ const Game = {
     getRenderQualityForTier(tier) {
         const tiers = Engine.Render.QualityTier;
         const thresholds = this.getFrameBudgetThresholds();
+        const preset = (Engine.Render.Quality && typeof Engine.Render.Quality.preset === 'function')
+            ? Engine.Render.Quality.preset(tier)
+            : {};
         if (tier === tiers.LOW) {
-            return {
+            return Object.assign({}, preset, {
                 vignetteScale: thresholds.heavyVignetteScale,
-                maxSceneryLights: 36,
+                maxSceneryLights: Math.min(36, preset.maxLights || 36),
                 gearRingPoints: 24,
                 groundLootAnimatedRing: false,
                 remoteFullRender: false,
                 maxBeamLights: 4,
                 damageFxScale: 0.5,
                 voxelParticleCap: 64
-            };
+            });
         }
         if (tier === tiers.MEDIUM) {
-            return {
+            return Object.assign({}, preset, {
                 vignetteScale: thresholds.mediumVignetteScale,
-                maxSceneryLights: 64,
+                maxSceneryLights: Math.min(64, preset.maxLights || 64),
                 gearRingPoints: 32,
                 groundLootAnimatedRing: false,
                 remoteFullRender: true,
                 maxBeamLights: 4,
                 damageFxScale: 0.75,
                 voxelParticleCap: 192
-            };
+            });
         }
-        return this.getBaseRenderQuality();
+        return Object.assign({}, preset, this.getBaseRenderQuality());
     },
 
     getFrameBudgetThresholds() {
@@ -5513,49 +5472,26 @@ const Game = {
     // Approximate neon stroke glow without ctx.shadowBlur (Servo/Firefox).
     strokeNeonRect(ctx, x, y, w, h, color, blur, lineWidth) {
         const lw = lineWidth != null ? lineWidth : 2;
-        if (!this.preferSpriteShadows()) {
-            ctx.shadowColor = color;
-            ctx.shadowBlur = blur;
-            ctx.strokeStyle = color;
-            ctx.lineWidth = lw;
-            ctx.strokeRect(x, y, w, h);
-            ctx.shadowBlur = 0;
-            ctx.shadowColor = 'transparent';
-            return;
-        }
-        ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
-        const layers = Math.max(2, Math.min(5, Math.round(blur / 4)));
-        for (let i = layers; i >= 1; i--) {
-            ctx.globalAlpha = 0.12 * (layers - i + 1) / layers;
-            ctx.strokeStyle = color;
-            ctx.lineWidth = lw + i * 1.6;
-            ctx.strokeRect(x, y, w, h);
-        }
-        ctx.restore();
-        ctx.strokeStyle = color;
-        ctx.lineWidth = lw;
-        ctx.globalAlpha = 1;
-        ctx.strokeRect(x, y, w, h);
+        Engine.Graphics.neonStrokeRect(
+            ctx,
+            { x, y, width: w, height: h },
+            color,
+            blur,
+            lw,
+            {
+                mode: this.preferSpriteShadows()
+                    ? Engine.Graphics.NeonMode.MULTIPASS_LIGHTER
+                    : Engine.Graphics.NeonMode.SHADOW_BLUR
+            }
+        );
     },
 
     fillNeonText(ctx, text, x, y, color, blur) {
-        if (!this.preferSpriteShadows()) {
-            ctx.shadowColor = color;
-            ctx.shadowBlur = blur;
-            ctx.fillStyle = color;
-            ctx.fillText(text, x, y);
-            ctx.shadowBlur = 0;
-            return;
-        }
-        ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
-        ctx.globalAlpha = 0.35;
-        ctx.fillStyle = color;
-        ctx.fillText(text, x, y);
-        ctx.restore();
-        ctx.fillStyle = color;
-        ctx.fillText(text, x, y);
+        Engine.Graphics.neonFillText(ctx, text, x, y, color, blur, {
+            mode: this.preferSpriteShadows()
+                ? Engine.Graphics.NeonMode.MULTIPASS_LIGHTER
+                : Engine.Graphics.NeonMode.SHADOW_BLUR
+        });
     },
 
     drawAdditiveGlowSprite(ctx, x, y, radius, colorCss, alpha) {
@@ -5659,31 +5595,22 @@ const Game = {
         const physicalWidth = Math.floor(logicalWidth * dpr);
         const physicalHeight = Math.floor(logicalHeight * dpr);
 
-        // Create offscreen canvases if needed
-        if (!this.vignetteCanvas) {
-            this.vignetteCanvas = document.createElement('canvas');
-            this.vignetteCtx = this.vignetteCanvas.getContext('2d');
-        }
-        if (!this.playerLightCanvas) {
-            this.playerLightCanvas = document.createElement('canvas');
-            this.playerLightCtx = this.playerLightCanvas.getContext('2d');
-        }
-
-        // Resize offscreen canvases if needed (check against physical size)
         // Keep lighting low-res and let image smoothing create the soft vignette.
         const adaptiveEnabled = typeof DebugFlags === 'undefined' || DebugFlags.ADAPTIVE_RENDER_QUALITY !== false;
         const lightScale = adaptiveEnabled && this.renderQuality && this.renderQuality.vignetteScale
             ? this.renderQuality.vignetteScale
             : 0.5;
-        const lightWidth = Math.floor(physicalWidth * lightScale);
-        const lightHeight = Math.floor(physicalHeight * lightScale);
 
-        if (this.vignetteCanvas.width !== lightWidth || this.vignetteCanvas.height !== lightHeight) {
-            this.vignetteCanvas.width = lightWidth;
-            this.vignetteCanvas.height = lightHeight;
-            this.playerLightCanvas.width = lightWidth;
-            this.playerLightCanvas.height = lightHeight;
+        if (!this._vignetteLightMask) {
+            this._vignetteLightMask = Engine.FX.LightMask.create();
+            this._playerLightMask = Engine.FX.LightMask.create();
         }
+        this._vignetteLightMask.ensure(logicalWidth, logicalHeight, { dpr, scale: lightScale });
+        this._playerLightMask.ensure(logicalWidth, logicalHeight, { dpr, scale: lightScale });
+        this.vignetteCanvas = this._vignetteLightMask.canvas;
+        this.vignetteCtx = this._vignetteLightMask.ctx;
+        this.playerLightCanvas = this._playerLightMask.canvas;
+        this.playerLightCtx = this._playerLightMask.ctx;
 
         const vCtx = this.vignetteCtx;
         const pCtx = this.playerLightCtx;
@@ -6067,10 +5994,13 @@ const Game = {
         // --- PHASE 5: RENDER TO SCREEN ---
         ctx.save();
         ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.globalAlpha = 1;
-        ctx.imageSmoothingEnabled = true;
-        ctx.drawImage(this.vignetteCanvas, 0, 0, physicalWidth, physicalHeight);
+        this._vignetteLightMask.composite(ctx, {
+            x: 0,
+            y: 0,
+            width: physicalWidth,
+            height: physicalHeight,
+            smoothing: true
+        });
         ctx.restore();
     },
 
@@ -6089,18 +6019,20 @@ const Game = {
 
         // Helper to check if entity is visible (Culling)
         const isVisible = (entity, margin = 100) => {
-            // Simple AABB check against camera view
-            // Viewport is centered on camera
             const zoom = this.getViewZoom();
-            const halfWidth = (this.config.width / 2) / zoom + margin;
-            const halfHeight = (this.config.height / 2) / zoom + margin;
-
-            return (
-                entity.x >= this.camera.x - halfWidth &&
-                entity.x <= this.camera.x + halfWidth &&
-                entity.y >= this.camera.y - halfHeight &&
-                entity.y <= this.camera.y + halfHeight
-            );
+            const halfWidth = (this.config.width / 2) / zoom;
+            const halfHeight = (this.config.height / 2) / zoom;
+            const prev = entity.cullRadius;
+            entity.cullRadius = margin;
+            const visible = Engine.Render.cullPoints([entity], {
+                left: this.camera.x - halfWidth,
+                top: this.camera.y - halfHeight,
+                right: this.camera.x + halfWidth,
+                bottom: this.camera.y + halfHeight
+            }).length > 0;
+            if (prev === undefined) delete entity.cullRadius;
+            else entity.cullRadius = prev;
+            return visible;
         };
 
         const frameLists = {

@@ -253,7 +253,143 @@
         }
     }
 
-    Engine.Net = { DEFAULTS, StateBuffer, Interpolator };
+    function deepClone(value, seen = new WeakMap()) {
+        if (value === null || typeof value !== 'object') {
+            return value;
+        }
+        if (seen.has(value)) {
+            return null;
+        }
+        let clone;
+        if (Array.isArray(value)) {
+            clone = [];
+            seen.set(value, clone);
+            value.forEach((item, index) => {
+                clone[index] = deepClone(item, seen);
+            });
+            return clone;
+        }
+        clone = {};
+        seen.set(value, clone);
+        Object.keys(value).forEach(key => {
+            clone[key] = deepClone(value[key], seen);
+        });
+        return clone;
+    }
+
+    function valuesEqual(a, b, tolerance = 0) {
+        if (a === b) return true;
+        if (a === undefined || b === undefined) return false;
+        if (a === null || b === null) return a === b;
+
+        if (typeof a === 'number' && typeof b === 'number') {
+            if (!Number.isFinite(a) || !Number.isFinite(b)) {
+                return a === b;
+            }
+            return Math.abs(a - b) <= tolerance;
+        }
+
+        if (Array.isArray(a) && Array.isArray(b)) {
+            if (a.length !== b.length) return false;
+            for (let i = 0; i < a.length; i++) {
+                if (!valuesEqual(a[i], b[i], tolerance)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        if (typeof a === 'object' && typeof b === 'object') {
+            const aKeys = Object.keys(a);
+            const bKeys = Object.keys(b);
+            if (aKeys.length !== bKeys.length) return false;
+            for (const key of aKeys) {
+                if (!valuesEqual(a[key], b[key], tolerance)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        return false;
+    }
+
+    function computeObjectDiff(current, previous, options = {}, keyName) {
+        const diff = {};
+        let hasChanges = false;
+        const ignore = options.ignoreKeys || [];
+        const tolerance = options.numericTolerance || 0;
+        const criticalFields = options.criticalFields || [];
+
+        Object.keys(current).forEach(prop => {
+            if (prop === keyName) return;
+            if (ignore.includes(prop)) return;
+            const currVal = current[prop];
+            const prevVal = previous[prop];
+            const isCritical = criticalFields.includes(prop);
+            const fieldTolerance = isCritical ? 0 : tolerance;
+
+            if (!valuesEqual(currVal, prevVal, fieldTolerance)) {
+                diff[prop] = deepClone(currVal);
+                hasChanges = true;
+            }
+        });
+
+        return hasChanges ? diff : null;
+    }
+
+    function diffById(currentList = [], previousList = [], key = 'id', options = {}) {
+        const changed = [];
+        const removed = [];
+
+        const prevMap = new Map();
+        if (Array.isArray(previousList)) {
+            previousList.forEach(item => {
+                if (item && item[key] !== undefined && item[key] !== null) {
+                    prevMap.set(item[key], item);
+                }
+            });
+        }
+
+        const seenIds = new Set();
+        if (Array.isArray(currentList)) {
+            currentList.forEach(item => {
+                if (!item || item[key] === undefined || item[key] === null) return;
+                const id = item[key];
+                seenIds.add(id);
+
+                const prevItem = prevMap.get(id);
+                if (!prevItem) {
+                    changed.push(deepClone(item));
+                    return;
+                }
+
+                const diff = computeObjectDiff(item, prevItem, options, key);
+                if (diff) {
+                    diff[key] = id;
+                    changed.push(diff);
+                }
+            });
+        }
+
+        prevMap.forEach((_value, id) => {
+            if (!seenIds.has(id)) {
+                removed.push(id);
+            }
+        });
+
+        return { changed, removed };
+    }
+
+    Engine.Net = {
+        DEFAULTS,
+        StateBuffer,
+        Interpolator,
+        deepClone,
+        valuesEqual,
+        computeObjectDiff,
+        diffById
+    };
 
     if (typeof module !== 'undefined' && module.exports) {
         module.exports = Engine.Net;

@@ -9,7 +9,7 @@
  *   npm run balance:economy
  */
 
-const { CombatEconomy } = require('../src/js/combat-economy.js');
+const { CombatEconomy } = require('../src/game/simulation/combat-economy.js');
 
 function parseArgs(argv) {
     const options = {

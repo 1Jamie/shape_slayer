@@ -359,6 +359,48 @@ const ImpulsePhysics = {
     }
 };
 
+const Geometry = {
+    projectPointOnSegment(px, py, ax, ay, bx, by) {
+        const dx = bx - ax;
+        const dy = by - ay;
+        const lengthSq = dx * dx + dy * dy;
+        if (lengthSq <= 0) {
+            const dist = Math.hypot(px - ax, py - ay);
+            return { x: ax, y: ay, t: 0, distSq: dist * dist };
+        }
+        const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lengthSq));
+        const projX = ax + dx * t;
+        const projY = ay + dy * t;
+        const distX = px - projX;
+        const distY = py - projY;
+        return { x: projX, y: projY, t, distSq: distX * distX + distY * distY };
+    },
+
+    distancePointToSegment(px, py, ax, ay, bx, by) {
+        return Math.sqrt(this.projectPointOnSegment(px, py, ax, ay, bx, by).distSq);
+    },
+
+    circlesOverlap(x1, y1, r1, x2, y2, r2, options = {}) {
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const limit = (r1 || 0) + (r2 || 0);
+        const distSq = dx * dx + dy * dy;
+        const bound = limit * limit;
+        return options.inclusive ? distSq <= bound : distSq < bound;
+    },
+
+    circleAabbOverlap(x, y, radius, left, top, width, height) {
+        const r = radius || 0;
+        const closestX = Math.max(left, Math.min(x, left + width));
+        const closestY = Math.max(top, Math.min(y, top + height));
+        const dx = x - closestX;
+        const dy = y - closestY;
+        return (dx * dx + dy * dy) <= r * r;
+    }
+};
+
+ImpulsePhysics.Geometry = Geometry;
+
 window.Engine = window.Engine || {};
 window.Engine.Physics = ImpulsePhysics;
 

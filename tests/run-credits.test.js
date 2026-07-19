@@ -8,7 +8,7 @@ const fs = require('fs');
 const vm = require('vm');
 
 function loadCurrencyHarness() {
-    const saveCode = fs.readFileSync(path.join(__dirname, '../src/js/save.js'), 'utf8');
+    const saveCode = fs.readFileSync(path.join(__dirname, '../src/game/content/save.js'), 'utf8');
     const localStorage = {
         _data: {},
         getItem(k) { return this._data[k] ?? null; },
@@ -30,6 +30,7 @@ function loadCurrencyHarness() {
         SaveSystem: null
     };
     sandbox.window = sandbox;
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/engine/save.js'), 'utf8'), sandbox);
     vm.runInNewContext(saveCode + '\nthis.SaveSystem = SaveSystem;', sandbox);
 
     const Game = {

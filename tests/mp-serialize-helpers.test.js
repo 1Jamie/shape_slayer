@@ -25,7 +25,7 @@ const PYLON_KEYS = [
 ];
 
 function loadGearSerialize() {
-    const code = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'gear.js'), 'utf8');
+    const code = fs.readFileSync(path.join(__dirname, '..', 'src', 'game', 'content', 'gear.js'), 'utf8');
     const sandbox = {
         console,
         Math,
@@ -57,7 +57,7 @@ function loadGearSerialize() {
 }
 
 function loadPylonSerialize() {
-    const code = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'items', 'item-pylon.js'), 'utf8');
+    const code = fs.readFileSync(path.join(__dirname, '..', 'src', 'game', 'entities', 'items', 'item-pylon.js'), 'utf8');
     const sandbox = {
         console,
         Math,
@@ -80,7 +80,7 @@ function loadPylonSerialize() {
 
 const {
     serializeProjectileForNetwork
-} = require('../src/js/projectiles-util.js');
+} = require('../src/game/entities/projectiles-util.js');
 
 test('serializeProjectileForNetwork emits expected keys and parallel flags', () => {
     const proj = {

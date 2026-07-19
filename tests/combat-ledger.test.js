@@ -8,9 +8,9 @@ const fs = require('fs');
 const vm = require('vm');
 
 function loadLedgerHarness() {
-    const saveCode = fs.readFileSync(path.join(__dirname, '../src/js/save.js'), 'utf8');
-    const featsCode = fs.readFileSync(path.join(__dirname, '../src/js/feats-registry.js'), 'utf8');
-    const ledgerCode = fs.readFileSync(path.join(__dirname, '../src/js/ledger-manager.js'), 'utf8');
+    const saveCode = fs.readFileSync(path.join(__dirname, '../src/game/content/save.js'), 'utf8');
+    const featsCode = fs.readFileSync(path.join(__dirname, '../src/game/content/feats-registry.js'), 'utf8');
+    const ledgerCode = fs.readFileSync(path.join(__dirname, '../src/game/simulation/ledger-manager.js'), 'utf8');
 
     const localStorage = {
         _data: {},
@@ -49,6 +49,7 @@ function loadLedgerHarness() {
     sandbox.window = sandbox;
     sandbox.window.showToast = (msg) => { toasts.push(msg); };
 
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/engine/save.js'), 'utf8'), sandbox);
     vm.runInNewContext(
         saveCode + '\n' + featsCode + '\n' + ledgerCode +
         '\nthis.SaveSystem = SaveSystem;' +

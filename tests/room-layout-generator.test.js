@@ -4,11 +4,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-global.BiomeConfig = require('../src/js/biomes.js');
-const RoomLayoutGenerator = require('../src/js/room-layout-generator.js');
+global.window = global;
+require('../src/engine/physics.js');
+require('../src/engine/proc.js');
+global.BiomeConfig = require('../src/game/content/biomes.js');
+const RoomLayoutGenerator = require('../src/game/simulation/room-layout-generator.js');
 
 function loadBossBaseForTests() {
-    const source = fs.readFileSync(path.join(__dirname, '../src/js/bosses/boss-base.js'), 'utf8');
+    const source = fs.readFileSync(path.join(__dirname, '../src/game/entities/bosses/boss-base.js'), 'utf8');
     const context = {
         module: { exports: {} },
         console,

@@ -4,7 +4,7 @@
 
 Shape Slayer is a fast, skill-first top-down action roguelike. Pick a sentient shape, dive into procedurally generated arenas, stack gear affixes until the build gets weird, and see how far you can push a run. Gear Mode is the game now - Card Mode got deleted on purpose.
 
-Current version: **0.8.2** (see in-game patch notes / `src/js/version.js`).
+Current version: **0.8.2** (see in-game patch notes / `src/game/content/version.js`).
 
 ## Why You’ll Love It
 
@@ -480,7 +480,7 @@ npm start
 ```
 
 - Default WebSocket port: **4000**
-- Lobby / interpolation / reconnect knobs: `src/js/mp-config.js`
+- Lobby / interpolation / reconnect knobs: `src/game/networking/mp-config.js`
 - Don’t want to self-host? Production URL (`wss://shape-slayer.gpe.pet`) ships ready.
 
 Redis directory mode gives every worker its own port, atomically claims lobby
@@ -533,7 +533,7 @@ npm run server
 Passion project. Readability, responsiveness, relentless fun. Break the build systems. Tell me what ridiculous combo you found.
 
 - **Bugs or ideas?** Open a GitHub issue.
-- **Want to contribute?** Fork it and go wild - vanilla JS + Canvas 2D for the game, DOM components under `src/ui/`, plain CSS under `src/css/`. No framework, no render engine.
+- **Want to contribute?** Fork it and go wild - vanilla JS + Canvas 2D for the game, DOM components under `src/game/ui/`, reusable engine under `src/engine/`, plain CSS under `src/css/`. No framework, no render engine.
 - **Need help?** In-game debug panel (`Ctrl+D`), browser console, or server logs.
 
 Music so far is sourced from Pixabay (copyright-free audio): [https://pixabay.com](https://pixabay.com)
@@ -556,7 +556,7 @@ Music so far is sourced from Pixabay (copyright-free audio): [https://pixabay.co
 ## Progression & Saves
 
 - `SaveSystem` parks currency, shards, upgrades, gear meta, settings, onboarding, Index discoveries, ledger/feat progress, etc. in `localStorage`.
-- Update / launch / privacy modals surface from `src/js/version.js` when the version bumps.
+- Update / launch / privacy modals surface from `src/game/content/version.js` when the version bumps.
 - Solo Safe Room **Save Run** stores the real mid-run state (room, gear, items, HP, etc.) and resumes from that Safe Room - checkpoint consumes on load so you can’t duplicate infinite money. Multiplayer babysits itself instead.
 - While a saved run exists, Nexus mostly just wants you to hit the portal again (no sneaking a pile of meta upgrades into a mid-run demon build).
 
@@ -596,22 +596,16 @@ shape_slayer/
 ├── sw.js / manifest.json      # Service worker + PWA bits
 ├── src/                       # Playable client code only
 │   ├── css/                   # Hand-edited UI CSS (no Sass)
-│   ├── ui/                    # DOM menus, HUD, Safe Room, Index, shops
-│   └── js/
-│       ├── main.js            # Game loop, camera, state machine, run orchestration
-│       ├── combat.js          # Damage, weapon feel, perfect dodge/interrupt
-│       ├── combat-scaling.js  # Room/boss/MP scaling
-│       ├── combat-economy.js  # Kill credits + affordability helpers
-│       ├── level.js · biomes.js · room-layout-generator.js
-│       ├── gear.js · items/
-│       ├── players/ · enemies/ · bosses/
-│       ├── multiplayer.js · mp-config.js
-│       ├── nexus.js
-│       ├── onboarding.js · room0-tutorial.js · feature-tutorials.js
-│       ├── render.js · input.js · touch-controls.js · device-detection.js
-│       ├── audio.js · music-manager.js
-│       ├── save.js · run-checkpoint.js · feats-registry.js · ledger-manager.js
-│       └── telemetry.js · debug.js · version.js · …
+│   ├── engine/                # Reusable Canvas2D / DOM engine library
+│   └── game/                  # Shape Slayer package
+│       ├── main.js            # Boot + orchestration entry
+│       ├── input-map.js       # Game action mapping over Engine.Input
+│       ├── simulation/        # Combat, level, nexus, room layout
+│       ├── entities/          # Players, enemies, bosses, items
+│       ├── content/           # Biomes, gear, saves, tutorials, version
+│       ├── presentation/      # Render adapters, voxel FX, canvas HUD
+│       ├── networking/        # Multiplayer client, mp-config, telemetry
+│       └── ui/                # DOM menus, HUD, Safe Room, Index, shops
 ├── assets/                    # Browser-loaded audio, fonts, and PWA icons
 ├── multiplayer/               # Gameplay WebSocket relay only
 ├── metrics/                   # Telemetry system only
@@ -630,7 +624,7 @@ The four top-level runtime domains stay separate:
 
 - **Client:** root PWA shell plus `src/` and `assets/`.
 - **Multiplayer:** `multiplayer/` relays gameplay WebSocket messages; it does not receive telemetry.
-- **Telemetry:** the game-side sender is `src/js/telemetry.js`, while receiver/database/dashboard code stays under `metrics/`.
+- **Telemetry:** the game-side sender is `src/game/networking/telemetry.js`, while receiver/database/dashboard code stays under `metrics/`.
 - **Harness:** `harness/` only starts and stops backend processes. It does not serve the game, relay messages, or open the metrics database.
 
 `static-server.js` serves only root shell files, `src/`, and `assets/`. Backend, harness, test, documentation, and tool directories are intentionally outside its allowlist.
@@ -638,7 +632,7 @@ The four top-level runtime domains stay separate:
 ## Telemetry & Analytics
 
 - **Harness** (`npm run server`) can spin MP + metrics ingest + dashboard together; logs under `harness/logs/`.
-- **Gameplay telemetry sender** (`src/js/telemetry.js`) ships opted-in per-run data directly to the receiver. It never sends through the multiplayer relay or harness.
+- **Gameplay telemetry sender** (`src/game/networking/telemetry.js`) ships opted-in per-run data directly to the receiver. It never sends through the multiplayer relay or harness.
 - **Receiver/database writer** (`metrics/server`, port `4001`) validates `/ingest` payloads and writes SQLite.
 - **Dashboard** (`metrics/gui`, port `5000`) is a separate browser app backed by a read/query server for summaries and run deep-dives.
 
@@ -646,7 +640,7 @@ Env knobs include `METRICS_PORT`, `METRICS_DB_PATH`, `METRICS_INGEST_TOKEN`. Det
 
 ## Troubleshooting
 
-- **Can’t connect** - MP server running? URL in `src/js/mp-config.js` / same-origin host correct? Port `4000` reachable?
+- **Can’t connect** - MP server running? URL in `src/game/networking/mp-config.js` / same-origin host correct? Port `4000` reachable?
 - **Lobby missing / full** - codes are normalized to uppercase, max 4 players, and local lobbies expire after about an hour. In Redis directory mode, confirm Redis is reachable and the owner endpoint advertised by `PUBLIC_HOST` is reachable by clients.
 - **Redirect loop** - verify every worker advertises a distinct reachable port. The client stops after two redirects by default.
 - **Redis on Bazzite/distrobox** - use host Podman (`host-spawn podman`) or start Redis manually and set `REDIS_AUTO_MANAGE=false`.

@@ -249,6 +249,18 @@ class Core {
     setQualityTier(tier) {
         if (this.qualityTier === tier) return;
         this.qualityTier = tier;
+        const engine = typeof globalThis !== 'undefined' ? globalThis.Engine : null;
+        if (engine && engine.Render && engine.Render.Quality) {
+            const preset = engine.Render.Quality.preset(tier);
+            if (engine.FX && engine.FX.Particles
+                && typeof engine.FX.Particles.setParticleCap === 'function') {
+                engine.FX.Particles.setParticleCap(preset.particleCap);
+            }
+            if (engine.Graphics && engine.Graphics.TileBaker
+                && typeof engine.Graphics.TileBaker.setQualityTier === 'function') {
+                engine.Graphics.TileBaker.setQualityTier(tier);
+            }
+        }
         if (this.onQualityChange) {
             this.onQualityChange(tier, Object.assign({}, this.debugFrameBudget));
         }
