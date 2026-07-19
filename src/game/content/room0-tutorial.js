@@ -207,7 +207,7 @@ const Room0Tutorial = {
         enemy.baseMoveSpeed = 0;
         enemy.lootChance = 0;
         enemy.xpValue = 0;
-        const paddedHp = Math.max(enemy.maxHp || 100, 280);
+        const paddedHp = Math.max((enemy.maxHp || 100) * 2, 560);
         enemy.maxHp = paddedHp;
         enemy.hp = paddedHp;
         enemy.detectionRange = 99999;
@@ -321,7 +321,51 @@ const Room0Tutorial = {
         if (!this.isActive() || !this.isArmed()) return;
         if (ability === 'primary' || ability === 'heavy' || ability === 'special') {
             this._pendingAbility = ability;
+            // Utility specials may not reliably damage the dummy, so casting
+            // them is enough to satisfy the SPECIAL step.
+            if (ability === 'special' && this.step === this.STEPS.SPECIAL
+                && this._specialCompletesOnCast()) {
+                this._pendingAbility = null;
+                this._setStep(this.STEPS.WARNING);
+            }
         }
+    },
+
+    _getClassTutorialProfile() {
+        const player = (typeof Game !== 'undefined') ? Game.player : null;
+        return (player && player.room0Tutorial) ? player.room0Tutorial : null;
+    },
+
+    _specialCompletesOnCast() {
+        const profile = this._getClassTutorialProfile();
+        return !!(profile && profile.specialCompletesOnCast);
+    },
+
+    _formatTutorialBody(template, hintText) {
+        const raw = String(template || '');
+        if (raw.includes('{hint}')) {
+            return raw.replace(/\{hint\}/g, hintText || '');
+        }
+        return raw;
+    },
+
+    _abilityCoachCopy(stepKey, abilityKey, fallbackTitle, fallbackBody) {
+        const hint = (() => {
+            if (typeof Input !== 'undefined' && Input.getCombatPrompt) {
+                const p = Input.getCombatPrompt(abilityKey);
+                return p ? ` (${p})` : '';
+            }
+            return '';
+        })();
+        const profile = this._getClassTutorialProfile();
+        const override = profile && profile[stepKey] ? profile[stepKey] : null;
+        return {
+            title: (override && override.title) ? override.title : fallbackTitle,
+            body: this._formatTutorialBody(
+                (override && override.body) ? override.body : fallbackBody,
+                hint
+            )
+        };
     },
 
     onDummyDamaged(enemy) {
@@ -390,9 +434,10 @@ const Room0Tutorial = {
             ? BASIC_ENEMY_CONFIG.moveSpeed
             : 100;
         dummy.baseMoveSpeed = dummy.moveSpeed;
-        const fightHp = (typeof BASIC_ENEMY_CONFIG !== 'undefined' && BASIC_ENEMY_CONFIG.maxHp)
+        const baseFightHp = (typeof BASIC_ENEMY_CONFIG !== 'undefined' && BASIC_ENEMY_CONFIG.maxHp)
             ? BASIC_ENEMY_CONFIG.maxHp
             : 80;
+        const fightHp = baseFightHp * 2;
         dummy.maxHp = fightHp;
         dummy.hp = fightHp;
     },
@@ -451,34 +496,37 @@ const Room0Tutorial = {
 
     getCoachCopy() {
         if (!this.isActive()) return null;
-        const hint = (ability) => {
-            if (typeof Input !== 'undefined' && Input.getCombatPrompt) {
-                const p = Input.getCombatPrompt(ability);
-                return p ? ` (${p})` : '';
-            }
-            return '';
-        };
         switch (this.step) {
             case this.STEPS.DASH:
-                return {
-                    title: 'Dash',
-                    body: `Dash across the line${hint('dash')} to dodge through danger.`
-                };
+                return this._abilityCoachCopy(
+                    'dash',
+                    'dash',
+                    'Dash',
+                    'Dash across the line{hint} to dodge through danger.'
+                );
             case this.STEPS.PRIMARY:
-                return {
-                    title: 'Primary',
-                    body: `Use Primary${hint('primary')} on the dummy.`
-                };
+                return this._abilityCoachCopy(
+                    'primary',
+                    'primary',
+                    'Primary',
+                    'Use Primary{hint} on the dummy.'
+                );
             case this.STEPS.HEAVY:
-                return {
-                    title: 'Heavy',
-                    body: `Use Heavy${hint('heavy')} on the dummy.`
-                };
+                return this._abilityCoachCopy(
+                    'heavy',
+                    'heavy',
+                    'Heavy',
+                    'Use Heavy{hint} on the dummy.'
+                );
             case this.STEPS.SPECIAL:
-                return {
-                    title: 'Special',
-                    body: `Use Special${hint('special')} on the dummy.`
-                };
+                return this._abilityCoachCopy(
+                    'special',
+                    'special',
+                    'Special',
+                    this._specialCompletesOnCast()
+                        ? 'Use Special{hint}.'
+                        : 'Use Special{hint} on the dummy.'
+                );
             case this.STEPS.WARNING:
                 return {
                     title: 'Incoming!',

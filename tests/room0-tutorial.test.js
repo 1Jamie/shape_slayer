@@ -214,6 +214,168 @@ describe('Room0Tutorial steps', () => {
         assert.equal(Room0Tutorial.step, Room0Tutorial.STEPS.WARNING);
     });
 
+    it('completes SPECIAL on cast for utility specials', () => {
+        const sandbox = loadSandbox();
+        const { Room0Tutorial } = sandbox;
+        Room0Tutorial.ARM_DELAY_MS = 0;
+        const room = { number: 0, type: 'tutorial', enemies: [] };
+        sandbox.currentRoom = room;
+        Room0Tutorial.setupRoom(room);
+        Room0Tutorial.spawnDummy();
+
+        // Mobility, defense, and decoy specials mark casting as sufficient via profile.
+        sandbox.Game.player.room0Tutorial = { specialCompletesOnCast: true };
+
+        Room0Tutorial._setStep(Room0Tutorial.STEPS.SPECIAL);
+        Room0Tutorial._armedAt = 0;
+        Room0Tutorial.notifyCombatAction('special');
+
+        assert.equal(Room0Tutorial.step, Room0Tutorial.STEPS.WARNING);
+    });
+
+    it('uses class-fed coach copy for ability steps', () => {
+        const sandbox = loadSandbox();
+        const { Room0Tutorial } = sandbox;
+        Room0Tutorial.ARM_DELAY_MS = 0;
+        const room = { number: 0, type: 'tutorial', enemies: [] };
+        sandbox.currentRoom = room;
+        Room0Tutorial.setupRoom(room);
+        sandbox.Game.player.room0Tutorial = {
+            specialCompletesOnCast: true,
+            dash: {
+                title: 'Dash',
+                body: 'Dash across the line{hint}. Rogues have two dodge charges.'
+            },
+            primary: {
+                title: 'Knife Throw',
+                body: 'Throw a knife{hint} at the dummy.'
+            },
+            heavy: {
+                title: 'Fan of Knives',
+                body: 'Fan knives{hint} into the dummy.'
+            },
+            special: {
+                title: 'Shadow Clones',
+                body: 'Deploy Shadow Clones{hint} — decoys that draw attention.'
+            }
+        };
+
+        Room0Tutorial._setStep(Room0Tutorial.STEPS.DASH);
+        Room0Tutorial._armedAt = 0;
+        let copy = Room0Tutorial.getCoachCopy();
+        assert.equal(copy.title, 'Dash');
+        assert.match(copy.body, /two dodge charges/);
+        assert.match(copy.body, /\(Shift\)/);
+
+        Room0Tutorial._setStep(Room0Tutorial.STEPS.PRIMARY);
+        Room0Tutorial._armedAt = 0;
+        copy = Room0Tutorial.getCoachCopy();
+        assert.equal(copy.title, 'Knife Throw');
+        assert.match(copy.body, /Throw a knife \(LMB\) at the dummy/);
+
+        Room0Tutorial._setStep(Room0Tutorial.STEPS.SPECIAL);
+        Room0Tutorial._armedAt = 0;
+        copy = Room0Tutorial.getCoachCopy();
+        assert.equal(copy.title, 'Shadow Clones');
+        assert.match(copy.body, /Deploy Shadow Clones \(Space\)/);
+        assert.doesNotMatch(copy.body, /dummy/i);
+    });
+
+    it('falls back to generic coach copy without a class profile', () => {
+        const sandbox = loadSandbox();
+        const { Room0Tutorial } = sandbox;
+        Room0Tutorial.ARM_DELAY_MS = 0;
+        const room = { number: 0, type: 'tutorial', enemies: [] };
+        sandbox.currentRoom = room;
+        Room0Tutorial.setupRoom(room);
+        Room0Tutorial._setStep(Room0Tutorial.STEPS.PRIMARY);
+        Room0Tutorial._armedAt = 0;
+
+        const copy = Room0Tutorial.getCoachCopy();
+        assert.equal(copy.title, 'Primary');
+        assert.match(copy.body, /Use Primary \(LMB\) on the dummy/);
+    });
+
+    it('routes every class special activation through the tutorial notifier', () => {
+        const playersDir = path.join(__dirname, '../src/game/entities/players');
+        const activations = {
+            'player-mage.js': 'activateBlink',
+            'player-rogue.js': 'activateShadowClones',
+            'player-tank.js': 'activateShield',
+            'player-warrior.js': 'activateWhirlwind'
+        };
+
+        for (const [file, method] of Object.entries(activations)) {
+            const source = fs.readFileSync(path.join(playersDir, file), 'utf8');
+            const methodStart = source.indexOf(`\n    ${method}(`);
+            assert.notEqual(methodStart, -1, `${file} is missing ${method}`);
+            const methodBody = source.slice(methodStart, methodStart + 240);
+            assert.match(
+                methodBody,
+                /notifyTutorialCombatAction\('special'\)/,
+                `${file} must notify room 0 when its special activates`
+            );
+        }
+
+        for (const file of ['player-mage.js', 'player-rogue.js', 'player-tank.js']) {
+            const source = fs.readFileSync(path.join(playersDir, file), 'utf8');
+            assert.match(
+                source,
+                /specialCompletesOnCast:\s*true/,
+                `${file} utility special should complete on cast via room0Tutorial`
+            );
+            assert.match(
+                source,
+                /this\.room0Tutorial\s*=/,
+                `${file} must assign room0Tutorial onto the player instance`
+            );
+        }
+
+        const warriorSource = fs.readFileSync(path.join(playersDir, 'player-warrior.js'), 'utf8');
+        assert.match(warriorSource, /specialCompletesOnCast:\s*false/);
+        assert.match(warriorSource, /this\.room0Tutorial\s*=/);
+    });
+
+    it('does not complete PRIMARY or HEAVY on cast even with the decoy flag', () => {
+        const sandbox = loadSandbox();
+        const { Room0Tutorial } = sandbox;
+        Room0Tutorial.ARM_DELAY_MS = 0;
+        const room = { number: 0, type: 'tutorial', enemies: [] };
+        sandbox.currentRoom = room;
+        Room0Tutorial.setupRoom(room);
+        Room0Tutorial.spawnDummy();
+        sandbox.Game.player.room0Tutorial = { specialCompletesOnCast: true };
+
+        Room0Tutorial._setStep(Room0Tutorial.STEPS.PRIMARY);
+        Room0Tutorial._armedAt = 0;
+        Room0Tutorial.notifyCombatAction('primary');
+        assert.equal(Room0Tutorial.step, Room0Tutorial.STEPS.PRIMARY);
+
+        Room0Tutorial._setStep(Room0Tutorial.STEPS.HEAVY);
+        Room0Tutorial._armedAt = 0;
+        Room0Tutorial.notifyCombatAction('heavy');
+        assert.equal(Room0Tutorial.step, Room0Tutorial.STEPS.HEAVY);
+    });
+
+    it('doubles dummy HP for practice and fight phases', () => {
+        const sandbox = loadSandbox();
+        const { Room0Tutorial } = sandbox;
+        Room0Tutorial.ARM_DELAY_MS = 0;
+        const room = { number: 0, type: 'tutorial', enemies: [] };
+        sandbox.currentRoom = room;
+        Room0Tutorial.setupRoom(room);
+        const dummy = Room0Tutorial.spawnDummy();
+
+        // Practice dummy: at least 2x base enemy HP, floor of 560
+        assert.equal(dummy.maxHp, 560);
+        assert.equal(dummy.hp, 560);
+
+        // Fight phase: 2x BASIC_ENEMY_CONFIG.maxHp (80 in sandbox)
+        Room0Tutorial.activateDummy();
+        assert.equal(dummy.maxHp, 160);
+        assert.equal(dummy.hp, 160);
+    });
+
     it('blocks combat until arm delay elapses', () => {
         const { Room0Tutorial } = loadSandbox();
         Room0Tutorial.ARM_DELAY_MS = 5000;

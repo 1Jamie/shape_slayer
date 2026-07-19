@@ -1551,9 +1551,12 @@ class PlayerBase {
         if (specialJustPressed && this.specialCooldown <= 0) {
             // Call subclass-specific special ability activation
             this.activateSpecialAbility(input);
-            if (typeof Room0Tutorial !== 'undefined' && Room0Tutorial.notifyCombatAction) {
-                Room0Tutorial.notifyCombatAction('special');
-            }
+        }
+    }
+
+    notifyTutorialCombatAction(ability) {
+        if (typeof Room0Tutorial !== 'undefined' && Room0Tutorial.notifyCombatAction) {
+            Room0Tutorial.notifyCombatAction(ability);
         }
     }
 

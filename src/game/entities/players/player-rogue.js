@@ -62,6 +62,27 @@ const ROGUE_CONFIG = {
         special: "Shadow Clones - Creates {shadowCloneCount} decoys for {shadowCloneDuration}s",
         passive: "Backstab - 2x damage from behind, {dodgeCharges} dodge charges",
         baseStats: "{critChance|percent} Base Crit Chance, High Speed"
+    },
+
+    // Room 0 combat tutorial coach copy + special completion rules
+    room0Tutorial: {
+        specialCompletesOnCast: true,
+        dash: {
+            title: 'Dash',
+            body: 'Dash across the line{hint}. Rogues have two dodge charges.'
+        },
+        primary: {
+            title: 'Knife Throw',
+            body: 'Throw a knife{hint} at the dummy.'
+        },
+        heavy: {
+            title: 'Fan of Knives',
+            body: 'Fan knives{hint} into the dummy.'
+        },
+        special: {
+            title: 'Shadow Clones',
+            body: 'Deploy Shadow Clones{hint} — decoys that draw attention.'
+        }
     }
 };
 
@@ -71,6 +92,7 @@ class Rogue extends PlayerBase {
         
         // Set class identifier
         this.playerClass = 'triangle';
+        this.room0Tutorial = ROGUE_CONFIG.room0Tutorial;
         
         // Load class definition (visual properties only)
         const classDef = CLASS_DEFINITIONS.triangle;
@@ -417,6 +439,8 @@ class Rogue extends PlayerBase {
     }
     
     activateShadowClones() {
+        this.notifyTutorialCombatAction('special');
+
         // Track ability use for lifetime stats
         if (typeof window.trackLifetimeStat === 'function') {
             window.trackLifetimeStat('totalAbilityUses', 1);

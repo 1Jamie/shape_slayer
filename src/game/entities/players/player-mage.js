@@ -60,6 +60,27 @@ const MAGE_CONFIG = {
         special: "Blink + Nova - Teleport {blinkRange}px with i-frames, leaves decoy",
         passive: "Range Bonus - Increased damage at range",
         baseStats: "High Base Damage, Ranged Focus"
+    },
+
+    // Room 0 combat tutorial coach copy + special completion rules
+    room0Tutorial: {
+        specialCompletesOnCast: true,
+        dash: {
+            title: 'Dash',
+            body: 'Dash across the line{hint} to dodge through danger.'
+        },
+        primary: {
+            title: 'Magic Bolt',
+            body: 'Fire a Magic Bolt{hint} at the dummy.'
+        },
+        heavy: {
+            title: 'Energy Beam',
+            body: 'Fire your Energy Beam{hint} into the dummy.'
+        },
+        special: {
+            title: 'Blink',
+            body: 'Blink{hint} to teleport — casting is enough for this lesson.'
+        }
     }
 };
 
@@ -69,6 +90,7 @@ class Mage extends PlayerBase {
 
         // Set class identifier
         this.playerClass = 'hexagon';
+        this.room0Tutorial = MAGE_CONFIG.room0Tutorial;
 
         // Load class definition (visual properties only)
         const classDef = CLASS_DEFINITIONS.hexagon;
@@ -608,6 +630,8 @@ class Mage extends PlayerBase {
     }
 
     activateBlink(input) {
+        this.notifyTutorialCombatAction('special');
+
         // Track ability use for lifetime stats
         if (typeof window.trackLifetimeStat === 'function') {
             window.trackLifetimeStat('totalAbilityUses', 1);

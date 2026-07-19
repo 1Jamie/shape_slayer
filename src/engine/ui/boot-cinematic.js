@@ -516,16 +516,20 @@
             }
             particles.render(mctx);
 
-            // Punch the wordmark out of the splatter: the explosion renders
-            // the title as negative space.
+            // Punch the wordmark (and its attribution line) out of the
+            // splatter: the explosion renders the text as negative space.
             const titlePx = this._titleFont(state);
+            const taglinePx = Math.max(9, titlePx * 0.26);
+            const taglineY = cy - titlePx * 0.95;
             mctx.save();
             mctx.globalCompositeOperation = 'destination-out';
-            mctx.font = `700 ${titlePx}px Orbitron, sans-serif`;
             mctx.textAlign = 'center';
             mctx.textBaseline = 'middle';
             mctx.fillStyle = '#000000';
+            mctx.font = `700 ${titlePx}px Orbitron, sans-serif`;
             mctx.fillText('SHAPE ENGINE', cx, cy);
+            mctx.font = `500 ${taglinePx}px Orbitron, sans-serif`;
+            mctx.fillText('POWERED BY', cx, taglineY);
             mctx.restore();
 
             ctx.drawImage(state.mask, 0, 0, w, h);
@@ -533,9 +537,12 @@
             // The etched wordmark snaps in on the impact frame — the collision
             // forces the text onto the screen, no easing, no fade.
             ctx.save();
-            ctx.font = `700 ${titlePx}px Orbitron, sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
+            ctx.font = `500 ${taglinePx}px Orbitron, sans-serif`;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+            ctx.fillText('POWERED BY', cx, taglineY);
+            ctx.font = `700 ${titlePx}px Orbitron, sans-serif`;
             ctx.strokeStyle = 'rgba(0, 229, 255, 0.9)';
             ctx.lineWidth = 1;
             ctx.strokeText('SHAPE ENGINE', cx, cy);

@@ -71,6 +71,27 @@ const TANK_CONFIG = {
         special: "Shield Defense - Block for {shieldDuration}s, then wave pulse attack",
         passive: "Retaliatory Knockback - Small knockback when hit",
         baseStats: "{baseDefense|percent} Base Defense, {baseHp} HP"
+    },
+
+    // Room 0 combat tutorial coach copy + special completion rules
+    room0Tutorial: {
+        specialCompletesOnCast: true,
+        dash: {
+            title: 'Dash',
+            body: 'Dash across the line{hint} to dodge through danger.'
+        },
+        primary: {
+            title: 'Hammer Slam',
+            body: 'Slam with your hammer{hint} and hit the dummy.'
+        },
+        heavy: {
+            title: 'Shout',
+            body: 'Shout{hint} to hit the dummy.'
+        },
+        special: {
+            title: 'Shield',
+            body: 'Raise your Shield{hint} — casting is enough for this lesson.'
+        }
     }
 };
 
@@ -80,6 +101,7 @@ class Tank extends PlayerBase {
         
         // Set class identifier
         this.playerClass = 'pentagon';
+        this.room0Tutorial = TANK_CONFIG.room0Tutorial;
         
         // Load class definition (visual properties only)
         const classDef = CLASS_DEFINITIONS.pentagon;
@@ -701,6 +723,8 @@ class Tank extends PlayerBase {
     }
     
     activateShield(input) {
+        this.notifyTutorialCombatAction('special');
+
         // Track ability use for lifetime stats
         if (typeof window.trackLifetimeStat === 'function') {
             window.trackLifetimeStat('totalAbilityUses', 1);

@@ -53,6 +53,27 @@ const WARRIOR_CONFIG = {
         special: "Whirlwind - Spinning blades rotate around player for {whirlwindDuration}s",
         passive: "Block Stance - 50% damage reduction when standing still",
         baseStats: "{baseDefense|percent} Base Defense, Balanced Stats"
+    },
+
+    // Room 0 combat tutorial coach copy + special completion rules
+    room0Tutorial: {
+        specialCompletesOnCast: false,
+        dash: {
+            title: 'Dash',
+            body: 'Dash across the line{hint} to dodge through danger.'
+        },
+        primary: {
+            title: 'Sword Swing',
+            body: 'Swing your sword{hint} and hit the dummy.'
+        },
+        heavy: {
+            title: 'Forward Thrust',
+            body: 'Thrust forward{hint} through the dummy.'
+        },
+        special: {
+            title: 'Whirlwind',
+            body: 'Activate Whirlwind{hint} near the dummy so it takes damage.'
+        }
     }
 };
 
@@ -78,6 +99,7 @@ class Warrior extends PlayerBase {
 
         // Set class identifier
         this.playerClass = 'square';
+        this.room0Tutorial = WARRIOR_CONFIG.room0Tutorial;
 
         // Load class definition (visual properties only)
         const classDef = CLASS_DEFINITIONS.square;
@@ -722,6 +744,8 @@ class Warrior extends PlayerBase {
     }
 
     activateWhirlwind() {
+        this.notifyTutorialCombatAction('special');
+
         // Play whirlwind activation sound
         if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
             AudioManager.sounds.warriorWhirlwindStart();
