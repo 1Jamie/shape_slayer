@@ -249,8 +249,8 @@ class Rogue extends PlayerBase {
     
     throwKnife(input) {
         // Play rogue basic attack sound
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-            AudioManager.sounds.rogueBasicAttack();
+        if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+            GameAudio.sounds.rogueBasicAttack();
         }
         
         // Rogue: Throw knife as projectile
@@ -382,8 +382,8 @@ class Rogue extends PlayerBase {
     
     createFanOfKnives() {
         // Play rogue heavy attack sound
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-            AudioManager.sounds.rogueHeavyAttack();
+        if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+            GameAudio.sounds.rogueHeavyAttack();
         }
         
         // Rogue: Fan of knives - throw multiple knives in a spread pattern
@@ -446,8 +446,8 @@ class Rogue extends PlayerBase {
             window.trackLifetimeStat('totalAbilityUses', 1);
         }
         // Play shadow clones sound
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-            AudioManager.sounds.rogueShadowClones();
+        if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+            GameAudio.sounds.rogueShadowClones();
         }
         
         this.shadowClonesActive = true;
@@ -591,8 +591,8 @@ class Rogue extends PlayerBase {
     // Override startDodge for Rogue directional dodge
     startDodge(input) {
         // Play rogue-specific dodge sound (replaces generic dodge sound)
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-            AudioManager.sounds.rogueDodge();
+        if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+            GameAudio.sounds.rogueDodge();
         }
         
         console.log('[ROGUE DODGE] startDodge called, isTouchMode:', input.isTouchMode ? input.isTouchMode() : false);
@@ -1115,38 +1115,38 @@ class Rogue extends PlayerBase {
     }
 
     playDodgeSound() {
-        if (this.canPlayClientAudio() && AudioManager.sounds && AudioManager.sounds.rogueDodge) {
-            AudioManager.sounds.rogueDodge();
+        if (this.canPlayClientAudio() && GameAudio.sounds && GameAudio.sounds.rogueDodge) {
+            GameAudio.sounds.rogueDodge();
         }
     }
 
     onClientAttackStarted() {
-        if (this.canPlayClientAudio() && AudioManager.sounds && AudioManager.sounds.rogueBasicAttack) {
-            AudioManager.sounds.rogueBasicAttack();
+        if (this.canPlayClientAudio() && GameAudio.sounds && GameAudio.sounds.rogueBasicAttack) {
+            GameAudio.sounds.rogueBasicAttack();
         }
     }
 
     onClientHeavyAttackTriggered() {
-        if (!this.canPlayClientAudio() || !AudioManager.sounds || !AudioManager.sounds.rogueHeavyAttack) {
+        if (!this.canPlayClientAudio() || !GameAudio.sounds || !GameAudio.sounds.rogueHeavyAttack) {
             return false;
         }
-        AudioManager.sounds.rogueHeavyAttack();
+        GameAudio.sounds.rogueHeavyAttack();
         return true;
     }
 
     onClientSpecialAbilityTriggered() {
-        if (this.canPlayClientAudio() && AudioManager.sounds && AudioManager.sounds.rogueShadowClones) {
-            AudioManager.sounds.rogueShadowClones();
+        if (this.canPlayClientAudio() && GameAudio.sounds && GameAudio.sounds.rogueShadowClones) {
+            GameAudio.sounds.rogueShadowClones();
         }
     }
 
     handleSubclassClientAudio(prevState, currentState) {
-        if (!this.canPlayClientAudio() || !AudioManager.sounds) {
+        if (!this.canPlayClientAudio() || !GameAudio.sounds) {
             return;
         }
         
-        if (!prevState.shadowClonesActive && currentState.shadowClonesActive && AudioManager.sounds.rogueShadowClones) {
-            AudioManager.sounds.rogueShadowClones();
+        if (!prevState.shadowClonesActive && currentState.shadowClonesActive && GameAudio.sounds.rogueShadowClones) {
+            GameAudio.sounds.rogueShadowClones();
         }
     }
 }

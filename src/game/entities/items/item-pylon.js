@@ -1,8 +1,165 @@
-// Item Pylon System - Multiplayer item drops that each player can interact with once
+// Item Pylon System - Multiplayer / local co-op item drops that each player claims once
 
 // Initialize item pylons array
 if (typeof Game !== 'undefined' && !Game.itemPylons) {
     Game.itemPylons = [];
+}
+
+/** True for online lobby OR local split — both use claim-once pylons instead of free-for-all ground items. */
+function shouldUseItemPylons() {
+    if (typeof Game !== 'undefined' && Game.localSplitEnabled) return true;
+    return !!(typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode);
+}
+
+/**
+ * Spawn a combat-item drop at (x, y).
+ * Local co-op / online MP → shared claim-once pylon (non-competitive).
+ * Solo → ground item (first player to touch gets it).
+ */
+function spawnItemDrop(x, y, itemDef) {
+    if (!itemDef) return null;
+
+    if (shouldUseItemPylons()) {
+        if (typeof createItemPylon !== 'function') {
+            console.error('[Item Drop] createItemPylon unavailable; refusing competitive ground drop in co-op');
+            return null;
+        }
+        const pylon = createItemPylon(x, y, itemDef);
+        if (typeof Game !== 'undefined') {
+            if (!Game.itemsDroppedThisRoom) Game.itemsDroppedThisRoom = 0;
+            Game.itemsDroppedThisRoom++;
+        }
+        return pylon;
+    }
+
+    const groundItem = {
+        id: 'item_' + Date.now() + '_' + Math.random(),
+        itemId: itemDef.id,
+        definition: itemDef,
+        x: x,
+        y: y,
+        size: 12,
+        pulse: 0,
+        pickupRadius: 30
+    };
+    if (typeof Game !== 'undefined') {
+        if (!Game.groundItems) Game.groundItems = [];
+        Game.groundItems.push(groundItem);
+        if (!Game.itemsDroppedThisRoom) Game.itemsDroppedThisRoom = 0;
+        Game.itemsDroppedThisRoom++;
+    }
+    return groundItem;
+}
+
+/** Convert any leftover solo ground items into pylons (e.g. enabling local co-op mid-run). */
+function convertGroundItemsToPylons() {
+    if (typeof Game === 'undefined' || !Game.groundItems || Game.groundItems.length === 0) return 0;
+    if (typeof createItemPylon !== 'function') return 0;
+    let converted = 0;
+    const leftover = Game.groundItems.splice(0, Game.groundItems.length);
+    for (const item of leftover) {
+        createItemPylon(item.x, item.y, item.definition || null);
+        converted++;
+    }
+    return converted;
+}
+
+function getItemPylonExpectedClaims() {
+    if (typeof Game !== 'undefined' && Game.localSplitEnabled) return 2;
+    if (typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.players) {
+        return Math.max(1, multiplayerManager.players.length);
+    }
+    return 1;
+}
+
+function getItemPylonClaimIds() {
+    if (typeof Game !== 'undefined' && Game.localSplitEnabled) {
+        const p1 = typeof Game.getLocalPlayerId === 'function' ? Game.getLocalPlayerId() : 'local';
+        return [p1, Game.localSplitPlayerId || 'local-seat-1'];
+    }
+    if (typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.players) {
+        return multiplayerManager.players.map(p => p && p.id).filter(Boolean);
+    }
+    return [];
+}
+
+function resolvePylonPlayerId(player) {
+    if (!player) return null;
+    if (player.playerId) return player.playerId;
+    if (typeof Game !== 'undefined' && Game.localSplitEnabled
+        && Game.remotePlayerInstances
+        && Game.remotePlayerInstances.get(Game.localSplitPlayerId) === player) {
+        return Game.localSplitPlayerId;
+    }
+    if (typeof Game !== 'undefined' && typeof Game.getLocalPlayerId === 'function') {
+        return Game.getLocalPlayerId();
+    }
+    if (typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.playerId) {
+        return multiplayerManager.playerId;
+    }
+    return 'local';
+}
+
+function rollItemForPylon(pylon) {
+    const pylonRarity = (pylon && pylon.rarity) || 'common';
+    if (typeof ITEM_DEFINITIONS === 'undefined') return null;
+    let pool = Object.values(ITEM_DEFINITIONS).filter(item => item.rarity === pylonRarity);
+    if (pool.length === 0) {
+        pool = Object.values(ITEM_DEFINITIONS).filter(item => item.rarity === 'common');
+    }
+    if (pool.length === 0) return null;
+    return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function grantPylonItemToPlayer(pylon, player, playerId) {
+    if (!pylon || !player || !player.itemManager || !playerId) return false;
+    if (!pylon.interactedPlayers) pylon.interactedPlayers = [];
+    if (pylon.interactedPlayers.includes(playerId)) return false;
+
+    const itemDef = rollItemForPylon(pylon);
+    if (!itemDef) return false;
+    const success = player.itemManager.addItem(itemDef.id);
+    if (!success) return false;
+
+    pylon.interactedPlayers.push(playerId);
+    if (typeof Telemetry !== 'undefined') {
+        Telemetry.recordEvent('itemPylonInteracted', {
+            roomNumber: typeof Game !== 'undefined' && Game.roomNumber ? Game.roomNumber : 1,
+            playerId,
+            targetId: pylon.id,
+            metadata: {
+                pylonId: pylon.id,
+                pylonRarity: pylon.rarity || 'common',
+                itemId: itemDef.id,
+                itemName: itemDef.name || null,
+                itemRarity: itemDef.rarity || null,
+                interactedCount: pylon.interactedPlayers.length,
+                localSplit: !!(typeof Game !== 'undefined' && Game.localSplitEnabled)
+            }
+        });
+    }
+
+    if (typeof Game !== 'undefined') {
+        if (!Game.itemPickupMessages) Game.itemPickupMessages = [];
+        Game.itemPickupMessages.push({
+            text: itemDef.name || itemDef.id,
+            x: player.x,
+            y: player.y - 40,
+            alpha: 1,
+            duration: 2.0,
+            color: (typeof ITEM_RARITY_COLORS !== 'undefined' && ITEM_RARITY_COLORS[itemDef.rarity])
+                || '#ffffff'
+        });
+    }
+    if (typeof GameAudio !== 'undefined' && GameAudio.sounds && GameAudio.sounds.pickupChime) {
+        GameAudio.sounds.pickupChime();
+    }
+
+    if (pylon.interactedPlayers.length >= getItemPylonExpectedClaims()) {
+        pylon.disappearing = true;
+        pylon.disappearProgress = 0;
+    }
+    return true;
 }
 
 // Rarity colors (use existing from item-ground.js if available, otherwise define fallback)
@@ -46,17 +203,11 @@ function updateItemPylons(deltaTime) {
 }
 
 // Check if player can interact with an item pylon
-function checkItemPylonInteraction(player) {
+function checkItemPylonInteraction(player, explicitPlayerId = null) {
     if (!Game.itemPylons || !player || !player.itemManager) return null;
+    if (!shouldUseItemPylons()) return null;
 
-    // Check if in multiplayer
-    const inMultiplayer = typeof multiplayerManager !== 'undefined' &&
-        multiplayerManager &&
-        multiplayerManager.lobbyCode;
-
-    if (!inMultiplayer) return null; // Only works in multiplayer
-
-    const playerId = multiplayerManager.playerId;
+    const playerId = explicitPlayerId || resolvePylonPlayerId(player);
     if (!playerId) return null;
 
     let nearest = null;
@@ -84,20 +235,13 @@ function checkItemPylonInteraction(player) {
 }
 
 // Interact with an item pylon (give player an item)
-function interactWithItemPylon(pylon, player) {
+function interactWithItemPylon(pylon, player, explicitPlayerId = null) {
     if (!pylon || !player || !player.itemManager) return false;
+    if (!shouldUseItemPylons()) return false;
 
-    // Check if in multiplayer
-    const inMultiplayer = typeof multiplayerManager !== 'undefined' &&
-        multiplayerManager &&
-        multiplayerManager.lobbyCode;
-
-    if (!inMultiplayer) return false;
-
-    const playerId = multiplayerManager.playerId;
+    const playerId = explicitPlayerId || resolvePylonPlayerId(player);
     if (!playerId) return false;
 
-    // Check if player already interacted
     if (!pylon.interactedPlayers) {
         pylon.interactedPlayers = [];
     }
@@ -105,6 +249,16 @@ function interactWithItemPylon(pylon, player) {
     if (pylon.interactedPlayers.includes(playerId)) {
         return false; // Already interacted
     }
+
+    // Local co-op: grant immediately on the shared sim (no network).
+    if (typeof Game !== 'undefined' && Game.localSplitEnabled) {
+        return grantPylonItemToPlayer(pylon, player, playerId);
+    }
+
+    const inMultiplayer = typeof multiplayerManager !== 'undefined' &&
+        multiplayerManager &&
+        multiplayerManager.lobbyCode;
+    if (!inMultiplayer) return false;
 
     // Send interaction request to host (host is authoritative)
     if (multiplayerManager.send) {
@@ -323,51 +477,93 @@ function renderItemPylons(ctx) {
             ctx.textBaseline = 'middle';
             ctx.fillText(icon, pylon.x, pylon.y);
 
-            // Draw interaction indicator (if player can interact)
+            // Draw interaction indicator (if any local-split / MP seat can interact)
             if (!pylon.disappearing) {
-                const inMultiplayer = typeof multiplayerManager !== 'undefined' &&
-                    multiplayerManager &&
-                    multiplayerManager.playerId;
+                const claimActors = [];
+                if (typeof Game !== 'undefined' && Game.localSplitEnabled) {
+                    if (typeof Game.getLocalCoopActors === 'function') {
+                        for (const actor of Game.getLocalCoopActors()) {
+                            claimActors.push({
+                                player: actor.player,
+                                playerId: actor.playerId,
+                                seat: actor.seat || null
+                            });
+                        }
+                    } else {
+                        if (Game.player && Game.player.alive) {
+                            claimActors.push({
+                                player: Game.player,
+                                playerId: typeof Game.getLocalPlayerId === 'function' ? Game.getLocalPlayerId() : 'local',
+                                seat: Game.localSplitSession && Game.localSplitSession.seats
+                                    ? Game.localSplitSession.seats[0] : null
+                            });
+                        }
+                        const p2 = Game.remotePlayerInstances && Game.remotePlayerInstances.get(Game.localSplitPlayerId);
+                        if (p2 && p2.alive) {
+                            claimActors.push({
+                                player: p2,
+                                playerId: Game.localSplitPlayerId,
+                                seat: Game.localSplitSession && Game.localSplitSession.seats
+                                    ? Game.localSplitSession.seats[1] : null
+                            });
+                        }
+                    }
+                } else if (typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.playerId && Game.player) {
+                    claimActors.push({ player: Game.player, playerId: multiplayerManager.playerId, seat: null });
+                }
 
-                if (inMultiplayer && Game.player) {
-                    const dx = pylon.x - Game.player.x;
-                    const dy = pylon.y - Game.player.y;
+                let bestPrompt = null;
+                let bestDist = 50;
+                for (const actor of claimActors) {
+                    if (!actor.player) continue;
+                    const dx = pylon.x - actor.player.x;
+                    const dy = pylon.y - actor.player.y;
                     const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist >= 50) continue;
 
-                    if (dist < 50) {
-                        // Check if player already interacted
-                        const playerId = multiplayerManager.playerId;
-                        const hasInteracted = pylon.interactedPlayers && pylon.interactedPlayers.includes(playerId);
+                    const hasInteracted = pylon.interactedPlayers && pylon.interactedPlayers.includes(actor.playerId);
+                    if (!hasInteracted && dist < bestDist) {
+                        bestDist = dist;
+                        bestPrompt = actor;
+                    } else if (!bestPrompt && dist < bestDist) {
+                        bestDist = dist;
+                        bestPrompt = { ...actor, claimed: true };
+                    }
+                }
 
-                        if (!hasInteracted) {
-                            // Show interaction prompt
-                            if (typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
-                                ctx.fillStyle = '#ffff00';
-                                ctx.globalAlpha = alpha;
-                                ctx.font = 'bold 12px Orbitron';
-                                ctx.textAlign = 'center';
-                                if (Input.drawInteractionPrompt) {
-                                    Input.drawInteractionPrompt(ctx, 'interact', pylon.x, pylon.y + radius + 20);
-                                } else {
-                                    const prompt = Input.getInteractionPrompt ? Input.getInteractionPrompt('interact') : 'Press G to interact';
-                                    ctx.fillText(prompt, pylon.x, pylon.y + radius + 20);
-                                }
-                            }
-                        } else {
-                            // Show "Already claimed" message
-                            ctx.fillStyle = '#888888';
-                            ctx.globalAlpha = alpha * 0.7;
+                if (bestPrompt) {
+                    const hasInteracted = bestPrompt.claimed
+                        || (pylon.interactedPlayers && pylon.interactedPlayers.includes(bestPrompt.playerId));
+                    if (!hasInteracted) {
+                        if ((typeof Engine !== 'undefined' && Engine.Input) && (!Engine.Input.shouldShowWorldInteractionHints || Engine.Input.shouldShowWorldInteractionHints())) {
+                            const promptOpts = bestPrompt.seat ? { seat: bestPrompt.seat } : null;
+                            ctx.fillStyle = '#ffff00';
+                            ctx.globalAlpha = alpha;
                             ctx.font = 'bold 12px Orbitron';
                             ctx.textAlign = 'center';
-                            ctx.fillText('Claimed', pylon.x, pylon.y + radius + 20);
+                            if (Engine.Input.drawInteractionPrompt) {
+                                Engine.Input.drawInteractionPrompt(ctx, 'interact', pylon.x, pylon.y + radius + 20, promptOpts);
+                            } else {
+                                const prompt = Engine.Input.getInteractionPrompt
+                                    ? Engine.Input.getInteractionPrompt('interact', promptOpts)
+                                    : 'Press G to interact';
+                                ctx.fillText(prompt, pylon.x, pylon.y + radius + 20);
+                            }
                         }
+                    } else {
+                        ctx.fillStyle = '#888888';
+                        ctx.globalAlpha = alpha * 0.7;
+                        ctx.font = 'bold 12px Orbitron';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('Claimed', pylon.x, pylon.y + radius + 20);
                     }
                 }
             }
 
             // Draw player interaction indicators (small dots for each player who interacted)
             if (pylon.interactedPlayers && pylon.interactedPlayers.length > 0) {
-                const totalPlayers = multiplayerManager && multiplayerManager.players ? multiplayerManager.players.length : 1;
+                const claimIds = getItemPylonClaimIds();
+                const totalPlayers = Math.max(getItemPylonExpectedClaims(), claimIds.length || 1);
                 const indicatorRadius = 3;
                 const indicatorSpacing = 8;
                 const startX = pylon.x - ((totalPlayers - 1) * indicatorSpacing) / 2;
@@ -376,10 +572,7 @@ function renderItemPylons(ctx) {
                     const indicatorX = startX + i * indicatorSpacing;
                     const indicatorY = pylon.y - radius - 15;
 
-                    const playerId = multiplayerManager && multiplayerManager.players && multiplayerManager.players[i]
-                        ? multiplayerManager.players[i].id
-                        : null;
-
+                    const playerId = claimIds[i] || null;
                     const hasInteracted = playerId && pylon.interactedPlayers.includes(playerId);
 
                     ctx.fillStyle = hasInteracted ? '#00ff00' : '#444444';
@@ -415,58 +608,96 @@ function renderItemPylons(ctx) {
 
         ctx.restore();
 
-        // Draw interaction indicator (if player can interact)
+        // Draw interaction indicator (if any local-split / MP seat can interact)
         // Note: Interaction text is dynamic and view-dependent, so we don't cache it
         if (!pylon.disappearing) {
-            const inMultiplayer = typeof multiplayerManager !== 'undefined' &&
-                multiplayerManager &&
-                multiplayerManager.playerId;
+            const claimActors = [];
+            if (typeof Game !== 'undefined' && Game.localSplitEnabled && typeof Game.getLocalCoopActors === 'function') {
+                for (const actor of Game.getLocalCoopActors()) {
+                    claimActors.push({
+                        player: actor.player,
+                        playerId: actor.playerId,
+                        seat: actor.seat || null
+                    });
+                }
+            } else if (typeof Game !== 'undefined' && Game.localSplitEnabled) {
+                if (Game.player && Game.player.alive) {
+                    claimActors.push({
+                        player: Game.player,
+                        playerId: typeof Game.getLocalPlayerId === 'function' ? Game.getLocalPlayerId() : 'local',
+                        seat: Game.localSplitSession && Game.localSplitSession.seats
+                            ? Game.localSplitSession.seats[0] : null
+                    });
+                }
+                const p2 = Game.remotePlayerInstances && Game.remotePlayerInstances.get(Game.localSplitPlayerId);
+                if (p2 && p2.alive) {
+                    claimActors.push({
+                        player: p2,
+                        playerId: Game.localSplitPlayerId,
+                        seat: Game.localSplitSession && Game.localSplitSession.seats
+                            ? Game.localSplitSession.seats[1] : null
+                    });
+                }
+            } else if (typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.playerId && Game.player) {
+                claimActors.push({ player: Game.player, playerId: multiplayerManager.playerId, seat: null });
+            }
 
-            if (inMultiplayer && Game.player) {
-                const dx = pylon.x - Game.player.x;
-                const dy = pylon.y - Game.player.y;
+            let bestPrompt = null;
+            let bestDist = 50;
+            for (const actor of claimActors) {
+                if (!actor.player) continue;
+                const dx = pylon.x - actor.player.x;
+                const dy = pylon.y - actor.player.y;
                 const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist >= 50) continue;
+                const hasInteracted = pylon.interactedPlayers && pylon.interactedPlayers.includes(actor.playerId);
+                if (!hasInteracted && dist < bestDist) {
+                    bestDist = dist;
+                    bestPrompt = actor;
+                } else if (!bestPrompt) {
+                    bestDist = dist;
+                    bestPrompt = { ...actor, claimed: true };
+                }
+            }
 
-                if (dist < 50) {
-                    // Check if player already interacted
-                    const playerId = multiplayerManager.playerId;
-                    const hasInteracted = pylon.interactedPlayers && pylon.interactedPlayers.includes(playerId);
-
-                    const radius = (pylon.size + pulseSize) * scale;
-
-                    if (!hasInteracted) {
-                        // Show interaction prompt
-                        ctx.save();
-                        ctx.fillStyle = '#ffff00';
-                        ctx.globalAlpha = alpha;
-                        ctx.font = 'bold 12px Orbitron';
-                        ctx.textAlign = 'center';
-                        if (typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
-                            if (Input.drawInteractionPrompt) {
-                                Input.drawInteractionPrompt(ctx, 'interact', pylon.x, pylon.y + radius + 20);
-                            } else {
-                                const prompt = Input.getInteractionPrompt ? Input.getInteractionPrompt('interact') : 'Press G to interact';
-                                ctx.fillText(prompt, pylon.x, pylon.y + radius + 20);
-                            }
+            if (bestPrompt) {
+                const hasInteracted = bestPrompt.claimed
+                    || (pylon.interactedPlayers && pylon.interactedPlayers.includes(bestPrompt.playerId));
+                const radius = (pylon.size + pulseSize) * scale;
+                if (!hasInteracted) {
+                    ctx.save();
+                    ctx.fillStyle = '#ffff00';
+                    ctx.globalAlpha = alpha;
+                    ctx.font = 'bold 12px Orbitron';
+                    ctx.textAlign = 'center';
+                    const promptOpts = bestPrompt.seat ? { seat: bestPrompt.seat } : null;
+                    if ((typeof Engine !== 'undefined' && Engine.Input) && (!Engine.Input.shouldShowWorldInteractionHints || Engine.Input.shouldShowWorldInteractionHints())) {
+                        if (Engine.Input.drawInteractionPrompt) {
+                            Engine.Input.drawInteractionPrompt(ctx, 'interact', pylon.x, pylon.y + radius + 20, promptOpts);
+                        } else {
+                            const prompt = Engine.Input.getInteractionPrompt
+                                ? Engine.Input.getInteractionPrompt('interact', promptOpts)
+                                : 'Press G to interact';
+                            ctx.fillText(prompt, pylon.x, pylon.y + radius + 20);
                         }
-                        ctx.restore();
-                    } else {
-                        // Show "Already claimed" message
-                        ctx.save();
-                        ctx.fillStyle = '#888888';
-                        ctx.globalAlpha = alpha * 0.7;
-                        ctx.font = 'bold 12px Orbitron';
-                        ctx.textAlign = 'center';
-                        ctx.fillText('Claimed', pylon.x, pylon.y + radius + 20);
-                        ctx.restore();
                     }
+                    ctx.restore();
+                } else {
+                    ctx.save();
+                    ctx.fillStyle = '#888888';
+                    ctx.globalAlpha = alpha * 0.7;
+                    ctx.font = 'bold 12px Orbitron';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Claimed', pylon.x, pylon.y + radius + 20);
+                    ctx.restore();
                 }
             }
         }
 
         // Draw player interaction indicators (small dots for each player who interacted)
         if (pylon.interactedPlayers && pylon.interactedPlayers.length > 0) {
-            const totalPlayers = multiplayerManager && multiplayerManager.players ? multiplayerManager.players.length : 1;
+            const claimIds = getItemPylonClaimIds();
+            const totalPlayers = Math.max(getItemPylonExpectedClaims(), claimIds.length || 1);
             const indicatorRadius = 3;
             const indicatorSpacing = 8;
             const startX = pylon.x - ((totalPlayers - 1) * indicatorSpacing) / 2;
@@ -476,10 +707,7 @@ function renderItemPylons(ctx) {
                 const indicatorX = startX + i * indicatorSpacing;
                 const indicatorY = pylon.y - radius - 15;
 
-                const playerId = multiplayerManager && multiplayerManager.players && multiplayerManager.players[i]
-                    ? multiplayerManager.players[i].id
-                    : null;
-
+                const playerId = claimIds[i] || null;
                 const hasInteracted = playerId && pylon.interactedPlayers.includes(playerId);
 
                 ctx.save();
@@ -509,6 +737,11 @@ function serializeItemPylonForNetwork(pylon) {
 }
 
 // Export functions
+window.shouldUseItemPylons = shouldUseItemPylons;
+window.spawnItemDrop = spawnItemDrop;
+window.convertGroundItemsToPylons = convertGroundItemsToPylons;
+window.getItemPylonExpectedClaims = getItemPylonExpectedClaims;
+window.grantPylonItemToPlayer = grantPylonItemToPlayer;
 window.updateItemPylons = updateItemPylons;
 window.checkItemPylonInteraction = checkItemPylonInteraction;
 window.interactWithItemPylon = interactWithItemPylon;

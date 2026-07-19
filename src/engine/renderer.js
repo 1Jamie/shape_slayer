@@ -40,7 +40,7 @@ const Renderer = {
     },
 
     // Screen shake update tick
-    updateScreenShake(deltaTime) {
+    updateScreenShake(deltaTime, rng = Math.random) {
         if (this.screenShakeDuration > 0) {
             this.screenShakeDuration -= deltaTime;
             const baseShake = this.screenShakeIntensity * 10;
@@ -48,14 +48,14 @@ const Renderer = {
             let yOffset = 0;
 
             if (this.screenShakeDirection === Engine.FX.ShakeBias.VERTICAL) {
-                xOffset = (Math.random() - 0.5) * baseShake * 0.4;
-                yOffset = (Math.random() - 0.5) * baseShake * 1.2;
+                xOffset = (rng() - 0.5) * baseShake * 0.4;
+                yOffset = (rng() - 0.5) * baseShake * 1.2;
             } else if (this.screenShakeDirection === Engine.FX.ShakeBias.HORIZONTAL) {
-                xOffset = (Math.random() - 0.5) * baseShake * 1.2;
-                yOffset = (Math.random() - 0.5) * baseShake * 0.4;
+                xOffset = (rng() - 0.5) * baseShake * 1.2;
+                yOffset = (rng() - 0.5) * baseShake * 0.4;
             } else {
-                xOffset = (Math.random() - 0.5) * baseShake;
-                yOffset = (Math.random() - 0.5) * baseShake;
+                xOffset = (rng() - 0.5) * baseShake;
+                yOffset = (rng() - 0.5) * baseShake;
             }
 
             this.screenShakeOffset.x = xOffset;
@@ -133,8 +133,6 @@ Engine.Renderer = Renderer;
 if (typeof window !== 'undefined') {
     window.Engine = window.Engine || {};
     window.Engine.Renderer = Renderer;
-    // Keep global fallback for browser runtime compatibility
-    window.Renderer = Renderer;
 }
 
 if (typeof module !== 'undefined' && module.exports) {

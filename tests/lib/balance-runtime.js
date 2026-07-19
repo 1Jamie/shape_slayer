@@ -147,7 +147,7 @@ function createVmContext(options = {}) {
         clearTimeout,
         performance: { now: () => Date.now() },
         createParticleBurst: () => {},
-        AudioManager: { sounds: { bossSpawn: () => {} } },
+        GameAudio: { sounds: { bossSpawn: () => {} } },
         document: {
             createElement: () => ({
                 getContext: () => ({

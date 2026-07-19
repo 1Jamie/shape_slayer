@@ -282,16 +282,23 @@ function renderGearTooltips(ctx, player) {
     ctx.fillText('→', tooltipX, tooltipY);
 
     // Draw pickup prompt when keyboard/mouse or gamepad world hints are active.
-    if (typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
+    if ((typeof Engine !== 'undefined' && Engine.Input) && (!Engine.Input.shouldShowWorldInteractionHints || Engine.Input.shouldShowWorldInteractionHints())) {
         ctx.fillStyle = '#ffff00';
         ctx.font = 'bold 12px Arial';
         ctx.textAlign = 'center';
 
+        let promptOpts = null;
+        if (typeof Game !== 'undefined' && Game.getInteractionPromptOptionsNear && gear) {
+            promptOpts = Game.getInteractionPromptOptionsNear(gear.x, gear.y, 60);
+        }
+
         let promptY = tooltipY + tooltipHeight / 2 - 8;
-        if (Input.drawInteractionPrompt) {
-            Input.drawInteractionPrompt(ctx, 'pick up', tooltipX, promptY);
+        if (Engine.Input.drawInteractionPrompt) {
+            Engine.Input.drawInteractionPrompt(ctx, 'pick up', tooltipX, promptY, promptOpts);
         } else {
-            const prompt = Input.getInteractionPrompt ? Input.getInteractionPrompt('pick up') : 'Press G to pickup';
+            const prompt = Engine.Input.getInteractionPrompt
+                ? Engine.Input.getInteractionPrompt('pick up', promptOpts)
+                : 'Press G to pickup';
             ctx.fillText(prompt, tooltipX, promptY);
         }
 
@@ -300,9 +307,13 @@ function renderGearTooltips(ctx, player) {
             promptY += 18;
             ctx.fillStyle = '#aaaaaa';
             ctx.font = '11px Arial';
-            const usingGamepad = typeof Input !== 'undefined'
-                && ((Input.isGamepadMode && Input.isGamepadMode())
-                    || Input._activeInputSource === 'gamepad');
+            const promptCtx = Engine.Input._resolvePromptContext
+                ? Engine.Input._resolvePromptContext(promptOpts)
+                : null;
+            const usingGamepad = promptCtx
+                ? promptCtx.mode === 'gamepad'
+                : ((Engine.Input.isGamepadMode && Engine.Input.isGamepadMode())
+                    || Engine.Input._activeInputSource === 'gamepad');
             const cycleHint = usingGamepad
                 ? `D-pad ← → to cycle (${LootSelection.selectedIndex + 1}/${nearbyCount})`
                 : `← → to cycle (${LootSelection.selectedIndex + 1}/${nearbyCount})`;

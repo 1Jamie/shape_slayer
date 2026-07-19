@@ -167,6 +167,10 @@ class MultiplayerManager {
     // Connect to multiplayer server
     connect(targetUrl = null, redirectHops = 0) {
         return new Promise((resolve, reject) => {
+            if (typeof Game !== 'undefined' && Game.localSplitEnabled) {
+                reject(new Error('Online multiplayer is unavailable during a local split session.'));
+                return;
+            }
             if (this.connected || this.connecting) {
                 resolve();
                 return;
@@ -1171,7 +1175,7 @@ class MultiplayerManager {
     
     // Serialize current input state
     serializeInput() {
-        if (typeof Input === 'undefined') {
+        if ((typeof Engine === 'undefined' || !Engine.Input)) {
             return { 
                 keys: {}, 
                 mouse: { x: 0, y: 0 }, 
@@ -1183,8 +1187,8 @@ class MultiplayerManager {
         
         // Serialize touch joysticks (extract needed properties)
         const serializedJoysticks = {};
-        if (Input.touchJoysticks) {
-            for (const [name, joystick] of Object.entries(Input.touchJoysticks)) {
+        if (Engine.Input.touchJoysticks) {
+            for (const [name, joystick] of Object.entries(Engine.Input.touchJoysticks)) {
                 // Call getDirection() and getMagnitude() methods instead of accessing properties directly
                 const direction = joystick.getDirection ? joystick.getDirection() : { x: 0, y: 0 };
                 const magnitude = joystick.getMagnitude ? joystick.getMagnitude() : (joystick.magnitude || 0);
@@ -1203,8 +1207,8 @@ class MultiplayerManager {
         
         // Serialize touch buttons (extract needed properties)
         const serializedButtons = {};
-        if (Input.touchButtons) {
-            for (const [name, button] of Object.entries(Input.touchButtons)) {
+        if (Engine.Input.touchButtons) {
+            for (const [name, button] of Object.entries(Engine.Input.touchButtons)) {
                 // Debug: Log when button has finalJoystickState
                 if (button.finalJoystickState) {
                     console.log(`[Client] Button ${name} has finalJoystickState - mag: ${button.finalJoystickState.magnitude}, dir: (${button.finalJoystickState.direction.x.toFixed(2)}, ${button.finalJoystickState.direction.y.toFixed(2)})`);
@@ -1225,7 +1229,7 @@ class MultiplayerManager {
         }
         
         // Check if in touch mode
-        const isTouchMode = Input.isTouchMode ? Input.isTouchMode() : false;
+        const isTouchMode = Engine.Input.isTouchMode ? Engine.Input.isTouchMode() : false;
         
         // Debug: Log touch mode state (only once per second to avoid spam)
         if (!this._lastTouchModeLog || Date.now() - this._lastTouchModeLog > 1000) {
@@ -1237,19 +1241,19 @@ class MultiplayerManager {
         
         return {
             // Movement keys
-            up: Input.getKeyState('w'),
-            down: Input.getKeyState('s'),
-            left: Input.getKeyState('a'),
-            right: Input.getKeyState('d'),
+            up: Engine.Input.getKeyState('w'),
+            down: Engine.Input.getKeyState('s'),
+            left: Engine.Input.getKeyState('a'),
+            right: Engine.Input.getKeyState('d'),
             
             // Mouse/aim - send WORLD coordinates (accounting for camera)
-            mouse: Input.getWorldMousePos ? Input.getWorldMousePos() : { x: 0, y: 0 },
-            mouseLeft: Input.mouseLeft || false,
-            mouseRight: Input.mouseRight || false,
+            mouse: Engine.Input.getWorldMousePos ? Engine.Input.getWorldMousePos() : { x: 0, y: 0 },
+            mouseLeft: Engine.Input.mouseLeft || false,
+            mouseRight: Engine.Input.mouseRight || false,
             
             // Abilities
-            space: Input.getKeyState(' '),
-            shift: Input.getKeyState('shift'),
+            space: Engine.Input.getKeyState(' '),
+            shift: Engine.Input.getKeyState('shift'),
             
             // Touch controls (if applicable)
             isTouchMode: isTouchMode,
@@ -1257,7 +1261,7 @@ class MultiplayerManager {
             touchButtons: serializedButtons,
             
             // All keys (for any special bindings)
-            keys: Input.keys || {}
+            keys: Engine.Input.keys || {}
         };
     }
     
@@ -2818,10 +2822,10 @@ class MultiplayerManager {
                 createParticleBurst(enemy.x, enemy.y, enemy.color, 12);
             }
             
-            if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.initialized && AudioManager.sounds.enemyDeath) {
+            if (typeof GameAudio !== 'undefined' && GameAudio.sounds && typeof Engine !== 'undefined' && Engine.Audio && Engine.Audio.initialized && GameAudio.sounds.enemyDeath) {
                 setTimeout(() => {
-                    if (AudioManager.sounds && AudioManager.sounds.enemyDeath) {
-                        AudioManager.sounds.enemyDeath();
+                    if (GameAudio.sounds && GameAudio.sounds.enemyDeath) {
+                        GameAudio.sounds.enemyDeath();
                     }
                 }, 50);
             }
@@ -2947,7 +2951,9 @@ class MultiplayerManager {
         }
         
         // Check if all players have interacted
-        const totalPlayers = this.players ? this.players.length : 1;
+        const totalPlayers = typeof getItemPylonExpectedClaims === 'function'
+            ? getItemPylonExpectedClaims()
+            : (this.players ? this.players.length : 1);
         if (pylon.interactedPlayers.length >= totalPlayers) {
             pylon.disappearing = true;
             pylon.disappearProgress = 0;
@@ -2975,8 +2981,8 @@ class MultiplayerManager {
             showItemPickupMessage(itemName, itemRarity);
         }
         
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.sounds.pickupChime) {
-            AudioManager.sounds.pickupChime();
+        if (typeof GameAudio !== 'undefined' && GameAudio.sounds && GameAudio.sounds.pickupChime) {
+            GameAudio.sounds.pickupChime();
         }
         
         console.log(`[Multiplayer] Pylon pickup: ${itemId} from ${pylonId}`);
@@ -3069,7 +3075,9 @@ class MultiplayerManager {
             }
             
             // Check if all players have interacted
-            const totalPlayers = this.players ? this.players.length : 1;
+            const totalPlayers = typeof getItemPylonExpectedClaims === 'function'
+                ? getItemPylonExpectedClaims()
+                : (this.players ? this.players.length : 1);
             if (pylon.interactedPlayers.length >= totalPlayers) {
                 // Start disappear animation
                 pylon.disappearing = true;
@@ -3499,14 +3507,14 @@ class MultiplayerManager {
             }
         }
         
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.initialized) {
+        if (typeof GameAudio !== 'undefined' && GameAudio.sounds && typeof Engine !== 'undefined' && Engine.Audio && Engine.Audio.initialized) {
             const intensity = Math.min(Math.max(damage / 50, 0.2), 2.0);
-            if (isWeakPoint && AudioManager.sounds.hitWeakPoint) {
-                AudioManager.sounds.hitWeakPoint(intensity);
-            } else if (isCrit && AudioManager.sounds.hitCritical) {
-                AudioManager.sounds.hitCritical(intensity);
-            } else if (AudioManager.sounds.hitNormal) {
-                AudioManager.sounds.hitNormal(intensity);
+            if (isWeakPoint && GameAudio.sounds.hitWeakPoint) {
+                GameAudio.sounds.hitWeakPoint(intensity);
+            } else if (isCrit && GameAudio.sounds.hitCritical) {
+                GameAudio.sounds.hitCritical(intensity);
+            } else if (GameAudio.sounds.hitNormal) {
+                GameAudio.sounds.hitNormal(intensity);
             }
         }
     }

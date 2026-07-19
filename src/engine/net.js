@@ -193,13 +193,13 @@
             });
         }
 
-        getSmoothedPosition(entityId, currentX, currentY, currentRotation, targetX, targetY, targetRotation, deltaTime) {
+        getSmoothedPosition(entityId, currentX, currentY, currentRotation, targetX, targetY, targetRotation, deltaTime, currentTime = Date.now()) {
             const buffer = this.buffers.get(entityId);
             if (!buffer || !buffer.states.length) {
                 return { x: targetX, y: targetY, rotation: targetRotation };
             }
             const latestTime = buffer.states[buffer.states.length - 1].timestamp;
-            const elapsed = Math.max(0, (Date.now() - latestTime) / 1000);
+            const elapsed = Math.max(0, (currentTime - latestTime) / 1000);
             let projectedX = targetX;
             let projectedY = targetY;
             if (elapsed > 0 && elapsed < this.config.maxExtrapolationSeconds) {
@@ -244,8 +244,8 @@
             this.buffers.delete(entityId);
         }
 
-        cleanup(maxAge) {
-            this.buffers.forEach(buffer => buffer.cleanup(maxAge));
+        cleanup(maxAge, currentTime = Date.now()) {
+            this.buffers.forEach(buffer => buffer.cleanup(maxAge, currentTime));
         }
 
         clear() {

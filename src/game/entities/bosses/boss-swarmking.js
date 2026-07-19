@@ -491,8 +491,8 @@ class BossSwarmKing extends BossBase {
                                 if (typeof Game !== 'undefined') {
                                     Game.triggerScreenShake(12, 0.35, 'boss');
                                 }
-                                if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.sounds.enemySlam) {
-                                    AudioManager.sounds.enemySlam();
+                                if (typeof GameAudio !== 'undefined' && GameAudio.sounds && GameAudio.sounds.enemySlam) {
+                                    GameAudio.sounds.enemySlam();
                                 }
 
                                 this.dashCount++;
@@ -1011,8 +1011,8 @@ class BossSwarmKing extends BossBase {
         if (typeof Game !== 'undefined') {
             Game.triggerScreenShake(3 + Math.min(2, routes.length - 1), 0.18, 'boss');
         }
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.sounds.swarmPheromoneWindup) {
-            AudioManager.sounds.swarmPheromoneWindup();
+        if (typeof GameAudio !== 'undefined' && GameAudio.sounds && GameAudio.sounds.swarmPheromoneWindup) {
+            GameAudio.sounds.swarmPheromoneWindup();
         }
         this.summonGlobalCooldown = this.getSummonGlobalCooldown();
         this.pheromoneCooldown = phaseConfig.cooldown;

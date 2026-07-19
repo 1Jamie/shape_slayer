@@ -43,7 +43,7 @@ window.GameInput = {
      */
     getAbilityInputType(classType, ability) {
         if (typeof MobileControlLayout !== 'undefined' && MobileControlLayout.resolveControlType) {
-            const layout = typeof Input !== 'undefined' ? Input._activeControlLayout : null;
+            const layout = window.Engine && Engine.Input ? Engine.Input._activeControlLayout : null;
             const ctrl = layout && layout.controls ? layout.controls[ability] : null;
             return MobileControlLayout.resolveControlType(ability, classType, ctrl, layout);
         }
@@ -64,7 +64,7 @@ window.GameInput = {
         const mobile  = { primary: 'Tap Primary', heavy: 'Tap Heavy', special: 'Tap Special', dash: 'Tap Dodge' };
         const gamepad = { primary: 'RT', heavy: 'LT', special: 'LB', dash: 'RB' };
 
-        const input = (typeof Input !== 'undefined') ? Input : Engine.Input;
+        const input = Engine.Input;
         if (input.isGamepadMode())     return gamepad[key] || '';
         if (input.isMobileUiMode())    return mobile[key]  || '';
         return desktop[key] || '';
@@ -396,15 +396,28 @@ if (typeof window !== 'undefined') {
             screenToWorld(x, y) {
                 const game = window.Game;
                 if (!game || !game.config) return { x, y };
-                const camera = game.state === 'NEXUS' ? game.nexusCamera : game.camera;
+                let activeViewport = game._activeRenderViewport;
+                let camera = game._activeRenderCamera
+                    || (game.state === 'NEXUS' ? game.nexusCamera : game.camera);
+                // During PLAYING split updates, mouse aim must use P1's left viewport + camera
+                // (render-time _activeRender* is unset between passes).
+                if (!activeViewport && game.localSplitEnabled && game.localSplitSession
+                    && game.state === 'PLAYING') {
+                    activeViewport = game.localSplitSession.viewports.seat0;
+                    camera = game.camera;
+                }
                 if (!camera) return { x, y };
                 const zoom = typeof game.getViewZoom === 'function'
                     ? game.getViewZoom()
                     : (game.baseZoom || 1.1);
+                const viewW = activeViewport ? activeViewport.w : game.config.width;
+                const viewH = activeViewport ? activeViewport.h : game.config.height;
+                const localX = activeViewport ? x - activeViewport.x : x;
+                const localY = activeViewport ? y - activeViewport.y : y;
                 return camera
-                    .setViewSize(game.config.width, game.config.height)
+                    .setViewSize(viewW, viewH)
                     .setZoom(zoom)
-                    .screenToWorld(x, y);
+                    .screenToWorld(localX, localY, game.screenShakeOffset || null);
             },
             getAimOrigin() {
                 return window.Game && window.Game.player ? window.Game.player : null;
@@ -446,30 +459,96 @@ if (typeof window !== 'undefined') {
                     game.setupResponsiveCanvas();
                 }
             },
+            loadControlMode() {
+                return typeof SaveSystem !== 'undefined' && SaveSystem.getControlMode
+                    ? SaveSystem.getControlMode()
+                    : null;
+            },
+            recordTelemetry(type, metadata) {
+                if (typeof Telemetry !== 'undefined' && Telemetry && Telemetry.recordEvent) {
+                    Telemetry.recordEvent(type, metadata);
+                }
+            },
+            isDomTouchControlsActive() {
+                return typeof MobileControlsDOM !== 'undefined' &&
+                    !!MobileControlsDOM.layer &&
+                    !MobileControlsDOM.layer.hidden;
+            },
+            refreshDomTouchControls() {
+                if (typeof MobileControlsDOM === 'undefined' || !MobileControlsDOM.refresh) return;
+                if (MobileControlsDOM.shouldShow && MobileControlsDOM.layer) {
+                    const want = MobileControlsDOM.shouldShow();
+                    if (want === MobileControlsDOM.layer.hidden) MobileControlsDOM.refresh();
+                }
+            },
+            onInputSurfaceReady() {
+                if (typeof MobileControlsDOM !== 'undefined' && MobileControlsDOM.onInputSurfaceReady) {
+                    MobileControlsDOM.onInputSurfaceReady();
+                }
+            },
+            getMobileControlLayout(width, height, options) {
+                return typeof MobileControlLayout !== 'undefined' && MobileControlLayout.getEffectiveLayout
+                    ? MobileControlLayout.getEffectiveLayout(width, height, options)
+                    : null;
+            },
+            isUiBlockingGameplay() {
+                return !!(window.ControllerNav
+                    && typeof window.ControllerNav.isBlockingGameplay === 'function'
+                    && window.ControllerNav.isBlockingGameplay());
+            },
+            uiHandlesSystemButtons() {
+                return !!(window.ControllerNav && window.ControllerNav.handlesSystemButtons);
+            },
+            isLootCycleActive(dpadLeft, dpadRight, dpadUp, dpadDown) {
+                return typeof LootSelection !== 'undefined'
+                    && LootSelection.nearbyItems
+                    && LootSelection.nearbyItems.length > 1
+                    && (dpadLeft || dpadRight)
+                    && !dpadUp
+                    && !dpadDown;
+            },
+            onCharacterSheetTouchStart(x, y, clientY) {
+                if (typeof CharacterSheet === 'undefined' || !CharacterSheet.isOpen) return false;
+                CharacterSheet.lastTouchY = clientY;
+                if (CharacterSheet.closeButtonBounds) {
+                    const b = CharacterSheet.closeButtonBounds;
+                    if (x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height) {
+                        CharacterSheet.isOpen = false;
+                        return true;
+                    }
+                }
+                return false;
+            },
+            onCharacterSheetTouchMove(x, y, clientY) {
+                if (typeof CharacterSheet === 'undefined' || !CharacterSheet.isOpen) return false;
+                if (CharacterSheet.lastTouchY == null) {
+                    CharacterSheet.lastTouchY = clientY;
+                    return false;
+                }
+                const deltaY = CharacterSheet.lastTouchY - clientY;
+                if (typeof handleCharacterSheetScroll === 'function' &&
+                    handleCharacterSheetScroll(x, y, deltaY)) {
+                    CharacterSheet.lastTouchY = clientY;
+                    return true;
+                }
+                CharacterSheet.lastTouchY = clientY;
+                return false;
+            },
+            onInteractionButtonClick(x, y) {
+                return typeof handleInteractionButtonClick === 'function'
+                    && handleInteractionButtonClick(x, y);
+            },
+            getTutorialHighlightControl() {
+                return typeof Room0Tutorial !== 'undefined' && Room0Tutorial.getHighlightControl
+                    ? Room0Tutorial.getHighlightControl()
+                    : null;
+            },
             renderTouchControls(ctx, inputSurface) {
                 GameInput.renderTouchControls(ctx, inputSurface);
             }
         });
     }
 
-    // Backwards-compatibility shims: patch window.Input (Engine.Input) so existing call
-    // sites that use Input.getCombatPrompt / Input.classInputConfig /
-    // Input.getMobileCooldownSnapshot continue to work unchanged.
-    // These are thin forwarding proxies; the canonical implementations live in GameInput.
-    if (window.Input) {
-        window.Input.getCombatPrompt = function(ability) {
-            return GameInput.getCombatPrompt(ability);
-        };
-        window.Input.getMobileCooldownSnapshot = function(player) {
-            return GameInput.getMobileCooldownSnapshot(player);
-        };
-        window.Input.getAbilityInputType = function(classType, ability) {
-            return GameInput.getAbilityInputType(classType, ability);
-        };
-        // classInputConfig is referenced directly as a property in some call sites;
-        // point it at GameInput's copy.
-        window.Input.classInputConfig = GameInput.classInputConfig;
-    }
 }
 
 if (typeof module !== 'undefined' && module.exports) {

@@ -484,9 +484,9 @@
 		}
 		// Prefer action buttons on gamepad; text fields need a keyboard
 		setTimeout(() => {
-			const usingGamepad = typeof Input !== 'undefined'
-				&& ((Input.isGamepadMode && Input.isGamepadMode())
-					|| Input._activeInputSource === 'gamepad');
+			const usingGamepad = (typeof Engine !== 'undefined' && Engine.Input)
+				&& ((Engine.Input.isGamepadMode && Engine.Input.isGamepadMode())
+					|| Engine.Input._activeInputSource === 'gamepad');
 			const mgr = getMultiplayerManager();
 			const inLobby = !!(mgr && mgr.lobbyCode);
 			if (usingGamepad) {

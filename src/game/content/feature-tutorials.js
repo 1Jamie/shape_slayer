@@ -353,14 +353,14 @@ const FeatureTutorials = {
     },
 
     _interactHint(action) {
-        if (typeof Input !== 'undefined' && Input.getInteractionPrompt) {
-            return Input.getInteractionPrompt(action);
+        if ((typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.getInteractionPrompt) {
+            return Engine.Input.getInteractionPrompt(action);
         }
         return 'Press G to open';
     },
 
     _skipHint() {
-        const gamepad = typeof Input !== 'undefined' && Input.controlMode === 'gamepad';
+        const gamepad = (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.controlMode === 'gamepad';
         if (gamepad) return 'Stuck? Pause → Skip Machine Guide';
         return 'Stuck? Use Skip Guide';
     },
@@ -587,7 +587,7 @@ const FeatureTutorials = {
         const viewW = viewHalfW * 2;
         const viewH = viewHalfH * 2;
 
-        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
+        const isMobile = (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileUiMode && Engine.Input.isMobileUiMode();
         const padX = isMobile ? 14 : 16;
         const cardW = Math.min(isMobile ? 300 : 400, Math.max(240, Math.min(rect.w + 80, viewW - 40)));
         const lineHeight = isMobile ? 15 : 16;

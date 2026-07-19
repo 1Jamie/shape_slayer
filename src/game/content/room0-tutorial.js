@@ -351,8 +351,8 @@ const Room0Tutorial = {
 
     _abilityCoachCopy(stepKey, abilityKey, fallbackTitle, fallbackBody) {
         const hint = (() => {
-            if (typeof Input !== 'undefined' && Input.getCombatPrompt) {
-                const p = Input.getCombatPrompt(abilityKey);
+            if ((typeof Engine !== 'undefined' && Engine.Input) && GameInput.getCombatPrompt) {
+                const p = GameInput.getCombatPrompt(abilityKey);
                 return p ? ` (${p})` : '';
             }
             return '';
@@ -539,9 +539,9 @@ const Room0Tutorial = {
                 };
             case this.STEPS.EXIT: {
                 let interactHint = '';
-                if (typeof Input !== 'undefined' && Input.getInteractionPrompt) {
-                    interactHint = ` ${Input.getInteractionPrompt('enter')}.`;
-                } else if (typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode()) {
+                if ((typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.getInteractionPrompt) {
+                    interactHint = ` ${Engine.Input.getInteractionPrompt('enter')}.`;
+                } else if ((typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileUiMode && Engine.Input.isMobileUiMode()) {
                     interactHint = ' Tap Enter Door when nearby.';
                 } else {
                     interactHint = ' Press G when nearby.';
@@ -644,7 +644,7 @@ const Room0Tutorial = {
         const viewH = viewHalfH * 2;
         const exitRect = this.isExitCoachActive() ? this.getExitSpotlightRect() : null;
 
-        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
+        const isMobile = (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileUiMode && Engine.Input.isMobileUiMode();
         const padX = isMobile ? 14 : 18;
         const boxW = Math.min(isMobile ? 300 : 400, viewW - 40);
         const titleFont = isMobile ? 'bold 15px Orbitron' : 'bold 17px Orbitron';

@@ -250,39 +250,67 @@
         }
     };
 
+    function normalizeSpriteCacheEntry(entry) {
+        if (entry && typeof entry === 'object' && Object.prototype.hasOwnProperty.call(entry, 'value')) {
+            return entry;
+        }
+        return { value: entry, dispose: null };
+    }
+
+    function disposeSpriteCacheEntry(entry) {
+        if (entry && typeof entry.dispose === 'function') {
+            entry.dispose(entry.value);
+        }
+    }
+
     const SpriteCache = {
         _entries: new Map(),
 
-        get(key, factory) {
+        get(key, factory, disposeFn) {
             requireStringKey(key);
-            if (this._entries.has(key)) return this._entries.get(key);
+            if (this._entries.has(key)) return normalizeSpriteCacheEntry(this._entries.get(key)).value;
             if (typeof factory !== 'function') return null;
             const value = factory(key);
-            this._entries.set(key, value);
+            this._entries.set(key, {
+                value,
+                dispose: typeof disposeFn === 'function' ? disposeFn : null
+            });
             return value;
         },
 
-        set(key, value) {
+        set(key, value, disposeFn) {
             requireStringKey(key);
-            this._entries.set(key, value);
+            if (this._entries.has(key)) {
+                disposeSpriteCacheEntry(normalizeSpriteCacheEntry(this._entries.get(key)));
+            }
+            this._entries.set(key, {
+                value,
+                dispose: typeof disposeFn === 'function' ? disposeFn : null
+            });
             return value;
         },
 
         release(key) {
             requireStringKey(key);
-            const value = this._entries.get(key);
+            const raw = this._entries.get(key);
+            if (!raw) return null;
+            const entry = normalizeSpriteCacheEntry(raw);
             this._entries.delete(key);
-            return value;
+            disposeSpriteCacheEntry(entry);
+            return entry.value;
         },
 
         clear(prefix) {
             if (prefix === undefined) {
+                for (const raw of this._entries.values()) {
+                    disposeSpriteCacheEntry(normalizeSpriteCacheEntry(raw));
+                }
                 this._entries.clear();
                 return;
             }
             requireStringKey(prefix);
-            for (const key of this._entries.keys()) {
-                if (key.startsWith(prefix)) this._entries.delete(key);
+            for (const key of Array.from(this._entries.keys())) {
+                if (key.startsWith(prefix)) this.release(key);
             }
         }
     };
@@ -423,7 +451,7 @@
                 ctx.fillStyle = gradient;
                 ctx.fillRect(0, 0, this.size, this.size);
                 return canvas;
-            });
+            }, canvas => CanvasPool.release(canvas));
         },
 
         draw(ctx, x, y, radius, color, options = {}) {

@@ -94,7 +94,7 @@
 	function renderStartPrompt() {
 		if (!promptEl) return;
 
-		const inp = (typeof Input !== 'undefined' ? Input : (window.Input || null));
+		const inp = Engine.Input || null;
 		const isMobile = inp && inp.isMobileUiMode && inp.isMobileUiMode();
 
 		promptEl.replaceChildren();

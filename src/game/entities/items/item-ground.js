@@ -45,6 +45,8 @@ function updateItemPickupMessages(deltaTime) {
 
 // Check for item pickup (call in game update loop)
 function checkItemPickup(player) {
+    // Competitive ground pickups are solo-only. Local co-op / online MP use pylons.
+    if (typeof shouldUseItemPylons === 'function' && shouldUseItemPylons()) return;
     if (!Game.groundItems || !player || !player.itemManager) return;
 
     for (let i = Game.groundItems.length - 1; i >= 0; i--) {
@@ -81,8 +83,8 @@ function checkItemPickup(player) {
                 showItemPickupMessage(item.definition.name, item.definition.rarity);
 
                 // Play sound (if available)
-                if (typeof AudioManager !== 'undefined' && AudioManager.playSound) {
-                    AudioManager.playSound('itemPickup', 0.4);
+                if (typeof Engine !== 'undefined' && Engine.Audio && Engine.Audio.playSound) {
+                    Engine.Audio.playSound('itemPickup', 0.4);
                 }
             }
         }
@@ -210,41 +212,33 @@ window.dropItem = function(itemId = null) {
         dropY = Game.config ? Game.config.height / 2 : 360;
     }
     
-    // Check if in multiplayer - use pylons instead of ground items
-    const inMultiplayer = typeof multiplayerManager !== 'undefined' && 
-        multiplayerManager && 
-        multiplayerManager.lobbyCode;
-    
-    if (inMultiplayer) {
-        // Create item pylon (multiplayer)
-        if (typeof createItemPylon === 'function') {
-            const pylon = createItemPylon(dropX, dropY, itemDef);
-            console.log(`[Dev] Dropped item pylon: ${itemDef.name} (${itemDef.rarity}) at (${dropX.toFixed(1)}, ${dropY.toFixed(1)})`);
-            return pylon;
-        } else {
-            console.error('[Dev] createItemPylon function not available');
-            return null;
-        }
-    } else {
-        // Create ground item (single player)
-        const groundItem = {
-            id: 'item_' + Date.now() + '_' + Math.random(),
-            itemId: itemDef.id,
-            definition: itemDef,
-            x: dropX,
-            y: dropY,
-            size: 12,
-            pulse: 0,
-            pickupRadius: 30
-        };
-        
-        // Add to ground items
-        if (!Game.groundItems) Game.groundItems = [];
-        Game.groundItems.push(groundItem);
-        
-        console.log(`[Dev] Dropped item: ${itemDef.name} (${itemDef.rarity}) at (${dropX.toFixed(1)}, ${dropY.toFixed(1)})`);
-        return groundItem;
+    // Local co-op / online MP → shared pylon; solo → ground pickup.
+    if (typeof spawnItemDrop === 'function') {
+        return spawnItemDrop(dropX, dropY, itemDef);
     }
+
+    // Fallback if pylon helpers have not loaded yet (solo-safe only).
+    if (typeof shouldUseItemPylons === 'function' && shouldUseItemPylons()) {
+        console.error('[Dev] spawnItemDrop unavailable while pylons required');
+        return null;
+    }
+
+    const groundItem = {
+        id: 'item_' + Date.now() + '_' + Math.random(),
+        itemId: itemDef.id,
+        definition: itemDef,
+        x: dropX,
+        y: dropY,
+        size: 12,
+        pulse: 0,
+        pickupRadius: 30
+    };
+
+    if (!Game.groundItems) Game.groundItems = [];
+    Game.groundItems.push(groundItem);
+
+    console.log(`[Dev] Dropped item: ${itemDef.name} (${itemDef.rarity}) at (${dropX.toFixed(1)}, ${dropY.toFixed(1)})`);
+    return groundItem;
 };
 
 // List all available item IDs

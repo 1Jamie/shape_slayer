@@ -64,6 +64,12 @@ test('Net buffers interpolate and extrapolate with injected configuration', () =
     const projected = interpolator.getExtrapolatedState('a', 1150);
     assert.equal(projected.x, 15);
     assert.equal(projected.y, 0);
+
+    interpolator.addEntityState('b', 1000, { x: 0, y: 0, rotation: 0 });
+    interpolator.addEntityState('b', 1100, { x: 10, y: 0, rotation: 0 });
+    const smoothed = interpolator.getSmoothedPosition('b', 0, 0, 0, 10, 0, 0, 1 / 60, 1200);
+    assert.ok(Number.isFinite(smoothed.x));
+    assert.ok(Number.isFinite(smoothed.y));
 });
 
 test('Shell stores boot flags without requiring a browser', () => {
@@ -135,6 +141,8 @@ test('Graphics pools canvases and caches glow sprites and patterns', () => {
     const glowB = Graphics.GlowAtlas.get('#00ffaa');
     assert.equal(glowA, glowB);
     Graphics.GlowAtlas.clear();
+    const reacquired = Graphics.CanvasPool.acquire(Graphics.GlowAtlas.size, Graphics.GlowAtlas.size);
+    assert.equal(reacquired, glowA);
 
     const target = createMockCanvas();
     let builds = 0;

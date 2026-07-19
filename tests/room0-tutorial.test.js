@@ -11,7 +11,6 @@ function loadSandbox(options = {}) {
     const saveCode = fs.readFileSync(path.join(__dirname, '../src/game/content/save.js'), 'utf8');
     const room0Code = fs.readFileSync(path.join(__dirname, '../src/game/content/room0-tutorial.js'), 'utf8');
     const coachCode = fs.readFileSync(path.join(__dirname, '../src/game/content/coach-transition.js'), 'utf8');
-    const inputCode = fs.readFileSync(path.join(__dirname, '../src/game/simulation/input.js'), 'utf8');
 
     const localStorage = {
         _data: {},
@@ -53,7 +52,8 @@ function loadSandbox(options = {}) {
         currentRoom: options.currentRoom || null,
         SaveSystem: null,
         Room0Tutorial: null,
-        Input: null,
+        Engine: null,
+        GameInput: null,
         Enemy: options.Enemy || class Enemy {
             constructor(x, y) {
                 this.x = x;
@@ -77,29 +77,31 @@ function loadSandbox(options = {}) {
     vm.runInNewContext(
         saveCode + '\nthis.SaveSystem = SaveSystem;\n'
         + coachCode + '\nthis.CoachTransition = CoachTransition;\n'
-        + room0Code + '\nthis.Room0Tutorial = Room0Tutorial;\n'
-        + 'var Input = ' + JSON.stringify({
-            // Placeholder; real Input object attached after
-        }) + ';\n',
+        + room0Code + '\nthis.Room0Tutorial = Room0Tutorial;\n',
         sandbox
     );
 
-    // Lightweight Input surface matching getCombatPrompt / mode helpers
-    sandbox.Input = {
-        _mode: options.inputMode || 'desktop',
+    const inputMode = options.inputMode || 'desktop';
+    if (!sandbox.Engine) sandbox.Engine = {};
+    sandbox.Engine.Input = {
+        _mode: inputMode,
         isGamepadMode() { return this._mode === 'gamepad'; },
-        isMobileUiMode() { return this._mode === 'mobile'; },
+        isMobileUiMode() { return this._mode === 'mobile'; }
+    };
+    sandbox.GameInput = {
         getCombatPrompt(ability) {
             const key = String(ability || '').toLowerCase();
             const desktop = { primary: 'LMB', heavy: 'RMB', special: 'Space', dash: 'Shift' };
             const mobile = { primary: 'Tap Primary', heavy: 'Tap Heavy', special: 'Tap Special', dash: 'Tap Dodge' };
             const gamepad = { primary: 'RT', heavy: 'LT', special: 'LB', dash: 'RB' };
-            if (this.isGamepadMode()) return gamepad[key] || '';
-            if (this.isMobileUiMode()) return mobile[key] || '';
+            const input = sandbox.Engine.Input;
+            if (input.isGamepadMode()) return gamepad[key] || '';
+            if (input.isMobileUiMode()) return mobile[key] || '';
             return desktop[key] || '';
         }
     };
-    sandbox.window.Input = sandbox.Input;
+    sandbox.window.Engine = sandbox.Engine;
+    sandbox.window.GameInput = sandbox.GameInput;
 
     return sandbox;
 }
@@ -432,18 +434,18 @@ describe('Room0Tutorial steps', () => {
     });
 });
 
-describe('Input.getCombatPrompt', () => {
+describe('GameInput.getCombatPrompt', () => {
     it('returns desktop / mobile / gamepad labels', () => {
         const desktop = loadSandbox({ inputMode: 'desktop' });
-        assert.equal(desktop.Input.getCombatPrompt('primary'), 'LMB');
-        assert.equal(desktop.Input.getCombatPrompt('dash'), 'Shift');
+        assert.equal(desktop.GameInput.getCombatPrompt('primary'), 'LMB');
+        assert.equal(desktop.GameInput.getCombatPrompt('dash'), 'Shift');
 
         const mobile = loadSandbox({ inputMode: 'mobile' });
-        assert.equal(mobile.Input.getCombatPrompt('heavy'), 'Tap Heavy');
+        assert.equal(mobile.GameInput.getCombatPrompt('heavy'), 'Tap Heavy');
 
         const gamepad = loadSandbox({ inputMode: 'gamepad' });
-        assert.equal(gamepad.Input.getCombatPrompt('special'), 'LB');
-        assert.equal(gamepad.Input.getCombatPrompt('dash'), 'RB');
+        assert.equal(gamepad.GameInput.getCombatPrompt('special'), 'LB');
+        assert.equal(gamepad.GameInput.getCombatPrompt('dash'), 'RB');
     });
 });
 

@@ -666,8 +666,8 @@ const GearUpgradeMenu = {
             }
 
             // Play sound
-            if (typeof AudioManager !== 'undefined' && AudioManager.playSound) {
-                AudioManager.playSound('ui_buy');
+            if (typeof Engine !== 'undefined' && Engine.Audio && Engine.Audio.playSound) {
+                Engine.Audio.playSound('ui_buy');
             }
 
             // Re-render

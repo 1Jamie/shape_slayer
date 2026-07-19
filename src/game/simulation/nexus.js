@@ -296,6 +296,104 @@ function initNexus() {
     }
 }
 
+function getNexusActors() {
+    const actors = [];
+    if (Game && Game.player && Game.player.alive) {
+        actors.push({
+            id: 'p1',
+            player: Game.player,
+            classKey: Game.selectedClass || Game.player.playerClass || null,
+            seat: Game.localSplitSession && Game.localSplitSession.seats
+                ? Game.localSplitSession.seats[0]
+                : null
+        });
+    }
+    if (Game && Game.localSplitEnabled && Game.remotePlayerInstances) {
+        const p2 = Game.remotePlayerInstances.get(Game.localSplitPlayerId);
+        if (p2 && p2.alive) {
+            actors.push({
+                id: 'p2',
+                player: p2,
+                classKey: (typeof Game.getLocalSplitClass === 'function'
+                    ? Game.getLocalSplitClass()
+                    : null) || p2.playerClass || Game.selectedClass || null,
+                seat: Game.localSplitSession && Game.localSplitSession.seats
+                    ? Game.localSplitSession.seats[1]
+                    : null
+            });
+        }
+    }
+    return actors;
+}
+
+function nexusActorDistance(actor, x, y) {
+    if (!actor || !actor.player) return Infinity;
+    const dx = x - actor.player.x;
+    const dy = y - actor.player.y;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+function nexusAnyNear(x, y, radius) {
+    return getNexusActors().some(actor => nexusActorDistance(actor, x, y) < radius);
+}
+
+function nexusNearestActor(x, y, radius = Infinity) {
+    let best = null;
+    let bestDist = radius;
+    for (const actor of getNexusActors()) {
+        const dist = nexusActorDistance(actor, x, y);
+        if (dist < bestDist) {
+            best = actor;
+            bestDist = dist;
+        }
+    }
+    return best;
+}
+
+/** Seat-aware glyph options for the nearest nexus actor, or null (global Input mode). */
+function nexusPromptOptions(x, y, radius) {
+    if (typeof Game === 'undefined' || !Game.localSplitEnabled) return null;
+    const actor = nexusNearestActor(x, y, radius);
+    return actor && actor.seat ? { seat: actor.seat } : null;
+}
+
+function drawNexusInteractionPrompt(ctx, actionText, x, y, worldX, worldY, radius) {
+    if (!Engine.Input || !Engine.Input.drawInteractionPrompt) {
+        const fallback = Engine.Input && Engine.Input.getInteractionPrompt
+            ? Engine.Input.getInteractionPrompt(actionText)
+            : `Press G to ${actionText}`;
+        ctx.fillText(fallback, x, y);
+        return;
+    }
+    const opts = nexusPromptOptions(
+        worldX == null ? x : worldX,
+        worldY == null ? y : worldY,
+        radius == null ? 60 : radius
+    );
+    Engine.Input.drawInteractionPrompt(ctx, actionText, x, y, opts);
+}
+
+function applyNexusClassSelection(actor, classKey) {
+    if (!actor || !classKey) return;
+    if (actor.id === 'p2' && typeof Game.setLocalSplitClass === 'function') {
+        Game.setLocalSplitClass(classKey, actor.player.x, actor.player.y);
+        return;
+    }
+    Game.selectedClass = classKey;
+    if (typeof SaveSystem !== 'undefined') {
+        SaveSystem.setSelectedClass(classKey);
+    }
+    if (Game.player) {
+        const currentX = Game.player.x;
+        const currentY = Game.player.y;
+        const currentPlayerId = Game.player.playerId;
+        Game.player = createPlayer(classKey, currentX, currentY);
+        Game.player.playerId = currentPlayerId || (typeof Game.getLocalPlayerId === 'function'
+            ? Game.getLocalPlayerId()
+            : null);
+    }
+}
+
 // Update nexus
 function updateNexus(ctx, deltaTime) {
     if (typeof FeatureTutorials !== 'undefined' && FeatureTutorials.enforcePresentationSafety) {
@@ -335,13 +433,13 @@ function updateNexus(ctx, deltaTime) {
 
     // MULTIPLAYER: Snapshot input BEFORE updating (preserves justPressed/justReleased)
     if (Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && !multiplayerManager.isHost) {
-        // Cache input state before Input.update() resets flags
+        // Cache input state before Engine.Input.update() resets flags
         multiplayerManager.cachedInputSnapshot = multiplayerManager.serializeInput();
     }
 
     // Update input system (for touch controls)
-    if (typeof Input !== 'undefined' && Input.update) {
-        Input.update(deltaTime);
+    if ((typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.update) {
+        Engine.Input.update(deltaTime);
     }
 
     // Multiplayer: Send player state updates in Nexus
@@ -358,7 +456,7 @@ function updateNexus(ctx, deltaTime) {
         if (multiplayerManager.isHost) {
             // HOST: Update local player movement
             if (Game.player && Game.player.alive) {
-                const moveInput = Input.getMovementInput ? Input.getMovementInput() : { x: 0, y: 0 };
+                const moveInput = Engine.Input.getMovementInput ? Engine.Input.getMovementInput() : { x: 0, y: 0 };
 
                 const moveSpeed = 300; // Nexus movement speed (1.5x faster)
                 Game.player.vx = moveInput.x * moveSpeed;
@@ -373,11 +471,11 @@ function updateNexus(ctx, deltaTime) {
                 Game.player.y = clamp(Game.player.y, Game.player.size, nexusRoom.height - Game.player.size);
 
                 // Calculate rotation to face aim direction
-                if (Input.getAimDirection) {
-                    Game.player.rotation = Input.getAimDirection();
-                } else if (Input.mouse.x !== undefined && Input.mouse.y !== undefined) {
+                if (Engine.Input.getAimDirection) {
+                    Game.player.rotation = Engine.Input.getAimDirection();
+                } else if (Engine.Input.mouse.x !== undefined && Engine.Input.mouse.y !== undefined) {
                     // Use world coordinates (nexus now has camera)
-                    const worldMouse = Input.getWorldMousePos ? Input.getWorldMousePos() : Input.mouse;
+                    const worldMouse = Engine.Input.getWorldMousePos ? Engine.Input.getWorldMousePos() : Engine.Input.mouse;
                     const dx = worldMouse.x - Game.player.x;
                     const dy = worldMouse.y - Game.player.y;
                     Game.player.rotation = Math.atan2(dy, dx);
@@ -467,7 +565,7 @@ function updateNexus(ctx, deltaTime) {
                         ? multiplayerManager.serializeInput()
                         : null;
                     multiplayerManager.recordPredictionFrame(deltaTime, inputSnap);
-                    Game.player.predictMovementStep(deltaTime, Input, {
+                    Game.player.predictMovementStep(deltaTime, Engine.Input, {
                         moveSpeedOverride: nexusSpeed,
                         bounds: nexusBounds,
                         allowPredictedDodge: false,
@@ -496,10 +594,13 @@ function updateNexus(ctx, deltaTime) {
                 });
             }
         }
+    } else if (Game.localSplitEnabled && typeof Game.updateLocalSplitNexus === 'function') {
+        // Local co-op: shared nexus camera, seat0 + seat1 both simulate here.
+        Game.updateLocalSplitNexus(deltaTime);
     } else {
         // SOLO: Update normally
         if (Game.player && Game.player.alive) {
-            const moveInput = Input.getMovementInput ? Input.getMovementInput() : { x: 0, y: 0 };
+            const moveInput = Engine.Input.getMovementInput ? Engine.Input.getMovementInput() : { x: 0, y: 0 };
 
             const moveSpeed = 300; // Nexus movement speed (1.5x faster)
             Game.player.vx = moveInput.x * moveSpeed;
@@ -514,11 +615,11 @@ function updateNexus(ctx, deltaTime) {
             Game.player.y = clamp(Game.player.y, Game.player.size, nexusRoom.height - Game.player.size);
 
             // Calculate rotation to face aim direction
-            if (Input.getAimDirection) {
-                Game.player.rotation = Input.getAimDirection();
-            } else if (Input.mouse.x !== undefined && Input.mouse.y !== undefined) {
+            if (Engine.Input.getAimDirection) {
+                Game.player.rotation = Engine.Input.getAimDirection();
+            } else if (Engine.Input.mouse.x !== undefined && Engine.Input.mouse.y !== undefined) {
                 // Use world coordinates (nexus now has camera)
-                const worldMouse = Input.getWorldMousePos ? Input.getWorldMousePos() : Input.mouse;
+                const worldMouse = Engine.Input.getWorldMousePos ? Engine.Input.getWorldMousePos() : Engine.Input.mouse;
                 const dx = worldMouse.x - Game.player.x;
                 const dy = worldMouse.y - Game.player.y;
                 Game.player.rotation = Math.atan2(dy, dx);
@@ -526,16 +627,40 @@ function updateNexus(ctx, deltaTime) {
         }
     }
 
-    // Handle interactions (G key or interaction button)
-    let shouldInteract = false;
-    let interactionHandled = false;
+    // Handle interactions (G key / seat interact). Each seat acts through its own sprite.
+    const interactActors = [];
+    const seat0 = Game.localSplitSession && Game.localSplitSession.seats
+        ? Game.localSplitSession.seats[0]
+        : null;
+    const seat1 = Game.localSplitSession && Game.localSplitSession.seats
+        ? Game.localSplitSession.seats[1]
+        : null;
 
-    // Check keyboard input (or interaction button simulated G key)
-    if (Input.getKeyState('g') && !Game.lastGKeyState) {
+    let p1InteractEdge = false;
+    if (Game.localSplitEnabled && seat0 && seat0.isInteractJustPressed) {
+        p1InteractEdge = seat0.isInteractJustPressed();
+    } else if (Engine.Input.getKeyState('g') && !Game.lastGKeyState) {
+        p1InteractEdge = true;
         Game.lastGKeyState = true;
-        shouldInteract = true;
-    } else if (!Input.getKeyState('g')) {
+    } else if (!Engine.Input.getKeyState('g')) {
         Game.lastGKeyState = false;
+    }
+    // Keep legacy edge latch when split seat0 owns interact edges.
+    if (Game.localSplitEnabled && seat0) {
+        Game.lastGKeyState = !!(seat0.isInteractPressed && seat0.isInteractPressed());
+    }
+
+    if (p1InteractEdge && Game.player && Game.player.alive) {
+        interactActors.push(getNexusActors().find(a => a.id === 'p1') || {
+            id: 'p1', player: Game.player, classKey: Game.selectedClass
+        });
+    }
+    if (Game.localSplitEnabled && seat1 && typeof seat1.isInteractJustPressed === 'function') {
+        const p2InteractEdge = seat1.isInteractJustPressed();
+        if (p2InteractEdge) {
+            const p2Actor = getNexusActors().find(a => a.id === 'p2');
+            if (p2Actor) interactActors.push(p2Actor);
+        }
     }
 
     const nexusAllows = (type, detail) => {
@@ -554,160 +679,103 @@ function updateNexus(ctx, deltaTime) {
         return true;
     };
 
-    if (shouldInteract) {
+    for (const actor of interactActors) {
+        if (!actor || !actor.player) continue;
+        let interactionHandled = false;
 
-        // Check class station interactions
+        // Class stations — each seat can pick independently; profile/currency stay shared.
         if (nexusAllows('class')) {
-        classStations.forEach(station => {
-            const dx = station.x - Game.player.x;
-            const dy = station.y - Game.player.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-
-            if (distance < 50 && !interactionHandled) {
-                // Select this class
-                Game.selectedClass = station.key;
-                if (typeof SaveSystem !== 'undefined') {
-                    SaveSystem.setSelectedClass(station.key);
-                }
-
-                // Recreate the player in the nexus with the selected class
-                // This ensures the HUD and other systems initialize correctly for the selected class
-                if (Game.player) {
-                    const currentX = Game.player.x;
-                    const currentY = Game.player.y;
-                    const currentPlayerId = Game.player.playerId;
-                    Game.player = createPlayer(station.key, currentX, currentY);
-                    Game.player.playerId = currentPlayerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null);
-                }
-
+            classStations.forEach(station => {
+                if (interactionHandled) return;
+                if (nexusActorDistance(actor, station.x, station.y) >= 50) return;
+                applyNexusClassSelection(actor, station.key);
                 interactionHandled = true;
-
-                if (typeof Onboarding !== 'undefined' && Onboarding.notifyClassSelected) {
+                if (actor.id === 'p1' && typeof Onboarding !== 'undefined' && Onboarding.notifyClassSelected) {
                     Onboarding.notifyClassSelected();
                 }
-
-                // Multiplayer: Send class change to other players
-                if (Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
-                    if (multiplayerManager.isHost) {
-                        // Host: Immediately send state update so clients see class change
-                        multiplayerManager.sendGameState();
-                    } else {
-                        // Client: Send state update so host knows our class
-                        multiplayerManager.sendPlayerState();
-                    }
+                if (actor.id === 'p1' && Game.multiplayerEnabled
+                    && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
+                    if (multiplayerManager.isHost) multiplayerManager.sendGameState();
+                    else multiplayerManager.sendPlayerState();
                 }
-            }
-        });
+            });
         }
 
-        // Check upgrade station interactions
-        if (Game.selectedClass && !interactionHandled
-            && nexusAllows('upgrade')) {
+        // Upgrade stations — purchase for the interacting seat's class, shared currency.
+        const actorClass = actor.classKey
+            || (actor.id === 'p2' && typeof Game.getLocalSplitClass === 'function'
+                ? Game.getLocalSplitClass()
+                : Game.selectedClass);
+        if (actorClass && !interactionHandled && nexusAllows('upgrade')) {
             upgradeStations.forEach(station => {
-                const dx = station.x - Game.player.x;
-                const dy = station.y - Game.player.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
+                if (interactionHandled) return;
+                if (nexusActorDistance(actor, station.x, station.y) >= 50) return;
+                purchaseUpgrade(actorClass, station.key);
+                if (actor.id === 'p1' && typeof Onboarding !== 'undefined' && Onboarding.notifyClassUpgradeOpened) {
+                    Onboarding.notifyClassUpgradeOpened();
+                }
+                interactionHandled = true;
+            });
+        }
 
-                if (distance < 50 && !interactionHandled) {
-                    purchaseUpgrade(Game.selectedClass, station.key);
-                    if (typeof Onboarding !== 'undefined' && Onboarding.notifyClassUpgradeOpened) {
-                        Onboarding.notifyClassUpgradeOpened();
-                    }
+        if (!interactionHandled) {
+            gearUpgradeStations.forEach(station => {
+                if (interactionHandled) return;
+                const lock = getGearStationLockState(station);
+                if (lock.locked) return;
+                if (!nexusAllows('gearUpgrade', station.key)) return;
+                if (nexusActorDistance(actor, station.x, station.y) >= 50) return;
+                if (typeof window !== 'undefined' && typeof window.toggleGearUpgrades === 'function') {
+                    window.toggleGearUpgrades(true, station.key);
                     interactionHandled = true;
                 }
             });
         }
 
-        // Check gear upgrade station interactions
-        // Per-station allow check only - FeatureTutorials gates by machine id (detail).
-        if (!interactionHandled) {
-            gearUpgradeStations.forEach(station => {
-                const lock = getGearStationLockState(station);
-                if (lock.locked) return;
-                if (!nexusAllows('gearUpgrade', station.key)) return;
-                const dx = station.x - Game.player.x;
-                const dy = station.y - Game.player.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-
-                if (distance < 50 && !interactionHandled) {
-                    if (typeof window !== 'undefined' && typeof window.toggleGearUpgrades === 'function') {
-                        window.toggleGearUpgrades(true, station.key);
-                        interactionHandled = true;
-                    }
-                }
-            });
-        }
-
-        // Check index machine interaction
         if (!interactionHandled && nexusAllows('indexMachine')) {
-            const indexDx = nexusRoom.indexMachinePos.x - Game.player.x;
-            const indexDy = nexusRoom.indexMachinePos.y - Game.player.y;
-            const indexDistance = Math.sqrt(indexDx * indexDx + indexDy * indexDy);
-
-            if (indexDistance < 50) {
-                // Open index machine UI
-                if (typeof window !== 'undefined' && typeof window.UIIndexMachine !== 'undefined' && typeof window.UIIndexMachine.open === 'function') {
+            if (nexusActorDistance(actor, nexusRoom.indexMachinePos.x, nexusRoom.indexMachinePos.y) < 50) {
+                if (typeof window !== 'undefined' && window.UIIndexMachine
+                    && typeof window.UIIndexMachine.open === 'function') {
                     window.UIIndexMachine.open();
                     interactionHandled = true;
                 }
             }
         }
-    }
 
-    // Check mode switcher interaction
-    const switcherDx = nexusRoom.modeSwitcherPos.x - Game.player.x;
-    const switcherDy = nexusRoom.modeSwitcherPos.y - Game.player.y;
-    const switcherDistance = Math.sqrt(switcherDx * switcherDx + switcherDy * switcherDy);
-    const isNearSwitcher = switcherDistance < 60;
+        const inMultiplayerLobby = typeof multiplayerManager !== 'undefined'
+            && multiplayerManager && multiplayerManager.lobbyCode;
+        if (!interactionHandled && nexusAllows('modeSwitcher')
+            && nexusActorDistance(actor, nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y) < 60) {
+            if (inMultiplayerLobby) {
+                console.log('[Nexus] Cannot switch modes in multiplayer lobby');
+            } else {
+                console.log('[Nexus] Portal switcher is locked to Gear Mode (Card Mode has been deprecated)');
+                interactionHandled = true;
+            }
+        }
 
-    // Check if in multiplayer lobby
-    const inMultiplayerLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
-
-    if (isNearSwitcher && shouldInteract && !interactionHandled && nexusAllows('modeSwitcher')) {
-        if (inMultiplayerLobby) {
-            // Cannot switch modes in multiplayer - mode is locked to gear
-            console.log('[Nexus] Cannot switch modes in multiplayer lobby');
-            // Don't set interactionHandled so other interactions can still work
-        } else {
-            // Toggle portal mode (single player only)
-            // Portal switcher is locked to Gear Mode - do not toggle, print info log
-            console.log('[Nexus] Portal switcher is locked to Gear Mode (Card Mode has been deprecated)');
+        const hasResumeCheckpoint = typeof SaveSystem !== 'undefined' && SaveSystem.hasActiveRunCheckpoint
+            && SaveSystem.hasActiveRunCheckpoint();
+        const portalReady = !!(Game.selectedClass || Game.localSplitSelectedClass || hasResumeCheckpoint);
+        if (!interactionHandled && nexusAllows('portal') && portalReady
+            && nexusActorDistance(actor, nexusRoom.portalPos.x, nexusRoom.portalPos.y) < 60) {
+            console.log(hasResumeCheckpoint ? '[Nexus] Resuming run from checkpoint' : '[Nexus] Entering Gear Mode portal');
+            nexusRoom.portalMode = 'gear';
+            Game.gameMode = 'gear';
+            const inLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+            if (inLobby) {
+                if (multiplayerManager.isHost) {
+                    multiplayerManager.startGame();
+                    Game.startGame();
+                }
+            } else if (typeof Game.tryResumeOrStartFromPortal === 'function') {
+                Game.tryResumeOrStartFromPortal();
+            } else {
+                Game.startGame();
+            }
             interactionHandled = true;
         }
     }
-
-    // Check portal interaction
-    const portalDx = nexusRoom.portalPos.x - Game.player.x;
-    const portalDy = nexusRoom.portalPos.y - Game.player.y;
-    const portalDistance = Math.sqrt(portalDx * portalDx + portalDy * portalDy);
-    const hasResumeCheckpoint = typeof SaveSystem !== 'undefined' && SaveSystem.hasActiveRunCheckpoint
-        && SaveSystem.hasActiveRunCheckpoint();
-    const portalReady = !!(Game.selectedClass || hasResumeCheckpoint);
-
-    if (portalDistance < 60 && portalReady && shouldInteract && !interactionHandled && nexusAllows('portal')) {
-        console.log(hasResumeCheckpoint ? '[Nexus] Resuming run from checkpoint' : '[Nexus] Entering Gear Mode portal');
-        nexusRoom.portalMode = 'gear';
-        Game.gameMode = 'gear';
-
-        // Check multiplayer mode
-        const inLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
-
-        if (inLobby) {
-            // Only host can start the game in multiplayer (no solo checkpoint resume in MP)
-            if (multiplayerManager.isHost) {
-                multiplayerManager.startGame();
-                Game.startGame();
-            }
-        } else if (typeof Game.tryResumeOrStartFromPortal === 'function') {
-            Game.tryResumeOrStartFromPortal();
-        } else {
-            Game.startGame();
-        }
-        interactionHandled = true;
-    }
-
-
-
 
     // Update nexus camera to follow player
     if (typeof Game !== 'undefined' && Game.updateNexusCamera) {
@@ -730,7 +798,7 @@ function renderClassStationTooltip(ctx, player, station) {
         if (!classDesc) return;
 
         // Check if mobile/touch mode
-        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
+        const isMobile = (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileUiMode && Engine.Input.isMobileUiMode();
 
         // ---- Layout constants ----
         const padding = 14;
@@ -1007,6 +1075,11 @@ function purchaseUpgrade(classType, statType) {
                 Game.player.playerId = currentPlayerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null);
                 console.log(`[Single-player] Recreated player to apply upgrade stats`);
             }
+            if (Game.localSplitEnabled && typeof Game.getLocalSplitClass === 'function'
+                && Game.getLocalSplitClass() === classType
+                && typeof Game.setLocalSplitClass === 'function') {
+                Game.setLocalSplitClass(classType);
+            }
 
             console.log(`Upgraded ${classType} ${statType} to level ${currentLevel + 1}`);
         }
@@ -1087,11 +1160,9 @@ function renderNexus(ctx) {
     classStations.forEach(station => {
         const classStationWidth = 138; // 15% wider than the original 120px box
         const classStationHeight = 60;
-        const isSelected = Game.selectedClass === station.key;
-        const dx = station.x - (Game.player ? Game.player.x : 0);
-        const dy = station.y - (Game.player ? Game.player.y : 0);
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        const isNear = distance < 50;
+        const isSelected = Game.selectedClass === station.key
+            || (Game.localSplitEnabled && Game.localSplitSelectedClass === station.key);
+        const isNear = nexusAnyNear(station.x, station.y, 50);
         const mutedColor = '#555555';
 
         // Draw station background (round coordinates to avoid sub-pixel rendering artifacts)
@@ -1161,7 +1232,7 @@ function renderNexus(ctx) {
         ctx.fillText(station.name, classLabelX, station.y + 5);
 
         // Draw interaction prompt (only show in desktop mode, moved down to avoid overlap)
-        if (isNear && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
+        if (isNear && (typeof Engine !== 'undefined' && Engine.Input) && (!Engine.Input.shouldShowWorldInteractionHints || Engine.Input.shouldShowWorldInteractionHints())) {
             if (resumeLocked) {
                 ctx.fillStyle = '#ff8866';
                 ctx.font = 'bold 11px Orbitron';
@@ -1171,17 +1242,14 @@ function renderNexus(ctx) {
                 ctx.fillStyle = '#ffff00';
                 ctx.font = 'bold 12px Orbitron';
                 ctx.textAlign = 'center';
-                Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'select', station.x, station.y + 45) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('select') : 'Press G to select', station.x, station.y + 45);
+                drawNexusInteractionPrompt(ctx, 'select', station.x, station.y + 45, station.x, station.y, 50);
             }
         }
     });
 
     // Render gear upgrade stations
     gearUpgradeStations.forEach(station => {
-        const dx = station.x - (Game.player ? Game.player.x : 0);
-        const dy = station.y - (Game.player ? Game.player.y : 0);
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        const isNear = distance < 50;
+        const isNear = nexusAnyNear(station.x, station.y, 50);
         const lock = getGearStationLockState(station);
         const isLocked = !!lock.locked || resumeLocked;
         const lockHint = resumeLocked ? NEXUS_RESUME_LOCK_HINT : lock.unlockHint;
@@ -1218,11 +1286,11 @@ function renderNexus(ctx) {
         ctx.textBaseline = 'alphabetic';
 
         // Only show interaction prompts if not locked
-        if (isNear && !isLocked && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
+        if (isNear && !isLocked && (typeof Engine !== 'undefined' && Engine.Input) && (!Engine.Input.shouldShowWorldInteractionHints || Engine.Input.shouldShowWorldInteractionHints())) {
             ctx.fillStyle = '#ffff00';
             ctx.font = '12px Orbitron';
             ctx.textAlign = 'center';
-            Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'select', station.x, station.y + 50) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('select') : 'Press G to select', station.x, station.y + 50);
+            drawNexusInteractionPrompt(ctx, 'select', station.x, station.y + 50, station.x, station.y, 50);
         } else if (isNear && isLocked && lockHint) {
             ctx.fillStyle = '#ff8866';
             ctx.font = 'bold 11px Orbitron';
@@ -1232,10 +1300,7 @@ function renderNexus(ctx) {
     });
 
     // Render index machine
-    const indexDx = nexusRoom.indexMachinePos.x - (Game.player ? Game.player.x : 0);
-    const indexDy = nexusRoom.indexMachinePos.y - (Game.player ? Game.player.y : 0);
-    const indexDistance = Math.sqrt(indexDx * indexDx + indexDy * indexDy);
-    const indexIsNear = indexDistance < 50;
+    const indexIsNear = nexusAnyNear(nexusRoom.indexMachinePos.x, nexusRoom.indexMachinePos.y, 50);
 
     // Round coordinates to avoid sub-pixel rendering artifacts
     const indexX = Math.round(nexusRoom.indexMachinePos.x - nexusRoom.indexMachinePos.width / 2);
@@ -1268,7 +1333,7 @@ function renderNexus(ctx) {
     ctx.textAlign = 'center';
     ctx.fillText('Index', nexusRoom.indexMachinePos.x, nexusRoom.indexMachinePos.y + 15);
 
-    if (indexIsNear && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
+    if (indexIsNear && (typeof Engine !== 'undefined' && Engine.Input) && (!Engine.Input.shouldShowWorldInteractionHints || Engine.Input.shouldShowWorldInteractionHints())) {
         if (resumeLocked) {
             ctx.fillStyle = '#ff8866';
             ctx.font = 'bold 11px Orbitron';
@@ -1278,27 +1343,60 @@ function renderNexus(ctx) {
             ctx.fillStyle = '#ffff00';
             ctx.font = '12px Orbitron';
             ctx.textAlign = 'center';
-            Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'open', nexusRoom.indexMachinePos.x, nexusRoom.indexMachinePos.y + 45) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('open') : 'Press G to open', nexusRoom.indexMachinePos.x, nexusRoom.indexMachinePos.y + 45);
+            drawNexusInteractionPrompt(ctx, 'open', nexusRoom.indexMachinePos.x, nexusRoom.indexMachinePos.y + 45, nexusRoom.indexMachinePos.x, nexusRoom.indexMachinePos.y, 50);
         }
     }
 
     // Render upgrade stations
-    if (Game.selectedClass) {
-        upgradeStations.forEach(station => {
-            const dx = station.x - (Game.player ? Game.player.x : 0);
-            const dy = station.y - (Game.player ? Game.player.y : 0);
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            const isNear = distance < 50;
+    if (Game.selectedClass || Game.localSplitSelectedClass) {
+        const p1Class = Game.selectedClass || null;
+        const p2Class = Game.localSplitEnabled
+            ? (Game.localSplitSelectedClass || null)
+            : null;
+        const classKeys = [];
+        if (p1Class) classKeys.push({ id: 'P1', key: p1Class });
+        if (p2Class && p2Class !== p1Class) classKeys.push({ id: 'P2', key: p2Class });
+        else if (p2Class && p2Class === p1Class && Game.localSplitEnabled) {
+            // Same class: one cost line is enough; still show shared label.
+        }
 
-            // Get current upgrade level
-            const upgrades = typeof SaveSystem !== 'undefined' ? SaveSystem.getUpgrades(Game.selectedClass) : { damage: 0, defense: 0, speed: 0, cooldown: 0, health: 0, attackSpeed: 0 };
-            const currentLevel = upgrades[station.key] || 0;
-            const cost = typeof SaveSystem !== 'undefined' ? SaveSystem.getUpgradeCost(station.key, currentLevel) : 50;
-            const canAfford = !resumeLocked && Game.currentCurrency >= cost;
+        upgradeStations.forEach(station => {
+            const isNear = nexusAnyNear(station.x, station.y, 50);
+
+            const costLines = [];
+            if (classKeys.length === 0 && p1Class) {
+                const upgrades = typeof SaveSystem !== 'undefined' ? SaveSystem.getUpgrades(p1Class) : {};
+                const currentLevel = upgrades[station.key] || 0;
+                const cost = typeof SaveSystem !== 'undefined' ? SaveSystem.getUpgradeCost(station.key, currentLevel) : 50;
+                costLines.push({ label: `Cost: ${cost}`, level: currentLevel, cost });
+            } else if (classKeys.length <= 1) {
+                const key = (classKeys[0] && classKeys[0].key) || p1Class || p2Class;
+                const upgrades = typeof SaveSystem !== 'undefined' ? SaveSystem.getUpgrades(key) : {};
+                const currentLevel = upgrades[station.key] || 0;
+                const cost = typeof SaveSystem !== 'undefined' ? SaveSystem.getUpgradeCost(station.key, currentLevel) : 50;
+                costLines.push({ label: `Cost: ${cost}`, level: currentLevel, cost });
+            } else {
+                classKeys.forEach(entry => {
+                    const upgrades = typeof SaveSystem !== 'undefined' ? SaveSystem.getUpgrades(entry.key) : {};
+                    const currentLevel = upgrades[station.key] || 0;
+                    const cost = typeof SaveSystem !== 'undefined' ? SaveSystem.getUpgradeCost(station.key, currentLevel) : 50;
+                    costLines.push({
+                        label: `${entry.id}: ${cost}`,
+                        level: currentLevel,
+                        cost
+                    });
+                });
+            }
+
+            const minCost = costLines.reduce((m, line) => Math.min(m, line.cost), Infinity);
+            const canAfford = !resumeLocked && Game.currentCurrency >= minCost;
+            const displayLevel = costLines.length === 1
+                ? costLines[0].level
+                : costLines.map(line => line.level).join('/');
 
             // Draw station background (round coordinates to avoid sub-pixel rendering artifacts)
             const boxW = 120;
-            const boxH = 92;
+            const boxH = costLines.length > 1 ? 108 : 92;
             const stationX = Math.round(station.x - boxW / 2);
             const stationY = Math.round(station.y - boxH / 2);
             ctx.fillStyle = resumeLocked
@@ -1316,29 +1414,35 @@ function renderNexus(ctx) {
             ctx.textBaseline = 'middle';
             ctx.fillStyle = resumeLocked ? '#666666' : '#ffffff';
             ctx.font = 'bold 18px Orbitron';
-            ctx.fillText(resumeLocked ? '🔒' : station.icon, station.x, station.y - 26);
+            ctx.fillText(resumeLocked ? '🔒' : station.icon, station.x, station.y - (costLines.length > 1 ? 34 : 26));
             ctx.font = 'bold 13px Orbitron';
-            ctx.fillText(station.name, station.x, station.y - 6);
+            ctx.fillText(station.name, station.x, station.y - (costLines.length > 1 ? 14 : 6));
 
             // Draw level
             ctx.font = '11px Orbitron';
             ctx.fillStyle = resumeLocked ? '#666666' : '#cccccc';
-            ctx.fillText(`Level: ${currentLevel}`, station.x, station.y + 14);
+            ctx.fillText(`Level: ${displayLevel}`, station.x, station.y + (costLines.length > 1 ? 6 : 14));
 
             // Draw cost / lock hint
             if (resumeLocked) {
                 ctx.fillStyle = '#ff8866';
                 ctx.font = 'bold 10px Orbitron';
                 ctx.fillText(NEXUS_RESUME_LOCK_HINT, station.x, station.y + 32);
-            } else {
-                ctx.fillStyle = canAfford ? '#00ff00' : '#ff6666';
+            } else if (costLines.length === 1) {
+                ctx.fillStyle = Game.currentCurrency >= costLines[0].cost ? '#00ff00' : '#ff6666';
                 ctx.font = 'bold 12px Orbitron';
-                ctx.fillText(`Cost: ${cost}`, station.x, station.y + 32);
+                ctx.fillText(costLines[0].label, station.x, station.y + 32);
+            } else {
+                costLines.forEach((line, index) => {
+                    ctx.fillStyle = Game.currentCurrency >= line.cost ? '#00ff00' : '#ff6666';
+                    ctx.font = 'bold 11px Orbitron';
+                    ctx.fillText(line.label, station.x, station.y + 24 + index * 14);
+                });
             }
             ctx.textBaseline = 'alphabetic';
 
             // Draw interaction prompt (only show in desktop mode, moved down to avoid overlap)
-            if (isNear && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
+            if (isNear && (typeof Engine !== 'undefined' && Engine.Input) && (!Engine.Input.shouldShowWorldInteractionHints || Engine.Input.shouldShowWorldInteractionHints())) {
                 if (resumeLocked) {
                     ctx.fillStyle = '#ff8866';
                     ctx.font = 'bold 11px Orbitron';
@@ -1346,17 +1450,14 @@ function renderNexus(ctx) {
                 } else {
                     ctx.fillStyle = '#ffff00';
                     ctx.font = 'bold 12px Orbitron';
-                    Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'upgrade', station.x, station.y + 60) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('upgrade') : 'Press G to upgrade', station.x, station.y + 60);
+                    drawNexusInteractionPrompt(ctx, 'upgrade', station.x, station.y + 60, station.x, station.y, 50);
                 }
             }
         });
     }
 
     // Render mode switcher machine
-    const switcherDx = nexusRoom.modeSwitcherPos.x - (Game.player ? Game.player.x : 0);
-    const switcherDy = nexusRoom.modeSwitcherPos.y - (Game.player ? Game.player.y : 0);
-    const switcherDistance = Math.sqrt(switcherDx * switcherDx + switcherDy * switcherDy);
-    const isNearSwitcher = switcherDistance < 60;
+    const isNearSwitcher = nexusAnyNear(nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y, 60);
 
     // Check if in multiplayer lobby
     const inMultiplayerLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
@@ -1403,7 +1504,7 @@ function renderNexus(ctx) {
     ctx.fillText('GEAR', nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y + 15);
 
     // Switcher interaction prompt
-    if (isNearSwitcher && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
+    if (isNearSwitcher && (typeof Engine !== 'undefined' && Engine.Input) && (!Engine.Input.shouldShowWorldInteractionHints || Engine.Input.shouldShowWorldInteractionHints())) {
         if (resumeLocked) {
             ctx.fillStyle = '#ff8866';
             ctx.font = 'bold 11px Orbitron';
@@ -1424,11 +1525,8 @@ function renderNexus(ctx) {
     }
 
     // Render portal (color and label change based on current mode)
-    const portalDx = nexusRoom.portalPos.x - (Game.player ? Game.player.x : 0);
-    const portalDy = nexusRoom.portalPos.y - (Game.player ? Game.player.y : 0);
-    const portalDistance = Math.sqrt(portalDx * portalDx + portalDy * portalDy);
-    const isNearPortal = portalDistance < 60;
-    const portalActive = Game.selectedClass !== null;
+    const isNearPortal = nexusAnyNear(nexusRoom.portalPos.x, nexusRoom.portalPos.y, 60);
+    const portalActive = Game.selectedClass !== null || !!Game.localSplitSelectedClass;
 
     const portalColor = { glow: 'rgba(255, 150, 100, ', core: 'rgba(255, 180, 120, 0.8)', border: '#ff8844' };
 
@@ -1485,7 +1583,7 @@ function renderNexus(ctx) {
     }
 
     // Portal interaction prompt (only show in desktop mode)
-    if (isNearPortal && typeof Input !== 'undefined' && (!Input.shouldShowWorldInteractionHints || Input.shouldShowWorldInteractionHints())) {
+    if (isNearPortal && (typeof Engine !== 'undefined' && Engine.Input) && (!Engine.Input.shouldShowWorldInteractionHints || Engine.Input.shouldShowWorldInteractionHints())) {
         const inLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
         const portalCanUse = portalActive || hasResumeCheckpointLabel;
 
@@ -1499,16 +1597,12 @@ function renderNexus(ctx) {
                 ctx.fillStyle = '#ffff00';
                 ctx.font = 'bold 14px Orbitron';
                 ctx.textAlign = 'center';
-                Input.drawInteractionPrompt
-                    ? Input.drawInteractionPrompt(ctx, 'resume run', nexusRoom.portalPos.x, nexusRoom.portalPos.y + 70)
-                    : ctx.fillText(Input.getInteractionPrompt
-                        ? Input.getInteractionPrompt('resume run')
-                        : 'Press G to resume run', nexusRoom.portalPos.x, nexusRoom.portalPos.y + 70);
+                drawNexusInteractionPrompt(ctx, 'resume run', nexusRoom.portalPos.x, nexusRoom.portalPos.y + 70, nexusRoom.portalPos.x, nexusRoom.portalPos.y, 80);
             } else {
                 ctx.fillStyle = '#ffff00';
                 ctx.font = 'bold 14px Orbitron';
                 ctx.textAlign = 'center';
-                Input.drawInteractionPrompt ? Input.drawInteractionPrompt(ctx, 'enter portal', nexusRoom.portalPos.x, nexusRoom.portalPos.y + 70) : ctx.fillText(Input.getInteractionPrompt ? Input.getInteractionPrompt('enter portal') : 'Press G to enter portal', nexusRoom.portalPos.x, nexusRoom.portalPos.y + 70);
+                drawNexusInteractionPrompt(ctx, 'enter portal', nexusRoom.portalPos.x, nexusRoom.portalPos.y + 70, nexusRoom.portalPos.x, nexusRoom.portalPos.y, 80);
             }
         } else {
             ctx.fillStyle = '#ff6666';
@@ -1570,6 +1664,9 @@ function renderNexus(ctx) {
 
     // Check if in multiplayer (used in both phases)
     const inMultiplayer = Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager;
+    const showRemotePlayers = inMultiplayer || !!Game.localSplitEnabled;
+    const drawRemoteInstances = !!Game.localSplitEnabled
+        || (inMultiplayer && multiplayerManager && multiplayerManager.isHost);
 
     // Onboarding / feature-tutorial dim layer: above world UI, below local player
     if (typeof Onboarding !== 'undefined' && Onboarding.renderSpotlight) {
@@ -1611,9 +1708,9 @@ function renderNexus(ctx) {
         ctx.fill();
     }
 
-    // Draw Remote Player Glows (multiplayer)
-    if (inMultiplayer) {
-        if (multiplayerManager.isHost && Game.remotePlayerInstances && Game.remotePlayerInstances.size > 0) {
+    // Draw Remote Player Glows (online multiplayer or local co-op seat)
+    if (showRemotePlayers) {
+        if (drawRemoteInstances && Game.remotePlayerInstances && Game.remotePlayerInstances.size > 0) {
             Game.remotePlayerInstances.forEach((playerInstance, playerId) => {
                 if (!playerInstance || playerInstance.dead || !playerInstance.alive) {
                     return;
@@ -1640,7 +1737,7 @@ function renderNexus(ctx) {
                 ctx.arc(playerInstance.x, playerInstance.y, glowSize, 0, Math.PI * 2);
                 ctx.fill();
             });
-        } else if (!multiplayerManager.isHost && Game.remotePlayerShadowInstances && Game.remotePlayerShadowInstances.size > 0) {
+        } else if (inMultiplayer && !multiplayerManager.isHost && Game.remotePlayerShadowInstances && Game.remotePlayerShadowInstances.size > 0) {
             Game.remotePlayerShadowInstances.forEach((shadowInstance, playerId) => {
                 if (!shadowInstance || shadowInstance.dead || !shadowInstance.alive) {
                     return;
@@ -1790,11 +1887,20 @@ function renderNexus(ctx) {
         ctx.fill();
 
         ctx.restore();
+
+        // Local co-op: label both seats in the shared nexus (P1 + P2).
+        if (Game.localSplitEnabled) {
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 12px Orbitron';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'alphabetic';
+            ctx.fillText('P1', Game.player.x, Game.player.y - playerSize - 10);
+        }
     }
 
-    // Render remote players (multiplayer) in the Nexus
-    if (inMultiplayer) {
-        if (multiplayerManager.isHost && Game.remotePlayerInstances && Game.remotePlayerInstances.size > 0) {
+    // Render remote players (online multiplayer or local co-op seat) in the Nexus
+    if (showRemotePlayers) {
+        if (drawRemoteInstances && Game.remotePlayerInstances && Game.remotePlayerInstances.size > 0) {
             Game.remotePlayerInstances.forEach((playerInstance, playerId) => {
                 if (!playerInstance || playerInstance.dead || !playerInstance.alive) {
                     return;
@@ -1803,9 +1909,11 @@ function renderNexus(ctx) {
                 const meta = getRemotePlayerMeta(playerId);
                 const classKey = playerInstance.playerClass || (meta ? meta.class : null) || 'square';
 
-                // Get name from multiplayerManager.players first (authoritative source), then meta, then fallback
+                // Local co-op always uses P1/P2 seat labels in the nexus.
                 let playerName = 'Player';
-                if (typeof multiplayerManager !== 'undefined' && multiplayerManager.players) {
+                if (Game.localSplitEnabled && playerId === Game.localSplitPlayerId) {
+                    playerName = 'P2';
+                } else if (typeof multiplayerManager !== 'undefined' && multiplayerManager.players) {
                     const playerData = multiplayerManager.players.find(p => p.id === playerId);
                     if (playerData && playerData.name && playerData.name.trim() !== '') {
                         playerName = playerData.name;
@@ -1824,7 +1932,7 @@ function renderNexus(ctx) {
                     name: playerName
                 });
             });
-        } else if (!multiplayerManager.isHost && Game.remotePlayerShadowInstances && Game.remotePlayerShadowInstances.size > 0) {
+        } else if (inMultiplayer && !multiplayerManager.isHost && Game.remotePlayerShadowInstances && Game.remotePlayerShadowInstances.size > 0) {
             Game.remotePlayerShadowInstances.forEach((shadowInstance, playerId) => {
                 if (!shadowInstance || shadowInstance.dead || !shadowInstance.alive) {
                     return;
@@ -1892,11 +2000,13 @@ function renderNexus(ctx) {
         FeatureTutorials.renderCoachCard(ctx);
     }
 
-    if (Game.player && Game.player.alive) {
-        classStations.forEach(station => {
-            renderClassStationTooltip(ctx, Game.player, station);
-        });
-    }
+    // Class tooltips: either local-coop seat near a station should open the overlay.
+    classStations.forEach(station => {
+        const nearActor = nexusNearestActor(station.x, station.y, 50);
+        if (nearActor && nearActor.player) {
+            renderClassStationTooltip(ctx, nearActor.player, station);
+        }
+    });
 
     // Restore context after camera transform
     ctx.restore();

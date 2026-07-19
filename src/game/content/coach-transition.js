@@ -18,7 +18,7 @@ const CoachTransition = {
     },
 
     _isMobile() {
-        return typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
+        return (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileUiMode && Engine.Input.isMobileUiMode();
     },
 
     _viewHalfExtents() {

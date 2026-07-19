@@ -309,8 +309,8 @@ class RectangleEnemy extends EnemyBase {
                         }
 
                         // Play slam charge sound
-                        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-                            AudioManager.sounds.enemySlam();
+                        if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+                            GameAudio.sounds.enemySlam();
                         }
 
                         // Variable charge timing (rooms 11+)

@@ -454,8 +454,8 @@ class Tank extends PlayerBase {
             });
         }
 
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.sounds.hitNormal) {
-            AudioManager.sounds.hitNormal(0.35);
+        if (typeof GameAudio !== 'undefined' && GameAudio.sounds && GameAudio.sounds.hitNormal) {
+            GameAudio.sounds.hitNormal(0.35);
         }
         if (typeof Game !== 'undefined' && typeof Game.triggerScreenShake === 'function') {
             Game.triggerScreenShake(0.7, 0.05, null);
@@ -485,8 +485,8 @@ class Tank extends PlayerBase {
         }
         
         // Play tank basic attack sound
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-            AudioManager.sounds.tankBasicAttack();
+        if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+            GameAudio.sounds.tankBasicAttack();
         }
         
         // Tank: Hammer swing in arc
@@ -562,8 +562,8 @@ class Tank extends PlayerBase {
     
     createShout() {
         // Play tank heavy attack sound
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-            AudioManager.sounds.tankHeavyAttack();
+        if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+            GameAudio.sounds.tankHeavyAttack();
         }
         
         // Tank shout - AoE around player that stuns, slows, and generates massive aggro
@@ -730,8 +730,8 @@ class Tank extends PlayerBase {
             window.trackLifetimeStat('totalAbilityUses', 1);
         }
         // Play tank shield activation sound
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-            AudioManager.sounds.tankShieldStart();
+        if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+            GameAudio.sounds.tankShieldStart();
         }
         
         this.shieldActive = true;
@@ -1147,26 +1147,26 @@ class Tank extends PlayerBase {
     }
 
     onClientAttackStarted() {
-        if (this.canPlayClientAudio() && AudioManager.sounds && AudioManager.sounds.tankBasicAttack) {
-            AudioManager.sounds.tankBasicAttack();
+        if (this.canPlayClientAudio() && GameAudio.sounds && GameAudio.sounds.tankBasicAttack) {
+            GameAudio.sounds.tankBasicAttack();
         }
     }
 
     onClientHeavyAttackTriggered() {
-        if (!this.canPlayClientAudio() || !AudioManager.sounds || !AudioManager.sounds.tankHeavyAttack) {
+        if (!this.canPlayClientAudio() || !GameAudio.sounds || !GameAudio.sounds.tankHeavyAttack) {
             return false;
         }
-        AudioManager.sounds.tankHeavyAttack();
+        GameAudio.sounds.tankHeavyAttack();
         return true;
     }
 
     handleSubclassClientAudio(prevState, currentState) {
-        if (!this.canPlayClientAudio() || !AudioManager.sounds) {
+        if (!this.canPlayClientAudio() || !GameAudio.sounds) {
             return;
         }
         
-        if (!prevState.shieldActive && currentState.shieldActive && AudioManager.sounds.tankShieldStart) {
-            AudioManager.sounds.tankShieldStart();
+        if (!prevState.shieldActive && currentState.shieldActive && GameAudio.sounds.tankShieldStart) {
+            GameAudio.sounds.tankShieldStart();
         }
     }
 }

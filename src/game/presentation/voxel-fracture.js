@@ -428,9 +428,9 @@
     }
 
     function _isGeckoFamilyEngine() {
-        return typeof DeviceDetection !== 'undefined'
-            && typeof DeviceDetection.isGeckoFamily === 'function'
-            && DeviceDetection.isGeckoFamily();
+        return Engine.System != null
+            && typeof Engine.System.isGeckoFamily === 'function'
+            && Engine.System.isGeckoFamily();
     }
 
     function _getStaticCanvasScale() {

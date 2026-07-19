@@ -13,6 +13,207 @@ function exists(relativePath) {
     return fs.existsSync(path.join(ROOT, relativePath));
 }
 
+function listEngineFiles() {
+    const engineRoot = path.join(ROOT, 'src/engine');
+    const results = [];
+    function walk(dir) {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const full = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+                walk(full);
+            } else if (entry.isFile() && entry.name.endsWith('.js')) {
+                results.push(path.relative(ROOT, full).split(path.sep).join('/'));
+            }
+        }
+    }
+    walk(engineRoot);
+    return results.sort();
+}
+
+function listSrcFiles() {
+    const srcRoot = path.join(ROOT, 'src');
+    const results = [];
+    function walk(dir) {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const full = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+                walk(full);
+            } else if (entry.isFile() && entry.name.endsWith('.js')) {
+                results.push(path.relative(ROOT, full).split(path.sep).join('/'));
+            }
+        }
+    }
+    walk(srcRoot);
+    return results.sort();
+}
+
+function stripCommentsAndStrings(src) {
+    let out = '';
+    let i = 0;
+    const len = src.length;
+
+    function skipLineComment() {
+        i += 2;
+        while (i < len && src[i] !== '\n') {
+            out += ' ';
+            i++;
+        }
+    }
+
+    function skipBlockComment() {
+        i += 2;
+        while (i < len) {
+            if (src[i] === '*' && src[i + 1] === '/') {
+                out += '  ';
+                i += 2;
+                break;
+            }
+            out += src[i] === '\n' ? '\n' : ' ';
+            i++;
+        }
+    }
+
+    function skipString(quote) {
+        out += ' ';
+        i++;
+        while (i < len) {
+            if (src[i] === '\\') {
+                out += '  ';
+                i += 2;
+                continue;
+            }
+            if (src[i] === quote) {
+                out += ' ';
+                i++;
+                break;
+            }
+            out += src[i] === '\n' ? '\n' : ' ';
+            i++;
+        }
+    }
+
+    function skipTemplateLiteral() {
+        out += ' ';
+        i++;
+        while (i < len) {
+            if (src[i] === '\\') {
+                out += '  ';
+                i += 2;
+                continue;
+            }
+            if (src[i] === '`') {
+                out += ' ';
+                i++;
+                break;
+            }
+            if (src[i] === '$' && src[i + 1] === '{') {
+                out += '  ';
+                i += 2;
+                let depth = 1;
+                while (i < len && depth > 0) {
+                    const ch = src[i];
+                    const next = src[i + 1];
+                    if (ch === '/' && next === '/') {
+                        skipLineComment();
+                        continue;
+                    }
+                    if (ch === '/' && next === '*') {
+                        skipBlockComment();
+                        continue;
+                    }
+                    if (ch === '"' || ch === "'") {
+                        skipString(ch);
+                        continue;
+                    }
+                    if (ch === '`') {
+                        skipTemplateLiteral();
+                        continue;
+                    }
+                    if (ch === '{') depth++;
+                    if (ch === '}') depth--;
+                    out += ch;
+                    i++;
+                }
+                continue;
+            }
+            out += src[i] === '\n' ? '\n' : ' ';
+            i++;
+        }
+    }
+
+    while (i < len) {
+        const ch = src[i];
+        const next = src[i + 1];
+        if (ch === '/' && next === '/') {
+            skipLineComment();
+            continue;
+        }
+        if (ch === '/' && next === '*') {
+            skipBlockComment();
+            continue;
+        }
+        if (ch === '"' || ch === "'") {
+            skipString(ch);
+            continue;
+        }
+        if (ch === '`') {
+            skipTemplateLiteral();
+            continue;
+        }
+        out += ch;
+        i++;
+    }
+
+    return out;
+}
+
+function containsIdentifier(haystack, ident) {
+    const escaped = ident.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(?<![A-Za-z0-9_$])${escaped}(?![A-Za-z0-9_$])`, 'i').test(haystack);
+}
+
+const FORBIDDEN_GAME_GLOBALS = [
+    'SaveSystem', 'Room0Tutorial', 'MobileControlsDOM',
+    'GameInput', 'MultiplayerConfig', 'MultiplayerManager', 'multiplayerManager',
+    'BiomeConfig', 'BIOMES', 'BossScaling', 'CombatScaling',
+    'RoomLayoutGenerator', 'Onboarding', 'FeatureTutorials',
+    'SafeRoomMenu', 'GearUpgradeMenu', 'CombatEconomy', 'LedgerManager',
+    'RunProfiler', 'LootSelection', 'GameVersion', 'currentRoom', 'trackLifetimeStat',
+    'CharacterSheet', 'ControllerNav', 'handleCharacterSheetScroll', 'handleInteractionButtonClick',
+    'MobileControlLayout', 'Telemetry'
+];
+
+const FORBIDDEN_CONTENT_WORDS = [
+    'boss', 'biome', 'gear', 'nexus', 'player', 'safeRoom'
+];
+
+const LEGACY_ENGINE_ALIASES = [
+    'AudioManager', 'MusicManager', 'ImpulsePhysics', 'DeviceDetection'
+];
+
+const LEGACY_WINDOW_GLOBALS = [
+    'Input', 'AudioManager', 'MusicManager', 'ImpulsePhysics', 'Renderer', 'DeviceDetection'
+];
+
+const LEGACY_BARE_IDENTIFIERS_IN_GAME = [
+    'AudioManager', 'MusicManager', 'ImpulsePhysics', 'DeviceDetection'
+];
+
+const GAME_MODULE_PATH_PATTERNS = [
+    /src\/game\//,
+    /src\\game\\/,
+    /require\s*\(\s*['"][^'"]*[/\\]game[/\\]/,
+    /from\s+['"][^'"]*[/\\]game[/\\]/,
+    /import\s*\(\s*['"][^'"]*[/\\]game[/\\]/,
+    /['"]\.\.(?:\/\\[^'"]*)*[/\\]game[/\\]/
+];
+
+const GAME_MODULE_ALIAS_STRINGS = [
+    'window.Game',
+    "window['Game']",
+    'window["Game"]'
+];
+
 function assertLocalReference(owner, reference) {
     if (/^(?:https?:|wss?:|data:)/.test(reference)) return;
     const clean = reference.split(/[?#]/, 1)[0].replace(/^\.?\//, '');
@@ -88,9 +289,11 @@ test('four domain locations remain separate', () => {
         'src/engine/proc.js',
         'src/engine/profiler.js',
         'src/engine/render-host.js',
+        'src/engine/render-pipeline.js',
         'src/engine/renderer.js',
         'src/engine/save.js',
         'src/engine/shell.js',
+        'src/engine/split.js',
         'src/engine/system.js',
         'src/engine/touch.js',
         'src/engine/ui/bus.js',
@@ -100,11 +303,17 @@ test('four domain locations remain separate', () => {
         'src/engine/ui/boot-cinematic.js',
         'src/engine/ui/boot-screen.js',
         'src/engine/boot.js',
-        'src/engine/utils.js'
+        'src/engine/utils.js',
+        'src/game/audio/game-audio.js',
+        'src/game/audio/game-music.js',
+        'src/game/input-map.js',
+        'src/game/presentation/render-pipeline.js'
     ];
     for (const relativePath of required) {
         assert.ok(exists(relativePath), `required boundary file missing: ${relativePath}`);
     }
+
+    assert.equal(exists('src/game/simulation/input.js'), false, 'dormant game/simulation/input.js must stay deleted');
 
     for (const legacyPath of [
         'js', 'ui', 'css', 'audio', 'icons', 'fonts', 'server', 'server.js',
@@ -137,66 +346,107 @@ test('metrics dashboard still reads receiver-owned storage', () => {
     assert.doesNotMatch(relaySources, /better-sqlite3|metrics\/server|POST \/ingest/);
 });
 
-test('Engine files must not reference game content or game paths', () => {
-    const engineFiles = [
-        'src/engine/audio.js',
-        'src/engine/camera.js',
-        'src/engine/fx.js',
-        'src/engine/graphics.js',
-        'src/engine/input.js',
-        'src/engine/loop.js',
-        'src/engine/music.js',
-        'src/engine/net.js',
-        'src/engine/physics.js',
-        'src/engine/proc.js',
-        'src/engine/profiler.js',
-        'src/engine/render-host.js',
-        'src/engine/renderer.js',
-        'src/engine/save.js',
-        'src/engine/shell.js',
-        'src/engine/system.js',
-        'src/engine/touch.js',
-        'src/engine/ui/bus.js',
-        'src/engine/ui/modal-stack.js',
-        'src/engine/ui/root.js',
-        'src/engine/ui/toast.js',
-        'src/engine/ui/boot-cinematic.js',
-        'src/engine/ui/boot-screen.js',
-        'src/engine/boot.js',
-        'src/engine/utils.js'
-    ];
+test('engine boundary scan covers every src/engine JS file', () => {
+    const engineFiles = listEngineFiles();
+    assert.ok(engineFiles.length >= 24, `expected at least 24 engine files, found ${engineFiles.length}`);
+    assert.ok(engineFiles.includes('src/engine/boot.js'), 'engine scan must include boot.js');
+});
 
-    const forbiddenStrings = [
-        'window.Game',
-        "window['Game']",
-        'window["Game"]',
-        'GameInput',
-        'MultiplayerConfig',
-        'currentRoom',
-        'boss',
-        'biome',
-        'gear',
-        'safeRoom',
-        'nexus',
-        'player'
-    ];
-
-    for (const file of engineFiles) {
+test('engine files must not reference game-owned globals', () => {
+    for (const file of listEngineFiles()) {
         const content = read(file);
+        for (const ident of FORBIDDEN_GAME_GLOBALS) {
+            assert.ok(
+                !containsIdentifier(content, ident),
+                `${file} references forbidden game global: ${ident}`
+            );
+        }
+    }
+});
 
-        // Rule 1: no application globals or content vocabulary, including comments
-        // and compound identifiers. Exact source-string matching prevents evasions.
-        for (const token of forbiddenStrings) {
+test('engine files must not use game content vocabulary in code', () => {
+    for (const file of listEngineFiles()) {
+        const stripped = stripCommentsAndStrings(read(file));
+        for (const ident of FORBIDDEN_CONTENT_WORDS) {
+            assert.ok(
+                !containsIdentifier(stripped, ident),
+                `${file} uses forbidden game content vocabulary in code: ${ident}`
+            );
+        }
+    }
+});
+
+test('engine files must not path-reference, import, or alias game modules', () => {
+    for (const file of listEngineFiles()) {
+        const content = read(file);
+        for (const pattern of GAME_MODULE_PATH_PATTERNS) {
+            assert.doesNotMatch(
+                content,
+                pattern,
+                `${file} path-references or imports a game module (${pattern})`
+            );
+        }
+        for (const token of GAME_MODULE_ALIAS_STRINGS) {
             assert.equal(
                 content.includes(token),
                 false,
-                `${file} contains forbidden engine-boundary string: ${token}`
+                `${file} aliases game modules via ${token}`
+            );
+        }
+    }
+});
+
+test('src must not publish or use legacy engine dual-alias globals', () => {
+    const windowLegacyPattern = new RegExp(
+        `\\bwindow\\.(${LEGACY_WINDOW_GLOBALS.join('|')})\\b`
+    );
+    const enginePublicationPattern = new RegExp(
+        `\\bwindow\\.(${LEGACY_WINDOW_GLOBALS.join('|')})\\s*=`
+    );
+
+    for (const file of listSrcFiles()) {
+        const content = read(file);
+
+        if (file.startsWith('src/engine/')) {
+            assert.doesNotMatch(
+                content,
+                enginePublicationPattern,
+                `${file} publishes legacy window global alias`
+            );
+            for (const alias of LEGACY_ENGINE_ALIASES) {
+                assert.doesNotMatch(
+                    content,
+                    new RegExp(`\\bwindow\\.${alias}\\s*=\\s*${alias}\\b`),
+                    `${file} publishes bare legacy alias window.${alias} = ${alias}`
+                );
+            }
+            assert.doesNotMatch(
+                content,
+                /\bwindow\.Input\s*=\s*Engine\.Input\b/,
+                `${file} publishes window.Input = Engine.Input`
+            );
+            assert.doesNotMatch(
+                content,
+                /\bwindow\.Renderer\s*=\s*Renderer\b/,
+                `${file} publishes window.Renderer = Renderer`
             );
         }
 
-        // Rule 2: No file path references pointing to src/game/
-        assert.ok(!content.includes('src/game/'), `${file} contains path reference to src/game/`);
-        assert.ok(!content.includes('src/game\\'), `${file} contains path reference to src/game/`);
+        assert.doesNotMatch(
+            content,
+            windowLegacyPattern,
+            `${file} uses legacy window global alias`
+        );
+
+        if (file.startsWith('src/game/')) {
+            const stripped = stripCommentsAndStrings(content);
+            for (const ident of LEGACY_BARE_IDENTIFIERS_IN_GAME) {
+                assert.ok(
+                    !containsIdentifier(stripped, ident),
+                    `${file} uses bare legacy engine identifier: ${ident}`
+                );
+            }
+        }
     }
 });
 
@@ -280,19 +530,16 @@ test('boot manifests must not reference retired src/js or src/ui paths', () => {
 });
 
 test('Engine.Input must not contain game-specific action vocabulary', () => {
-    const src = read('src/engine/input.js');
-    const forbidden = [
-        "'triangle'", '"triangle"',
-        "'pentagon'", '"pentagon"',
-        "'hexagon'",  '"hexagon"',
-        'getCombatPrompt',
-        'classInputConfig',
-        'getMobileCooldownSnapshot'
+    const stripped = stripCommentsAndStrings(read('src/engine/input.js'));
+    const forbiddenIdentifiers = [
+        'triangle', 'pentagon', 'hexagon',
+        'getCombatPrompt', 'classInputConfig', 'getMobileCooldownSnapshot'
     ];
-    for (const token of forbidden) {
-        const lines = src.split('\n').filter(line => !line.trimStart().startsWith('//'));
-        const inCode = lines.some(line => line.includes(token));
-        assert.ok(!inCode, `Engine.Input must not reference game token: ${token}`);
+    for (const ident of forbiddenIdentifiers) {
+        assert.ok(
+            !containsIdentifier(stripped, ident),
+            `Engine.Input must not reference game token: ${ident}`
+        );
     }
 });
 
@@ -327,9 +574,38 @@ test('game facades wire through engine Save/FX/Proc/UI APIs', () => {
     assert.match(main, /Engine\.FX\.Post\.chromaticAberration/);
     assert.match(main, /Engine\.FX\.LightMask/);
     assert.match(main, /Engine\.Graphics\.GlowAtlas/);
-    assert.match(main, /Engine\.Graphics\.CanvasPool/);
+    assert.match(main, /Engine\.Render\.Targets/);
     assert.match(main, /Engine\.Render\.applyCamera/);
+    assert.match(main, /renderPlayingPipeline\s*\(/);
+    assert.match(main, /GameRenderPipeline\.(beginPlayingFrame|createPlayingPipeline)/);
     assert.doesNotMatch(main, /ensureChannelBuffer/);
+
+    const gameRenderPipe = read('src/game/presentation/render-pipeline.js');
+    assert.match(gameRenderPipe, /GameRenderPipeline/);
+    assert.match(gameRenderPipe, /Engine\.Render\.createPipeline/);
+    assert.match(gameRenderPipe, /createPlayingRecipe/);
+    assert.match(gameRenderPipe, /id:\s*'worldClear'/);
+    assert.match(gameRenderPipe, /id:\s*'worldStatic'/);
+    assert.match(gameRenderPipe, /id:\s*'worldVisibility'/);
+    assert.match(gameRenderPipe, /id:\s*'worldGlow'/);
+    assert.match(gameRenderPipe, /id:\s*'worldBodies'/);
+    assert.match(gameRenderPipe, /id:\s*'worldTutorial'/);
+    assert.doesNotMatch(gameRenderPipe, /id:\s*'playingWorld'/);
+    assert.match(gameRenderPipe, /enterWorldContext/);
+    assert.match(gameRenderPipe, /leaveWorldContext/);
+    assert.match(main, /gatherVisibleFrameLists\s*\(/);
+    assert.match(main, /renderWorldGlows\s*\(/);
+    assert.match(main, /renderWorldBodies\s*\(/);
+    assert.match(main, /cleanupPlayingRenderTargets\s*\(/);
+    assert.doesNotMatch(main, /ensureWorldRenderTarget\s*\(/);
+    assert.match(read('index.html'), /src\/game\/presentation\/render-pipeline\.js/);
+    assert.match(read('sw.js'), /render-pipeline\.js/);
+
+    const engineRenderPipe = read('src/engine/render-pipeline.js');
+    assert.match(engineRenderPipe, /createPipeline/);
+    assert.match(engineRenderPipe, /Targets/);
+    assert.doesNotMatch(engineRenderPipe, /\b(boss|player|gear|biome|nexus|vignette)\b/i);
+    assert.doesNotMatch(engineRenderPipe, /DebugFlags/);
 
     const rooms = read('src/game/simulation/room-layout-generator.js');
     assert.match(rooms, /Engine\.Proc\.Grid/);
@@ -364,6 +640,51 @@ test('game facades wire through engine Save/FX/Proc/UI APIs', () => {
     assert.match(modalAdapter, /openModal|closeModal/);
     assert.match(read('index.html'), /src\/game\/ui\/core\/modal-adapter\.js/);
     assert.match(read('sw.js'), /modal-adapter\.js/);
+
+    const gameAudio = read('src/game/audio/game-audio.js');
+    assert.match(gameAudio, /GameAudio/);
+    assert.match(gameAudio, /Engine\.Audio/);
+    assert.match(gameAudio, /bindSettings\s*\(/);
+    assert.match(gameAudio, /sounds\s*:/);
+    assert.doesNotMatch(gameAudio, /\bAudioManager\b/);
+
+    const gameMusic = read('src/game/audio/game-music.js');
+    assert.match(gameMusic, /GameMusic/);
+    assert.match(gameMusic, /Engine\.Music/);
+    assert.match(gameMusic, /setRoom\s*\(/);
+    assert.match(gameMusic, /setTitle\s*\(/);
+    assert.doesNotMatch(gameMusic, /\bMusicManager\b/);
+
+    assert.match(read('index.html'), /src\/game\/audio\/game-audio\.js/);
+    assert.match(read('index.html'), /src\/game\/audio\/game-music\.js/);
+    assert.match(read('sw.js'), /game-audio\.js/);
+    assert.match(read('sw.js'), /game-music\.js/);
+    assert.match(main, /GameMusic\./);
+    assert.match(main, /Engine\.Input\./);
+    assert.match(main, /GameAudio\.bindSettings/);
+
+    const engineAudio = read('src/engine/audio.js');
+    assert.match(engineAudio, /configure\s*\(/);
+    assert.match(engineAudio, /_settingsStore|settingsStore/);
+    assert.doesNotMatch(engineAudio, /\bsounds\s*:/);
+    assert.doesNotMatch(engineAudio, /\bwindow\.AudioManager\b/);
+
+    const engineMusic = read('src/engine/music.js');
+    assert.match(engineMusic, /Engine\.Audio/);
+    assert.doesNotMatch(engineMusic, /\bwindow\.MusicManager\b/);
+    assert.doesNotMatch(engineMusic, /\bsetRoom\s*\(/);
+    // Transport must stay content-schema agnostic: no manifest location and
+    // no knowledge of the game's playlist categories.
+    assert.match(engineMusic, /loadManifest\s*\(/);
+    assert.doesNotMatch(engineMusic, /music-config\.json/);
+    for (const schemaWord of ['roomSets', 'encounters', 'pauseMenu', 'fallbackPools']) {
+        assert.ok(
+            !containsIdentifier(stripCommentsAndStrings(engineMusic), schemaWord),
+            `src/engine/music.js still references game manifest schema: ${schemaWord}`
+        );
+    }
+    assert.match(gameMusic, /MANIFEST_URL/);
+    assert.match(gameMusic, /Engine\.Music\.configure\s*\(\s*\{\s*manifestUrl/);
 
     const wiredMenus = [
         'src/game/ui/components/pauseMenu.js',

@@ -7,12 +7,275 @@ const inputRoot = typeof window !== 'undefined' ? window : globalThis;
 inputRoot.Engine = inputRoot.Engine || {};
 const Engine = inputRoot.Engine;
 
+function createInputSeat(input, options = {}) {
+    const id = options.id == null ? `seat${input._seats.size}` : String(options.id);
+    const seat = {
+        id,
+        gamepadIndex: Number.isInteger(options.gamepadIndex) ? options.gamepadIndex : null,
+        allowKeyboardMouse: options.allowKeyboardMouse === true,
+        lastAimAngle: 0,
+        _buttons: [],
+        _previousButtons: [],
+        _justPressed: [],
+        _axes: [0, 0, 0, 0],
+        _interactPrev: false,
+        // Per-seat input class for prompts/gameplay (never borrow global Input source).
+        _seatInputSource: null,
+        _seatGamepadFamily: 'generic',
+
+        _buttonDown(index) {
+            return !!this._buttons[index];
+        },
+
+        _buttonJustPressed(index) {
+            return !!this._justPressed[index];
+        },
+
+        _stick(axisX, axisY) {
+            return input._applyRadialDeadzone(this._axes[axisX] || 0, this._axes[axisY] || 0);
+        },
+
+        _isPadConnected() {
+            if (this.gamepadIndex === null) return false;
+            const pads = typeof navigator !== 'undefined' && navigator.getGamepads
+                ? navigator.getGamepads()
+                : [];
+            const raw = pads[this.gamepadIndex];
+            return !!(raw && raw.connected);
+        },
+
+        _padHasLiveInput() {
+            if (this._buttons.some(Boolean)) return true;
+            const dead = (input._gamepadDeadzone != null) ? input._gamepadDeadzone : 0.18;
+            return (this._axes || []).some(v => Math.abs(v || 0) > dead);
+        },
+
+        _keyboardMouseHasLiveInput() {
+            if (!this.allowKeyboardMouse) return false;
+            const keys = input.keys || {};
+            if (keys.w || keys.a || keys.s || keys.d || keys.g || keys.m || keys[' '] || keys.shift) return true;
+            if (keys.arrowup || keys.arrowdown || keys.arrowleft || keys.arrowright) return true;
+            if (input.mouseLeft || input.mouseRight) return true;
+            return false;
+        },
+
+        /**
+         * Keyboard-only seats always use mouse/keys.
+         * Pad-only seats always use the pad.
+         * Hybrid seats follow this seat's last live input (not the global Input source).
+         */
+        _usesKeyboardMouse() {
+            if (!this.allowKeyboardMouse) return false;
+            if (this.gamepadIndex === null) return true;
+            return this.getPromptSource() === 'keyboardMouse';
+        },
+
+        update() {
+            const gamepads = typeof navigator !== 'undefined' && navigator.getGamepads
+                ? navigator.getGamepads()
+                : [];
+            const raw = this.gamepadIndex === null ? null : gamepads[this.gamepadIndex];
+            const gamepad = raw && raw.connected ? input._getMappedGamepad(raw) : null;
+            const nextButtons = gamepad
+                ? Array.from(gamepad.buttons || [], button => !!(button && (button.pressed || button.value > 0.15)))
+                : [];
+            this._justPressed = nextButtons.map((down, index) => down && !this._previousButtons[index]);
+            this._previousButtons = nextButtons.slice();
+            this._buttons = nextButtons;
+            this._axes = gamepad ? Array.from(gamepad.axes || []) : [0, 0, 0, 0];
+
+            if (raw && raw.connected && typeof input._detectGamepadFamily === 'function') {
+                this._seatGamepadFamily = input._detectGamepadFamily(raw);
+            }
+
+            const padLive = !!(gamepad && this._padHasLiveInput());
+            const kbLive = this._keyboardMouseHasLiveInput();
+            if (padLive) this._seatInputSource = 'gamepad';
+            else if (kbLive) this._seatInputSource = 'keyboardMouse';
+
+            return this;
+        },
+
+        // Desktop player paths read these fields off Engine.Input; mirror them for KB seats.
+        get mouseLeft() {
+            return this._usesKeyboardMouse() ? !!input.mouseLeft : false;
+        },
+        get mouseRight() {
+            return this._usesKeyboardMouse() ? !!input.mouseRight : false;
+        },
+        get mouse() {
+            return input.mouse;
+        },
+        get keys() {
+            return this.allowKeyboardMouse ? input.keys : {};
+        },
+
+        isTouchMode() {
+            return !this._usesKeyboardMouse();
+        },
+
+        getMovementInput() {
+            if (this._usesKeyboardMouse()) {
+                const keyboard = input._getKeyboardMovementInput();
+                if (keyboard.x !== 0 || keyboard.y !== 0) return keyboard;
+            }
+            const stick = this._stick(0, 1);
+            let x = stick.x;
+            let y = stick.y;
+            if (this._buttonDown(12)) y -= 1;
+            if (this._buttonDown(13)) y += 1;
+            if (this._buttonDown(14)) x -= 1;
+            if (this._buttonDown(15)) x += 1;
+            const length = Math.hypot(x, y);
+            return length > 1 ? { x: x / length, y: y / length } : { x, y };
+        },
+
+        getAimDirection() {
+            if (this._usesKeyboardMouse()) {
+                return input.getAimDirection();
+            }
+            const stick = this._stick(2, 3);
+            if (stick.mag > 0.05) this.lastAimAngle = Math.atan2(stick.y, stick.x);
+            return this.lastAimAngle;
+        },
+
+        isAbilityPressed(ability) {
+            if (this._usesKeyboardMouse() && input._desktopAbilityDown(ability)) {
+                return true;
+            }
+            const button = { basicAttack: 7, heavyAttack: 6, specialAbility: 4, dodge: 5 }[ability];
+            return button === undefined ? false : this._buttonDown(button);
+        },
+
+        isAbilityJustPressed(ability) {
+            if (this._usesKeyboardMouse() && input._desktopAbilityJust[ability]) {
+                return true;
+            }
+            const button = { basicAttack: 7, heavyAttack: 6, specialAbility: 4, dodge: 5 }[ability];
+            return button === undefined ? false : this._buttonJustPressed(button);
+        },
+
+        getAbilityDirection() {
+            const angle = this.getAimDirection();
+            return { x: Math.cos(angle), y: Math.sin(angle) };
+        },
+
+        getAbilityAngle() {
+            return this.getAimDirection();
+        },
+
+        isKeyDown(key) {
+            return this.allowKeyboardMouse ? input.isKeyDown(key) : false;
+        },
+
+        getKeyState(key) {
+            return this.isKeyDown(key);
+        },
+
+        /** Nexus / world interact: G on keyboard seats, South face (A/Cross) on pads. */
+        isInteractPressed() {
+            if (this._usesKeyboardMouse() && input.isKeyDown('g')) return true;
+            return this._buttonDown(0);
+        },
+
+        isInteractJustPressed() {
+            const pressed = this.isInteractPressed();
+            const edge = pressed && !this._interactPrev;
+            this._interactPrev = pressed;
+            return edge;
+        },
+
+        /**
+         * Glyph source for THIS seat only:
+         * - no pad bound → keyboard/mouse
+         * - pad-only seat → that pad's family glyphs
+         * - hybrid seat → last live input on this seat (defaults to pad when connected)
+         */
+        getPromptSource() {
+            if (this.gamepadIndex === null) return 'keyboardMouse';
+            if (!this.allowKeyboardMouse) return 'gamepad';
+            if (this._seatInputSource === 'keyboardMouse' || this._seatInputSource === 'gamepad') {
+                return this._seatInputSource;
+            }
+            // Hybrid seat with a bound pad: prefer that pad's family until KB/M is used here.
+            return 'gamepad';
+        },
+
+        getGamepadFamily() {
+            if (this.gamepadIndex === null) return 'generic';
+            if (this._seatGamepadFamily && this._seatGamepadFamily !== 'generic') {
+                return this._seatGamepadFamily;
+            }
+            const pads = typeof navigator !== 'undefined' && navigator.getGamepads
+                ? navigator.getGamepads()
+                : [];
+            const raw = pads[this.gamepadIndex];
+            if (raw && raw.connected && typeof input._detectGamepadFamily === 'function') {
+                this._seatGamepadFamily = input._detectGamepadFamily(raw);
+                return this._seatGamepadFamily;
+            }
+            return this._seatGamepadFamily || 'generic';
+        }
+    };
+    return seat;
+}
+
 Engine.Input = {
     _hooks: {},
+    _seats: new Map(),
+    _couchSplitActive: false,
 
     configure(hooks = {}) {
         this._hooks = Object.assign({}, this._hooks, hooks);
         return this;
+    },
+
+    createSeat(options = {}) {
+        const seat = createInputSeat(this, options);
+        if (this._seats.has(seat.id)) throw new Error(`Input seat already exists: ${seat.id}`);
+        this._seats.set(seat.id, seat);
+        return seat;
+    },
+
+    getSeat(id) {
+        return this._seats.get(String(id)) || null;
+    },
+
+    seats() {
+        return Array.from(this._seats.values());
+    },
+
+    removeSeat(id) {
+        return this._seats.delete(String(id));
+    },
+
+    clearSeats() {
+        this._seats.clear();
+    },
+
+    setCouchSplitActive(active) {
+        const next = active === true;
+        this._couchSplitActive = next;
+        if (next) {
+            // Touch is never a local-coop seat — clear any leftover touch state.
+            if (typeof this._resetTouchState === 'function') {
+                this._resetTouchState('couch-split');
+            }
+            this.touchActive = false;
+            if (this._activeInputSource === 'touch') {
+                this._activeInputSource = 'keyboardMouse';
+            }
+        }
+        return this;
+    },
+
+    /** True while local co-op owns seats — touch must not drive gameplay. */
+    isCouchSplitActive() {
+        return !!this._couchSplitActive;
+    },
+
+    updateSeats(deltaTime) {
+        for (const seat of this._seats.values()) seat.update(deltaTime);
     },
 
     _getLogicalSize(canvas = this._gamepadCanvas) {
@@ -84,6 +347,17 @@ Engine.Input = {
         return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
     },
 
+    _applyRadialDeadzone(rawX, rawY) {
+        const magnitude = Math.hypot(rawX, rawY);
+        if (magnitude < this._gamepadDeadzone) return { x: 0, y: 0, mag: 0 };
+        const scaled = Math.min(1, (magnitude - this._gamepadDeadzone) / (1 - this._gamepadDeadzone));
+        return {
+            x: (rawX / magnitude) * scaled,
+            y: (rawY / magnitude) * scaled,
+            mag: scaled
+        };
+    },
+
     _hasWindowFocus() {
         return typeof document === 'undefined' || document.hasFocus();
     },
@@ -91,8 +365,8 @@ Engine.Input = {
     // ------------------------------------------------------------------ device
 
     getDeviceProfile() {
-        if (typeof DeviceDetection !== 'undefined' && DeviceDetection.getProfile) {
-            return DeviceDetection.getProfile();
+        if (Engine.System && Engine.System.getProfile) {
+            return Engine.System.getProfile();
         }
         return {
             formFactor: 'unknown', os: 'unknown',
@@ -102,8 +376,8 @@ Engine.Input = {
     },
 
     isMobileDevice() {
-        if (typeof DeviceDetection !== 'undefined' && DeviceDetection.isMobileDevice) {
-            return DeviceDetection.isMobileDevice();
+        if (Engine.System && Engine.System.isMobileDevice) {
+            return Engine.System.isMobileDevice();
         }
         return false;
     },
@@ -161,17 +435,20 @@ Engine.Input = {
     },
 
     usesDomTouchControls() {
-        return typeof MobileControlsDOM !== 'undefined' &&
-            MobileControlsDOM.layer &&
-            !MobileControlsDOM.layer.hidden &&
-            !this.isGamepadMode();
+        if (this._couchSplitActive) return false;
+        if (this.isGamepadMode()) return false;
+        if (typeof this._hooks.isDomTouchControlsActive === 'function') {
+            return this._hooks.isDomTouchControlsActive();
+        }
+        return false;
     },
 
-    // ------------------------------------------------------------------ telemetry (game-neutral)
+    // ------------------------------------------------------------------ event recording (game-neutral)
 
     _recordInputEvent(type, metadata = {}) {
-        if (typeof Telemetry === 'undefined' || !Telemetry || !Telemetry.recordEvent) return;
-        Telemetry.recordEvent(type, { metadata: { ...this.getInputContext(), ...metadata } });
+        if (typeof this._hooks.recordTelemetry === 'function') {
+            this._hooks.recordTelemetry(type, { metadata: { ...this.getInputContext(), ...metadata } });
+        }
     },
 
     // ------------------------------------------------------------------ keyboard
@@ -309,8 +586,8 @@ Engine.Input = {
         }
 
         const layoutOptions = { isMobile, safeInsets: this.getSafeAreaInsets(), displayScaleX, displayScaleY };
-        const layout = (typeof MobileControlLayout !== 'undefined')
-            ? MobileControlLayout.getEffectiveLayout(width, height, layoutOptions)
+        const layout = (typeof this._hooks.getMobileControlLayout === 'function')
+            ? this._hooks.getMobileControlLayout(width, height, layoutOptions)
             : null;
 
         if (layout && layout.controls) {
@@ -345,8 +622,8 @@ Engine.Input = {
             this.touchJoysticks.dodge         = new VirtualJoystick(width - 130, height - 53, 28, 14);
         }
 
-        if (typeof MobileControlsDOM !== 'undefined' && MobileControlsDOM.onInputSurfaceReady) {
-            MobileControlsDOM.onInputSurfaceReady();
+        if (typeof this._hooks.onInputSurfaceReady === 'function') {
+            this._hooks.onInputSurfaceReady();
         }
     },
 
@@ -361,15 +638,15 @@ Engine.Input = {
         if (this.isGamepadMode()) {
             this._touchControlsHiddenForGamepad = hadOnScreenTouchControls || wantsMobileSurface;
             if (canvas) this._initGamepadControls(canvas);
-            if (typeof MobileControlsDOM !== 'undefined' && MobileControlsDOM.refresh) MobileControlsDOM.refresh();
+            if (typeof this._hooks.refreshDomTouchControls === 'function') this._hooks.refreshDomTouchControls();
             return;
         }
 
         this._touchControlsHiddenForGamepad = false;
         if (this.isMobileUiMode()) {
             if (canvas) this.initTouchControls(canvas);
-        } else if (typeof MobileControlsDOM !== 'undefined' && MobileControlsDOM.refresh) {
-            MobileControlsDOM.refresh();
+        } else if (typeof this._hooks.refreshDomTouchControls === 'function') {
+            this._hooks.refreshDomTouchControls();
         }
     },
 
@@ -439,7 +716,7 @@ Engine.Input = {
      * Returns hardware button-style metadata for the given abstract button name.
      * @param {'interact'|'modifier'} button
      */
-    _getGamepadButtonStyle(button) {
+    _getGamepadButtonStyle(button, family = null) {
         const styles = {
             playstation: {
                 interact:  { mark: 'cross',    color: '#6d96d8', text: 'Cross' },
@@ -462,42 +739,88 @@ Engine.Input = {
                 modifier:  { mark: 'text', label: 'Y', color: '#ffffff', text: 'Y' }
             }
         };
-        const familyStyles = styles[this._gamepadFamily] || styles.generic;
+        const familyKey = family || this._gamepadFamily;
+        const familyStyles = styles[familyKey] || styles.generic;
         return familyStyles[button] || styles.generic[button] || { mark: 'text', label: '?', color: '#ffffff', text: '?' };
+    },
+
+    /**
+     * Resolve glyph mode for prompts.
+     * options.seat — local-coop seat that owns the interaction
+     * options.source — 'gamepad' | 'keyboardMouse' | 'touch'
+     * options.family — gamepad family override
+     */
+    _resolvePromptContext(options = null) {
+        const opts = options && typeof options === 'object' ? options : null;
+        let mode = null;
+        let family = this._gamepadFamily || 'generic';
+
+        if (opts && opts.seat) {
+            const seat = opts.seat;
+            const source = typeof seat.getPromptSource === 'function'
+                ? seat.getPromptSource()
+                : (seat.gamepadIndex != null ? 'gamepad' : 'keyboardMouse');
+            if (source === 'gamepad') mode = 'gamepad';
+            else if (source === 'touch') mode = 'touch';
+            else mode = 'keyboard';
+            if (mode === 'gamepad') {
+                if (typeof seat.getGamepadFamily === 'function') {
+                    family = seat.getGamepadFamily() || family;
+                } else if (seat._seatGamepadFamily) {
+                    family = seat._seatGamepadFamily;
+                }
+            }
+        } else if (opts && opts.source) {
+            if (opts.source === 'gamepad') mode = 'gamepad';
+            else if (opts.source === 'touch' || opts.source === 'mobile') mode = 'touch';
+            else mode = 'keyboard';
+            if (opts.family) family = opts.family;
+        }
+
+        if (!mode) {
+            if (this.isGamepadMode()) mode = 'gamepad';
+            else if (this.isMobileUiMode()) mode = 'touch';
+            else mode = 'keyboard';
+        }
+        return { mode, family };
     },
 
     /**
      * Returns the display hint string for an abstract action ('interact' | 'modifier').
      */
-    getInputHint(action) {
+    getInputHint(action, options = null) {
+        const promptCtx = this._resolvePromptContext(options);
         const desktopHints = { interact: 'G', modifier: 'M' };
-        if (this.isGamepadMode()) return this._getGamepadButtonStyle(action).text;
+        if (promptCtx.mode === 'gamepad') return this._getGamepadButtonStyle(action, promptCtx.family).text;
         return desktopHints[action] || '';
     },
 
-    getInteractionPrompt(actionText = 'interact') {
-        if (this.isGamepadMode()) return `Press ${this.getInputHint('interact')} to ${actionText}`;
-        if (this.isMobileUiMode()) return `Tap Interact to ${actionText}`;
-        return `Press ${this.getInputHint('interact')} to ${actionText}`;
+    getInteractionPrompt(actionText = 'interact', options = null) {
+        const promptCtx = this._resolvePromptContext(options);
+        if (promptCtx.mode === 'gamepad') return `Press ${this.getInputHint('interact', options)} to ${actionText}`;
+        if (promptCtx.mode === 'touch') return `Tap Interact to ${actionText}`;
+        return `Press ${this.getInputHint('interact', options)} to ${actionText}`;
     },
 
-    getDoorPrompt(hasModifiers = false) {
-        const selectHint   = this.getInputHint('interact');
-        const modifierHint = this.getInputHint('modifier');
-        if (this.isGamepadMode()) {
+    getDoorPrompt(hasModifiers = false, options = null) {
+        const promptCtx = this._resolvePromptContext(options);
+        const selectHint   = this.getInputHint('interact', options);
+        const modifierHint = this.getInputHint('modifier', options);
+        if (promptCtx.mode === 'gamepad') {
             return hasModifiers
                 ? `Press ${selectHint} to Select or ${modifierHint} for Modifier`
                 : `Press ${selectHint} to Select`;
         }
-        if (this.isMobileUiMode()) return 'Tap Interact to Select';
+        if (promptCtx.mode === 'touch') return 'Tap Interact to Select';
         return hasModifiers
             ? `Press ${selectHint} to Select or ${modifierHint} for Modifier`
             : `Press ${selectHint} to Select`;
     },
 
-    drawControllerButtonHint(ctx, button, x, y, size = 18) {
+    drawControllerButtonHint(ctx, button, x, y, size = 18, options = null) {
+        const promptCtx = this._resolvePromptContext(options);
         const radius = size / 2;
-        const buttonStyle = this._getGamepadButtonStyle(button);
+        const buttonStyle = this._getGamepadButtonStyle(button, promptCtx.family);
         const markColor = buttonStyle.color || '#ffffff';
 
         ctx.save();
@@ -544,21 +867,23 @@ Engine.Input = {
         ctx.restore();
     },
 
-    drawInteractionPrompt(ctx, actionText, x, y) {
-        if (!this.isGamepadMode()) {
-            ctx.fillText(this.getInteractionPrompt(actionText), x, y);
+    drawInteractionPrompt(ctx, actionText, x, y, options = null) {
+        const promptCtx = this._resolvePromptContext(options);
+        if (promptCtx.mode !== 'gamepad') {
+            ctx.fillText(this.getInteractionPrompt(actionText, options), x, y);
             return;
         }
         this._drawGamepadPrompt(ctx, [
             { type: 'text',   text: 'Press ' },
             { type: 'button', button: 'interact' },
             { type: 'text',   text: ` to ${actionText}` }
-        ], x, y);
+        ], x, y, options);
     },
 
-    drawDoorPrompt(ctx, hasModifiers, x, y) {
-        if (!this.isGamepadMode()) {
-            ctx.fillText(this.getDoorPrompt(hasModifiers), x, y);
+    drawDoorPrompt(ctx, hasModifiers, x, y, options = null) {
+        const promptCtx = this._resolvePromptContext(options);
+        if (promptCtx.mode !== 'gamepad') {
+            ctx.fillText(this.getDoorPrompt(hasModifiers, options), x, y);
             return;
         }
         const parts = [
@@ -573,10 +898,10 @@ Engine.Input = {
                 { type: 'text',   text: ' for Modifier' }
             );
         }
-        this._drawGamepadPrompt(ctx, parts, x, y);
+        this._drawGamepadPrompt(ctx, parts, x, y, options);
     },
 
-    _drawGamepadPrompt(ctx, parts, x, y) {
+    _drawGamepadPrompt(ctx, parts, x, y, options = null) {
         const originalAlign = ctx.textAlign;
         const buttonSize = 18;
         const gap = 3;
@@ -593,7 +918,9 @@ Engine.Input = {
         for (const part of parts) {
             if (part.type === 'button') {
                 cursorX += gap;
-                this.drawControllerButtonHint(ctx, part.button, cursorX + buttonSize / 2, y - buttonSize * 0.35, buttonSize);
+                this.drawControllerButtonHint(
+                    ctx, part.button, cursorX + buttonSize / 2, y - buttonSize * 0.35, buttonSize, options
+                );
                 cursorX += buttonSize + gap;
             } else {
                 ctx.fillText(part.text, cursorX, y);
@@ -627,6 +954,10 @@ Engine.Input = {
         if (!navigator.getGamepads) return null;
         const gamepads = navigator.getGamepads();
         for (const gamepad of gamepads) {
+            if (this._couchSplitActive &&
+                this.seats().some(seat => seat.gamepadIndex === gamepad?.index)) {
+                continue;
+            }
             if (gamepad && gamepad.connected && this._hasGamepadInput(gamepad)) return gamepad;
         }
         return null;
@@ -662,6 +993,8 @@ Engine.Input = {
     },
 
     _activateNonGamepadInput(source, canvas = this._gamepadCanvas) {
+        // Local co-op seats are keyboard/mouse and/or gamepads only — never touch.
+        if (this._couchSplitActive && source === 'touch') return false;
         const now = this._now();
         this._lastNonGamepadInputAt = now;
         if (!this._gamepadActive) {
@@ -690,6 +1023,7 @@ Engine.Input = {
 
     _scanConnectedGamepads(canvas = this._gamepadCanvas, options = {}) {
         if (!navigator.getGamepads) return false;
+        if (this._couchSplitActive) return false;
         const requireInput  = options.requireInput  === true;
         const activateInput = options.activateInput === true;
         const gamepads = navigator.getGamepads();
@@ -720,7 +1054,7 @@ Engine.Input = {
     // Poll the Gamepad API and write its state into the existing touch joystick/button objects.
     _updateGamepad() {
         const activeGamepad = this._findGamepadWithInput();
-        if (activeGamepad && activeGamepad.index !== this._gamepadIndex) {
+        if (!this._couchSplitActive && activeGamepad && activeGamepad.index !== this._gamepadIndex) {
             console.log(`[INPUT] Dynamic hot-swap gamepad to: "${activeGamepad.id}" (index ${activeGamepad.index})`);
             this._gamepadIndex  = activeGamepad.index;
             this._gamepadFamily = this._detectGamepadFamily(activeGamepad);
@@ -780,9 +1114,8 @@ Engine.Input = {
         };
 
         // DOM menus own the pad while open
-        const uiBlocking = window.ControllerNav
-            && typeof window.ControllerNav.isBlockingGameplay === 'function'
-            && window.ControllerNav.isBlockingGameplay();
+        const uiBlocking = typeof this._hooks.isUiBlockingGameplay === 'function'
+            && this._hooks.isUiBlockingGameplay();
 
         const clearGameplayPad = () => {
             syncJoystick(this.touchJoysticks.movement, { x: 0, y: 0, mag: 0 });
@@ -804,7 +1137,7 @@ Engine.Input = {
 
         if (uiBlocking) {
             clearGameplayPad();
-            if (!(window.ControllerNav && window.ControllerNav.handlesSystemButtons)) {
+            if (!(typeof this._hooks.uiHandlesSystemButtons === 'function' && this._hooks.uiHandlesSystemButtons())) {
                 const startNow = gp.buttons[9]?.pressed || false;
                 if (startNow && !this._gamepadStartPrev) {
                     if (typeof this._hooks.onSystemStart === 'function') this._hooks.onSystemStart();
@@ -825,9 +1158,8 @@ Engine.Input = {
         const dpadLeft  = gp.buttons[14]?.pressed || false;
         const dpadRight = gp.buttons[15]?.pressed || false;
 
-        const lootCycleActive = typeof LootSelection !== 'undefined'
-            && LootSelection.nearbyItems && LootSelection.nearbyItems.length > 1
-            && (dpadLeft || dpadRight) && !dpadUp && !dpadDown;
+        const lootCycleActive = typeof this._hooks.isLootCycleActive === 'function'
+            && this._hooks.isLootCycleActive(dpadLeft, dpadRight, dpadUp, dpadDown);
 
         if (lootCycleActive) {
             syncJoystick(this.touchJoysticks.movement, leftStick);
@@ -882,7 +1214,7 @@ Engine.Input = {
         syncButton(this.touchButtons.dodge, dodgeDown);
         syncAbilityJoystick(this.touchJoysticks.dodge, leftStick, dodgeDown);
 
-        if (!(window.ControllerNav && window.ControllerNav.handlesSystemButtons)) {
+        if (!(typeof this._hooks.uiHandlesSystemButtons === 'function' && this._hooks.uiHandlesSystemButtons())) {
             // Start → title dismiss or toggle pause
             const startNow = gp.buttons[9]?.pressed || false;
             if (startNow && !this._gamepadStartPrev) {
@@ -906,6 +1238,8 @@ Engine.Input = {
     // ------------------------------------------------------------------ touch handlers
 
     handleTouchStart(e, canvas) {
+        // Local co-op never accepts touch as a seat input.
+        if (this._couchSplitActive) return;
         if (!this.isTouchMode()) return;
         if (!this.isGamepadMode()) {
             this._activateNonGamepadInput('touch', canvas);
@@ -914,10 +1248,6 @@ Engine.Input = {
         }
 
         if (e.defaultPrevented) return;
-
-        if (typeof CharacterSheet !== 'undefined' && CharacterSheet.isOpen && e.touches.length > 0) {
-            CharacterSheet.lastTouchY = e.touches[0].clientY;
-        }
 
         void canvas.offsetWidth;
         const rect = canvas.getBoundingClientRect();
@@ -936,15 +1266,12 @@ Engine.Input = {
             this.activeTouches[touchId] = { x, y };
             this.touchActive = true;
 
-            if (typeof CharacterSheet !== 'undefined' && CharacterSheet.isOpen && CharacterSheet.closeButtonBounds) {
-                const b = CharacterSheet.closeButtonBounds;
-                if (x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height) {
-                    CharacterSheet.isOpen = false;
-                    return;
-                }
+            if (typeof this._hooks.onCharacterSheetTouchStart === 'function') {
+                const firstClientY = e.touches.length > 0 ? e.touches[0].clientY : 0;
+                if (this._hooks.onCharacterSheetTouchStart(x, y, firstClientY)) return;
             }
 
-            if (typeof handleInteractionButtonClick === 'function' && handleInteractionButtonClick(x, y)) return;
+            if (typeof this._hooks.onInteractionButtonClick === 'function' && this._hooks.onInteractionButtonClick(x, y)) return;
 
             if (this.usesDomTouchControls()) return;
 
@@ -1009,21 +1336,16 @@ Engine.Input = {
     },
 
     handleTouchMove(e, canvas) {
+        if (this._couchSplitActive) return;
         if (!this.isTouchMode()) return;
 
-        if (typeof CharacterSheet !== 'undefined' && CharacterSheet.isOpen && e.touches.length > 0) {
+        if (e.touches.length > 0 && typeof this._hooks.onCharacterSheetTouchMove === 'function') {
             const touch = e.touches[0];
-            if (CharacterSheet.lastTouchY !== null) {
-                const deltaY    = CharacterSheet.lastTouchY - touch.clientY;
-                const gameCoords = this._mapPointer(touch.clientX, touch.clientY, canvas);
-                if (typeof handleCharacterSheetScroll !== 'undefined' &&
-                    handleCharacterSheetScroll(gameCoords.x, gameCoords.y, deltaY)) {
-                    CharacterSheet.lastTouchY = touch.clientY;
-                    e.preventDefault();
-                    return;
-                }
+            const gc = this._mapPointer(touch.clientX, touch.clientY, canvas);
+            if (this._hooks.onCharacterSheetTouchMove(gc.x, gc.y, touch.clientY)) {
+                e.preventDefault();
+                return;
             }
-            CharacterSheet.lastTouchY = touch.clientY;
         }
 
         if (this.usesDomTouchControls()) return;
@@ -1110,6 +1432,7 @@ Engine.Input = {
     },
 
     handleTouchEnd(e) {
+        if (this._couchSplitActive) return;
         if (!this.isTouchMode()) return;
 
         const touches = Array.from(e.changedTouches);
@@ -1214,8 +1537,8 @@ Engine.Input = {
     init(canvas) {
         this._gamepadCanvas = canvas;
 
-        if (typeof SaveSystem !== 'undefined') {
-            this.controlMode = SaveSystem.getControlMode() || 'auto';
+        if (typeof this._hooks.loadControlMode === 'function') {
+            this.controlMode = this._hooks.loadControlMode() || 'auto';
         }
 
         this.applyControlMode(this.controlMode, canvas);
@@ -1223,8 +1546,8 @@ Engine.Input = {
 
         if (typeof window !== 'undefined') {
             const recheckDeviceProfile = () => {
-                if (typeof DeviceDetection !== 'undefined' && DeviceDetection.invalidateCache) {
-                    DeviceDetection.invalidateCache();
+                if (Engine.System && Engine.System.invalidateCache) {
+                    Engine.System.invalidateCache();
                 }
                 if (this.controlMode === 'auto') {
                     this._syncUiModeClass();
@@ -1288,7 +1611,7 @@ Engine.Input = {
         // Gamepad
         window.addEventListener('gamepadconnected', (e) => {
             console.log(`[INPUT] Gamepad connected: "${e.gamepad.id}" (index ${e.gamepad.index})`);
-            this._activateGamepad(e.gamepad, canvas);
+            if (!this._couchSplitActive) this._activateGamepad(e.gamepad, canvas);
         });
         window.addEventListener('gamepaddisconnected', (e) => {
             console.log(`[INPUT] Gamepad disconnected: "${e.gamepad.id}" (index ${e.gamepad.index})`);
@@ -1309,7 +1632,10 @@ Engine.Input = {
 
     /** Call once per frame before game logic runs. */
     update(deltaTime) {
-        if (this._gamepadIndex === null || !this.isGamepadMode()) {
+        this._sampleDesktopAbilityEdges();
+        this.updateSeats(deltaTime);
+
+        if (!this._couchSplitActive && (this._gamepadIndex === null || !this.isGamepadMode())) {
             const gamepad = this._findGamepadWithInput();
             if (gamepad) {
                 this._gamepadActivationFrames++;
@@ -1336,12 +1662,10 @@ Engine.Input = {
             if (button && !this.isGamepadMode()) button.update(deltaTime);
         }
 
-        if (typeof MobileControlsDOM !== 'undefined' && MobileControlsDOM.refresh &&
-            (this._domRefreshCooldown || 0) <= 0) {
-            this._domRefreshCooldown = 0.25;
-            if (MobileControlsDOM.shouldShow && MobileControlsDOM.layer) {
-                const want = MobileControlsDOM.shouldShow();
-                if (want === MobileControlsDOM.layer.hidden) MobileControlsDOM.refresh();
+        if ((this._domRefreshCooldown || 0) <= 0) {
+            if (typeof this._hooks.refreshDomTouchControls === 'function') {
+                this._domRefreshCooldown = 0.25;
+                this._hooks.refreshDomTouchControls();
             }
         } else if (this._domRefreshCooldown > 0) {
             this._domRefreshCooldown -= deltaTime;
@@ -1357,6 +1681,10 @@ Engine.Input = {
             const mag = this.touchJoysticks.movement.getMagnitude();
             return { x: dir.x * mag, y: dir.y * mag };
         }
+        return this._getKeyboardMovementInput();
+    },
+
+    _getKeyboardMovementInput() {
         let x = 0, y = 0;
         if (this.isKeyDown('w')) y -= 1;
         if (this.isKeyDown('s')) y += 1;
@@ -1399,6 +1727,33 @@ Engine.Input = {
         return 0;
     },
 
+    _desktopAbilitySlots: ['basicAttack', 'heavyAttack', 'specialAbility', 'dodge'],
+    _desktopAbilityPrev: {},
+    _desktopAbilityJust: {},
+
+    /** Raw desktop held-state for a named ability slot. */
+    _desktopAbilityDown(ability) {
+        if (!this._hasWindowFocus()) return false;
+        if (ability === 'basicAttack')    return this.mouseLeft;
+        if (ability === 'heavyAttack')    return this.mouseRight;
+        if (ability === 'specialAbility') return this.isKeyDown(' ');
+        if (ability === 'dodge')          return this.isKeyDown('shift');
+        return false;
+    },
+
+    /**
+     * Latch desktop ability rising edges once per frame so
+     * isAbilityJustPressed() reports a one-shot press instead of mirroring
+     * the held state. Runs from update() in every control mode.
+     */
+    _sampleDesktopAbilityEdges() {
+        for (const slot of this._desktopAbilitySlots) {
+            const down = this._desktopAbilityDown(slot);
+            this._desktopAbilityJust[slot] = down && !this._desktopAbilityPrev[slot];
+            this._desktopAbilityPrev[slot] = down;
+        }
+    },
+
     /**
      * Check if a named ability slot is currently pressed.
      * Ability names are abstract slot names ('basicAttack', 'heavyAttack', 'specialAbility', 'dodge').
@@ -1410,12 +1765,7 @@ Engine.Input = {
             }
             return this.touchButtons[ability] ? this.touchButtons[ability].pressed : false;
         }
-        if (!this._hasWindowFocus()) return false;
-        if (ability === 'basicAttack')    return this.mouseLeft;
-        if (ability === 'heavyAttack')    return this.mouseRight;
-        if (ability === 'specialAbility') return this.isKeyDown(' ');
-        if (ability === 'dodge')          return this.isKeyDown('shift');
-        return false;
+        return this._desktopAbilityDown(ability);
     },
 
     /** Check if a named ability slot was just pressed this frame (edge detect). */
@@ -1426,12 +1776,7 @@ Engine.Input = {
             }
             return this.touchButtons[ability] ? this.touchButtons[ability].justPressed : false;
         }
-        if (!this._hasWindowFocus()) return false;
-        if (ability === 'basicAttack')    return this.mouseLeft;
-        if (ability === 'heavyAttack')    return this.mouseRight;
-        if (ability === 'specialAbility') return this.isKeyDown(' ');
-        if (ability === 'dodge')          return this.isKeyDown('shift');
-        return false;
+        return !!this._desktopAbilityJust[ability];
     },
 
     /** Get the normalized direction vector for a named ability slot. */
@@ -1482,7 +1827,7 @@ Engine.Input = {
     render(ctx) {
         if (!this.isMobileUiMode()) return;
         if (this.isGamepadMode()) return;
-        if (typeof MobileControlsDOM !== 'undefined') return;
+        if (typeof this._hooks.isDomTouchControlsActive === 'function') return;
 
         // Delegate application-specific rendering through the configured hook.
         if (typeof this._hooks.renderTouchControls === 'function') {
@@ -1491,8 +1836,8 @@ Engine.Input = {
         }
 
         // Generic fallback: draw all joystick/button primitives with no class-specific filtering.
-        const tutorialHighlight = (typeof Room0Tutorial !== 'undefined' && Room0Tutorial.getHighlightControl)
-            ? Room0Tutorial.getHighlightControl() : null;
+        const tutorialHighlight = typeof this._hooks.getTutorialHighlightControl === 'function'
+            ? this._hooks.getTutorialHighlightControl() : null;
         const drawGlow = (cx, cy, radius) => {
             if (!Number.isFinite(cx) || !Number.isFinite(cy)) return;
             const pulse = 0.55 + 0.45 * Math.sin(Date.now() * 0.01);
@@ -1520,8 +1865,6 @@ Engine.Input = {
 if (typeof window !== 'undefined') {
     window.Engine = window.Engine || {};
     window.Engine.Input = Engine.Input;
-    // Keep window.Input as the canonical reference for all call-sites in game code.
-    window.Input = Engine.Input;
 }
 
 if (typeof module !== 'undefined' && module.exports) {

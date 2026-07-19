@@ -979,8 +979,8 @@ class Enemy extends EnemyBase {
             if (this.telegraphElapsed >= this.currentTelegraphDuration) {
                 if (this.activeTelegraph) this.endTelegraph();
 
-                if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-                    AudioManager.sounds.enemyLunge();
+                if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+                    GameAudio.sounds.enemyLunge();
                 }
 
                 this.lungeStartX = this.x;

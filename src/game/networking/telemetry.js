@@ -290,28 +290,28 @@
             protocol,
             href: loc && typeof loc.href === 'string' ? loc.href : null,
             isElectron,
-            engine: (typeof DeviceDetection !== 'undefined' && DeviceDetection.getEngine)
-                ? DeviceDetection.getEngine()
+            engine: (typeof Engine !== 'undefined' && Engine.System && Engine.System.getEngine)
+                ? Engine.System.getEngine()
                 : 'unknown',
-            isGeckoFamily: (typeof DeviceDetection !== 'undefined' && DeviceDetection.isGeckoFamily)
-                ? DeviceDetection.isGeckoFamily()
+            isGeckoFamily: (typeof Engine !== 'undefined' && Engine.System && Engine.System.isGeckoFamily)
+                ? Engine.System.isGeckoFamily()
                 : false
         };
     }
 
     function collectInputContext() {
-        if (typeof Input !== 'undefined' && Input.getInputContext) {
-            return Input.getInputContext();
+        if ((typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.getInputContext) {
+            return Engine.Input.getInputContext();
         }
         if (typeof window === 'undefined') {
             return {};
         }
         return {
-            controlMode: typeof Input !== 'undefined' ? Input.controlMode : 'unknown',
-            activeInputSource: typeof Input !== 'undefined' ? Input._activeInputSource : 'unknown',
-            mobileUi: typeof Input !== 'undefined' && Input.isMobileUiMode ? Input.isMobileUiMode() : false,
-            gamepad: typeof Input !== 'undefined' && Input.isGamepadMode ? Input.isGamepadMode() : false,
-            gamepadFamily: typeof Input !== 'undefined' ? Input._gamepadFamily : 'generic',
+            controlMode: (typeof Engine !== 'undefined' && Engine.Input) ? Engine.Input.controlMode : 'unknown',
+            activeInputSource: (typeof Engine !== 'undefined' && Engine.Input) ? Engine.Input._activeInputSource : 'unknown',
+            mobileUi: (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileUiMode ? Engine.Input.isMobileUiMode() : false,
+            gamepad: (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isGamepadMode ? Engine.Input.isGamepadMode() : false,
+            gamepadFamily: (typeof Engine !== 'undefined' && Engine.Input) ? Engine.Input._gamepadFamily : 'generic',
             viewport: {
                 width: window.innerWidth || null,
                 height: window.innerHeight || null,

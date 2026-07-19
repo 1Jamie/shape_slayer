@@ -177,7 +177,7 @@
 		}
 		
 		// Mobile scaling and repositioning
-		const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
+		const isMobile = (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileUiMode && Engine.Input.isMobileUiMode();
 		if (isMobile) {
 			panel.style.top = '8px';
 			panel.style.width = '180px';

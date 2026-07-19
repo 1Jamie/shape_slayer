@@ -2872,16 +2872,11 @@ function renderRoomLayoutDebug(ctx) {
     ctx.restore();
 }
 
-// Extend Renderer namespace with game-specific methods
-if (typeof window !== 'undefined') {
-    window.Renderer = window.Renderer || {};
-    
-    // Door Cache System
-    window.Renderer.doorCache = new Map();
-    
-    // Helper to get or create a cached door sprite
-    window.Renderer.getCachedDoor = function(width, height) {
-        // Round dimensions to reduce fragmentation
+// Game-specific door rendering helpers (not part of Engine.Renderer)
+const GameRender = {
+    doorCache: new Map(),
+
+    getCachedDoor(width, height) {
         const keyWidth = Math.ceil(width);
         const keyHeight = Math.ceil(height);
         const key = `${keyWidth}_${keyHeight}`;
@@ -2890,33 +2885,25 @@ if (typeof window !== 'undefined') {
             return this.doorCache.get(key);
         }
 
-        // Create new cached door
         const canvas = document.createElement('canvas');
-        // Size includes glow + padding
         const padding = 25;
         canvas.width = keyWidth + padding * 2;
         canvas.height = keyHeight + padding * 2;
         const ctx = canvas.getContext('2d');
 
-        // Offset to draw centered in canvas with padding
         const x = padding;
         const y = padding;
 
-        // Outer glow for pulse effect (baked in at max intensity or base intensity?)
-        // We bake the base glow. Pulse scaling will be applied at draw time.
         ctx.shadowBlur = 20;
         ctx.shadowColor = '#ffaa00';
 
-        // Draw door body (gold/yellow)
         ctx.fillStyle = '#ffaa00';
         ctx.fillRect(x, y, keyWidth, keyHeight);
 
-        // Draw door outline
         ctx.strokeStyle = '#ff8800';
         ctx.lineWidth = 3;
         ctx.strokeRect(x, y, keyWidth, keyHeight);
 
-        // Draw door handle
         ctx.fillStyle = '#996600';
         ctx.beginPath();
         ctx.arc(x + keyWidth - 10, y + keyHeight / 2, 5, 0, Math.PI * 2);
@@ -2924,28 +2911,20 @@ if (typeof window !== 'undefined') {
 
         this.doorCache.set(key, canvas);
         return canvas;
-    };
+    },
 
-    // Draw door
-    window.Renderer.door = function(ctx, x, y, width, height, pulse = 0) {
-        // Check debug flag
+    door(ctx, x, y, width, height, pulse = 0) {
         if (typeof DebugFlags !== 'undefined' && DebugFlags.USE_CACHING === false) {
-            // Fallback to original rendering
-            // Outer glow for pulse effect
-            const pulseSize = 3 + Math.sin(pulse) * 2;
             ctx.shadowBlur = 20;
             ctx.shadowColor = '#ffaa00';
 
-            // Draw door body (gold/yellow)
             ctx.fillStyle = '#ffaa00';
             ctx.fillRect(x, y, width, height);
 
-            // Draw door outline
             ctx.strokeStyle = '#ff8800';
             ctx.lineWidth = 3;
             ctx.strokeRect(x, y, width, height);
 
-            // Draw door handle
             ctx.fillStyle = '#996600';
             ctx.beginPath();
             ctx.arc(x + width - 10, y + height / 2, 5, 0, Math.PI * 2);
@@ -2955,25 +2934,24 @@ if (typeof window !== 'undefined') {
             return;
         }
 
-        // Get cached door
         const cachedCanvas = this.getCachedDoor(width, height);
-
-        // Pulse effect
-        const pulseScale = 1.0 + Math.sin(pulse) * 0.02; // Subtle pulse scale
+        const pulseScale = 1.0 + Math.sin(pulse) * 0.02;
 
         ctx.save();
 
-        // Center of the door for scaling
         const centerX = x + width / 2;
         const centerY = y + height / 2;
 
         ctx.translate(centerX, centerY);
         ctx.scale(pulseScale, pulseScale);
 
-        // Draw cached image centered
         ctx.drawImage(cachedCanvas, -cachedCanvas.width / 2, -cachedCanvas.height / 2);
 
         ctx.restore();
-    };
+    }
+};
+
+if (typeof window !== 'undefined') {
+    window.GameRender = GameRender;
 }
 

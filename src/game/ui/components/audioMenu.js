@@ -67,103 +67,103 @@
 		layer.appendChild(panel);
 		root.appendChild(layer);
 
-		function attachHandlers() {
-		function clamp(v) { return Math.max(0, Math.min(1, v)); }
-		function getAudioManager() {
-			return window.AudioManager || (typeof AudioManager !== 'undefined' ? AudioManager : null);
+	function attachHandlers() {
+	function clamp(v) { return Math.max(0, Math.min(1, v)); }
+	function getEngineAudio() {
+		return (typeof Engine !== 'undefined' && Engine.Audio) ? Engine.Audio : null;
+	}
+	function updateMuteButtonText() {
+		const am = getEngineAudio();
+		if (mute && am) {
+			mute.textContent = am.muted ? 'Unmute' : 'Mute';
 		}
-		function updateMuteButtonText() {
-			const am = getAudioManager();
-			if (mute && am) {
-				mute.textContent = am.muted ? 'Unmute' : 'Mute';
+	}
+	
+	function handleMasterChange() {
+		const v = clamp(parseFloat(master.value || '0'));
+		const am = getEngineAudio();
+		if (am) {
+			if (!am.initialized && am.init) {
+				am.init();
 			}
-		}
-		
-		function handleMasterChange() {
-			const v = clamp(parseFloat(master.value || '0'));
-			const am = getAudioManager();
-			if (am) {
-				if (!am.initialized && am.init) {
-					am.init();
-				}
-				if (am.setVolume) {
-					am.setVolume(v);
-					if (am.muted && v > 0 && am.setMute) {
-						am.setMute(false);
-						updateMuteButtonText();
-					}
-				}
-			} else {
-				console.warn('[AudioMenu] AudioManager not available');
-			}
-		}
-		function handleMusicChange() {
-			const v = clamp(parseFloat(music.value || '0'));
-			const am = getAudioManager();
-			if (am) {
-				if (!am.initialized && am.init) {
-					am.init();
-				}
-				if (am.setMusicVolume) {
-					am.setMusicVolume(v);
-				}
-			} else {
-				console.warn('[AudioMenu] AudioManager not available');
-			}
-		}
-		function handleSfxChange() {
-			const v = clamp(parseFloat(sfx.value || '0'));
-			const am = getAudioManager();
-			if (am) {
-				if (!am.initialized && am.init) {
-					am.init();
-				}
-				if (am.setSfxVolume) {
-					am.setSfxVolume(v);
-				}
-			} else {
-				console.warn('[AudioMenu] AudioManager not available');
-			}
-		}
-		
-		if (master) {
-			master.addEventListener('input', handleMasterChange);
-			master.addEventListener('change', handleMasterChange);
-		}
-		if (music) {
-			music.addEventListener('input', handleMusicChange);
-			music.addEventListener('change', handleMusicChange);
-		}
-		if (sfx) {
-			sfx.addEventListener('input', handleSfxChange);
-			sfx.addEventListener('change', handleSfxChange);
-		}
-		if (mute) mute.addEventListener('click', () => {
-			const am = getAudioManager();
-			if (am) {
-				if (!am.initialized && am.init) {
-					am.init();
-				}
-				if (am.setMute) {
-					am.setMute(!am.muted);
+			if (am.setVolume) {
+				am.setVolume(v);
+				if (am.muted && v > 0 && am.setMute) {
+					am.setMute(false);
 					updateMuteButtonText();
 				}
-			} else {
-				console.warn('[AudioMenu] AudioManager not available');
 			}
-		});
+		} else {
+			console.warn('[AudioMenu] Engine.Audio not available');
+		}
 	}
+	function handleMusicChange() {
+		const v = clamp(parseFloat(music.value || '0'));
+		const am = getEngineAudio();
+		if (am) {
+			if (!am.initialized && am.init) {
+				am.init();
+			}
+			if (am.setMusicVolume) {
+				am.setMusicVolume(v);
+			}
+		} else {
+			console.warn('[AudioMenu] Engine.Audio not available');
+		}
+	}
+	function handleSfxChange() {
+		const v = clamp(parseFloat(sfx.value || '0'));
+		const am = getEngineAudio();
+		if (am) {
+			if (!am.initialized && am.init) {
+				am.init();
+			}
+			if (am.setSfxVolume) {
+				am.setSfxVolume(v);
+			}
+		} else {
+			console.warn('[AudioMenu] Engine.Audio not available');
+		}
+	}
+	
+	if (master) {
+		master.addEventListener('input', handleMasterChange);
+		master.addEventListener('change', handleMasterChange);
+	}
+	if (music) {
+		music.addEventListener('input', handleMusicChange);
+		music.addEventListener('change', handleMusicChange);
+	}
+	if (sfx) {
+		sfx.addEventListener('input', handleSfxChange);
+		sfx.addEventListener('change', handleSfxChange);
+	}
+	if (mute) mute.addEventListener('click', () => {
+		const am = getEngineAudio();
+		if (am) {
+			if (!am.initialized && am.init) {
+				am.init();
+			}
+			if (am.setMute) {
+				am.setMute(!am.muted);
+				updateMuteButtonText();
+			}
+		} else {
+			console.warn('[AudioMenu] Engine.Audio not available');
+		}
+	});
+}
 		attachHandlers();
 	}
 
 	function syncValues() {
-		const am = window.AudioManager || (typeof AudioManager !== 'undefined' ? AudioManager : null);
+		const am = (typeof Engine !== 'undefined' && Engine.Audio) ? Engine.Audio : null;
 		if (!am) {
-			console.warn('[AudioMenu] AudioManager not available for sync');
+			console.warn('[AudioMenu] Engine.Audio not available for sync');
 			return;
 		}
 		
-		// Ensure AudioManager is initialized and settings are loaded
+		// Ensure Engine.Audio is initialized and settings are loaded
 		if (!am.initialized && am.init) {
 			am.init();
 		}
@@ -198,7 +198,7 @@
 			closeOnEscape: true,
 			onClose: () => {
 				audioModalEntry = null;
-				const am = window.AudioManager || (typeof AudioManager !== 'undefined' ? AudioManager : null);
+				const am = (typeof Engine !== 'undefined' && Engine.Audio) ? Engine.Audio : null;
 				if (am && am.saveSettings) am.saveSettings();
 			}
 		});
@@ -211,7 +211,7 @@
 			audioModalEntry = null;
 		}
 		// Persist on close
-		const am = window.AudioManager || (typeof AudioManager !== 'undefined' ? AudioManager : null);
+		const am = (typeof Engine !== 'undefined' && Engine.Audio) ? Engine.Audio : null;
 		if (am && am.saveSettings) {
 			am.saveSettings();
 		}

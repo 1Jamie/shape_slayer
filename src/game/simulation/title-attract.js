@@ -309,8 +309,8 @@
         if (typeof createDamageNumber === 'function') {
             createDamageNumber(player.x, player.y - (player.size || 16), Math.floor(felt), true, false);
         }
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.sounds.hitNormal) {
-            AudioManager.sounds.hitNormal(0.45);
+        if (typeof GameAudio !== 'undefined' && GameAudio.sounds && GameAudio.sounds.hitNormal) {
+            GameAudio.sounds.hitNormal(0.45);
         }
 
         // Tank passive knockback still reads great on title
@@ -980,8 +980,8 @@
 
     function pollDismissInput() {
         if (typeof Game === 'undefined' || Game.state !== 'TITLE') return;
-        if (typeof Input === 'undefined') return;
-        const interactNow = !!(Input.keys && Input.keys['g']);
+        if ((typeof Engine === 'undefined' || !Engine.Input)) return;
+        const interactNow = !!(Engine.Input.keys && Engine.Input.keys['g']);
         if (interactNow && !_interactPrev) {
             if (typeof Game.dismissTitleScreen === 'function') {
                 Game.dismissTitleScreen();

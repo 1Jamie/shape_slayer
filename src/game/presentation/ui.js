@@ -112,7 +112,7 @@ function renderDamageNumbers(ctx) {
 // Helper function to draw a small shape indicator
 function drawPlayerShapeIndicator(ctx, x, y, shape, color, size = 12) {
     // Scale down on mobile for better space usage
-    const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
+    const isMobile = (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileUiMode && Engine.Input.isMobileUiMode();
     const mobileScale = isMobile ? 0.75 : 1.0;
 
     const barX = 30;
@@ -338,7 +338,7 @@ function renderOtherPlayersHealthBars(ctx) {
     if (!localPlayerId) return;
 
     // Scale down on mobile for better space usage
-    const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
+    const isMobile = (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileUiMode && Engine.Input.isMobileUiMode();
     const mobileScale = isMobile ? 0.75 : 1.0;
 
     // Position below local health bar (local bar is at y=30, height=36, so start at y=80)
@@ -617,8 +617,8 @@ function formatTime(seconds) {
         ctx.fillText('Press R to Restart', centerX, centerY + 200 * scale);
         ctx.fillStyle = '#00ffff';
         ctx.font = `bold ${Math.floor(20 * scale)}px Orbitron`;
-        const continueHint = typeof Input !== 'undefined' && Input.getInputHint
-            ? `Press ${Input.getInputHint('modifier')} or Click to Continue to Nexus`
+        const continueHint = (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.getInputHint
+            ? `Press ${Engine.Input.getInputHint('modifier')} or Click to Continue to Nexus`
             : 'Press M or Click to Continue to Nexus';
         ctx.fillText(continueHint, centerX, centerY + 240 * scale);
     }
@@ -834,8 +834,8 @@ function renderCollectiveDeathScreen(ctx, player) {
         ctx.fillStyle = '#00ff00';
         ctx.font = `bold ${Math.floor(24 * scale)}px Orbitron`;
         ctx.textAlign = 'center';
-        const returnHint = typeof Input !== 'undefined' && Input.getInputHint
-            ? `Press ${Input.getInputHint('modifier')} to Return to Nexus`
+        const returnHint = (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.getInputHint
+            ? `Press ${Engine.Input.getInputHint('modifier')} to Return to Nexus`
             : 'Press M to Return to Nexus';
         ctx.fillText(returnHint, centerX, centerY + 200 * scale);
     } else {
@@ -910,10 +910,14 @@ function handleCharacterSheetScroll(x, y, deltaY) {
 // Expose worldToScreen globally for DOM components
 window.worldToScreen = function worldToScreen(worldX, worldY) {
     if (typeof Game !== 'undefined' && Game.config) {
-        const camera = Game.state === 'NEXUS' ? Game.nexusCamera : Game.camera;
+        const activeViewport = Game._activeRenderViewport;
+        const camera = Game._activeRenderCamera
+            || (Game.state === 'NEXUS' ? Game.nexusCamera : Game.camera);
         if (camera && typeof camera.worldToScreen === 'function') {
+            const viewW = activeViewport ? activeViewport.w : Game.config.width;
+            const viewH = activeViewport ? activeViewport.h : Game.config.height;
             return camera
-                .setViewSize(Game.config.width, Game.config.height)
+                .setViewSize(viewW, viewH)
                 .setZoom(Game.getViewZoom ? Game.getViewZoom() : (Game.baseZoom || 1.1))
                 .worldToScreen(worldX, worldY);
         }
@@ -1042,12 +1046,13 @@ function renderEnemyDirectionArrows(ctx, player) {
     if (enemies.length === 0 || enemies.length > 5) return;
 
     // Get camera and viewport info
-    const camera = Game.camera;
+    const camera = Game._activeRenderCamera || Game.camera;
     if (!camera) return;
 
     const zoom = (Game.getViewZoom && Game.getViewZoom()) || 1.0;
-    const canvasWidth = Game.config.width;
-    const canvasHeight = Game.config.height;
+    const activeViewport = Game._activeRenderViewport;
+    const canvasWidth = activeViewport ? activeViewport.w : Game.config.width;
+    const canvasHeight = activeViewport ? activeViewport.h : Game.config.height;
 
     // Render arrows for each off-screen enemy
     enemies.forEach(enemy => {
@@ -1112,12 +1117,13 @@ function renderDoorDirectionArrow(ctx, player) {
 
     if (!referencePlayer || !referencePlayer.alive) return;
 
-    const camera = Game.camera;
+    const camera = Game._activeRenderCamera || Game.camera;
     if (!camera || !Game.config) return;
 
     const zoom = (Game.getViewZoom && Game.getViewZoom()) || 1.0;
-    const canvasWidth = Game.config.width;
-    const canvasHeight = Game.config.height;
+    const activeViewport = Game._activeRenderViewport;
+    const canvasWidth = activeViewport ? activeViewport.w : Game.config.width;
+    const canvasHeight = activeViewport ? activeViewport.h : Game.config.height;
 
     const doorRect = getDoorPosition();
     if (!doorRect) return;
@@ -1486,9 +1492,9 @@ function recordMobileInteractionEvent(type, interaction, metadata = {}) {
         metadata: {
             interactionType: interaction && interaction.type ? interaction.type : null,
             targetName: getInteractionTargetName(interaction),
-            inputSource: typeof Input !== 'undefined' ? Input._activeInputSource : null,
-            gamepad: typeof Input !== 'undefined' && Input.isGamepadMode ? Input.isGamepadMode() : false,
-            mobileUi: typeof Input !== 'undefined' && Input.isMobileUiMode ? Input.isMobileUiMode() : false,
+            inputSource: (typeof Engine !== 'undefined' && Engine.Input) ? Engine.Input._activeInputSource : null,
+            gamepad: (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isGamepadMode ? Engine.Input.isGamepadMode() : false,
+            mobileUi: (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileUiMode ? Engine.Input.isMobileUiMode() : false,
             ...metadata
         }
     });
@@ -1522,7 +1528,7 @@ function checkGearInteraction() {
 
 // Update interaction state
 function updateInteractionState() {
-    if (!Input || !Input.isMobileUiMode || !Input.isMobileUiMode() || (Input.isGamepadMode && Input.isGamepadMode())) {
+    if (!Engine.Input || !Engine.Input.isMobileUiMode || !Engine.Input.isMobileUiMode() || (Engine.Input.isGamepadMode && Engine.Input.isGamepadMode())) {
         currentInteraction = null;
         return;
     }
@@ -1558,13 +1564,15 @@ function updateInteractionState() {
             }
         }
 
-        // Check for item pylon interaction (multiplayer)
+        // Check for item pylon interaction (multiplayer / local co-op)
         let pylonInteraction = null;
         if (typeof checkItemPylonInteraction !== 'undefined' && Game.player) {
-            const pylon = checkItemPylonInteraction(Game.player);
+            const playerId = (typeof Game.getLocalPlayerId === 'function' ? Game.getLocalPlayerId() : null)
+                || (typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.playerId)
+                || 'local';
+            const pylon = checkItemPylonInteraction(Game.player, playerId);
             if (pylon) {
-                const playerId = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.playerId;
-                const hasInteracted = pylon.interactedPlayers && playerId && pylon.interactedPlayers.includes(playerId);
+                const hasInteracted = pylon.interactedPlayers && pylon.interactedPlayers.includes(playerId);
                 if (!hasInteracted) {
                     pylonInteraction = { type: 'itemPylon', pylon: pylon };
                 }
@@ -1609,7 +1617,7 @@ function getMobileInteractionState() {
 
 // Render interaction button
 function renderInteractionButton(ctx) {
-    if (!Input || !Input.isMobileUiMode || !Input.isMobileUiMode()) {
+    if (!Engine.Input || !Engine.Input.isMobileUiMode || !Engine.Input.isMobileUiMode()) {
         return;
     }
 
@@ -1632,7 +1640,7 @@ function renderInteractionButton(ctx) {
     // Touch controls are now at ~23% from bottom on mobile, so position button accordingly
     // On mobile, position button above controls with some spacing
     // Calculate based on control position: controls are at ~23% from bottom, button should be ~28-30% from bottom
-    const isMobile = Input && Input.isMobileUiMode && Input.isMobileUiMode();
+    const isMobile = Engine.Input && Engine.Input.isMobileUiMode && Engine.Input.isMobileUiMode();
     // Use percentage-based positioning to match control positioning
     const mobileBottomOffset = Math.max(canvasHeight * 0.28, 140); // ~28% from bottom, minimum 140px
     const buttonY = isMobile ? canvasHeight - mobileBottomOffset : canvasHeight - 150;
@@ -1665,18 +1673,23 @@ function performCurrentInteraction() {
 
     recordMobileInteractionEvent('mobileInteractionPerformed', currentInteraction);
 
-    if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'itemPylon') {
+        if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'itemPylon') {
             // Interact with item pylon
             if (currentInteraction.pylon && Game.player && typeof interactWithItemPylon === 'function') {
-                interactWithItemPylon(currentInteraction.pylon, Game.player);
+                const claimId = typeof Game.getLocalPlayerId === 'function' ? Game.getLocalPlayerId() : null;
+                interactWithItemPylon(currentInteraction.pylon, Game.player, claimId);
             }
         } else if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'gear') {
             // Use selected gear from LootSelection
             if (typeof LootSelection !== 'undefined') {
-                LootSelection.updateNearbyItems(Game.player);
-                const selectedGear = LootSelection.getSelectedGear();
+                LootSelection.updateNearbyItems(Game.player, 'p1');
+                const selectedGear = LootSelection.getSelectedGear('p1');
                 if (selectedGear && Game.pickupGear) {
-                    Game.pickupGear(selectedGear);
+                    Game.pickupGear(
+                        selectedGear,
+                        Game.player,
+                        typeof Game.getLocalPlayerId === 'function' ? Game.getLocalPlayerId() : null
+                    );
                 }
             } else {
                 // Fallback to closest gear
@@ -1696,7 +1709,11 @@ function performCurrentInteraction() {
                     });
 
                     if (closestGear && Game.pickupGear) {
-                        Game.pickupGear(closestGear);
+                        Game.pickupGear(
+                            closestGear,
+                            Game.player,
+                            typeof Game.getLocalPlayerId === 'function' ? Game.getLocalPlayerId() : null
+                        );
                     }
                 }
             }
@@ -1715,8 +1732,8 @@ function performCurrentInteraction() {
                 if (typeof Game.player.updateEffectiveStats === 'function') {
                     Game.player.updateEffectiveStats();
                 }
-                if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.sounds.heal) {
-                    AudioManager.sounds.heal();
+                if (typeof GameAudio !== 'undefined' && GameAudio.sounds && GameAudio.sounds.heal) {
+                    GameAudio.sounds.heal();
                 }
                 console.log("[Healer] Restored 25% HP to player", _healLocalId);
             }
@@ -1745,13 +1762,13 @@ function performCurrentInteraction() {
             } else {
                 // Fallback: Trigger nexus interaction by simulating G key press
                 // We need to use the existing interaction logic
-                if (Input && Input.keys) {
-                    const originalGState = Input.keys['g'];
-                    Input.keys['g'] = true;
+                if (Engine.Input && Engine.Input.keys) {
+                    const originalGState = Engine.Input.keys['g'];
+                    Engine.Input.keys['g'] = true;
                     Game.lastGKeyState = false; // Force it to trigger
                     // The updateNexus will handle it on next frame
                     setTimeout(() => {
-                        Input.keys['g'] = originalGState;
+                        Engine.Input.keys['g'] = originalGState;
                     }, 10);
                 }
             }
@@ -1782,7 +1799,7 @@ if (typeof window !== 'undefined') {
 
 // Render mobile loot selection UI (when multiple items nearby)
 function renderMobileLootSelection(ctx) {
-    if (!Input || !Input.isMobileUiMode || !Input.isMobileUiMode()) {
+    if (!Engine.Input || !Engine.Input.isMobileUiMode || !Engine.Input.isMobileUiMode()) {
         return;
     }
 
@@ -1863,7 +1880,7 @@ function renderMobileLootSelection(ctx) {
 
 // Handle mobile loot selection button clicks
 function handleMobileLootSelectionClick(x, y) {
-    if (!Input || !Input.isMobileUiMode || !Input.isMobileUiMode()) {
+    if (!Engine.Input || !Engine.Input.isMobileUiMode || !Engine.Input.isMobileUiMode()) {
         return false;
     }
 
@@ -1905,7 +1922,7 @@ function handleMobileLootSelectionClick(x, y) {
 
 // Render touch controls (virtual joysticks and buttons)
 function renderTouchControls(ctx) {
-    // Logic moved to Input.render() in js/input.js to prevent double rendering
+    // Logic moved to Engine.Input.render() in js/input.js to prevent double rendering
     // and ensure consistency across all game states (including Nexus)
     return;
 }

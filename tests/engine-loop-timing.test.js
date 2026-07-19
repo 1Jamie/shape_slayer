@@ -8,8 +8,9 @@ test('simulating 360 frames at 16.66666ms results in exactly 360 updates and nea
     let updateCount = 0;
     let renderCount = 0;
 
-    // Mock DeviceDetection / System since loop depends on it for governor
-    global.DeviceDetection = {
+    // Mock Engine.System since loop depends on it for governor
+    globalThis.Engine = globalThis.Engine || {};
+    globalThis.Engine.System = {
         isGeckoFamily: () => false
     };
 

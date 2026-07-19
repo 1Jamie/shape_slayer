@@ -122,9 +122,12 @@
         },
 
         shouldShow() {
-            if (typeof Input === 'undefined') return false;
-            if (!Input.isMobileUiMode || !Input.isMobileUiMode()) return false;
-            if (Input.isGamepadMode && Input.isGamepadMode()) return false;
+            if ((typeof Engine === 'undefined' || !Engine.Input)) return false;
+            // Local co-op never uses touch seats — keep on-screen sticks hidden.
+            if (typeof Game !== 'undefined' && Game.localSplitEnabled) return false;
+            if (Engine.Input.isCouchSplitActive && Engine.Input.isCouchSplitActive()) return false;
+            if (!Engine.Input.isMobileUiMode || !Engine.Input.isMobileUiMode()) return false;
+            if (Engine.Input.isGamepadMode && Engine.Input.isGamepadMode()) return false;
             if (this._editorMode) return true;
             if (typeof Game === 'undefined') return false;
             // Hide under blocking menus / title attract when not in gameplay-ish states
@@ -206,11 +209,11 @@
                 displayScaleX = displayRect.width > 0 ? width / displayRect.width : 1;
                 displayScaleY = displayRect.height > 0 ? height / displayRect.height : 1;
             }
-            if (typeof Input !== 'undefined' && Input.getSafeAreaInsets) {
-                safeInsets = Input.getSafeAreaInsets();
+            if ((typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.getSafeAreaInsets) {
+                safeInsets = Engine.Input.getSafeAreaInsets();
             }
-            const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode
-                ? Input.isMobileUiMode()
+            const isMobile = (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileUiMode
+                ? Engine.Input.isMobileUiMode()
                 : true;
             const playerClass = this._playerClass();
             return { width, height, safeInsets, displayScaleX, displayScaleY, isMobile, playerClass };
@@ -252,9 +255,9 @@
         },
 
         _syncInputGeometry(id, cfg) {
-            if (typeof Input === 'undefined') return;
+            if ((typeof Engine === 'undefined' || !Engine.Input)) return;
             if (id === 'movement' || id === 'basicAttack') {
-                const joy = Input.touchJoysticks && Input.touchJoysticks[id];
+                const joy = Engine.Input.touchJoysticks && Engine.Input.touchJoysticks[id];
                 if (joy) {
                     joy.centerX = cfg.x;
                     joy.centerY = cfg.y;
@@ -262,7 +265,7 @@
                     joy.deadZoneRadius = cfg.deadZone;
                 }
             } else {
-                const btn = Input.touchButtons && Input.touchButtons[id];
+                const btn = Engine.Input.touchButtons && Engine.Input.touchButtons[id];
                 if (btn) {
                     btn.x = cfg.x - cfg.w / 2;
                     btn.y = cfg.y - cfg.h / 2;
@@ -270,7 +273,7 @@
                     btn.height = cfg.h;
                     btn.label = cfg.label || btn.label;
                 }
-                const joy = Input.touchJoysticks && Input.touchJoysticks[id];
+                const joy = Engine.Input.touchJoysticks && Engine.Input.touchJoysticks[id];
                 if (joy) {
                     joy.centerX = cfg.x;
                     joy.centerY = cfg.y;
@@ -336,8 +339,8 @@
             this._syncCanvasRect();
 
             const player = (typeof Game !== 'undefined') ? Game.player : null;
-            const cooldowns = (typeof Input !== 'undefined' && Input.getMobileCooldownSnapshot)
-                ? Input.getMobileCooldownSnapshot(player)
+            const cooldowns = ((typeof Engine !== 'undefined' && Engine.Input) && GameInput.getMobileCooldownSnapshot)
+                ? GameInput.getMobileCooldownSnapshot(player)
                 : null;
 
             const highlight = (typeof Room0Tutorial !== 'undefined' && Room0Tutorial.getHighlightControl)
@@ -378,8 +381,8 @@
                 }
 
                 // Sync knob from Input joystick state (gamepad or pointer)
-                const joy = typeof Input !== 'undefined' && Input.touchJoysticks
-                    ? Input.touchJoysticks[id]
+                const joy = (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.touchJoysticks
+                    ? Engine.Input.touchJoysticks[id]
                     : null;
                 let aiming = false;
                 if (node.knob && joy) {
@@ -398,8 +401,8 @@
                     }
                 }
 
-                const btn = typeof Input !== 'undefined' && Input.touchButtons
-                    ? Input.touchButtons[id]
+                const btn = (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.touchButtons
+                    ? Engine.Input.touchButtons[id]
                     : null;
                 if (btn && node.face.classList.contains('mc-button')) {
                     node.face.classList.toggle('mc-pressed', !!btn.pressed);
@@ -483,8 +486,8 @@
                 this._clearJoystick(controlId);
             } else {
                 // Capture final joystick aim before clearing
-                const joy = Input.touchJoysticks && Input.touchJoysticks[controlId];
-                const btn = Input.touchButtons && Input.touchButtons[controlId];
+                const joy = Engine.Input.touchJoysticks && Engine.Input.touchJoysticks[controlId];
+                const btn = Engine.Input.touchButtons && Engine.Input.touchButtons[controlId];
                 if (btn && joy && (state.joystickArmed || (joy.active && joy.getMagnitude() > 0.1))) {
                     btn.finalJoystickState = {
                         direction: joy.getDirection(),
@@ -508,7 +511,7 @@
         },
 
         _pressButton(controlId, isDown) {
-            const btn = Input.touchButtons && Input.touchButtons[controlId];
+            const btn = Engine.Input.touchButtons && Engine.Input.touchButtons[controlId];
             if (!btn) return;
             const was = !!btn.pressed;
             btn.pressed = isDown;
@@ -522,7 +525,7 @@
 
         _setJoystickFromEvent(controlId, e, active) {
             const node = this.nodes[controlId];
-            const joy = Input.touchJoysticks && Input.touchJoysticks[controlId];
+            const joy = Engine.Input.touchJoysticks && Engine.Input.touchJoysticks[controlId];
             if (!node || !joy) return;
 
             const rect = node.el.getBoundingClientRect();
@@ -548,13 +551,13 @@
             joy.currentY = joy.centerY + Math.sin(angle) * mag * (joy.radius || 40);
             joy.touchId = e.pointerId;
 
-            if (typeof Input !== 'undefined') {
-                Input.lastAimAngle = angle;
+            if ((typeof Engine !== 'undefined' && Engine.Input)) {
+                Engine.Input.lastAimAngle = angle;
             }
         },
 
         _clearJoystick(controlId) {
-            const joy = Input.touchJoysticks && Input.touchJoysticks[controlId];
+            const joy = Engine.Input.touchJoysticks && Engine.Input.touchJoysticks[controlId];
             if (!joy) return;
             joy.active = false;
             joy.magnitude = 0;
@@ -564,11 +567,11 @@
         },
 
         _resetPointers() {
-            if (typeof Input !== 'undefined') {
+            if ((typeof Engine !== 'undefined' && Engine.Input)) {
                 for (const id of CONTROL_IDS) {
                     this._clearJoystick(id);
                     if (id !== 'movement' && id !== 'basicAttack') {
-                        const button = Input.touchButtons && Input.touchButtons[id];
+                        const button = Engine.Input.touchButtons && Engine.Input.touchButtons[id];
                         if (button) {
                             button.pressed = false;
                             button.active = false;

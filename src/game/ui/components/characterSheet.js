@@ -1,8 +1,9 @@
 (function () {
-	let layer, modal, body;
+	let layer, modal, body, sheetHeader;
 	let open = false;
 	let tabHeldOpen = false;
 	let lastLevel = null;
+	let activeSeatId = 'p1';
 
 	function createCharacterSheet() {
 		const rootLayer = document.createElement('div');
@@ -22,6 +23,7 @@
 		const header = document.createElement('div');
 		header.className = 'modal__header';
 		header.textContent = 'Character';
+		sheetHeader = header;
 
 		body = document.createElement('div');
 		body.className = 'modal__body';
@@ -636,13 +638,31 @@
 		body.appendChild(grid);
 	}
 
+	function resolveSheetPlayer(seatId = activeSeatId) {
+		if (typeof Game === 'undefined' || !Game) return null;
+		if (seatId === 'p2' && Game.localSplitEnabled && Game.remotePlayerInstances) {
+			return Game.remotePlayerInstances.get(Game.localSplitPlayerId) || null;
+		}
+		return Game.player || null;
+	}
+
+	function sheetTitleForSeat(seatId = activeSeatId) {
+		if (typeof Game !== 'undefined' && Game.localSplitEnabled) {
+			return seatId === 'p2' ? 'Character (P2)' : 'Character (P1)';
+		}
+		return 'Character';
+	}
+
 	function render() {
 		if (!body) return;
 		body.innerHTML = '';
-		const player = (typeof Game !== 'undefined') ? Game.player : null;
+		if (sheetHeader) sheetHeader.textContent = sheetTitleForSeat(activeSeatId);
+		const player = resolveSheetPlayer(activeSeatId);
 		if (!player) {
 			const p = document.createElement('p');
-			p.textContent = 'No player data.';
+			p.textContent = activeSeatId === 'p2'
+				? 'No Player 2 data.'
+				: 'No player data.';
 			body.appendChild(p);
 			return;
 		}
@@ -652,8 +672,20 @@
 
 
 	let sheetModalEntry = null;
-	function toggle(force) {
-		open = typeof force === 'boolean' ? force : !open;
+	function toggle(force, options = {}) {
+		if (options && options.seatId) {
+			activeSeatId = options.seatId === 'p2' ? 'p2' : 'p1';
+		} else if (typeof force !== 'boolean' || force === true) {
+			// Opening without an explicit seat defaults to P1 (keyboard / UI button).
+			if (!open) activeSeatId = 'p1';
+		}
+		const nextOpen = typeof force === 'boolean' ? force : !open;
+		// Switching seats while already open: keep open and re-render.
+		if (nextOpen && open && options && options.seatId) {
+			render();
+			return;
+		}
+		open = nextOpen;
 		if (!layer) return;
 		if (open) {
 			render();
@@ -663,6 +695,7 @@
 					onClose: () => {
 						open = false;
 						sheetModalEntry = null;
+						activeSeatId = 'p1';
 						if (typeof window.refreshCharacterSheetButton === 'function') {
 							window.refreshCharacterSheetButton();
 						}
@@ -672,6 +705,7 @@
 		} else if (sheetModalEntry) {
 			GameUI.closeModal(sheetModalEntry);
 			sheetModalEntry = null;
+			activeSeatId = 'p1';
 		}
 		if (typeof window.refreshCharacterSheetButton === 'function') {
 			window.refreshCharacterSheetButton();
@@ -680,6 +714,10 @@
 
 	function isOpen() {
 		return !!open;
+	}
+
+	function getActiveSeatId() {
+		return activeSeatId;
 	}
 
 	function tick() {
@@ -696,12 +734,12 @@
 			}
 			const key = e.key.toLowerCase();
 			if (key === 'i') {
-				toggle();
+				toggle(undefined, { seatId: 'p1' });
 				e.preventDefault();
 				return;
 			}
 			if (e.key === 'Tab') {
-				if (!open) toggle(true);
+				if (!open || activeSeatId !== 'p1') toggle(true, { seatId: 'p1' });
 				tabHeldOpen = true;
 				e.preventDefault();
 				return;
@@ -714,18 +752,20 @@
 			}
 			const key = e.key.toLowerCase();
 			if (key === 'i') {
-				toggle();
+				toggle(undefined, { seatId: 'p1' });
 				e.preventDefault();
 			} else if (e.key === 'Tab') {
-				if (!open) toggle(true);
+				if (!open || activeSeatId !== 'p1') toggle(true, { seatId: 'p1' });
 				tabHeldOpen = true;
 				e.preventDefault();
 			}
 		}, { capture: true });
 		document.addEventListener('keyup', (e) => {
 			if (e.key === 'Tab') {
-				if (tabHeldOpen) {
+				if (tabHeldOpen && activeSeatId === 'p1') {
 					toggle(false);
+					tabHeldOpen = false;
+				} else if (tabHeldOpen) {
 					tabHeldOpen = false;
 				}
 				e.preventDefault();
@@ -733,8 +773,10 @@
 		}, { capture: true });
 		window.addEventListener('keyup', (e) => {
 			if (e.key === 'Tab') {
-				if (tabHeldOpen) {
+				if (tabHeldOpen && activeSeatId === 'p1') {
 					toggle(false);
+					tabHeldOpen = false;
+				} else if (tabHeldOpen) {
 					tabHeldOpen = false;
 				}
 				e.preventDefault();
@@ -745,6 +787,8 @@
 		window.CharacterSheet = window.CharacterSheet || {};
 		window.CharacterSheet.toggle = toggle;
 		window.CharacterSheet.isOpen = isOpen;
+		window.CharacterSheet.getActiveSeatId = getActiveSeatId;
+		window.CharacterSheet.openForSeat = (seatId, force) => toggle(force, { seatId });
 	}
 
 	if (document.readyState === 'loading') {

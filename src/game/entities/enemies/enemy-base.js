@@ -630,8 +630,8 @@ class EnemyBase {
         }
 
         // Scale non-impulse movement while under strong knockback so AI cannot cancel it same frame
-        if (!this._impulseIntegrating && !options.skipImpulseDamp && typeof ImpulsePhysics !== 'undefined') {
-            const scale = ImpulsePhysics.getAiMoveScale(this);
+        if (!this._impulseIntegrating && !options.skipImpulseDamp && Engine.Physics) {
+            const scale = Engine.Physics.getAiMoveScale(this);
             if (scale < 1) {
                 deltaX *= scale;
                 deltaY *= scale;
@@ -1361,13 +1361,13 @@ class EnemyBase {
 
     // Apply knockback / impulse force (accumulates with other impulses)
     applyImpulse(forceX, forceY, options = {}) {
-        if (typeof ImpulsePhysics === 'undefined') {
+        if (!Engine.Physics) {
             this.impulseVx = (this.impulseVx || 0) + (forceX || 0);
             this.impulseVy = (this.impulseVy || 0) + (forceY || 0);
             if (options.sourceId != null) this.lastImpulseSourceId = options.sourceId;
             return true;
         }
-        return ImpulsePhysics.apply(this, forceX, forceY, {
+        return Engine.Physics.apply(this, forceX, forceY, {
             resistance: options.resistance != null ? options.resistance : 1,
             maxSpeed: options.maxSpeed != null ? options.maxSpeed : this.impulseMaxSpeed,
             replace: !!options.replace,
@@ -1381,7 +1381,7 @@ class EnemyBase {
 
     // Process knockback / impulses (should be called before AI movement in update)
     processImpulses(deltaTime) {
-        if (typeof ImpulsePhysics === 'undefined') {
+        if (!Engine.Physics) {
             if (this.impulseVx || this.impulseVy) {
                 this.tryMoveBy(this.impulseVx * deltaTime, this.impulseVy * deltaTime, { skipImpulseDamp: true });
                 this.impulseVx *= Math.pow(this.impulseDecay || 0.5, deltaTime);
@@ -1391,7 +1391,7 @@ class EnemyBase {
         }
 
         this._impulseIntegrating = true;
-        ImpulsePhysics.integrate(this, deltaTime, {
+        Engine.Physics.integrate(this, deltaTime, {
             decay: this.impulseDecay,
             cutoff: this.impulseCutoff,
             maxDuration: this.impulseMaxDuration,
@@ -1493,8 +1493,8 @@ class EnemyBase {
             });
         }
 
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.sounds.hitNormal) {
-            AudioManager.sounds.hitNormal(0.4 + intensity * 0.35);
+        if (typeof GameAudio !== 'undefined' && GameAudio.sounds && GameAudio.sounds.hitNormal) {
+            GameAudio.sounds.hitNormal(0.4 + intensity * 0.35);
         }
 
         if (typeof Game !== 'undefined' && typeof Game.triggerScreenShake === 'function') {
@@ -2376,48 +2376,9 @@ class EnemyBase {
             // Roll for item drop
             if (Math.random() < finalDropChance) {
                 const itemDef = getRandomItem();
-
-                // Check if in multiplayer - use pylons instead of ground items
-                const inMultiplayer = typeof multiplayerManager !== 'undefined' &&
-                    multiplayerManager &&
-                    multiplayerManager.lobbyCode;
-
-                if (inMultiplayer) {
-                    // Create item pylon (multiplayer)
-                    if (typeof createItemPylon === 'function') {
-                        createItemPylon(this.x, this.y, itemDef);
-
-                        // Increment item drop counter for this room
-                        if (typeof Game !== 'undefined') {
-                            if (!Game.itemsDroppedThisRoom) Game.itemsDroppedThisRoom = 0;
-                            Game.itemsDroppedThisRoom++;
-                        }
-
-                        console.log(`[Item Pylon] ${itemDef.name} (${itemDef.rarity}) from ${enemyType} (Room ${roomNumber}, Total: ${Game.itemsDroppedThisRoom || 0})`);
-                    }
-                } else {
-                    // Create ground item (single player)
-                    const groundItem = {
-                        id: 'item_' + Date.now() + '_' + Math.random(),
-                        itemId: itemDef.id,
-                        definition: itemDef,
-                        x: this.x,
-                        y: this.y,
-                        size: 12,
-                        pulse: 0,
-                        pickupRadius: 30
-                    };
-
-                    // Add to ground items
-                    if (!Game.groundItems) Game.groundItems = [];
-                    Game.groundItems.push(groundItem);
-
-                    // Increment item drop counter for this room
-                    if (typeof Game !== 'undefined') {
-                        if (!Game.itemsDroppedThisRoom) Game.itemsDroppedThisRoom = 0;
-                        Game.itemsDroppedThisRoom++;
-                    }
-
+                // Local co-op / online MP use shared pylons; solo uses ground pickups.
+                if (typeof spawnItemDrop === 'function') {
+                    spawnItemDrop(this.x, this.y, itemDef);
                     console.log(`[Item Drop] ${itemDef.name} (${itemDef.rarity}) from ${enemyType} (Room ${roomNumber}, Total: ${Game.itemsDroppedThisRoom || 0})`);
                 }
             }

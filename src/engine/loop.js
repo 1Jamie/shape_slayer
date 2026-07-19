@@ -21,7 +21,8 @@ class Core {
         onFrameEnd,
         onVisibilityChange,
         onQualityChange,
-        preferBackgroundTimeout
+        preferBackgroundTimeout,
+        adaptiveRenderQuality
     }) {
         this.onInit = onInit;
         this.onUpdate = onUpdate;
@@ -33,6 +34,7 @@ class Core {
         this.preferBackgroundTimeout = typeof preferBackgroundTimeout === 'function'
             ? preferBackgroundTimeout
             : () => false;
+        this.adaptiveRenderQuality = adaptiveRenderQuality !== false;
 
         // Timing configurations
         this.fixedTimestep = 1 / 60; // 60 Hz fixed timestep (0.016666... seconds)
@@ -187,7 +189,7 @@ class Core {
         // Governor performance measurement
         this.updateFrameBudgetGovernor(realDeltaTime * 1000, renderTime);
 
-        // telemetry / profiler callback hook
+        // metrics / profiler callback hook
         const processEnd = performance.now();
         const processTime = processEnd - processStart;
         if (this.onFrameEnd) {
@@ -210,7 +212,8 @@ class Core {
 
     // Frame budget governor & performance capabilities
     updateFrameBudgetGovernor(frameTimeMs, renderTimeMs) {
-        const adaptiveEnabled = typeof DebugFlags === 'undefined' || DebugFlags.ADAPTIVE_RENDER_QUALITY !== false;
+        const adaptiveEnabled = this.adaptiveRenderQuality
+            && (typeof DebugFlags === 'undefined' || DebugFlags.ADAPTIVE_RENDER_QUALITY !== false);
         if (!adaptiveEnabled) {
             this.frameBudgetSamples.length = 0;
             this.setQualityTier(QUALITY_TIER.HIGH);
@@ -267,9 +270,8 @@ class Core {
     }
 
     isGeckoFamilyEngine() {
-        return typeof DeviceDetection !== 'undefined'
-            && typeof DeviceDetection.isGeckoFamily === 'function'
-            && DeviceDetection.isGeckoFamily();
+        const system = (typeof globalThis !== 'undefined' && globalThis.Engine && globalThis.Engine.System) || null;
+        return !!(system && typeof system.isGeckoFamily === 'function' && system.isGeckoFamily());
     }
 
     preferSpriteShadows() {

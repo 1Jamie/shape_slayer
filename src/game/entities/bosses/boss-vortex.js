@@ -2531,8 +2531,8 @@ class BossVortex extends BossBase {
         }
         this.addProjectileBirthFlash(this.x, this.y, finale ? '#ffffff' : '#8ffcff');
 
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.sounds.vortexSpiralGate) {
-            AudioManager.sounds.vortexSpiralGate();
+        if (typeof GameAudio !== 'undefined' && GameAudio.sounds && GameAudio.sounds.vortexSpiralGate) {
+            GameAudio.sounds.vortexSpiralGate();
         }
     }
 
@@ -2633,8 +2633,8 @@ class BossVortex extends BossBase {
     }
 
     playAttackSound(attack, stage) {
-        if (typeof AudioManager === 'undefined' || !AudioManager.sounds) return;
-        const sounds = AudioManager.sounds;
+        if (typeof GameAudio === 'undefined' || !GameAudio.sounds) return;
+        const sounds = GameAudio.sounds;
         if (attack === VORTEX_ATTACKS.INHALE && stage === 'telegraph' && sounds.vortexInhale) sounds.vortexInhale();
         if (attack === VORTEX_ATTACKS.SCENERY && stage === 'telegraph' && sounds.vortexInhale) sounds.vortexInhale();
         if (attack === 'inhaleFlip' && stage === 'telegraph' && sounds.vortexPolarityBurst) sounds.vortexPolarityBurst();
@@ -2651,8 +2651,8 @@ class BossVortex extends BossBase {
     playFinaleStateSound(finaleState) {
         if (this.lastFinaleSoundState === finaleState) return;
         this.lastFinaleSoundState = finaleState;
-        if (typeof AudioManager === 'undefined' || !AudioManager.sounds || !AudioManager.sounds.vortexFinaleStep) return;
-        AudioManager.sounds.vortexFinaleStep(finaleState);
+        if (typeof GameAudio === 'undefined' || !GameAudio.sounds || !GameAudio.sounds.vortexFinaleStep) return;
+        GameAudio.sounds.vortexFinaleStep(finaleState);
     }
 
     render(ctx) {

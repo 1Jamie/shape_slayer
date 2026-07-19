@@ -87,8 +87,8 @@
             this.activeTelegraph = telegraph;
             this.owner.activeTelegraph = telegraph;
 
-            if (options.sound && typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-                const sound = AudioManager.sounds[options.sound];
+            if (options.sound && typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+                const sound = GameAudio.sounds[options.sound];
                 if (typeof sound === 'function') {
                     sound();
                 }

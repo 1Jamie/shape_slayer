@@ -703,16 +703,16 @@ const SafeRoomMenu = {
             this.selectedAffixIndex = -1;
         }
 
-        if (typeof AudioManager !== 'undefined' && AudioManager.playSound) {
-            AudioManager.playSound('ui_click');
+        if (typeof Engine !== 'undefined' && Engine.Audio && Engine.Audio.playSound) {
+            Engine.Audio.playSound('ui_click');
         }
         this.render();
     },
 
     selectAffix(idx) {
         this.selectedAffixIndex = idx;
-        if (typeof AudioManager !== 'undefined' && AudioManager.playSound) {
-            AudioManager.playSound('ui_click');
+        if (typeof Engine !== 'undefined' && Engine.Audio && Engine.Audio.playSound) {
+            Engine.Audio.playSound('ui_click');
         }
         this.render();
     },
@@ -757,8 +757,8 @@ const SafeRoomMenu = {
         gear.upgradesApplied = (gear.upgradesApplied || 0) + 1;
         this.markTransaction();
 
-        if (typeof AudioManager !== 'undefined' && AudioManager.playSound) {
-            AudioManager.playSound('ui_buy');
+        if (typeof Engine !== 'undefined' && Engine.Audio && Engine.Audio.playSound) {
+            Engine.Audio.playSound('ui_buy');
         }
 
         player.updateEffectiveStats();
@@ -804,8 +804,8 @@ const SafeRoomMenu = {
 
         this.markTransaction();
 
-        if (typeof AudioManager !== 'undefined' && AudioManager.playSound) {
-            AudioManager.playSound('ui_buy');
+        if (typeof Engine !== 'undefined' && Engine.Audio && Engine.Audio.playSound) {
+            Engine.Audio.playSound('ui_buy');
         }
 
         player.updateEffectiveStats();
@@ -853,8 +853,8 @@ const SafeRoomMenu = {
             });
         }
 
-        if (typeof AudioManager !== 'undefined' && AudioManager.playSound) {
-            AudioManager.playSound('ui_buy');
+        if (typeof Engine !== 'undefined' && Engine.Audio && Engine.Audio.playSound) {
+            Engine.Audio.playSound('ui_buy');
         }
 
         player.updateEffectiveStats();
@@ -889,9 +889,8 @@ const SafeRoomMenu = {
         this.markTransaction();
         player.updateEffectiveStats();
 
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-            if (AudioManager.sounds.heal) AudioManager.sounds.heal();
-            else if (AudioManager.playSound) AudioManager.playSound('ui_buy');
+        if (typeof GameAudio !== 'undefined' && GameAudio.sounds && GameAudio.sounds.heal) {
+            GameAudio.sounds.heal();
         }
 
         this.render();

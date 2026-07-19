@@ -21,8 +21,9 @@ Current version: **0.8.2** (see in-game patch notes / `src/game/content/version.
 
 | How you want to play | What to do |
 | --- | --- |
-| **Solo or hot-seat** | Open `index.html` via a local server (`npm start` / `node static-server.js`) or just open the hosted page. Prefer HTTP over raw `file://` so nothing weird breaks. |
-| **Squad up online** | Pause menu → create/join a lobby → share the six-character code. Host hits the Nexus portal when everyone’s ready. |
+| **Solo** | Open `index.html` via a local server (`npm start` / `node static-server.js`) or just open the hosted page. Prefer HTTP over raw `file://` so nothing weird breaks. |
+| **Local co-op** | Pause → **Local Co-op**. Same machine, two seats, split viewport. Needs **two non-touch inputs**: keyboard+mouse + one gamepad, or two gamepads. Touch cannot be a seat. |
+| **Online multiplayer** | Pause → Multiplayer → create/join a lobby → share the six-character code. Host hits the Nexus portal when everyone’s ready. Leave the online lobby before starting local co-op (and the other way around). |
 
 Production multiplayer already points at `wss://shape-slayer.gpe.pet` if you don’t feel like self-hosting.
 
@@ -442,12 +443,24 @@ Mid/late rooms can roll a single elite affix. Pools change by biome.
 
 ## Party Up
 
-- Pause menu → lobby code → friends appear from any browser/device.
-- Host is authoritative for combat/loot/rooms; clients get prediction + interpolation so movement feels less like a rubber band.
+### Online
+- Pause → Multiplayer → lobby code. Friends from any browser/device.
+- Host is authoritative for combat/loot/rooms; clients get prediction + interpolation.
 - 0.8.2 combat toys sync for clients too: Parallel twin projectiles (dormant stagger), biome echo rings, perfect interrupt/dodge FX, elite explode bursts, hyper-armor flash / rampage timers.
 - Disconnects retry a few times; host drop migrates instead of instantly ending civilization.
 - End-of-run scoreboards flex damage, kills, rooms, time alive.
 - Dead in multiplayer? `Space` spectates living teammates.
+
+### Local co-op
+- Pause → **Local Co-op** (same button leaves it). Split viewport on one client.
+- **Inputs:** two non-touch seats only.
+  - Keyboard + mouse (P1) + one gamepad (P2), or
+  - Two gamepads
+- Touch / on-screen sticks are **not** a player seat. Mobile without pads cannot start local co-op.
+- Cannot run local co-op while in an online lobby (leave the lobby first).
+- With two pads connected, the second pad can also press **START** in Nexus/Playing to join.
+- Seat-owned UI (character sheet, loot prompts) follows whichever seat has focus.
+- Online lobbies and local co-op are separate paths; they do not merge mid-run.
 
 ## Controls
 
@@ -462,12 +475,18 @@ Mid/late rooms can roll a single elite affix. Pools change by biome.
 - Interact (machines, pylons, pads): prompted on-screen (`E` / face button depending on input)
 
 ### Gamepad
-- Hot-swap supported - mash another pad and it becomes active.
+- Hot-swap supported in solo - mash another pad and it becomes active.
 - Glyphs adapt for Xbox / PlayStation / Nintendo-ish mappings where we can sniff them.
+- Local co-op binds pads (and/or keyboard+mouse) per seat. See [Local co-op](#local-co-op) for the two non-touch input rule.
 
 ### Touch
 - Twin virtual joysticks + ability buttons with cooldown/charge feedback.
+- Per-class control types (button vs aim-then-release vs hold-to-fire) live in `GameInput` / mobile layout, not in the engine hardware layer.
 - UI reshuffles on rotate/resize so you’re not fighting the chrome.
+- Local co-op hides on-screen sticks; touch cannot fill a co-op seat.
+
+### Audio
+- Pause → audio menu: master mute plus separate **music** and **SFX** volumes (persisted via `SaveSystem`, consumed through `Engine.Audio` / `Engine.Music`).
 
 ## Want to Host Your Own Server?
 
@@ -533,7 +552,7 @@ npm run server
 Passion project. Readability, responsiveness, relentless fun. Break the build systems. Tell me what ridiculous combo you found.
 
 - **Bugs or ideas?** Open a GitHub issue.
-- **Want to contribute?** Fork it and go wild - vanilla JS + Canvas 2D for the game, DOM components under `src/game/ui/`, reusable engine under `src/engine/`, plain CSS under `src/css/`. No framework, no render engine.
+- **Want to contribute?** Fork it and go wild - vanilla JS + Canvas 2D, classic scripts (no bundler), DOM components under `src/game/ui/`, reusable engine under `src/engine/` ([engine README](src/engine/README.md)), plain CSS under `src/css/`. No framework, no WASM, no build step for the client.
 - **Need help?** In-game debug panel (`Ctrl+D`), browser console, or server logs.
 
 Music so far is sourced from Pixabay (copyright-free audio): [https://pixabay.com](https://pixabay.com)
@@ -575,6 +594,8 @@ npm run test:combat-economy
 npm run test:feature-tutorials
 npm run test:combat-ledger
 npm run test:boundaries
+npm run test:input-focus
+npm run test:device-detection
 npm run test:redis-directory
 npm run test:redis-ready
 npm test
@@ -582,28 +603,57 @@ npm test
 ALLOW_TEST_MIGRATION=true node tests/mp-cluster-smoke.js
 ```
 
+`npm test` includes engine contract suites (`tests/engine-*.test.js`) plus game wiring checks (`tests/game-engine-wiring.test.js`, `tests/game-render-pipeline.test.js`, `tests/directory-boundaries.test.js`). Boundary tests enforce the engine/game divorce: engine modules must not import game paths or Shape Slayer content vocabulary.
+
 The live cluster smoke is deliberately small: two workers, a few WebSocket
 clients, and four concurrent Redis claims. It verifies ownership, both redirect
 directions, roster migration, reconnection, and post-migration routing without
 running a load test.
 
+## Architecture (engine vs game)
+
+Shape Slayer is a game on the engine under `src/engine/`. Engine and game stay separate.
+
+| Layer | Owns | Must not own |
+| --- | --- | --- |
+| **`src/engine/`** | Proc/physics/sim loop, Canvas2D host/pipeline, input hardware, FX, audio/music transport, saves storage, net helpers, DOM UI shell | Bosses, gear, biomes, Nexus, class kits, lobby schemas |
+| **`src/game/`** | Rules, entities, content, Shape Slayer draw recipe, action mapping, game SFX/playlists, MP client, DOM menus | Reimplementing engine primitives |
+
+Load order is one way: `browser APIs <- engine <- game`. `index.html` loads engine first, then game. `Engine.Boot` probes, shows the cover, inits canvas/UI/save, and only reveals after `Engine.Boot.handoff()`.
+
+Examples:
+
+- **Input:** `Engine.Input` samples hardware. `src/game/input-map.js` (`GameInput`) turns that into Shape Slayer actions. Old `src/game/simulation/input.js` is gone on purpose.
+- **Audio:** `Engine.Audio` / `Engine.Music` are transport. `src/game/audio/` wires SaveSystem and owns combat cues / playlists.
+- **Render:** `Engine.Render` owns targets + the pipe runner. `src/game/presentation/render-pipeline.js` owns the PLAYING stage list.
+
+Details: [`src/engine/README.md`](src/engine/README.md).
+
 ## Project Structure
 
 ```
 shape_slayer/
-├── index.html                 # Game shell + script load order
+├── index.html                 # PWA shell + classic-script load order (engine → game)
 ├── static-server.js           # Optional static / PWA-friendly local server
 ├── sw.js / manifest.json      # Service worker + PWA bits
 ├── src/                       # Playable client code only
 │   ├── css/                   # Hand-edited UI CSS (no Sass)
-│   ├── engine/                # Reusable Canvas2D / DOM engine library
+│   ├── engine/                # Canvas2D procedural engine (see src/engine/README.md)
+│   │   ├── boot.js            # Probe → initialize → cover → handoff
+│   │   ├── loop.js            # Fixed timestep + frame-budget governor (Engine.Core)
+│   │   ├── input.js / touch.js / split.js
+│   │   ├── graphics.js / render-host.js / render-pipeline.js / renderer.js / camera.js / fx.js
+│   │   ├── audio.js / music.js
+│   │   ├── save.js / physics.js / proc.js / net.js / system.js / profiler.js / shell.js
+│   │   └── ui/                # Boot screen, modal stack, bus, toasts, root
 │   └── game/                  # Shape Slayer package
-│       ├── main.js            # Boot + orchestration entry
-│       ├── input-map.js       # Game action mapping over Engine.Input
-│       ├── simulation/        # Combat, level, nexus, room layout
+│       ├── main.js            # Game orchestration; calls Engine.Boot.handoff()
+│       ├── input-map.js       # GameInput: actions over Engine.Input
+│       ├── audio/             # GameAudio / GameMusic wrappers
+│       ├── simulation/        # Combat, level, nexus, room layout (no input.js)
 │       ├── entities/          # Players, enemies, bosses, items
 │       ├── content/           # Biomes, gear, saves, tutorials, version
-│       ├── presentation/      # Render adapters, voxel FX, canvas HUD
+│       ├── presentation/      # Render adapters, PLAYING pipeline, voxel FX
 │       ├── networking/        # Multiplayer client, mp-config, telemetry
 │       └── ui/                # DOM menus, HUD, Safe Room, Index, shops
 ├── assets/                    # Browser-loaded audio, fonts, and PWA icons
@@ -614,11 +664,11 @@ shape_slayer/
 │   └── docs/
 ├── harness/                   # Starts multiplayer + metrics processes; no app logic
 ├── tools/                     # Audio pipeline, source recordings, icon generator, migrator
-├── tests/                     # Node tests, balance sims, browser checks, live MP smoke
+├── tests/                     # Node tests, balance sims, engine contracts, live MP smoke
 └── docs/                      # Design notes / living changelogs (not always player-facing)
 ```
 
-Card Mode used to live under `src/js/cards/` and a pile of door/hand UIs. Those files are gone. If a doc still talks about decks, it’s historical.
+Card Mode used to live under `src/js/cards/` and a pile of door/hand UIs. Those paths are gone (along with the old `src/js` / `src/ui` layout). If a doc still talks about decks or `src/js/`, it’s historical.
 
 The four top-level runtime domains stay separate:
 
@@ -645,7 +695,7 @@ Env knobs include `METRICS_PORT`, `METRICS_DB_PATH`, `METRICS_INGEST_TOKEN`. Det
 - **Redirect loop** - verify every worker advertises a distinct reachable port. The client stops after two redirects by default.
 - **Redis on Bazzite/distrobox** - use host Podman (`host-spawn podman`) or start Redis manually and set `REDIS_AUTO_MANAGE=false`.
 - **Performance** - debug FPS, shrink lobby, close tab farms; deep rooms soft-cap density instead of spawning a second city.
-- **Sound muted** - pause menu mute persists via `SaveSystem`.
+- **Sound muted** - pause menu mute + music/SFX sliders persist via `SaveSystem`. If music is silent but SFX works (or the reverse), check the separate buses before blaming your speakers.
 - **`file://` weirdness** - use `npm start` / any HTTP server.
 - **Looking for Card Mode** - it was removed in 0.8.0 (“Undeck Yourself”). Gear is the whole product now. Touch grass. Or touch gear. Same vibe.
 

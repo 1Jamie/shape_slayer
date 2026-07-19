@@ -4,7 +4,7 @@
 	function applyLayout() {
 		if (!layer) return;
 
-		const inp = (typeof Input !== 'undefined' ? Input : (window.Input || null));
+		const inp = Engine.Input || null;
 		const isMobile = inp && inp.isMobileUiMode && inp.isMobileUiMode();
 		const container = document.getElementById('shard-display-container');
 		const shardLabel = document.getElementById('shard-display-label');
@@ -49,7 +49,7 @@
 		layer.style.position = 'fixed';
 
 		// Mobile: center at top, desktop: top-left
-		const inp = (typeof Input !== 'undefined' ? Input : (window.Input || null));
+		const inp = Engine.Input || null;
 		const isMobile = inp && inp.isMobileUiMode && inp.isMobileUiMode();
 		if (isMobile) {
 			layer.style.left = '10px';
@@ -81,7 +81,7 @@
 		container.style.display = 'inline-flex';
 		container.style.alignItems = 'center';
 		// Mobile: smaller padding and font sizes
-		const inpInit = (typeof Input !== 'undefined' ? Input : (window.Input || null));
+		const inpInit = Engine.Input || null;
 		const isMobileInit = inpInit && inpInit.isMobileUiMode && inpInit.isMobileUiMode();
 		container.style.gap = isMobileInit ? '8px' : '16px'; // Smaller gap on mobile
 		container.style.padding = isMobileInit ? '2px 6px' : '8px 16px'; // Smaller padding on mobile

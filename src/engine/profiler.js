@@ -1,4 +1,4 @@
-// Generic run-length performance profiler telemetry accumulator.
+// Generic run-length performance profiler metrics accumulator.
 // Fully decoupled from Shape Slayer specific game rules, classes, and rooms.
 
 window.Engine = window.Engine || {};

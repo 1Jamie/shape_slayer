@@ -1,7 +1,7 @@
 // Audio Manager - Procedural sound generation using Web Audio API
 // Generates all game sounds procedurally to match mathematical/geometric aesthetic
 
-const AudioManager = {
+const EngineAudio = {
     // Core audio context
     context: null,
     masterGain: null,
@@ -26,6 +26,15 @@ const AudioManager = {
     
     // Initialization state
     initialized: false,
+
+    // Injected settings store (set via configure())
+    _settingsStore: null,
+
+    // Inject a settings store; returns this for chaining
+    configure(options = {}) {
+        if (options.settingsStore) this._settingsStore = options.settingsStore;
+        return this;
+    },
     
     // Initialize audio context and master gain
     init() {
@@ -74,7 +83,7 @@ const AudioManager = {
             this.prepareMasterGain();
             
             this.initialized = true;
-            console.log('AudioManager initialized');
+            console.log('EngineAudio initialized');
             
             this.tryResumeContext();
             
@@ -82,7 +91,7 @@ const AudioManager = {
                 window.dispatchEvent(new CustomEvent('audiocontextresume'));
             }
         } catch (error) {
-            console.error('Failed to initialize AudioManager:', error);
+            console.error('Failed to initialize EngineAudio:', error);
         }
     },
     
@@ -95,7 +104,7 @@ const AudioManager = {
                     window.dispatchEvent(new CustomEvent('audiocontextresume'));
                 }
             }).catch(error => {
-                console.warn('AudioManager resume failed:', error);
+                console.warn('EngineAudio resume failed:', error);
             });
         } else if (this.context && this.context.state === 'running') {
             this.onContextUnlocked();
@@ -153,57 +162,58 @@ const AudioManager = {
         }
     },
     
-    // Load volume settings from save system
+    // Load volume settings from injected settings store
     loadSettings() {
-        if (typeof SaveSystem !== 'undefined') {
-            const savedVolume = SaveSystem.getAudioVolume();
-            const savedMuted = SaveSystem.getAudioMuted();
-            
-            if (savedVolume !== null && savedVolume !== undefined) {
-                this.masterVolume = savedVolume;
-                this.targetMasterVolume = this.masterVolume;
-            }
-            
-            if (SaveSystem.getMusicVolume) {
-                const savedMusic = SaveSystem.getMusicVolume();
-                if (savedMusic !== null && savedMusic !== undefined) {
-                    this.musicVolume = savedMusic;
-                    if (this.musicGain) {
-                        this.musicGain.gain.value = this.musicVolume;
-                    }
+        const store = this._settingsStore;
+        if (!store) return;
+
+        const savedVolume = store.getAudioVolume();
+        const savedMuted = store.getAudioMuted();
+
+        if (savedVolume !== null && savedVolume !== undefined) {
+            this.masterVolume = savedVolume;
+            this.targetMasterVolume = this.masterVolume;
+        }
+
+        if (store.getMusicVolume) {
+            const savedMusic = store.getMusicVolume();
+            if (savedMusic !== null && savedMusic !== undefined) {
+                this.musicVolume = savedMusic;
+                if (this.musicGain) {
+                    this.musicGain.gain.value = this.musicVolume;
                 }
             }
-            
-            if (SaveSystem.getSfxVolume) {
-                const savedSfx = SaveSystem.getSfxVolume();
-                if (savedSfx !== null && savedSfx !== undefined) {
-                    this.sfxVolume = savedSfx;
-                    if (this.sfxGain) {
-                        this.sfxGain.gain.value = this.sfxVolume;
-                    }
+        }
+
+        if (store.getSfxVolume) {
+            const savedSfx = store.getSfxVolume();
+            if (savedSfx !== null && savedSfx !== undefined) {
+                this.sfxVolume = savedSfx;
+                if (this.sfxGain) {
+                    this.sfxGain.gain.value = this.sfxVolume;
                 }
             }
-            
-            if (savedMuted !== null && savedMuted !== undefined) {
-                this.muted = savedMuted;
-                if (this.masterGain && this.muted) {
-                    this.masterGain.gain.value = 0;
-                }
+        }
+
+        if (savedMuted !== null && savedMuted !== undefined) {
+            this.muted = savedMuted;
+            if (this.masterGain && this.muted) {
+                this.masterGain.gain.value = 0;
             }
         }
     },
     
-    // Save volume settings
+    // Save volume settings to injected settings store
     saveSettings() {
-        if (typeof SaveSystem !== 'undefined') {
-            SaveSystem.setAudioVolume(this.masterVolume);
-            SaveSystem.setAudioMuted(this.muted);
-            if (SaveSystem.setMusicVolume) {
-                SaveSystem.setMusicVolume(this.musicVolume);
-            }
-            if (SaveSystem.setSfxVolume) {
-                SaveSystem.setSfxVolume(this.sfxVolume);
-            }
+        const store = this._settingsStore;
+        if (!store) return;
+        store.setAudioVolume(this.masterVolume);
+        store.setAudioMuted(this.muted);
+        if (store.setMusicVolume) {
+            store.setMusicVolume(this.musicVolume);
+        }
+        if (store.setSfxVolume) {
+            store.setSfxVolume(this.sfxVolume);
         }
     },
     
@@ -913,237 +923,15 @@ const AudioManager = {
         });
         
         this.registerSound(now + duration + 0.1);
-    },
-    
-    // ============================================================================
-    // HIGH-LEVEL SOUND EFFECTS
-    // ============================================================================
-    
-    // Player attack sounds
-    sounds: {
-        // Warrior sounds
-        warriorBasicAttack() {
-            // Melee swing with impact
-            AudioManager.playBeep(180, 0.06, 'square', 0.2);
-            AudioManager.playImpact(0.7, 1.0);
-        },
-        
-        warriorHeavyAttack() {
-            AudioManager.playSweep(180, 400, 0.25, 'sawtooth', 0.3);
-            setTimeout(() => AudioManager.playThud(1.4), 250);
-        },
-        
-        warriorWhirlwindStart() {
-            AudioManager.playSweep(200, 600, 0.3, 'square', 0.3);
-        },
-        
-        warriorWhirlwindHit() {
-            AudioManager.playPulse(330, 1, 0.04, 0, 0.2);
-        },
-        
-        // Rogue sounds
-        rogueBasicAttack() {
-            AudioManager.playZap(0.06, 1.5, 0.25);
-        },
-        
-        rogueHeavyAttack() {
-            // Fan of knives - multiple quick zaps
-            for (let i = 0; i < 7; i++) {
-                setTimeout(() => {
-                     AudioManager.playZap(0.05, 1.3 + i * 0.1, 0.2);
-                }, i * 20);
-            }
-        },
-        
-        rogueShadowClones() {
-            AudioManager.playSweep(400, 200, 0.2, 'triangle', 0.25);
-            setTimeout(() => AudioManager.playBeep(300, 0.1, 'triangle', 0.2), 100);
-        },
-        
-        rogueDodge() {
-            AudioManager.playWhoosh(0.18, 1.8, 0.3);
-            AudioManager.playZap(0.05, 2.5, 0.18);
-        },
-        
-        // Tank sounds
-        tankBasicAttack() {
-            // Heavy hammer swing with big impact
-            AudioManager.playThud(1.2);
-            setTimeout(() => AudioManager.playImpact(1.1, 0.8), 15);
-        },
-        
-        tankHeavyAttack() {
-            AudioManager.playExplosion(1.8);
-            setTimeout(() => AudioManager.playThud(1.5), 50);
-            AudioManager.playSweep(100, 50, 0.4, 'sine', 0.3);
-        },
-        
-        tankShieldStart() {
-            AudioManager.playBeep(150, 0.2, 'sine', 0.25);
-        },
-        
-        tankShieldHit() {
-            AudioManager.playImpact(0.8, 0.8);
-        },
-        
-        // Mage sounds
-        mageBasicAttack() {
-            AudioManager.playZap(0.08, 1.2, 0.25);
-        },
-        
-        mageHeavyAttackStart() {
-            AudioManager.playSweep(300, 500, 0.3, 'sine', 0.25);
-        },
-        
-        mageHeavyAttackBeam() {
-            AudioManager.playBeep(450, 0.5, 'sine', 0.2);
-        },
-        
-        mageBlink() {
-            AudioManager.playSweep(600, 300, 0.15, 'sine', 0.25);
-            setTimeout(() => AudioManager.playBeep(400, 0.05, 'sine', 0.2), 150);
-        },
-        
-        // Generic dodge
-        dodge() {
-            AudioManager.playWhoosh(0.2, 1.2, 0.28);
-        },
-        
-        // Impact sounds
-        hitNormal(intensity = 1.0) {
-            AudioManager.playImpact(intensity * 0.9, 1.0);
-        },
-        
-        hitCritical(intensity = 1.0) {
-            AudioManager.playImpact(intensity * 1.1, 1.3);
-            AudioManager.playBeep(660, 0.05, 'square', 0.25);
-        },
-        
-        hitBackstab(intensity = 1.0) {
-            AudioManager.playImpact(intensity * 0.85, 1.5);
-        },
-        
-        hitWeakPoint(intensity = 1.0) {
-            AudioManager.playImpact(intensity * 1.3, 0.9);
-            AudioManager.playChime(400, 0.15, 0.25);
-        },
-        
-        enemyDeath() {
-            AudioManager.playSweep(300, 100, 0.2, 'square', 0.2);
-        },
-        
-        // Enemy sounds
-        enemyLunge() {
-            AudioManager.playBeep(180, 0.08, 'triangle', 0.2);
-            setTimeout(() => AudioManager.playImpact(0.5, 1.0), 50);
-        },
-        
-        enemyDash() {
-            AudioManager.playWhoosh(0.15, 1.1, 0.22);
-        },
-        
-        enemySlam() {
-            AudioManager.playThud(1.5);
-            setTimeout(() => AudioManager.playImpact(1.2, 0.7), 30);
-        },
-        
-        enemyShoot() {
-            AudioManager.playZap(0.06, 1.1, 0.2);
-        },
-        
-        // Projectile sounds
-        projectileSpawn() {
-            AudioManager.playBeep(350, 0.04, 'sine', 0.15);
-        },
-        
-        projectileHit() {
-            AudioManager.playImpact(0.75, 1.2);
-        },
-        
-        // UI sounds
-        pickupChime() {
-            AudioManager.playChime(523, 0.25, 0.25);
-        },
-        
-        levelUp() {
-            AudioManager.playChime(440, 0.15, 0.2);
-            setTimeout(() => AudioManager.playChime(554, 0.15, 0.2), 80);
-            setTimeout(() => AudioManager.playChime(659, 0.2, 0.25), 160);
-        },
-        
-        doorOpen() {
-            AudioManager.playSweep(200, 400, 0.4, 'sine', 0.25);
-        },
-        
-        majorSpawn() {
-            AudioManager.playSweep(100, 300, 0.5, 'sawtooth', 0.3);
-            setTimeout(() => AudioManager.playExplosion(1.2), 300);
-        },
-
-        swarmPheromoneWindup() {
-            AudioManager.playSweep(160, 520, 0.58, 'triangle', 0.18);
-            setTimeout(() => AudioManager.playBeep(260, 0.04, 'square', 0.11), 80);
-            setTimeout(() => AudioManager.playBeep(340, 0.04, 'square', 0.12), 210);
-            setTimeout(() => AudioManager.playBeep(460, 0.05, 'square', 0.13), 360);
-        },
-
-        vortexInhale() {
-            AudioManager.playSweep(70, 180, 1.2, 'sawtooth', 0.28);
-            setTimeout(() => AudioManager.playBeep(110, 0.18, 'sine', 0.16), 450);
-        },
-
-        vortexPolarityBurst() {
-            AudioManager.playBeep(740, 0.05, 'square', 0.25);
-            AudioManager.playSweep(520, 120, 0.45, 'sine', 0.24);
-            setTimeout(() => AudioManager.playExplosion(0.7), 25);
-        },
-
-        vortexOrbitBlades() {
-            AudioManager.playSweep(260, 420, 0.32, 'triangle', 0.22);
-            setTimeout(() => AudioManager.playBeep(330, 0.08, 'triangle', 0.18), 110);
-            setTimeout(() => AudioManager.playBeep(390, 0.08, 'triangle', 0.18), 220);
-        },
-
-        vortexSpiralGate() {
-            AudioManager.playZap(0.07, 0.75, 0.16);
-        },
-
-        vortexWells() {
-            AudioManager.playSweep(140, 220, 0.7, 'sine', 0.18);
-        },
-
-        vortexEventHorizon() {
-            AudioManager.playSweep(45, 70, 0.5, 'sine', 0.16);
-            setTimeout(() => AudioManager.playSweep(80, 260, 0.8, 'sawtooth', 0.28), 500);
-        },
-
-        vortexFinaleStep() {
-            AudioManager.playImpact(0.6, 0.65);
-            AudioManager.playBeep(180, 0.05, 'sine', 0.16);
-        },
-
-        vortexOverload() {
-            AudioManager.playExplosion(1.0);
-            AudioManager.playSweep(90, 360, 0.55, 'sawtooth', 0.26);
-        },
-
-        vortexRecovery() {
-            AudioManager.playSweep(360, 180, 0.28, 'sine', 0.16);
-            setTimeout(() => AudioManager.playChime(620, 0.16, 0.16), 80);
-        },
-        
-        avatarDefeat() {
-            AudioManager.playSweep(400, 100, 0.6, 'triangle', 0.3);
-        }
     }
 };
 
 // Initialize / unlock on first user interaction (required for autoplay policies)
 function unlockAudioContext() {
-    if (!AudioManager.initialized) {
-        AudioManager.init();
+    if (!EngineAudio.initialized) {
+        EngineAudio.init();
     } else {
-        AudioManager.resume();
+        EngineAudio.resume();
     }
 }
 
@@ -1156,14 +944,11 @@ window.addEventListener('keydown', () => {
 }, { once: true });
 
 window.Engine = window.Engine || {};
-window.Engine.Audio = AudioManager;
-
-// Expose AudioManager globally
-window.AudioManager = AudioManager;
+window.Engine.Audio = EngineAudio;
 
 // Also try to initialize immediately (will work if autoplay is allowed)
 if (document.readyState === 'complete') {
-    AudioManager.init();
+    EngineAudio.init();
 } else {
-    window.addEventListener('load', () => AudioManager.init());
+    window.addEventListener('load', () => EngineAudio.init());
 }

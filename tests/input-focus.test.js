@@ -101,3 +101,280 @@ test('configure injects world-coordinate and aim hooks', () => {
     assert.deepEqual(Input.getWorldMousePos(), { x: 110, y: 220 });
     assert.equal(Input.getAimDirection(), Math.atan2(20, 10));
 });
+
+test('configure accepts loadControlMode and recordTelemetry hooks', () => {
+    const events = [];
+    Input.configure({
+        loadControlMode: () => 'desktop',
+        recordTelemetry: (type, metadata) => events.push({ type, metadata })
+    });
+
+    assert.equal(typeof Input._hooks.loadControlMode, 'function');
+    assert.equal(Input._hooks.loadControlMode(), 'desktop');
+
+    Input._recordInputEvent('testEvent', { foo: 'bar' });
+    assert.equal(events.length, 1);
+    assert.equal(events[0].type, 'testEvent');
+    assert.ok(events[0].metadata.metadata.foo === 'bar');
+});
+
+test('absent hooks fail closed — no loadControlMode leaves controlMode unchanged', () => {
+    const saved = Input._hooks.loadControlMode;
+    delete Input._hooks.loadControlMode;
+    const prevMode = Input.controlMode;
+    // Simulate what init() does: only set controlMode if hook is present
+    if (typeof Input._hooks.loadControlMode === 'function') {
+        Input.controlMode = Input._hooks.loadControlMode() || 'auto';
+    }
+    assert.equal(Input.controlMode, prevMode);
+    Input._hooks.loadControlMode = saved;
+});
+
+test('absent hooks fail closed — isUiBlockingGameplay defaults false', () => {
+    const saved = Input._hooks.isUiBlockingGameplay;
+    delete Input._hooks.isUiBlockingGameplay;
+    const uiBlocking = typeof Input._hooks.isUiBlockingGameplay === 'function'
+        && Input._hooks.isUiBlockingGameplay();
+    assert.equal(uiBlocking, false);
+    if (saved !== undefined) Input._hooks.isUiBlockingGameplay = saved;
+});
+
+test('absent hooks fail closed — usesDomTouchControls returns false without hook', () => {
+    const saved = Input._hooks.isDomTouchControlsActive;
+    delete Input._hooks.isDomTouchControlsActive;
+    // isGamepadMode() returns false in Node env (_gamepadActive is false by default)
+    assert.equal(Input.usesDomTouchControls(), false);
+    if (saved !== undefined) Input._hooks.isDomTouchControlsActive = saved;
+});
+
+test('desktop isAbilityJustPressed edge-detects instead of mirroring held state', () => {
+    const prevMode = Input.controlMode;
+    Input.controlMode = 'desktop';
+    Input._resetKeyboardState('test-setup');
+    Input._resetPointerState('test-setup');
+
+    try {
+        // Frame 0: nothing held.
+        Input._sampleDesktopAbilityEdges();
+        assert.equal(Input.isAbilityJustPressed('basicAttack'), false);
+
+        // Frame 1: mouse goes down -> one-shot edge fires.
+        Input.mouseLeft = true;
+        Input._sampleDesktopAbilityEdges();
+        assert.equal(Input.isAbilityJustPressed('basicAttack'), true);
+        assert.equal(Input.isAbilityPressed('basicAttack'), true);
+
+        // Frame 2: still held -> edge is gone, held state remains.
+        Input._sampleDesktopAbilityEdges();
+        assert.equal(Input.isAbilityJustPressed('basicAttack'), false);
+        assert.equal(Input.isAbilityPressed('basicAttack'), true);
+
+        // Frame 3: released, Frame 4: re-pressed -> edge fires again.
+        Input.mouseLeft = false;
+        Input._sampleDesktopAbilityEdges();
+        assert.equal(Input.isAbilityJustPressed('basicAttack'), false);
+        Input.mouseLeft = true;
+        Input._sampleDesktopAbilityEdges();
+        assert.equal(Input.isAbilityJustPressed('basicAttack'), true);
+    } finally {
+        Input.mouseLeft = false;
+        Input._sampleDesktopAbilityEdges();
+        Input.controlMode = prevMode;
+    }
+});
+
+test('desktop key-driven ability slots edge-detect too', () => {
+    const prevMode = Input.controlMode;
+    Input.controlMode = 'desktop';
+    Input._resetKeyboardState('test-setup');
+    Input._resetPointerState('test-setup');
+
+    try {
+        Input._sampleDesktopAbilityEdges();
+        Input._applyKeyEvent(keyEvent({ code: 'Space', key: ' ' }), true);
+        Input._sampleDesktopAbilityEdges();
+        assert.equal(Input.isAbilityJustPressed('specialAbility'), true);
+        Input._sampleDesktopAbilityEdges();
+        assert.equal(Input.isAbilityJustPressed('specialAbility'), false);
+        assert.equal(Input.isAbilityPressed('specialAbility'), true);
+    } finally {
+        Input._resetKeyboardState('test-teardown');
+        Input._sampleDesktopAbilityEdges();
+        Input.controlMode = prevMode;
+    }
+});
+
+test('update() samples desktop ability edges every frame', () => {
+    const source = require('node:fs').readFileSync(
+        path.join(__dirname, '..', 'src', 'engine', 'input.js'), 'utf8'
+    );
+    const updateBody = source.match(/update\(deltaTime\) \{[\s\S]*?\n    \},/);
+    assert.ok(updateBody, 'update(deltaTime) not found');
+    assert.match(updateBody[0], /_sampleDesktopAbilityEdges\(\)/);
+});
+
+test('input seats bind fixed gamepads and expose independent movement', () => {
+    const originalNavigator = Object.getOwnPropertyDescriptor(global, 'navigator');
+    const pads = [
+        {
+            id: 'pad-0', index: 0, connected: true, mapping: 'standard',
+            axes: [1, 0, 0, 0],
+            buttons: Array.from({ length: 16 }, () => ({ pressed: false, value: 0 }))
+        },
+        {
+            id: 'pad-1', index: 1, connected: true, mapping: 'standard',
+            axes: [0, -1, 0, 0],
+            buttons: Array.from({ length: 16 }, () => ({ pressed: false, value: 0 }))
+        }
+    ];
+    Object.defineProperty(global, 'navigator', {
+        configurable: true,
+        value: { getGamepads: () => pads }
+    });
+    Input.clearSeats();
+
+    try {
+        const seat0 = Input.createSeat({ id: 'seat0', gamepadIndex: 0, allowKeyboardMouse: true });
+        const seat1 = Input.createSeat({ id: 'seat1', gamepadIndex: 1, allowKeyboardMouse: false });
+        seat0.update();
+        seat1.update();
+
+        assert.ok(seat0.getMovementInput().x > 0.9);
+        assert.ok(seat1.getMovementInput().y < -0.9);
+        assert.equal(Input.getSeat('seat1'), seat1);
+        assert.deepEqual(Input.seats(), [seat0, seat1]);
+    } finally {
+        Input.clearSeats();
+        if (originalNavigator) Object.defineProperty(global, 'navigator', originalNavigator);
+        else delete global.navigator;
+    }
+});
+
+test('pad-only seat ignores keyboard and gamepad edges are one-shot', () => {
+    const originalNavigator = Object.getOwnPropertyDescriptor(global, 'navigator');
+    const buttons = Array.from({ length: 16 }, () => ({ pressed: false, value: 0 }));
+    const pad = {
+        id: 'pad-1', index: 1, connected: true, mapping: 'standard',
+        axes: [0, 0, 1, 0], buttons
+    };
+    Object.defineProperty(global, 'navigator', {
+        configurable: true,
+        value: { getGamepads: () => [null, pad] }
+    });
+    Input.clearSeats();
+    Input._resetKeyboardState('test-setup');
+    Input._applyKeyEvent(keyEvent({ code: 'KeyW', key: 'w' }), true);
+
+    try {
+        const seat = Input.createSeat({ id: 'seat1', gamepadIndex: 1, allowKeyboardMouse: false });
+        seat.update();
+        assert.deepEqual(seat.getMovementInput(), { x: 0, y: 0 });
+        assert.equal(seat.isKeyDown('w'), false);
+        assert.equal(seat.getAimDirection(), 0);
+
+        buttons[5] = { pressed: true, value: 1 };
+        seat.update();
+        assert.equal(seat.isAbilityPressed('dodge'), true);
+        assert.equal(seat.isAbilityJustPressed('dodge'), true);
+        seat.update();
+        assert.equal(seat.isAbilityJustPressed('dodge'), false);
+    } finally {
+        Input.clearSeats();
+        Input._resetKeyboardState('test-teardown');
+        if (originalNavigator) Object.defineProperty(global, 'navigator', originalNavigator);
+        else delete global.navigator;
+    }
+});
+
+test('keyboard-primary seat mirrors mouse buttons and interact edges for desktop player paths', () => {
+    Input.clearSeats();
+    Input._resetKeyboardState('test-setup');
+    Input.mouseLeft = false;
+    Input.mouseRight = false;
+    Input._activeInputSource = 'keyboardMouse';
+
+    try {
+        const seat = Input.createSeat({
+            id: 'seat0',
+            gamepadIndex: null,
+            allowKeyboardMouse: true
+        });
+        assert.equal(typeof seat.isTouchMode, 'function');
+        assert.equal(seat.isTouchMode(), false);
+        assert.equal(seat.mouseLeft, false);
+
+        Input.mouseLeft = true;
+        Input.mouseRight = true;
+        assert.equal(seat.mouseLeft, true);
+        assert.equal(seat.mouseRight, true);
+        assert.equal(seat.isAbilityPressed('basicAttack'), true);
+        assert.equal(seat.isAbilityPressed('heavyAttack'), true);
+
+        Input._applyKeyEvent(keyEvent({ code: 'KeyG', key: 'g' }), true);
+        assert.equal(seat.isInteractJustPressed(), true);
+        assert.equal(seat.isInteractJustPressed(), false);
+        assert.equal(seat.isInteractPressed(), true);
+    } finally {
+        Input.clearSeats();
+        Input.mouseLeft = false;
+        Input.mouseRight = false;
+        Input._resetKeyboardState('test-teardown');
+    }
+});
+
+test('couch split disables global gamepad hot-swap scanning', () => {
+    const originalNavigator = Object.getOwnPropertyDescriptor(global, 'navigator');
+    const activePad = {
+        id: 'seat-1-pad', index: 1, connected: true, mapping: 'standard',
+        axes: [1, 0, 0, 0],
+        buttons: Array.from({ length: 16 }, () => ({ pressed: false, value: 0 }))
+    };
+    Object.defineProperty(global, 'navigator', {
+        configurable: true,
+        value: { getGamepads: () => [null, activePad] }
+    });
+    Input.clearSeats();
+    Input.createSeat({ id: 'seat1', gamepadIndex: 1 });
+    Input.setCouchSplitActive(true);
+
+    try {
+        assert.equal(Input._findGamepadWithInput(), null);
+    } finally {
+        Input.setCouchSplitActive(false);
+        Input.clearSeats();
+        if (originalNavigator) Object.defineProperty(global, 'navigator', originalNavigator);
+        else delete global.navigator;
+    }
+});
+
+test('controller can dismiss the title screen via ControllerNav global buttons', () => {
+    const fs = require('node:fs');
+    const source = fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'game', 'ui', 'core', 'controllerNavigation.js'),
+        'utf8'
+    );
+
+    // ControllerNav claims system buttons (handlesSystemButtons), which makes the
+    // engine skip its own Start -> onSystemStart -> dismissTitleScreen path. And
+    // togglePause() early-returns on TITLE. So ControllerNav must dismiss the
+    // title itself or a controller can never reach the nexus.
+    assert.match(source, /handlesSystemButtons:\s*true/);
+    const handler = source.slice(source.indexOf('handleGlobalButtons(gamepad) {'));
+    assert.match(handler, /Game\.state === 'TITLE'/);
+    assert.match(handler, /Game\.dismissTitleScreen\(\)/);
+
+    // Title handling must come before the generic Start -> togglePause mapping
+    const titleIdx = handler.indexOf("Game.state === 'TITLE'");
+    const pauseIdx = handler.indexOf('Game.togglePause()');
+    assert.ok(titleIdx !== -1 && pauseIdx !== -1 && titleIdx < pauseIdx);
+});
+
+test('absent hooks fail closed — onCharacterSheetTouchStart returns false without hook', () => {
+    const saved = Input._hooks.onCharacterSheetTouchStart;
+    delete Input._hooks.onCharacterSheetTouchStart;
+    const result = typeof Input._hooks.onCharacterSheetTouchStart === 'function'
+        ? Input._hooks.onCharacterSheetTouchStart(0, 0, 0)
+        : false;
+    assert.equal(result, false);
+    if (saved !== undefined) Input._hooks.onCharacterSheetTouchStart = saved;
+});

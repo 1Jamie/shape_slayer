@@ -1,23 +1,46 @@
 // Loot Selection System - Handles selecting and cycling through nearby gear
 // Used by the gear tooltip renderer and input system
 
+function createLootSeatState() {
+    return {
+        selectedIndex: 0,
+        nearbyItems: [],
+        lastUpdateFrame: -1
+    };
+}
+
 const LootSelection = {
-    selectedIndex: 0,
-    nearbyItems: [],
-    lastUpdateFrame: 0,
+    // Per-seat selection so P1/P2 can target different nearby piles in local co-op.
+    seats: {
+        p1: createLootSeatState(),
+        p2: createLootSeatState()
+    },
+
+    _seat(seatId = 'p1') {
+        const key = seatId === 'p2' ? 'p2' : 'p1';
+        if (!this.seats[key]) this.seats[key] = createLootSeatState();
+        return this.seats[key];
+    },
+
+    // Legacy getters used by existing UI (P1 / primary seat).
+    get selectedIndex() { return this._seat('p1').selectedIndex; },
+    set selectedIndex(value) { this._seat('p1').selectedIndex = value; },
+    get nearbyItems() { return this._seat('p1').nearbyItems; },
+    set nearbyItems(value) { this._seat('p1').nearbyItems = value; },
 
     // Update list of nearby items
-    updateNearbyItems: function (player) {
-        // Optimization: Don't update more than once per frame
-        if (typeof Game !== 'undefined' && Game.frameCount === this.lastUpdateFrame) {
+    updateNearbyItems: function (player, seatId = 'p1') {
+        const seat = this._seat(seatId);
+        // Optimization: Don't update more than once per frame per seat
+        if (typeof Game !== 'undefined' && Game.frameCount === seat.lastUpdateFrame) {
             return;
         }
         if (typeof Game !== 'undefined') {
-            this.lastUpdateFrame = Game.frameCount;
+            seat.lastUpdateFrame = Game.frameCount;
         }
 
         if (!player || !window.groundLoot) {
-            this.nearbyItems = [];
+            seat.nearbyItems = [];
             return;
         }
 
@@ -25,7 +48,7 @@ const LootSelection = {
         // Interaction range is typically 50px
         const range = 60;
 
-        this.nearbyItems = window.groundLoot.filter(gear => {
+        seat.nearbyItems = window.groundLoot.filter(gear => {
             const dx = gear.x - player.x;
             const dy = gear.y - player.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
@@ -33,53 +56,60 @@ const LootSelection = {
         });
 
         // Sort by distance to player
-        this.nearbyItems.sort((a, b) => {
+        seat.nearbyItems.sort((a, b) => {
             const distA = Math.sqrt(Math.pow(a.x - player.x, 2) + Math.pow(a.y - player.y, 2));
             const distB = Math.sqrt(Math.pow(b.x - player.x, 2) + Math.pow(b.y - player.y, 2));
             return distA - distB;
         });
 
         // Clamp index if list changed size
-        if (this.nearbyItems.length === 0) {
-            this.selectedIndex = 0;
-        } else if (this.selectedIndex >= this.nearbyItems.length) {
-            this.selectedIndex = 0; // Reset to closest if list changes significantly
+        if (seat.nearbyItems.length === 0) {
+            seat.selectedIndex = 0;
+        } else if (seat.selectedIndex >= seat.nearbyItems.length) {
+            seat.selectedIndex = 0; // Reset to closest if list changes significantly
         }
     },
 
     // Get the currently selected gear item
-    getSelectedGear: function () {
-        if (this.nearbyItems.length === 0) return null;
+    getSelectedGear: function (seatId = 'p1') {
+        const seat = this._seat(seatId);
+        if (seat.nearbyItems.length === 0) return null;
 
         // Safety check
-        if (this.selectedIndex >= this.nearbyItems.length) {
-            this.selectedIndex = 0;
+        if (seat.selectedIndex >= seat.nearbyItems.length) {
+            seat.selectedIndex = 0;
         }
 
-        return this.nearbyItems[this.selectedIndex];
+        return seat.nearbyItems[seat.selectedIndex];
     },
 
     // Get count of nearby items
-    getCount: function () {
-        return this.nearbyItems.length;
+    getCount: function (seatId = 'p1') {
+        return this._seat(seatId).nearbyItems.length;
     },
 
     // Cycle to next item
-    cycleNext: function () {
-        if (this.nearbyItems.length <= 1) return;
-        this.selectedIndex = (this.selectedIndex + 1) % this.nearbyItems.length;
+    cycleNext: function (seatId = 'p1') {
+        const seat = this._seat(seatId);
+        if (seat.nearbyItems.length <= 1) return;
+        seat.selectedIndex = (seat.selectedIndex + 1) % seat.nearbyItems.length;
     },
 
     // Cycle to previous item
-    cyclePrevious: function () {
-        if (this.nearbyItems.length <= 1) return;
-        this.selectedIndex = (this.selectedIndex - 1 + this.nearbyItems.length) % this.nearbyItems.length;
+    cyclePrevious: function (seatId = 'p1') {
+        const seat = this._seat(seatId);
+        if (seat.nearbyItems.length <= 1) return;
+        seat.selectedIndex = (seat.selectedIndex - 1 + seat.nearbyItems.length) % seat.nearbyItems.length;
     },
 
     // Reset selection
-    reset: function () {
-        this.selectedIndex = 0;
-        this.nearbyItems = [];
+    reset: function (seatId = null) {
+        if (seatId) {
+            this.seats[seatId === 'p2' ? 'p2' : 'p1'] = createLootSeatState();
+            return;
+        }
+        this.seats.p1 = createLootSeatState();
+        this.seats.p2 = createLootSeatState();
     }
 };
 

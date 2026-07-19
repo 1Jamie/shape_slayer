@@ -401,11 +401,10 @@ const Geometry = {
 
 ImpulsePhysics.Geometry = Geometry;
 
-window.Engine = window.Engine || {};
-window.Engine.Physics = ImpulsePhysics;
+const root = typeof window !== 'undefined' ? window : globalThis;
+root.Engine = root.Engine || {};
+root.Engine.Physics = ImpulsePhysics;
 
-// Support existing global and Node imports
-window.ImpulsePhysics = ImpulsePhysics;
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = ImpulsePhysics;
 }

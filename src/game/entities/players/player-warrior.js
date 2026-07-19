@@ -267,8 +267,8 @@ class Warrior extends PlayerBase {
             // Deal damage at regular intervals to nearby enemies
             if (this.whirlwindHitTimer >= WARRIOR_CONFIG.whirlwindHitInterval && typeof Game !== 'undefined' && Game.enemies) {
                 // Play whirlwind hit sound
-                if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-                    AudioManager.sounds.warriorWhirlwindHit();
+                if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+                    GameAudio.sounds.warriorWhirlwindHit();
                 }
 
                 this._whirlwindPulseIndex = (this._whirlwindPulseIndex || 0) + 1;
@@ -516,8 +516,8 @@ class Warrior extends PlayerBase {
 
     meleeAttack() {
         // Play warrior basic attack sound
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-            AudioManager.sounds.warriorBasicAttack();
+        if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+            GameAudio.sounds.warriorBasicAttack();
         }
 
         // Warrior: Sword swing with hitboxes spread out in a line
@@ -670,8 +670,8 @@ class Warrior extends PlayerBase {
 
     createForwardThrust() {
         // Play warrior heavy attack sound
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-            AudioManager.sounds.warriorHeavyAttack();
+        if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+            GameAudio.sounds.warriorHeavyAttack();
         }
 
         // Warrior forward thrust - rush forward while dealing damage along the path
@@ -747,8 +747,8 @@ class Warrior extends PlayerBase {
         this.notifyTutorialCombatAction('special');
 
         // Play whirlwind activation sound
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-            AudioManager.sounds.warriorWhirlwindStart();
+        if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+            GameAudio.sounds.warriorWhirlwindStart();
         }
 
         this.whirlwindActive = true;
@@ -1042,31 +1042,31 @@ class Warrior extends PlayerBase {
     }
 
     onClientAttackStarted() {
-        if (this.canPlayClientAudio() && AudioManager.sounds && AudioManager.sounds.warriorBasicAttack) {
-            AudioManager.sounds.warriorBasicAttack();
+        if (this.canPlayClientAudio() && GameAudio.sounds && GameAudio.sounds.warriorBasicAttack) {
+            GameAudio.sounds.warriorBasicAttack();
         }
     }
 
     onClientHeavyAttackTriggered() {
-        if (!this.canPlayClientAudio() || !AudioManager.sounds || !AudioManager.sounds.warriorHeavyAttack) {
+        if (!this.canPlayClientAudio() || !GameAudio.sounds || !GameAudio.sounds.warriorHeavyAttack) {
             return false;
         }
-        AudioManager.sounds.warriorHeavyAttack();
+        GameAudio.sounds.warriorHeavyAttack();
         return true;
     }
 
     handleSubclassClientAudio(prevState, currentState) {
-        if (!this.canPlayClientAudio() || !AudioManager.sounds) {
+        if (!this.canPlayClientAudio() || !GameAudio.sounds) {
             return;
         }
 
         const heavyTriggered = this.didHeavyAttackTrigger(prevState, currentState);
-        if (!prevState.thrustActive && currentState.thrustActive && !heavyTriggered && AudioManager.sounds.warriorHeavyAttack) {
-            AudioManager.sounds.warriorHeavyAttack();
+        if (!prevState.thrustActive && currentState.thrustActive && !heavyTriggered && GameAudio.sounds.warriorHeavyAttack) {
+            GameAudio.sounds.warriorHeavyAttack();
         }
 
-        if (!prevState.whirlwindActive && currentState.whirlwindActive && AudioManager.sounds.warriorWhirlwindStart) {
-            AudioManager.sounds.warriorWhirlwindStart();
+        if (!prevState.whirlwindActive && currentState.whirlwindActive && GameAudio.sounds.warriorWhirlwindStart) {
+            GameAudio.sounds.warriorWhirlwindStart();
         }
     }
 }

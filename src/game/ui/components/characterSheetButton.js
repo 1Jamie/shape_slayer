@@ -1,6 +1,6 @@
 (function () {
     function getInputSurface() {
-        const input = window.Input || null;
+        const input = Engine.Input || null;
         return {
             isTouchUi: !!(input && input.isMobileUiMode && input.isMobileUiMode()),
             isGamepad: !!(input && input.isGamepadMode && input.isGamepadMode())
@@ -74,7 +74,7 @@
 
     function refreshCharacterSheetButton() {
         const btn = document.getElementById('ui-charsheet-button');
-        if (!btn || typeof Input === 'undefined' || !Input.isMobileUiMode) return;
+        if (!btn || (typeof Engine === 'undefined' || !Engine.Input) || !Engine.Input.isMobileUiMode) return;
 
         const surface = getInputSurface();
         const touchChrome = surface.isTouchUi && !surface.isGamepad;
@@ -97,7 +97,7 @@
 
     // Wait for Input to be available before creating button
     function tryCreateButton() {
-        if (typeof Input !== 'undefined' && Input.isMobileUiMode) {
+        if ((typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileUiMode) {
             createCharacterSheetButton();
             window.addEventListener('controlmodechange', refreshCharacterSheetButton);
             window.addEventListener('inputsourcechange', refreshCharacterSheetButton);

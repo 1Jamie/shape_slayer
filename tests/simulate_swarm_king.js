@@ -10,7 +10,7 @@ global.Game = {
     roomNumber: 10
 };
 global.currentRoom = { enemies: [] };
-global.AudioManager = { sounds: {} };
+global.GameAudio = { sounds: {} };
 
 // Mock EnemyBase and BossBase if needed, or just rely on them being available if they are required.
 // Since we are running this in node, we might need to mock the classes if they are not exported.
@@ -43,7 +43,7 @@ const context = {
         roomNumber: 10
     },
     currentRoom: { enemies: [] },
-    AudioManager: { sounds: {} },
+    GameAudio: { sounds: {} },
     console: console,
     Math: Math,
     Date: Date,

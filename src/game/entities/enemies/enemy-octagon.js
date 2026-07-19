@@ -854,48 +854,9 @@ class OctagonEnemy extends EnemyBase {
             // Roll for item drop
             if (Math.random() < finalDropChance) {
                 const itemDef = getRandomItem();
-
-                // Check if in multiplayer - use pylons instead of ground items
-                const inMultiplayer = typeof multiplayerManager !== 'undefined' &&
-                    multiplayerManager &&
-                    multiplayerManager.lobbyCode;
-
-                if (inMultiplayer) {
-                    // Create item pylon (multiplayer)
-                    if (typeof createItemPylon === 'function') {
-                        createItemPylon(this.x, this.y, itemDef);
-                        
-                        // Increment item drop counter for this room
-                        if (typeof Game !== 'undefined') {
-                            if (!Game.itemsDroppedThisRoom) Game.itemsDroppedThisRoom = 0;
-                            Game.itemsDroppedThisRoom++;
-                        }
-                        
-                        console.log(`[Item Pylon] ${itemDef.name} (${itemDef.rarity}) from ${enemyType} (Room ${roomNumber}, Total: ${Game.itemsDroppedThisRoom || 0})`);
-                    }
-                } else {
-                    // Create ground item (single player)
-                    const groundItem = {
-                        id: 'item_' + Date.now() + '_' + Math.random(),
-                        itemId: itemDef.id,
-                        definition: itemDef,
-                        x: this.x,
-                        y: this.y,
-                        size: 12,
-                        pulse: 0,
-                        pickupRadius: 30
-                    };
-
-                    // Add to ground items
-                    if (!Game.groundItems) Game.groundItems = [];
-                    Game.groundItems.push(groundItem);
-
-                    // Increment item drop counter for this room
-                    if (typeof Game !== 'undefined') {
-                        if (!Game.itemsDroppedThisRoom) Game.itemsDroppedThisRoom = 0;
-                        Game.itemsDroppedThisRoom++;
-                    }
-
+                // Local co-op / online MP use shared pylons; solo uses ground pickups.
+                if (typeof spawnItemDrop === 'function') {
+                    spawnItemDrop(this.x, this.y, itemDef);
                     console.log(`[Item Drop] ${itemDef.name} (${itemDef.rarity}) from ${enemyType} (Room ${roomNumber}, Total: ${Game.itemsDroppedThisRoom || 0})`);
                 }
             }

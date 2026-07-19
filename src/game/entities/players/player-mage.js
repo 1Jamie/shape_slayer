@@ -360,8 +360,8 @@ class Mage extends PlayerBase {
 
     shootProjectile(input) {
         // Play mage basic attack sound
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-            AudioManager.sounds.mageBasicAttack();
+        if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+            GameAudio.sounds.mageBasicAttack();
         }
 
         // Mage: Shoot magic bolt
@@ -436,8 +436,8 @@ class Mage extends PlayerBase {
     // Override createHeavyAttack for energy beam
     createHeavyAttack() {
         // Play mage heavy attack beam sound
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-            AudioManager.sounds.mageHeavyAttackBeam();
+        if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+            GameAudio.sounds.mageHeavyAttackBeam();
         }
 
         // Get gameplay position (authoritative position in multiplayer)
@@ -596,7 +596,7 @@ class Mage extends PlayerBase {
             targetY = this.y + Math.sin(angle) * distance;
         } else {
             // Mouse mode: use world mouse position (accounts for camera)
-            const worldMouse = Input.getWorldMousePos ? Input.getWorldMousePos() : input.mouse;
+            const worldMouse = Engine.Input.getWorldMousePos ? Engine.Input.getWorldMousePos() : input.mouse;
             const mouseX = worldMouse.x || this.x;
             const mouseY = worldMouse.y || this.y;
             const dx = mouseX - this.x;
@@ -638,8 +638,8 @@ class Mage extends PlayerBase {
         }
 
         // Play mage blink sound
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-            AudioManager.sounds.mageBlink();
+        if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+            GameAudio.sounds.mageBlink();
         }
 
         // Save old position for decoy
@@ -667,7 +667,7 @@ class Mage extends PlayerBase {
             }
         } else {
             // Mouse mode: blink toward world mouse position
-            const worldMouse = Input.getWorldMousePos ? Input.getWorldMousePos() : input.mouse;
+            const worldMouse = Engine.Input.getWorldMousePos ? Engine.Input.getWorldMousePos() : input.mouse;
             targetX = worldMouse.x || this.x;
             targetY = worldMouse.y || this.y;
         }
@@ -1660,27 +1660,27 @@ class Mage extends PlayerBase {
     }
 
     onClientAttackStarted() {
-        if (this.canPlayClientAudio() && AudioManager.sounds && AudioManager.sounds.mageBasicAttack) {
-            AudioManager.sounds.mageBasicAttack();
+        if (this.canPlayClientAudio() && GameAudio.sounds && GameAudio.sounds.mageBasicAttack) {
+            GameAudio.sounds.mageBasicAttack();
         }
     }
 
     onClientHeavyAttackTriggered() {
-        if (!this.canPlayClientAudio() || !AudioManager.sounds || !AudioManager.sounds.mageHeavyAttackBeam) {
+        if (!this.canPlayClientAudio() || !GameAudio.sounds || !GameAudio.sounds.mageHeavyAttackBeam) {
             return false;
         }
-        AudioManager.sounds.mageHeavyAttackBeam();
+        GameAudio.sounds.mageHeavyAttackBeam();
         return true;
     }
 
     onClientSpecialAbilityTriggered() {
-        if (this.canPlayClientAudio() && AudioManager.sounds && AudioManager.sounds.mageBlink) {
-            AudioManager.sounds.mageBlink();
+        if (this.canPlayClientAudio() && GameAudio.sounds && GameAudio.sounds.mageBlink) {
+            GameAudio.sounds.mageBlink();
         }
     }
 
     handleSubclassClientAudio(prevState, currentState) {
-        if (!this.canPlayClientAudio() || !AudioManager.sounds) {
+        if (!this.canPlayClientAudio() || !GameAudio.sounds) {
             return;
         }
 
@@ -1688,8 +1688,8 @@ class Mage extends PlayerBase {
         if (prevState.beamCharges !== undefined && currentState.beamCharges !== undefined &&
             currentState.beamCharges < prevState.beamCharges &&
             !heavyTriggered &&
-            AudioManager.sounds.mageHeavyAttackBeam) {
-            AudioManager.sounds.mageHeavyAttackBeam();
+            GameAudio.sounds.mageHeavyAttackBeam) {
+            GameAudio.sounds.mageHeavyAttackBeam();
         }
     }
 }

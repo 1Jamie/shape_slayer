@@ -294,9 +294,9 @@
 				}
 			} else {
 				// Host or singleplayer: show controls
-				const usingGamepad = typeof Input !== 'undefined'
-					&& ((Input.isGamepadMode && Input.isGamepadMode())
-						|| Input._activeInputSource === 'gamepad');
+				const usingGamepad = (typeof Engine !== 'undefined' && Engine.Input)
+					&& ((Engine.Input.isGamepadMode && Engine.Input.isGamepadMode())
+						|| Engine.Input._activeInputSource === 'gamepad');
 
 				const restartText = document.createElement('div');
 				restartText.style.color = '#ffff00';

@@ -221,14 +221,28 @@ const Game = {
         viewHeight: 720
     }),
 
+    splitCamera: new Engine.Camera({
+        x: 640, y: 360,
+        smoothSpeed: 5,
+        offsetAmount: 60,
+        deadzone: 20,
+        viewWidth: 640,
+        viewHeight: 720
+    }),
+    localSplitEnabled: false,
+    localSplitPlayerId: 'local-seat-1',
+    localSplitSelectedClass: null,
+    localSplitLayout: 'vertical',
+    _localJoinStartPrev: new Map(),
+
     // Game objects
     player: null,
     enemies: [],
     projectiles: (typeof createProjectileList === 'function' ? createProjectileList() : []),
     _projectilePool: [],
     previousProjectiles: [], // Previous projectile state for interpolation (clients)
-    get particles() { return window.Renderer ? window.Renderer.particles : (this._particles || []); },
-    set particles(v) { if (window.Renderer) { window.Renderer.particles = v; } else { this._particles = v; } },
+    get particles() { return Engine.Renderer ? Engine.Renderer.particles : (this._particles || []); },
+    set particles(v) { if (Engine.Renderer) { Engine.Renderer.particles = v; } else { this._particles = v; } },
     damageNumbers: [],
     explosions: [], // Visual explosions from enemy deaths (Volatile Spawn modifier)
     remotePlayers: [], // Multiplayer: other players in the lobby
@@ -281,14 +295,14 @@ const Game = {
     pendingDoorReadyToggle: false, // Client one-shot door ready request
 
     // Screen shake system
-    get screenShakeOffset() { return window.Renderer ? window.Renderer.screenShakeOffset : (this._screenShakeOffset || { x: 0, y: 0 }); },
-    set screenShakeOffset(v) { if (window.Renderer) { window.Renderer.screenShakeOffset = v; } else { this._screenShakeOffset = v; } },
-    get screenShakeIntensity() { return window.Renderer ? window.Renderer.screenShakeIntensity : (this._screenShakeIntensity || 0); },
-    set screenShakeIntensity(v) { if (window.Renderer) { window.Renderer.screenShakeIntensity = v; } else { this._screenShakeIntensity = v; } },
-    get screenShakeDuration() { return window.Renderer ? window.Renderer.screenShakeDuration : (this._screenShakeDuration || 0); },
-    set screenShakeDuration(v) { if (window.Renderer) { window.Renderer.screenShakeDuration = v; } else { this._screenShakeDuration = v; } },
-    get screenShakeDirection() { return window.Renderer ? window.Renderer.screenShakeDirection : (this._screenShakeDirection || null); },
-    set screenShakeDirection(v) { if (window.Renderer) { window.Renderer.screenShakeDirection = v; } else { this._screenShakeDirection = v; } },
+    get screenShakeOffset() { return Engine.Renderer ? Engine.Renderer.screenShakeOffset : (this._screenShakeOffset || { x: 0, y: 0 }); },
+    set screenShakeOffset(v) { if (Engine.Renderer) { Engine.Renderer.screenShakeOffset = v; } else { this._screenShakeOffset = v; } },
+    get screenShakeIntensity() { return Engine.Renderer ? Engine.Renderer.screenShakeIntensity : (this._screenShakeIntensity || 0); },
+    set screenShakeIntensity(v) { if (Engine.Renderer) { Engine.Renderer.screenShakeIntensity = v; } else { this._screenShakeIntensity = v; } },
+    get screenShakeDuration() { return Engine.Renderer ? Engine.Renderer.screenShakeDuration : (this._screenShakeDuration || 0); },
+    set screenShakeDuration(v) { if (Engine.Renderer) { Engine.Renderer.screenShakeDuration = v; } else { this._screenShakeDuration = v; } },
+    get screenShakeDirection() { return Engine.Renderer ? Engine.Renderer.screenShakeDirection : (this._screenShakeDirection || null); },
+    set screenShakeDirection(v) { if (Engine.Renderer) { Engine.Renderer.screenShakeDirection = v; } else { this._screenShakeDirection = v; } },
     get hitPauseTime() { return window.engine ? window.engine.hitPauseTime : (this._hitPauseTime || 0); },
     set hitPauseTime(v) { if (window.engine) { window.engine.hitPauseTime = v; } else { this._hitPauseTime = v; } },
 
@@ -322,7 +336,7 @@ const Game = {
 
     /** Effective world zoom for the current platform + camera-distance setting. */
     getViewZoom() {
-        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
+        const isMobile = (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileUiMode && Engine.Input.isMobileUiMode();
         const platformZoom = isMobile ? (this.mobileZoom || 0.9) : (this.baseZoom || 1.1);
         const table = isMobile
             ? (this.CAMERA_DISTANCE_MULT_MOBILE || this.CAMERA_DISTANCE_MULT)
@@ -446,7 +460,7 @@ const Game = {
         this.prewarmRenderCaches();
 
         // Initialize input system
-        Input.init(this.canvas);
+        Engine.Input.init(this.canvas);
 
         // Load fullscreen preference
         if (typeof SaveSystem !== 'undefined') {
@@ -463,9 +477,9 @@ const Game = {
         this.setupLandscapeMode();
 
         if (this.fullscreenEnabled &&
-            typeof DeviceDetection !== 'undefined' &&
-            DeviceDetection.supportsElementFullscreen &&
-            !DeviceDetection.supportsElementFullscreen()) {
+            Engine.System &&
+            Engine.System.supportsElementFullscreen &&
+            !Engine.System.supportsElementFullscreen()) {
             this.pseudoFullscreenActive = true;
             document.body.classList.add('pseudo-fullscreen');
         }
@@ -485,10 +499,10 @@ const Game = {
 
             clearTimeout(touchReinitTimer);
             touchReinitTimer = setTimeout(() => {
-                if (this.canvas && typeof Input !== 'undefined' &&
-                    Input.isMobileUiMode && Input.isMobileUiMode() &&
-                    Input.initTouchControls) {
-                    Input.initTouchControls(this.canvas);
+                if (this.canvas && (typeof Engine !== 'undefined' && Engine.Input) &&
+                    Engine.Input.isMobileUiMode && Engine.Input.isMobileUiMode() &&
+                    Engine.Input.initTouchControls) {
+                    Engine.Input.initTouchControls(this.canvas);
                 }
             }, 100);
         };
@@ -509,8 +523,8 @@ const Game = {
                 this.setupResponsiveCanvas();
                 this.updatePortraitRotateOverlay();
                 this.lockLandscapeOrientation();
-                if (typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode()) {
-                    Input.initTouchControls(this.canvas);
+                if ((typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileUiMode && Engine.Input.isMobileUiMode()) {
+                    Engine.Input.initTouchControls(this.canvas);
                 }
             }, 100);
         });
@@ -689,8 +703,8 @@ const Game = {
                     if (typeof activeAudioSliderPointerId !== 'undefined') {
                         activeAudioSliderPointerId = null;
                     }
-                    if (typeof AudioManager !== 'undefined') {
-                        AudioManager.saveSettings();
+                    if (typeof Engine !== 'undefined' && Engine.Audio) {
+                        Engine.Audio.saveSettings();
                     }
 
                     if (typeof this.showPauseMenu !== 'undefined') {
@@ -920,9 +934,9 @@ const Game = {
         // Use actual available viewport - must account for browser chrome on mobile
 
         // Detect the active UI layout FIRST (before using it in viewport calculation)
-        const isMobileDevice = typeof Input !== 'undefined' && Input.isMobileUiMode
-            ? Input.isMobileUiMode()
-            : (typeof Input !== 'undefined' && Input.isMobileDevice && Input.isMobileDevice());
+        const isMobileDevice = (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileUiMode
+            ? Engine.Input.isMobileUiMode()
+            : ((typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileDevice && Engine.Input.isMobileDevice());
         this.isMobileDevice = isMobileDevice;
 
         // Use visualViewport when available (accurate on mobile Safari + desktop)
@@ -996,6 +1010,9 @@ const Game = {
         this.dpr = configured.dpr;
         this.ctx = configured.ctx;
 
+        // Pooled world offscreen may be wrong size after a DPR/logical resize.
+        this.cleanupPlayingRenderTargets();
+
         // Keep viewport framing styles owned by the game shell.
         this.canvas.style.width = canvasWidth + 'px';
         this.canvas.style.height = canvasHeight + 'px';
@@ -1023,11 +1040,11 @@ const Game = {
         this.config.height = canvasHeight;
 
         // Initialize touch controls if in touch mode
-        if (typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode()) {
+        if ((typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileUiMode && Engine.Input.isMobileUiMode()) {
             // Small delay to ensure canvas rect is updated
             setTimeout(() => {
-                if (Input.initTouchControls) {
-                    Input.initTouchControls(this.canvas);
+                if (Engine.Input.initTouchControls) {
+                    Engine.Input.initTouchControls(this.canvas);
                 }
             }, 50);
         }
@@ -1161,40 +1178,40 @@ const Game = {
                             console.log(`[FULLSCREEN] Canvas rect after resize: ${rect.width.toFixed(0)}x${rect.height.toFixed(0)} at (${rect.left.toFixed(0)}, ${rect.top.toFixed(0)})`);
                         }
 
-                        if (typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode()) {
+                        if ((typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileUiMode && Engine.Input.isMobileUiMode()) {
                             // Clear all existing touch controls and active touches
-                            if (Input.touchJoysticks) {
+                            if (Engine.Input.touchJoysticks) {
                                 // End all active joysticks first
-                                for (const joystick of Object.values(Input.touchJoysticks)) {
+                                for (const joystick of Object.values(Engine.Input.touchJoysticks)) {
                                     if (joystick && joystick.active && joystick.touchId !== null) {
                                         joystick.endTouch(joystick.touchId);
                                     }
                                 }
-                                Input.touchJoysticks = {};
+                                Engine.Input.touchJoysticks = {};
                             }
-                            if (Input.touchButtons) {
+                            if (Engine.Input.touchButtons) {
                                 // End all active buttons first
-                                for (const button of Object.values(Input.touchButtons)) {
+                                for (const button of Object.values(Engine.Input.touchButtons)) {
                                     if (button && button.active && button.touchId !== null) {
                                         button.endTouch(button.touchId);
                                     }
                                 }
-                                Input.touchButtons = {};
+                                Engine.Input.touchButtons = {};
                             }
-                            if (Input.activeTouches) {
-                                Input.activeTouches = {};
+                            if (Engine.Input.activeTouches) {
+                                Engine.Input.activeTouches = {};
                             }
-                            Input.touchActive = false;
+                            Engine.Input.touchActive = false;
 
                             // Reinitialize with correct positions after a brief delay
                             // This ensures the canvas bounding rect is fully updated
                             setTimeout(() => {
-                                if (this.canvas && typeof Input !== 'undefined' && Input.initTouchControls) {
+                                if (this.canvas && (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.initTouchControls) {
                                     // Force one more reflow before reinitializing
                                     void this.canvas.offsetWidth;
                                     const rect = this.canvas.getBoundingClientRect();
                                     console.log(`[FULLSCREEN] Reinitializing controls, rect: ${rect.width.toFixed(0)}x${rect.height.toFixed(0)}`);
-                                    Input.initTouchControls(this.canvas);
+                                    Engine.Input.initTouchControls(this.canvas);
                                     console.log('[FULLSCREEN] Touch controls reinitialized');
                                 }
                             }, 100); // Increased delay for mobile devices
@@ -1256,23 +1273,23 @@ const Game = {
     },
 
     shouldForceLandscape() {
-        if (typeof DeviceDetection === 'undefined') {
+        if (!Engine.System) {
             return false;
         }
-        if (DeviceDetection.isInstalledDisplayMode && DeviceDetection.isInstalledDisplayMode()) {
+        if (Engine.System.isInstalledDisplayMode && Engine.System.isInstalledDisplayMode()) {
             return true;
         }
-        return !!(DeviceDetection.isMobileDevice && DeviceDetection.isMobileDevice());
+        return !!(Engine.System.isMobileDevice && Engine.System.isMobileDevice());
     },
 
     lockLandscapeOrientation() {
         if (!this.shouldForceLandscape()) {
             return Promise.resolve(false);
         }
-        if (typeof DeviceDetection === 'undefined' || !DeviceDetection.lockLandscapeOrientation) {
+        if (!Engine.System || !Engine.System.lockLandscapeOrientation) {
             return Promise.resolve(false);
         }
-        return DeviceDetection.lockLandscapeOrientation();
+        return Engine.System.lockLandscapeOrientation();
     },
 
     updatePortraitRotateOverlay() {
@@ -1282,8 +1299,8 @@ const Game = {
         }
 
         const forceLandscape = this.shouldForceLandscape();
-        const isPortrait = typeof DeviceDetection !== 'undefined' && DeviceDetection.isPortraitViewport
-            ? DeviceDetection.isPortraitViewport()
+        const isPortrait = Engine.System && Engine.System.isPortraitViewport
+            ? Engine.System.isPortraitViewport()
             : (typeof window !== 'undefined' && window.innerHeight > window.innerWidth);
 
         const show = forceLandscape && isPortrait;
@@ -1297,9 +1314,9 @@ const Game = {
     toggleFullscreen() {
         if (!this.canvas) return;
 
-        if (typeof DeviceDetection !== 'undefined' &&
-            DeviceDetection.supportsElementFullscreen &&
-            !DeviceDetection.supportsElementFullscreen()) {
+        if (Engine.System &&
+            Engine.System.supportsElementFullscreen &&
+            !Engine.System.supportsElementFullscreen()) {
             this.pseudoFullscreenActive = !this.pseudoFullscreenActive;
             document.body.classList.toggle('pseudo-fullscreen', this.pseudoFullscreenActive);
             this.fullscreenEnabled = this.pseudoFullscreenActive;
@@ -1343,8 +1360,8 @@ const Game = {
         const isMobile = this.isMobileDevice;
         if (isMobile && isHidden) {
             this.backgroundPauseActive = true;
-            if (typeof MusicManager !== 'undefined' && MusicManager && typeof MusicManager.pauseForBackground === 'function') {
-                MusicManager.pauseForBackground().catch(err => {
+            if (typeof GameMusic !== 'undefined' && GameMusic) {
+                GameMusic.pauseForBackground().catch(err => {
                     console.warn('[Music] Failed to pause background playback:', err);
                 });
             }
@@ -1366,8 +1383,8 @@ const Game = {
         const bias = direction === 'player'
             ? Engine.FX.ShakeBias.VERTICAL
             : (direction === 'boss' ? Engine.FX.ShakeBias.HORIZONTAL : Engine.FX.ShakeBias.NONE);
-        if (window.Renderer && window.Renderer.triggerScreenShake) {
-            window.Renderer.triggerScreenShake(intensity, duration, bias);
+        if (Engine.Renderer && Engine.Renderer.triggerScreenShake) {
+            Engine.Renderer.triggerScreenShake(intensity, duration, bias);
         } else {
             const shouldReplace = this.screenShakeDuration <= 0 || intensity >= this.screenShakeIntensity;
             if (shouldReplace) {
@@ -1431,69 +1448,39 @@ const Game = {
         return params;
     },
 
-    ensureWorldRenderTarget(pixelWidth, pixelHeight, dpr) {
-        const pool = Engine.Graphics.CanvasPool;
-        let acquired = false;
-        if (!this.offscreenCanvas) {
-            this.offscreenCanvas = pool.acquire(pixelWidth, pixelHeight);
-            this.offscreenCtx = this.offscreenCanvas.getContext('2d');
-            acquired = true;
+    renderPlayingWorldClear(ctx, viewport = null) {
+        const activeViewport = viewport || this._activeRenderViewport;
+        const logicalWidth = activeViewport ? activeViewport.w : this.config.width;
+        const logicalHeight = activeViewport ? activeViewport.h : this.config.height;
+        const biome = typeof getBiomeForRoom !== 'undefined' ? getBiomeForRoom(this.roomNumber) : { baseColor: '#1a1a2e' };
+        // When clipped to a viewport on main, clear at the viewport origin so we only wipe that seat.
+        if (activeViewport && ctx === this.ctx) {
+            const biomeColor = biome.baseColor || '#1a1a2e';
+            ctx.fillStyle = biomeColor;
+            ctx.fillRect(activeViewport.x, activeViewport.y, activeViewport.w, activeViewport.h);
+            return;
         }
-        if (this.offscreenCanvas.width !== pixelWidth || this.offscreenCanvas.height !== pixelHeight) {
-            pool.release(this.offscreenCanvas);
-            this.offscreenCanvas = pool.acquire(pixelWidth, pixelHeight);
-            this.offscreenCtx = this.offscreenCanvas.getContext('2d');
-            acquired = true;
-        }
-        if (acquired) {
-            // Pooled canvases can arrive pre-sized (skipping the resize branch) and
-            // with a stale transform from a previous user, so always reset here.
-            this.offscreenCtx.setTransform(1, 0, 0, 1, 0, 0);
-            this.offscreenCtx.scale(dpr, dpr);
-        }
-        return this.offscreenCtx;
+        Engine.Renderer.clear(ctx, logicalWidth, logicalHeight, biome.baseColor);
     },
 
-    renderPlayingWorldLayer(ctx) {
-        const logicalWidth = this.config.width;
-        const logicalHeight = this.config.height;
-        const biome = typeof getBiomeForRoom !== 'undefined' ? getBiomeForRoom(this.roomNumber) : { baseColor: '#1a1a2e' };
-        Renderer.clear(ctx, logicalWidth, logicalHeight, biome.baseColor);
-
-        ctx.save();
-        const currentZoom = this.getViewZoom();
-        const centerX = logicalWidth / 2;
-        const centerY = logicalHeight / 2;
-        Engine.Render.applyCamera(ctx, {
-            x: this.camera.x,
-            y: this.camera.y,
-            zoom: currentZoom,
-            centerX,
-            centerY,
-            offsetX: this.screenShakeOffset.x,
-            offsetY: this.screenShakeOffset.y
-        });
-
-        // Draw solid outer-wall fill for safe rooms so non-traversable space is clearly blocked
+    /** Safe-room walls, static room layer / fallback scenery, layout debug. Camera must already be applied. */
+    renderPlayingWorldStatic(ctx) {
         if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'safe') {
             const rw = currentRoom.width || 2400;
             const rh = currentRoom.height || 1350;
-            const wallPad = 2400; // extend far beyond room edges
+            const wallPad = 2400;
             ctx.save();
             ctx.fillStyle = 'rgba(10, 14, 20, 0.96)';
-            // Fill four side bands around the room
-            ctx.fillRect(-wallPad, -wallPad, rw + wallPad * 2, wallPad);           // top
-            ctx.fillRect(-wallPad, rh, rw + wallPad * 2, wallPad);                 // bottom
-            ctx.fillRect(-wallPad, 0, wallPad, rh);                                // left
-            ctx.fillRect(rw, 0, wallPad, rh);                                      // right
-            // Add a subtle inset border/bevel at room edge
+            ctx.fillRect(-wallPad, -wallPad, rw + wallPad * 2, wallPad);
+            ctx.fillRect(-wallPad, rh, rw + wallPad * 2, wallPad);
+            ctx.fillRect(-wallPad, 0, wallPad, rh);
+            ctx.fillRect(rw, 0, wallPad, rh);
             ctx.strokeStyle = 'rgba(50, 90, 70, 0.55)';
             ctx.lineWidth = 8;
             ctx.strokeRect(-4, -4, rw + 8, rh + 8);
             ctx.restore();
         }
 
-        const staticStart = performance.now();
         if (typeof renderCachedRoomStaticLayer === 'function' && renderCachedRoomStaticLayer(ctx, this.roomNumber)) {
             if (typeof renderRoomAmbientLife === 'function') {
                 renderRoomAmbientLife(ctx, this.roomNumber);
@@ -1509,24 +1496,56 @@ const Game = {
                 renderRoomObstacles(ctx, this.roomNumber);
             }
         }
-        this.currentFrameTimings.static += performance.now() - staticStart;
 
         if (typeof DebugFlags !== 'undefined' && DebugFlags.ROOM_LAYOUT && typeof renderRoomLayoutDebug !== 'undefined') {
             renderRoomLayoutDebug(ctx);
         }
+    },
 
-        const worldStart = performance.now();
-        this.renderGameWorld(ctx);
+    renderPlayingWorldTutorial(ctx) {
         if (typeof Room0Tutorial !== 'undefined' && Room0Tutorial.renderWorld) {
             Room0Tutorial.renderWorld(ctx);
         }
-        this.currentFrameTimings.world += performance.now() - worldStart;
+    },
+
+    /**
+     * Compatibility orchestrator used only if something still expects the old
+     * single-pass world layer. PLAYING uses the stage recipe instead.
+     */
+    renderPlayingWorldLayer(ctx) {
+        this.renderPlayingWorldClear(ctx);
+        ctx.save();
+        const logicalWidth = this.config.width;
+        const logicalHeight = this.config.height;
+        Engine.Render.applyCamera(ctx, {
+            x: this.camera.x,
+            y: this.camera.y,
+            zoom: this.getViewZoom(),
+            centerX: logicalWidth / 2,
+            centerY: logicalHeight / 2,
+            offsetX: this.screenShakeOffset.x,
+            offsetY: this.screenShakeOffset.y
+        });
+        const profile = typeof this.shouldCollectDebugMetrics === 'function' && this.shouldCollectDebugMetrics();
+        const tStatic = profile ? performance.now() : 0;
+        this.renderPlayingWorldStatic(ctx);
+        if (profile && this.currentFrameTimings) {
+            this.currentFrameTimings.static += performance.now() - tStatic;
+        }
+        const tWorld = profile ? performance.now() : 0;
+        this.renderGameWorld(ctx);
+        this.renderPlayingWorldTutorial(ctx);
+        if (profile && this.currentFrameTimings) {
+            this.currentFrameTimings.world += performance.now() - tWorld;
+        }
         ctx.restore();
     },
 
-    applyChromaticAberrationFromOffscreen(traumaParams) {
-        const logicalWidth = this.config.width;
-        const logicalHeight = this.config.height;
+    applyChromaticAberrationFromOffscreen(traumaParams, viewport = null) {
+        const logicalWidth = viewport ? viewport.w : this.config.width;
+        const logicalHeight = viewport ? viewport.h : this.config.height;
+        const targetX = viewport ? viewport.x : 0;
+        const targetY = viewport ? viewport.y : 0;
         const adaptiveEnabled = typeof DebugFlags === 'undefined' || DebugFlags.ADAPTIVE_RENDER_QUALITY !== false;
         const processScale = adaptiveEnabled && this.renderQuality && this.renderQuality.damageFxScale
             ? this.renderQuality.damageFxScale
@@ -1534,22 +1553,73 @@ const Game = {
         const intensity = traumaParams.intensity;
         const offset = traumaParams.offset * processScale;
 
-        this.ctx.clearRect(0, 0, logicalWidth, logicalHeight);
+        this.ctx.clearRect(targetX, targetY, logicalWidth, logicalHeight);
         if (intensity < 0.18) {
-            this.ctx.drawImage(this.offscreenCanvas, 0, 0, logicalWidth, logicalHeight);
+            this.ctx.drawImage(this.offscreenCanvas, targetX, targetY, logicalWidth, logicalHeight);
             return;
         }
 
         Engine.FX.Post.chromaticAberration(this.ctx, {
             source: this.offscreenCanvas,
-            x: 0,
-            y: 0,
+            x: targetX,
+            y: targetY,
             width: logicalWidth,
             height: logicalHeight,
             offset,
             intensity,
             replace: true
         });
+    },
+
+    /** Post-vignette screen-space glow for the pre-boss healer (after door opens). */
+    renderPreBossHealerPunchThrough(ctx, viewPlayer = null, viewport = null, camera = null) {
+        const player = viewPlayer || this._activeViewPlayer || this.player;
+        if (typeof currentRoom === 'undefined' || !currentRoom || !currentRoom.doorOpen || !currentRoom.preBossHealer || !player) {
+            return;
+        }
+        const healer = currentRoom.preBossHealer;
+        if (!healer.usedBy) healer.usedBy = new Set();
+        const localId = player === this.player
+            ? (typeof this.getLocalPlayerId === 'function' ? this.getLocalPlayerId() : 'local')
+            : (this.localSplitPlayerId || 'local-seat-1');
+        if (healer.usedBy.has(localId)) return;
+
+        const activeCamera = camera || this._activeRenderCamera || this.camera;
+        const activeViewport = viewport || this._activeRenderViewport;
+        const viewW = activeViewport ? activeViewport.w : this.config.width;
+        const viewH = activeViewport ? activeViewport.h : this.config.height;
+        const originX = activeViewport ? activeViewport.x : 0;
+        const originY = activeViewport ? activeViewport.y : 0;
+        const zoom = this.getViewZoom();
+        const cX = originX + (viewW / 2) + this.screenShakeOffset.x;
+        const cY = originY + (viewH / 2) + this.screenShakeOffset.y;
+        const sx = (healer.x - activeCamera.x) * zoom + cX;
+        const sy = (healer.y - activeCamera.y) * zoom + cY;
+        const t = Date.now() * 0.002;
+        const pulse = 0.5 + Math.sin(t) * 0.5;
+        const glowR = (70 + pulse * 20) * zoom;
+
+        // Stage-local state only: lighter composite then restore.
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        if (this.preferSpriteShadows && this.preferSpriteShadows()) {
+            const sprite = this.getCachedGlowSprite('#00ff64');
+            if (sprite) {
+                ctx.globalAlpha = 0.22 + pulse * 0.14;
+                ctx.drawImage(sprite, sx - glowR, sy - glowR, glowR * 2, glowR * 2);
+                ctx.globalAlpha = 1;
+            }
+        } else {
+            const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, glowR);
+            grad.addColorStop(0, `rgba(0, 255, 100, ${0.18 + pulse * 0.12})`);
+            grad.addColorStop(0.4, `rgba(0, 200, 80, ${0.08 + pulse * 0.06})`);
+            grad.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(sx, sy, glowR, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
     },
 
     // Trigger hit pause — ~1 frame sells weight; longer / stacking reads as hitch
@@ -1565,8 +1635,8 @@ const Game = {
 
     // Update screen shake
     updateScreenShake(deltaTime) {
-        if (window.Renderer && window.Renderer.updateScreenShake) {
-            window.Renderer.updateScreenShake(deltaTime);
+        if (Engine.Renderer && Engine.Renderer.updateScreenShake) {
+            Engine.Renderer.updateScreenShake(deltaTime);
         } else {
             if (this.screenShakeDuration > 0) {
                 this.screenShakeDuration -= deltaTime;
@@ -1703,8 +1773,14 @@ const Game = {
             followX = rp.x;
             followY = rp.y;
         }
+        const splitViewport = this.localSplitEnabled && this.localSplitSession
+            ? this.localSplitSession.viewports.seat0
+            : null;
         this.camera
-            .setViewSize(this.config.width, this.config.height)
+            .setViewSize(
+                splitViewport ? splitViewport.w : this.config.width,
+                splitViewport ? splitViewport.h : this.config.height
+            )
             .setZoom(this.getViewZoom())
             .follow({
                 x: followX,
@@ -1787,7 +1863,7 @@ const Game = {
 
     getExitDoorNearRange(player) {
         const size = (player && player.size) || 28;
-        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
+        const isMobile = (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileUiMode && Engine.Input.isMobileUiMode();
         return size * (isMobile ? 3.2 : 1.8);
     },
 
@@ -1836,6 +1912,7 @@ const Game = {
         if (this._doorGKeyPrevByPlayer) {
             this._doorGKeyPrevByPlayer.clear();
         }
+        this._doorInteractPrevBySeat = {};
         this.pendingDoorReadyToggle = false;
     },
 
@@ -1861,12 +1938,33 @@ const Game = {
     },
 
     didPlayerRequestDoorInteract(playerId, isLocal, inputState) {
+        // Local co-op: each seat's Interact (G / A) with door-owned edge tracking so
+        // gear/pylon isInteractJustPressed does not steal the door rising edge.
+        if (this.localSplitEnabled && this.localSplitSession && this.localSplitSession.seats) {
+            const seats = this.localSplitSession.seats;
+            const localId = typeof this.getLocalPlayerId === 'function' ? this.getLocalPlayerId() : 'local';
+            let seat = null;
+            if (isLocal || playerId === localId) seat = seats[0];
+            else if (playerId === this.localSplitPlayerId) seat = seats[1];
+            if (seat && typeof seat.isInteractPressed === 'function') {
+                if (this.pendingDoorReadyToggle && (isLocal || playerId === localId)) {
+                    this.pendingDoorReadyToggle = false;
+                    return true;
+                }
+                if (!this._doorInteractPrevBySeat) this._doorInteractPrevBySeat = {};
+                const down = !!seat.isInteractPressed();
+                const prev = !!this._doorInteractPrevBySeat[playerId];
+                this._doorInteractPrevBySeat[playerId] = down;
+                return down && !prev;
+            }
+        }
+
         if (isLocal) {
             if (this.pendingDoorReadyToggle) {
                 this.pendingDoorReadyToggle = false;
                 return true;
             }
-            const gDown = !!(Input && Input.keys && Input.keys['g']);
+            const gDown = !!(Engine.Input && Engine.Input.keys && Engine.Input.keys['g']);
             const justPressed = gDown && !this._doorGKeyPrevLocal;
             this._doorGKeyPrevLocal = gDown;
             return justPressed;
@@ -1908,8 +2006,16 @@ const Game = {
                     }
                 });
             }
-        } else if (this.player && this.player.alive) {
-            alivePlayers.push(this.getLocalPlayerId());
+        } else {
+            if (this.player && this.player.alive) {
+                alivePlayers.push(this.getLocalPlayerId());
+            }
+            if (this.localSplitEnabled && this.remotePlayerInstances) {
+                const p2 = this.remotePlayerInstances.get(this.localSplitPlayerId);
+                if (p2 && p2.alive && !p2.dead) {
+                    alivePlayers.push(this.localSplitPlayerId);
+                }
+            }
         }
 
         if (alivePlayers.length === 0) return;
@@ -1985,8 +2091,8 @@ const Game = {
             audioMenuVisible = false;
             if (typeof activeAudioSliderKey !== 'undefined') activeAudioSliderKey = null;
             if (typeof activeAudioSliderPointerId !== 'undefined') activeAudioSliderPointerId = null;
-            if (typeof AudioManager !== 'undefined' && AudioManager.saveSettings) {
-                AudioManager.saveSettings();
+            if (typeof Engine !== 'undefined' && Engine.Audio && Engine.Audio.saveSettings) {
+                Engine.Audio.saveSettings();
             }
             return true;
         }
@@ -2191,7 +2297,7 @@ const Game = {
         }
 
         // In multiplayer, add remote player instances if alive
-        if (this.multiplayerEnabled && this.remotePlayerInstances) {
+        if ((this.multiplayerEnabled || this.localSplitEnabled) && this.remotePlayerInstances) {
             this.remotePlayerInstances.forEach((playerInstance, playerId) => {
                 if (playerInstance && playerInstance.alive && !playerInstance.dead) {
                     alivePlayers.push({
@@ -2265,6 +2371,12 @@ const Game = {
         this.getPlayerStats(localId);
 
         // In multiplayer, create stats for all players in lobby
+        if ((this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) ||
+            this.localSplitEnabled) {
+            if (this.localSplitEnabled) {
+                this.getPlayerStats(this.localSplitPlayerId);
+            }
+        }
         if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
             console.log(`[Stats Init] My player ID: ${multiplayerManager.playerId}`);
             console.log(`[Stats Init] Lobby has ${multiplayerManager.players ? multiplayerManager.players.length : 0} players`);
@@ -2318,7 +2430,7 @@ const Game = {
 
     // Initialize remote player instance (host only - for simulation)
     initializeRemotePlayerInstance(playerId, playerClass) {
-        if (!this.isHost()) return;
+        if (!this.isHost() && !this.localSplitEnabled) return;
 
         // Create actual player instance for this remote player
         if (typeof createPlayer !== 'undefined') {
@@ -2525,8 +2637,8 @@ const Game = {
             // Get ability input type (for future flexibility with control layout changes)
             getAbilityInputType(classType, ability) {
                 // Delegate to global Input if available (has the class config)
-                if (typeof Input !== 'undefined' && Input.getAbilityInputType) {
-                    return Input.getAbilityInputType(classType, ability);
+                if ((typeof Engine !== 'undefined' && Engine.Input) && GameInput.getAbilityInputType) {
+                    return GameInput.getAbilityInputType(classType, ability);
                 }
                 // Fallback: return 'button' as default
                 return 'button';
@@ -2661,7 +2773,7 @@ const Game = {
 
     // Store remote player input (host only)
     storeRemotePlayerInput(playerId, inputState) {
-        if (!this.isHost()) return;
+        if (!this.isHost() && !this.localSplitEnabled) return;
 
         // Track previous state to detect button releases
         const previousInput = this.remotePlayerInputs.get(playerId);
@@ -2717,6 +2829,12 @@ const Game = {
 
     // Check if all players are dead (multiplayer)
     checkAllPlayersDead() {
+        if (this.localSplitEnabled) {
+            const secondPlayer = this.remotePlayerInstances.get(this.localSplitPlayerId);
+            const firstDead = !this.player || this.player.dead || this.player.alive === false;
+            const secondDead = !secondPlayer || secondPlayer.dead || secondPlayer.alive === false;
+            return firstDead && secondDead;
+        }
         if (!this.multiplayerEnabled || typeof multiplayerManager === 'undefined' || !multiplayerManager) {
             // Solo mode - just check local player
             return this.player && this.player.dead;
@@ -2754,27 +2872,20 @@ const Game = {
     },
 
     updateMusicForCurrentRoom() {
-        if (typeof MusicManager === 'undefined' || !MusicManager) {
+        if (typeof GameMusic === 'undefined' || !GameMusic) {
             return;
         }
         if (this.gameOverMusicPlaying) {
             return;
         }
         if (this.state === 'TITLE') {
-            if (typeof MusicManager.setTitle === 'function') {
-                MusicManager.setTitle().catch(err => {
-                    console.error('[Music] Failed to set title music:', err);
-                });
-            } else {
-                // Fallback: early combat energy, never the calm nexus loop
-                MusicManager.setRoom(1).catch(err => {
-                    console.error('[Music] Failed to set title fallback music:', err);
-                });
-            }
+            GameMusic.setTitle().catch(err => {
+                console.error('[Music] Failed to set title music:', err);
+            });
             return;
         }
         if (this.state === 'NEXUS' || (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'safe')) {
-            MusicManager.setHub().catch(err => {
+            GameMusic.setHub().catch(err => {
                 console.error('[Music] Failed to set nexus music:', err);
             });
             return;
@@ -2784,11 +2895,11 @@ const Game = {
         }
         if (this.isBossRoom(this.roomNumber)) {
             const phase = this.getActiveBossPhase();
-            MusicManager.setEncounterPhase(this.roomNumber, phase).catch(err => {
+            GameMusic.setEncounterPhase(this.roomNumber, phase).catch(err => {
                 console.error('[Music] Failed to set boss music:', err);
             });
         } else {
-            MusicManager.setRoom(this.roomNumber).catch(err => {
+            GameMusic.setRoom(this.roomNumber).catch(err => {
                 console.error('[Music] Failed to set room music:', err);
             });
         }
@@ -2799,16 +2910,16 @@ const Game = {
             return;
         }
         this.gameOverMusicPlaying = true;
-        if (typeof MusicManager === 'undefined' || !MusicManager || typeof MusicManager.playGameOver !== 'function') {
+        if (typeof GameMusic === 'undefined' || !GameMusic) {
             return;
         }
-        MusicManager.playGameOver().catch(err => {
+        GameMusic.playGameOver().catch(err => {
             console.error('[Music] Failed to start game over music:', err);
         });
     },
 
     playPauseMusic() {
-        if (typeof MusicManager === 'undefined' || !MusicManager || typeof MusicManager.playPauseMenu !== 'function') {
+        if (typeof GameMusic === 'undefined' || !GameMusic) {
             return;
         }
         if (this.backgroundPauseActive) {
@@ -2816,46 +2927,34 @@ const Game = {
         }
         const nexusContext = this.state === 'NEXUS' || this.pausedFromState === 'NEXUS';
         if (nexusContext) {
-            if (typeof MusicManager.setHub === 'function') {
-                MusicManager.setHub().catch(err => {
-                    console.error('[Music] Failed to reaffirm nexus music during pause:', err);
-                });
-            }
+            GameMusic.setHub().catch(err => {
+                console.error('[Music] Failed to reaffirm nexus music during pause:', err);
+            });
             return;
         }
-        MusicManager.playPauseMenu().catch(err => {
+        GameMusic.playPauseMenu().catch(err => {
             console.error('[Music] Failed to start pause music:', err);
         });
     },
 
     resumeFromPauseMusic() {
-        if (typeof MusicManager === 'undefined' || !MusicManager) {
+        if (typeof GameMusic === 'undefined' || !GameMusic) {
             this.updateMusicForCurrentRoom();
             return;
         }
         const nexusContext = this.state === 'NEXUS' || this.pausedFromState === 'NEXUS';
         if (nexusContext) {
-            if (typeof MusicManager.setHub === 'function') {
-                MusicManager.setHub().then(() => {
-                    this.updateMusicForCurrentRoom();
-                }).catch(err => {
-                    console.error('[Music] Failed to resume nexus music after pause:', err);
-                    this.updateMusicForCurrentRoom();
-                });
-            } else {
+            GameMusic.setHub().then(() => {
                 this.updateMusicForCurrentRoom();
-            }
+            }).catch(err => {
+                console.error('[Music] Failed to resume nexus music after pause:', err);
+                this.updateMusicForCurrentRoom();
+            });
             this.backgroundPauseActive = false;
             this.autoPausedForBackground = false;
             return;
         }
-        if (typeof MusicManager.resumeFromPause !== 'function') {
-            this.updateMusicForCurrentRoom();
-            this.backgroundPauseActive = false;
-            this.autoPausedForBackground = false;
-            return;
-        }
-        MusicManager.resumeFromPause()
+        GameMusic.resumeFromPause()
             .then((resumed) => {
                 if (!resumed) {
                     this.updateMusicForCurrentRoom();
@@ -2874,6 +2973,497 @@ const Game = {
     // Check if current instance is the host
     isHost() {
         return this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.isHost;
+    },
+
+    getConnectedLocalSplitPads() {
+        if (typeof navigator === 'undefined' || !navigator.getGamepads) return [];
+        return Array.from(navigator.getGamepads())
+            .filter(pad => pad && pad.connected)
+            .sort((a, b) => a.index - b.index);
+    },
+
+    /**
+     * Keyboard + mouse can be a local-coop seat. Touch never can.
+     * Phones/tablets that are touch-primary without a fine pointer don't qualify.
+     */
+    hasLocalSplitKeyboardMouse() {
+        if (typeof Engine !== 'undefined' && Engine.System && typeof Engine.System.getProfile === 'function') {
+            const profile = Engine.System.getProfile();
+            const caps = profile && profile.capabilities;
+            if (caps) {
+                if (caps.hasFinePointer || caps.finePointer || caps.hasHover || caps.canHover) {
+                    return true;
+                }
+                if (caps.touchPrimary) return false;
+            }
+        }
+        if (typeof Engine !== 'undefined' && Engine.Input) {
+            if (Engine.Input.controlMode === 'touch' || Engine.Input.controlMode === 'mobile') {
+                return false;
+            }
+            if (typeof Engine.Input.isMobileUiMode === 'function' && Engine.Input.isMobileUiMode()
+                && typeof Engine.Input.isGamepadMode === 'function' && !Engine.Input.isGamepadMode()) {
+                // Mobile touch UI without pads-as-primary → no keyboard seat.
+                return false;
+            }
+        }
+        return true;
+    },
+
+    /**
+     * Local co-op needs two non-touch inputs: two pads, or keyboard+mouse + one pad.
+     */
+    getLocalSplitEligibility() {
+        const online = this.multiplayerEnabled &&
+            typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+        if (online) {
+            return {
+                ok: false,
+                mode: null,
+                pads: [],
+                reason: 'Leave the online lobby before starting local co-op'
+            };
+        }
+        const pads = this.getConnectedLocalSplitPads();
+        if (pads.length >= 2) {
+            return { ok: true, mode: 'dualPad', pads, reason: null };
+        }
+        if (pads.length >= 1 && this.hasLocalSplitKeyboardMouse()) {
+            return { ok: true, mode: 'keyboardPad', pads, reason: null };
+        }
+        if (pads.length >= 1) {
+            return {
+                ok: false,
+                mode: null,
+                pads,
+                reason: 'Local co-op needs two controllers (touch cannot be a player seat)'
+            };
+        }
+        return {
+            ok: false,
+            mode: null,
+            pads,
+            reason: 'Connect two controllers, or one controller for Player 2 with keyboard + mouse'
+        };
+    },
+
+    getLocalSplitJoinCandidate() {
+        const pads = this.getConnectedLocalSplitPads();
+        if (pads.length < 2) return null;
+        const input = Engine.Input;
+        const activePadIndex = input && Number.isInteger(input._gamepadIndex)
+            ? input._gamepadIndex
+            : null;
+        const primaryPadIndex = pads.some(pad => pad.index === activePadIndex)
+            ? activePadIndex
+            : pads[0].index;
+        return pads.find(pad => pad.index !== primaryPadIndex) || null;
+    },
+
+    getLocalSplitPrimaryGamepadIndex(candidateIndex) {
+        const connected = this.getConnectedLocalSplitPads()
+            .filter(pad => pad.index !== candidateIndex);
+        if (connected.length === 0) return null;
+        const activePadIndex = Engine.Input && Number.isInteger(Engine.Input._gamepadIndex)
+            ? Engine.Input._gamepadIndex
+            : null;
+        return connected.some(pad => pad.index === activePadIndex)
+            ? activePadIndex
+            : connected[0].index;
+    },
+
+    getLocalSplitMenuGamepad() {
+        const pads = this.getConnectedLocalSplitPads();
+        return pads[0] || null;
+    },
+
+    updateLocalSplitJoin() {
+        if (this.localSplitEnabled || !this.player ||
+            (this.state !== 'NEXUS' && this.state !== 'PLAYING')) {
+            return;
+        }
+        const eligibility = this.getLocalSplitEligibility();
+        if (!eligibility.ok || eligibility.mode !== 'dualPad') return;
+
+        const candidate = this.getLocalSplitJoinCandidate();
+        if (!candidate) return;
+        const startDown = !!candidate.buttons?.[9]?.pressed;
+        const wasDown = this._localJoinStartPrev.get(candidate.index) === true;
+        this._localJoinStartPrev.set(candidate.index, startDown);
+        if (startDown && !wasDown) {
+            this.enableLocalSplit({ gamepadIndex: candidate.index });
+        }
+    },
+
+    renderLocalSplitJoinPrompt() {
+        if (this.localSplitEnabled || !this.player ||
+            (this.state !== 'NEXUS' && this.state !== 'PLAYING')) {
+            return;
+        }
+        const eligibility = this.getLocalSplitEligibility();
+        if (!eligibility.ok || eligibility.mode !== 'dualPad') return;
+        const candidate = this.getLocalSplitJoinCandidate();
+        if (!candidate) return;
+        const ctx = this.ctx;
+        const text = `Controller ${candidate.index + 1}: press START to join local co-op`;
+        ctx.save();
+        ctx.setTransform(this.dpr || 1, 0, 0, this.dpr || 1, 0, 0);
+        ctx.font = 'bold 15px Orbitron, monospace';
+        const width = Math.ceil(ctx.measureText(text).width) + 36;
+        const x = (this.config.width - width) / 2;
+        const y = this.config.height - 58;
+        ctx.fillStyle = 'rgba(4, 8, 20, 0.82)';
+        ctx.fillRect(x, y, width, 38);
+        ctx.strokeStyle = 'rgba(110, 170, 255, 0.75)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, y, width, 38);
+        ctx.fillStyle = '#dceaff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, this.config.width / 2, y + 19);
+        ctx.restore();
+    },
+
+    enableLocalSplit(options = {}) {
+        if (this.localSplitEnabled) return true;
+        const inOnlineSession = this.multiplayerEnabled &&
+            typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+        if (inOnlineSession || !Engine.Split || !this.player) return false;
+
+        const eligibility = this.getLocalSplitEligibility();
+        let primaryPadIndex = null;
+        let seat1PadIndex = null;
+
+        if (Number.isInteger(options.gamepadIndex)) {
+            // START-to-join: both seats must be pads (never touch / never lone pad + touch).
+            seat1PadIndex = options.gamepadIndex;
+            primaryPadIndex = this.getLocalSplitPrimaryGamepadIndex(seat1PadIndex);
+            if (primaryPadIndex === null) return false;
+        } else if (options.allowKeyboardPrimary && this.hasLocalSplitKeyboardMouse()) {
+            const pad = this.getLocalSplitMenuGamepad();
+            if (!pad) return false;
+            primaryPadIndex = null;
+            seat1PadIndex = pad.index;
+        } else if (eligibility.ok && eligibility.mode === 'dualPad') {
+            primaryPadIndex = eligibility.pads[0].index;
+            seat1PadIndex = eligibility.pads[1].index;
+        } else {
+            return false;
+        }
+
+        const input = Engine.Input;
+        const session = Engine.Split.createSession({
+            seatCount: 2,
+            layout: this.localSplitLayout,
+            logicalW: this.config.width,
+            logicalH: this.config.height,
+            seat0GamepadIndex: primaryPadIndex,
+            seat1GamepadIndex: seat1PadIndex
+        });
+        if (primaryPadIndex === null && input) {
+            input._gamepadIndex = null;
+            input._gamepadActive = false;
+            input._activeInputSource = 'keyboardMouse';
+        }
+        this.localSplitEnabled = true;
+        this.localSplitSelectedClass = this.player.playerClass || this.selectedClass || 'square';
+        this.initializeRemotePlayerInstance(
+            this.localSplitPlayerId,
+            this.localSplitSelectedClass
+        );
+        const secondPlayer = this.remotePlayerInstances.get(this.localSplitPlayerId);
+        if (!secondPlayer) {
+            this.localSplitEnabled = false;
+            Engine.Split.endSession();
+            return false;
+        }
+        secondPlayer.localSplitControlled = true;
+        secondPlayer.x = this.player.x + (this.player.size || 20) * 3;
+        secondPlayer.y = this.player.y;
+        this.initializeRemotePlayerState(this.localSplitPlayerId);
+        const splitState = this.remotePlayerStates.get(this.localSplitPlayerId);
+        if (splitState) {
+            splitState.hp = secondPlayer.hp;
+            splitState.maxHp = secondPlayer.maxHp;
+            splitState.size = secondPlayer.size;
+        }
+        this.splitCamera.snapTo(secondPlayer.x, secondPlayer.y);
+        this.getPlayerStats(this.localSplitPlayerId);
+        this.localSplitSession = session;
+        // Any solo ground items already out become shared pylons so both seats can claim.
+        if (typeof convertGroundItemsToPylons === 'function') {
+            convertGroundItemsToPylons();
+        }
+        return true;
+    },
+
+    disableLocalSplit() {
+        if (!this.localSplitEnabled) return;
+        this.remotePlayerInstances.delete(this.localSplitPlayerId);
+        this.remotePlayerInputs.delete(this.localSplitPlayerId);
+        this.remotePlayerStates.delete(this.localSplitPlayerId);
+        if (Engine.Split) Engine.Split.endSession();
+        this.localSplitSession = null;
+        this.localSplitEnabled = false;
+        this.localSplitSelectedClass = null;
+    },
+
+    /** Apply a nexus class pick to the local-split P2 instance (shared profile/economy). */
+    setLocalSplitClass(classKey, x = null, y = null) {
+        if (!classKey || !this.localSplitEnabled) return false;
+        this.localSplitSelectedClass = classKey;
+        const existing = this.remotePlayerInstances.get(this.localSplitPlayerId);
+        const px = Number.isFinite(x) ? x : (existing ? existing.x : (this.player ? this.player.x + 60 : 0));
+        const py = Number.isFinite(y) ? y : (existing ? existing.y : (this.player ? this.player.y : 0));
+        this.initializeRemotePlayerInstance(this.localSplitPlayerId, classKey);
+        const secondPlayer = this.remotePlayerInstances.get(this.localSplitPlayerId);
+        if (!secondPlayer) return false;
+        secondPlayer.localSplitControlled = true;
+        secondPlayer.x = px;
+        secondPlayer.y = py;
+        this.initializeRemotePlayerState(this.localSplitPlayerId);
+        const splitState = this.remotePlayerStates.get(this.localSplitPlayerId);
+        if (splitState) {
+            splitState.hp = secondPlayer.hp;
+            splitState.maxHp = secondPlayer.maxHp;
+            splitState.size = secondPlayer.size;
+            splitState.class = classKey;
+        }
+        this.getPlayerStats(this.localSplitPlayerId);
+        return true;
+    },
+
+    getLocalSplitClass() {
+        if (!this.localSplitEnabled) return null;
+        return this.localSplitSelectedClass
+            || (this.remotePlayerInstances.get(this.localSplitPlayerId) || {}).playerClass
+            || null;
+    },
+
+    /** Local-coop / solo actors that can claim gear, items, doors, healers. */
+    getLocalCoopActors() {
+        const actors = [];
+        if (this.player && this.player.alive) {
+            actors.push({
+                seatId: 'p1',
+                player: this.player,
+                playerId: typeof this.getLocalPlayerId === 'function' ? this.getLocalPlayerId() : 'local',
+                seat: this.localSplitSession && this.localSplitSession.seats
+                    ? this.localSplitSession.seats[0]
+                    : null,
+                isPrimary: true
+            });
+        }
+        if (this.localSplitEnabled && this.remotePlayerInstances) {
+            const p2 = this.remotePlayerInstances.get(this.localSplitPlayerId);
+            if (p2 && p2.alive && !p2.dead) {
+                actors.push({
+                    seatId: 'p2',
+                    player: p2,
+                    playerId: this.localSplitPlayerId,
+                    seat: this.localSplitSession && this.localSplitSession.seats
+                        ? this.localSplitSession.seats[1]
+                        : null,
+                    isPrimary: false
+                });
+            }
+        }
+        return actors;
+    },
+
+    /** Prompt glyph options for the local-coop seat nearest (x,y), or null for global Input mode. */
+    getInteractionPromptOptionsNear(x, y, radius = 80) {
+        if (!this.localSplitEnabled) return null;
+        const actors = typeof this.getLocalCoopActors === 'function' ? this.getLocalCoopActors() : [];
+        let bestSeat = null;
+        let bestDist = radius;
+        for (const actor of actors) {
+            if (!actor.player || !actor.seat) continue;
+            const dx = actor.player.x - x;
+            const dy = actor.player.y - y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < bestDist) {
+                bestDist = dist;
+                bestSeat = actor.seat;
+            }
+        }
+        return bestSeat ? { seat: bestSeat } : null;
+    },
+
+    isAnyLocalActorNear(x, y, radius) {
+        const actors = typeof this.getLocalCoopActors === 'function'
+            ? this.getLocalCoopActors()
+            : (this.player && this.player.alive ? [{ player: this.player }] : []);
+        for (const actor of actors) {
+            if (!actor.player || !actor.player.alive) continue;
+            const dx = actor.player.x - x;
+            const dy = actor.player.y - y;
+            if (Math.sqrt(dx * dx + dy * dy) < radius) return true;
+        }
+        return false;
+    },
+
+    toggleLocalSplit() {
+        if (this.localSplitEnabled) {
+            this.disableLocalSplit();
+            return false;
+        }
+        const eligibility = this.getLocalSplitEligibility();
+        if (!eligibility.ok) return false;
+        if (eligibility.mode === 'keyboardPad' || this.hasLocalSplitKeyboardMouse()) {
+            return this.enableLocalSplit({ allowKeyboardPrimary: true });
+        }
+        return this.enableLocalSplit();
+    },
+
+    serializeLocalSplitSeatInput(seat) {
+        if (!seat) return null;
+        const movement = seat.getMovementInput();
+        const aimAngle = seat.getAimDirection();
+        const aim = { x: Math.cos(aimAngle), y: Math.sin(aimAngle) };
+        const joystick = (active, direction, magnitude = 1) => ({
+            active,
+            magnitude: active ? magnitude : 0,
+            direction
+        });
+        const button = (ability) => ({
+            pressed: seat.isAbilityPressed(ability),
+            justPressed: seat.isAbilityJustPressed(ability),
+            justReleased: false
+        });
+        const primary = seat.isAbilityPressed('basicAttack');
+        const interactPressed = !!(seat.isInteractPressed && seat.isInteractPressed());
+        return {
+            isTouchMode: true,
+            rotation: aimAngle,
+            keys: { g: interactPressed },
+            touchJoysticks: {
+                movement: joystick(Math.hypot(movement.x, movement.y) > 0.01, movement,
+                    Math.min(1, Math.hypot(movement.x, movement.y))),
+                basicAttack: joystick(primary, aim),
+                heavyAttack: joystick(seat.isAbilityPressed('heavyAttack'), aim),
+                specialAbility: joystick(seat.isAbilityPressed('specialAbility'), aim),
+                dodge: joystick(seat.isAbilityPressed('dodge'), movement)
+            },
+            touchButtons: {
+                heavyAttack: button('heavyAttack'),
+                specialAbility: button('specialAbility'),
+                dodge: button('dodge'),
+                interact: {
+                    pressed: interactPressed,
+                    justPressed: false,
+                    justReleased: false
+                }
+            }
+        };
+    },
+
+    updateLocalSplit(deltaTime) {
+        if (!this.localSplitEnabled || !this.localSplitSession) return;
+        if (Engine.Input && Engine.Input.updateSeats) Engine.Input.updateSeats(deltaTime);
+        const seat0 = this.localSplitSession.seats[0];
+        const seat1 = this.localSplitSession.seats[1];
+        const secondPlayer = this.remotePlayerInstances.get(this.localSplitPlayerId);
+
+        if (this.player && this.player.alive) this.player.update(deltaTime, seat0 || Engine.Input);
+        if (secondPlayer && secondPlayer.alive && seat1) {
+            const rawInput = this.serializeLocalSplitSeatInput(seat1);
+            this.storeRemotePlayerInput(this.localSplitPlayerId, rawInput);
+            secondPlayer.update(deltaTime, this.createRemoteInputAdapter(rawInput, secondPlayer));
+        }
+        this.updateRemotePlayerInvulnerability(deltaTime);
+
+        const viewport = this.localSplitSession.viewports.seat1;
+        if (secondPlayer && secondPlayer.alive) {
+            this.splitCamera
+                .setViewSize(viewport.w, viewport.h)
+                .setZoom(this.getViewZoom())
+                .follow({
+                    x: secondPlayer.x,
+                    y: secondPlayer.y,
+                    vx: secondPlayer.vx || 0,
+                    vy: secondPlayer.vy || 0
+                }, deltaTime, typeof currentRoom !== 'undefined' ? currentRoom : null);
+        }
+    },
+
+    /** Shared-camera nexus sim for local co-op: seat0 drives P1, seat1 drives the local-as-remote P2. */
+    updateLocalSplitNexus(deltaTime) {
+        if (!this.localSplitEnabled || !this.localSplitSession || typeof nexusRoom === 'undefined' || !nexusRoom) {
+            return;
+        }
+        const seat0 = this.localSplitSession.seats[0] || Engine.Input;
+        const seat1 = this.localSplitSession.seats[1];
+        const moveSpeed = 300;
+        const clampPos = (entity) => {
+            const size = entity.size || 25;
+            entity.x = Math.max(size, Math.min(nexusRoom.width - size, entity.x));
+            entity.y = Math.max(size, Math.min(nexusRoom.height - size, entity.y));
+        };
+
+        if (this.player && this.player.alive && seat0) {
+            const moveInput = seat0.getMovementInput ? seat0.getMovementInput() : { x: 0, y: 0 };
+            this.player.vx = moveInput.x * moveSpeed;
+            this.player.vy = moveInput.y * moveSpeed;
+            this.player.x += this.player.vx * deltaTime;
+            this.player.y += this.player.vy * deltaTime;
+            clampPos(this.player);
+            if (seat0.getAimDirection) {
+                this.player.rotation = seat0.getAimDirection();
+            }
+        }
+
+        const secondPlayer = this.remotePlayerInstances.get(this.localSplitPlayerId);
+        if (secondPlayer && secondPlayer.alive && seat1) {
+            const rawInput = this.serializeLocalSplitSeatInput(seat1);
+            this.storeRemotePlayerInput(this.localSplitPlayerId, rawInput);
+            let moveX = 0;
+            let moveY = 0;
+            if (rawInput.isTouchMode && rawInput.touchJoysticks && rawInput.touchJoysticks.movement) {
+                const joystick = rawInput.touchJoysticks.movement;
+                if (joystick.active) {
+                    moveX = joystick.direction.x * joystick.magnitude;
+                    moveY = joystick.direction.y * joystick.magnitude;
+                }
+            } else {
+                if (rawInput.up) moveY -= 1;
+                if (rawInput.down) moveY += 1;
+                if (rawInput.left) moveX -= 1;
+                if (rawInput.right) moveX += 1;
+                if (moveX !== 0 && moveY !== 0) {
+                    const len = Math.hypot(moveX, moveY);
+                    moveX /= len;
+                    moveY /= len;
+                }
+            }
+            secondPlayer.vx = moveX * moveSpeed;
+            secondPlayer.vy = moveY * moveSpeed;
+            secondPlayer.x += secondPlayer.vx * deltaTime;
+            secondPlayer.y += secondPlayer.vy * deltaTime;
+            clampPos(secondPlayer);
+            if (Number.isFinite(rawInput.rotation)) {
+                secondPlayer.rotation = rawInput.rotation;
+                secondPlayer.lastAimAngle = rawInput.rotation;
+            } else if (rawInput.isTouchMode && rawInput.touchJoysticks) {
+                const sticks = ['heavyAttack', 'specialAbility', 'basicAttack'];
+                let aimed = false;
+                for (const key of sticks) {
+                    const stick = rawInput.touchJoysticks[key];
+                    if (stick && stick.active && stick.magnitude > 0.1) {
+                        secondPlayer.rotation = Math.atan2(stick.direction.y, stick.direction.x);
+                        secondPlayer.lastAimAngle = secondPlayer.rotation;
+                        aimed = true;
+                        break;
+                    }
+                }
+                if (!aimed) secondPlayer.rotation = secondPlayer.lastAimAngle || 0;
+            } else if (rawInput.mouse) {
+                secondPlayer.rotation = Math.atan2(
+                    rawInput.mouse.y - secondPlayer.y,
+                    rawInput.mouse.x - secondPlayer.x
+                );
+            }
+        }
     },
 
     // Check if current instance is a multiplayer client (not host)
@@ -3240,7 +3830,7 @@ const Game = {
 
     // Update invulnerability frames for remote players (host only)
     updateRemotePlayerInvulnerability(deltaTime) {
-        if (!this.isHost()) return;
+        if (!this.isHost() && !this.localSplitEnabled) return;
 
         this.remotePlayerStates.forEach(state => {
             if (state.invulnerabilityTime > 0) {
@@ -3425,9 +4015,15 @@ const Game = {
             updateItemPickupMessages(deltaTime);
         }
 
-        // Check for item pickup
-        if (this.player && this.player.alive && typeof checkItemPickup !== 'undefined') {
-            checkItemPickup(this.player);
+        // Ground item auto-pickup is solo-only. Local co-op / online MP use claim pylons.
+        if (typeof checkItemPickup !== 'undefined'
+            && !(typeof shouldUseItemPylons === 'function' && shouldUseItemPylons())) {
+            const itemActors = typeof this.getLocalCoopActors === 'function'
+                ? this.getLocalCoopActors()
+                : (this.player && this.player.alive ? [{ player: this.player }] : []);
+            for (const actor of itemActors) {
+                if (actor.player && actor.player.alive) checkItemPickup(actor.player);
+            }
         }
 
         // Update item effects (auras, etc.)
@@ -3453,7 +4049,7 @@ const Game = {
             if (this.isHost()) {
                 // HOST: Update local player + simulate all remote player instances
                 if (this.player && this.player.alive) {
-                    this.player.update(deltaTime, Input);
+                    this.player.update(deltaTime, Engine.Input);
                 }
 
                 // Update all remote player instances with their inputs
@@ -3499,7 +4095,7 @@ const Game = {
                             ? multiplayerManager.serializeInput()
                             : null;
                         multiplayerManager.recordPredictionFrame(deltaTime, inputSnap);
-                        this.player.predictMovementStep(deltaTime, Input, {
+                        this.player.predictMovementStep(deltaTime, Engine.Input, {
                             allowPredictedDodge: true,
                             applyForces: true,
                             applyAim: true,
@@ -3508,44 +4104,44 @@ const Game = {
                     }
 
                     // Ability previews / aim overlays (visual only)
-                    if (Input.isTouchMode && Input.isTouchMode()) {
+                    if (Engine.Input.isTouchMode && Engine.Input.isTouchMode()) {
                         this.player.dashPreviewActive = false;
                         if (this.player.clearHeavyAttackPreview) {
                             this.player.clearHeavyAttackPreview();
                         }
 
-                        if (this.player.playerClass === 'triangle' && Input.touchButtons && Input.touchButtons.dodge) {
-                            const button = Input.touchButtons.dodge;
-                            if (button.pressed && Input.touchJoysticks && Input.touchJoysticks.dodge) {
-                                const joystick = Input.touchJoysticks.dodge;
+                        if (this.player.playerClass === 'triangle' && Engine.Input.touchButtons && Engine.Input.touchButtons.dodge) {
+                            const button = Engine.Input.touchButtons.dodge;
+                            if (button.pressed && Engine.Input.touchJoysticks && Engine.Input.touchJoysticks.dodge) {
+                                const joystick = Engine.Input.touchJoysticks.dodge;
                                 if (joystick.active && joystick.getMagnitude() > 0.1) {
                                     this.player.dashPreviewActive = true;
                                     this.player.rotation = joystick.getAngle();
                                     if (this.player.updateDashPreview) {
-                                        this.player.updateDashPreview(Input);
+                                        this.player.updateDashPreview(Engine.Input);
                                     }
                                 }
                             }
                         }
 
                         if ((this.player.playerClass === 'square' || this.player.playerClass === 'triangle' || this.player.playerClass === 'hexagon') &&
-                            Input.touchButtons && Input.touchButtons.heavyAttack) {
-                            const button = Input.touchButtons.heavyAttack;
-                            if (button.pressed && Input.touchJoysticks && Input.touchJoysticks.heavyAttack) {
-                                const joystick = Input.touchJoysticks.heavyAttack;
+                            Engine.Input.touchButtons && Engine.Input.touchButtons.heavyAttack) {
+                            const button = Engine.Input.touchButtons.heavyAttack;
+                            if (button.pressed && Engine.Input.touchJoysticks && Engine.Input.touchJoysticks.heavyAttack) {
+                                const joystick = Engine.Input.touchJoysticks.heavyAttack;
                                 if (joystick.active && joystick.getMagnitude() > 0.1) {
                                     this.player.rotation = joystick.getAngle();
                                     if (this.player.updateHeavyAttackPreview) {
-                                        this.player.updateHeavyAttackPreview(Input);
+                                        this.player.updateHeavyAttackPreview(Engine.Input);
                                     }
                                 }
                             }
                         }
 
-                        if (Input.touchJoysticks) {
-                            const heavyAttack = Input.touchJoysticks.heavyAttack;
-                            const specialAbility = Input.touchJoysticks.specialAbility;
-                            const basicAttack = Input.touchJoysticks.basicAttack;
+                        if (Engine.Input.touchJoysticks) {
+                            const heavyAttack = Engine.Input.touchJoysticks.heavyAttack;
+                            const specialAbility = Engine.Input.touchJoysticks.specialAbility;
+                            const basicAttack = Engine.Input.touchJoysticks.basicAttack;
 
                             if (heavyAttack && heavyAttack.active && heavyAttack.getMagnitude() > 0.1) {
                                 this.player.rotation = heavyAttack.getAngle();
@@ -3561,8 +4157,8 @@ const Game = {
                             this.player.clearHeavyAttackPreview();
                         }
 
-                        if (!predictionOn && Input.getWorldMousePos) {
-                            const worldMouse = Input.getWorldMousePos();
+                        if (!predictionOn && Engine.Input.getWorldMousePos) {
+                            const worldMouse = Engine.Input.getWorldMousePos();
                             const dx = worldMouse.x - this.player.x;
                             const dy = worldMouse.y - this.player.y;
                             this.player.rotation = Math.atan2(dy, dx);
@@ -3587,22 +4183,24 @@ const Game = {
             }
         } else {
             // SOLO: Update normally
-            if (this.player && this.player.alive) {
-                this.player.update(deltaTime, Input);
+            if (this.localSplitEnabled) {
+                this.updateLocalSplit(deltaTime);
+            } else if (this.player && this.player.alive) {
+                this.player.update(deltaTime, Engine.Input);
             }
         }
 
         // MULTIPLAYER: Snapshot input state BEFORE resetting flags
         // This preserves justPressed/justReleased for serialization
         if (this.isMultiplayerClient() && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
-            // Cache current input state before Input.update() resets justPressed/justReleased
+            // Cache current input state before Engine.Input.update() resets justPressed/justReleased
             multiplayerManager.cachedInputSnapshot = multiplayerManager.serializeInput();
         }
 
         // Update input system (for touch controls) AFTER player reads button states
         // This resets justPressed/justReleased flags for next frame
-        if (typeof Input !== 'undefined' && Input.update) {
-            Input.update(deltaTime);
+        if ((typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.update) {
+            Engine.Input.update(deltaTime);
         }
 
         // Update enemies (host simulates AI, clients interpolate positions)
@@ -3698,8 +4296,10 @@ const Game = {
             this.checkProjectilesVsPlayer();
         }
 
-        // Check gear pickup (G key)
-        if (typeof groundLoot !== 'undefined' && this.player && this.player.alive) {
+        // Gear / pylon / healer / safe-machine interact (per local-coop seat)
+        const splitP2Alive = !!(this.localSplitEnabled && this.remotePlayerInstances
+            && (this.remotePlayerInstances.get(this.localSplitPlayerId) || {}).alive);
+        if (typeof groundLoot !== 'undefined' && ((this.player && this.player.alive) || splitP2Alive)) {
             this.checkGearPickup();
         }
 
@@ -3901,7 +4501,7 @@ const Game = {
 
     // Check for gear pickup
     checkGearPickup() {
-        if (!Input) return;
+        if (!Engine.Input) return;
 
         // Don't interact with world while a machine/sheet modal owns focus
         if (typeof window !== 'undefined') {
@@ -3913,131 +4513,144 @@ const Game = {
                 && window.ControllerNav.isBlockingGameplay()) return;
         }
 
-        let shouldPickup = false;
+        const actors = typeof this.getLocalCoopActors === 'function'
+            ? this.getLocalCoopActors()
+            : (this.player && this.player.alive
+                ? [{ seatId: 'p1', player: this.player, playerId: this.getLocalPlayerId(), seat: null, isPrimary: true }]
+                : []);
+        if (actors.length === 0) return;
 
-        // Check keyboard input (or interaction button simulated G key)
-        if (Input.keys && !this.lastGKeyState && Input.keys['g']) {
-            this.lastGKeyState = true;
-            shouldPickup = true;
-        } else if (Input.keys && Input.keys['g'] === false) {
-            this.lastGKeyState = false;
-        }
+        const splitActive = !!this.localSplitEnabled;
+        for (const actor of actors) {
+            if (!actor.player || !actor.player.alive) continue;
 
-        // Handle loot cycling (desktop only)
-        if (typeof LootSelection !== 'undefined' && (!Input.isMobileUiMode || !Input.isMobileUiMode())) {
-            // Update nearby items
-            LootSelection.updateNearbyItems(this.player);
-
-            // Check for cycle input
-            if (Input.keys && Input.keys['arrowleft'] && !this.lastLeftArrowState) {
-                this.lastLeftArrowState = true;
-                LootSelection.cyclePrevious();
-            } else if (Input.keys && Input.keys['arrowleft'] === false) {
-                this.lastLeftArrowState = false;
+            // Loot cycling: P1 arrows / P2 dpad
+            if (typeof LootSelection !== 'undefined' && (!Engine.Input.isMobileUiMode || !Engine.Input.isMobileUiMode())) {
+                LootSelection.updateNearbyItems(actor.player, actor.seatId);
+                if (actor.isPrimary) {
+                    if (Engine.Input.keys && Engine.Input.keys['arrowleft'] && !this.lastLeftArrowState) {
+                        this.lastLeftArrowState = true;
+                        LootSelection.cyclePrevious(actor.seatId);
+                    } else if (Engine.Input.keys && Engine.Input.keys['arrowleft'] === false) {
+                        this.lastLeftArrowState = false;
+                    }
+                    if (Engine.Input.keys && Engine.Input.keys['arrowright'] && !this.lastRightArrowState) {
+                        this.lastRightArrowState = true;
+                        LootSelection.cycleNext(actor.seatId);
+                    } else if (Engine.Input.keys && Engine.Input.keys['arrowright'] === false) {
+                        this.lastRightArrowState = false;
+                    }
+                } else if (actor.seat) {
+                    if (!this._lootCyclePrevBySeat) this._lootCyclePrevBySeat = {};
+                    const prev = this._lootCyclePrevBySeat[actor.seatId] || { left: false, right: false };
+                    const left = !!(actor.seat._buttonDown && actor.seat._buttonDown(14));
+                    const right = !!(actor.seat._buttonDown && actor.seat._buttonDown(15));
+                    if (left && !prev.left) LootSelection.cyclePrevious(actor.seatId);
+                    if (right && !prev.right) LootSelection.cycleNext(actor.seatId);
+                    this._lootCyclePrevBySeat[actor.seatId] = { left, right };
+                }
             }
 
-            if (Input.keys && Input.keys['arrowright'] && !this.lastRightArrowState) {
-                this.lastRightArrowState = true;
-                LootSelection.cycleNext();
-            } else if (Input.keys && Input.keys['arrowright'] === false) {
-                this.lastRightArrowState = false;
+            let shouldPickup = false;
+            if (splitActive && actor.seat && typeof actor.seat.isInteractJustPressed === 'function') {
+                shouldPickup = actor.seat.isInteractJustPressed();
+            } else if (actor.isPrimary) {
+                if (Engine.Input.keys && !this.lastGKeyState && Engine.Input.keys['g']) {
+                    this.lastGKeyState = true;
+                    shouldPickup = true;
+                } else if (Engine.Input.keys && Engine.Input.keys['g'] === false) {
+                    this.lastGKeyState = false;
+                }
             }
-        }
+            if (!shouldPickup) continue;
 
-        if (shouldPickup) {
-            // Check for Safe Room machine interactions
+            // Safe room machines (shared UI — either seat can open)
             if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'safe') {
                 const machines = (typeof window.getSafeRoomMachines === 'function') ? window.getSafeRoomMachines(currentRoom) : [];
                 const nearMachine = machines.find(m => {
-                    const dx = m.x - this.player.x;
-                    const dy = m.y - this.player.y;
+                    const dx = m.x - actor.player.x;
+                    const dy = m.y - actor.player.y;
                     return Math.sqrt(dx * dx + dy * dy) < m.range;
                 });
                 if (nearMachine) {
                     if (typeof window.toggleSafeRoomMachine === 'function') {
                         window.toggleSafeRoomMachine(true, nearMachine.id);
-                        return;
+                        continue;
                     }
                 }
             }
 
-            // Check for Pre-Boss Healer interaction (only after room clear opens the boss door)
+            // Pre-boss healer (per player claim)
             if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen && currentRoom.preBossHealer) {
                 const healer = currentRoom.preBossHealer;
-                // Ensure usedBy is initialised as a Set (backwards-compatible)
                 if (!healer.usedBy) healer.usedBy = new Set();
-                const localId = typeof this.getLocalPlayerId === 'function' ? this.getLocalPlayerId() : 'local';
-                if (!healer.usedBy.has(localId)) {
-                    const dx = healer.x - this.player.x;
-                    const dy = healer.y - this.player.y;
+                if (!healer.usedBy.has(actor.playerId)) {
+                    const dx = healer.x - actor.player.x;
+                    const dy = healer.y - actor.player.y;
                     if (Math.sqrt(dx * dx + dy * dy) < healer.range) {
-                        healer.usedBy.add(localId);
-                        // Heal by 25% max HP
-                        this.player.hp = Math.min(this.player.maxHp, this.player.hp + Math.floor(this.player.maxHp * 0.25));
-                        if (typeof this.player.updateEffectiveStats === 'function') {
-                            this.player.updateEffectiveStats();
+                        healer.usedBy.add(actor.playerId);
+                        actor.player.hp = Math.min(actor.player.maxHp, actor.player.hp + Math.floor(actor.player.maxHp * 0.25));
+                        if (typeof actor.player.updateEffectiveStats === 'function') {
+                            actor.player.updateEffectiveStats();
                         }
-                        if (typeof AudioManager !== 'undefined' && AudioManager.sounds && AudioManager.sounds.heal) {
-                            AudioManager.sounds.heal();
+                        if (typeof GameAudio !== 'undefined' && GameAudio.sounds && GameAudio.sounds.heal) {
+                            GameAudio.sounds.heal();
                         }
-                        console.log("[Healer] Restored 25% HP to player", localId);
-                        return;
+                        console.log("[Healer] Restored 25% HP to player", actor.playerId);
+                        continue;
                     }
                 }
             }
 
-            // Check for item pylon interaction first (multiplayer)
+            // Item pylons (online MP or local co-op — each seat claims once)
             if (typeof checkItemPylonInteraction !== 'undefined') {
-                const pylon = checkItemPylonInteraction(this.player);
+                const pylon = checkItemPylonInteraction(actor.player, actor.playerId);
                 if (pylon && typeof interactWithItemPylon === 'function') {
-                    interactWithItemPylon(pylon, this.player);
-                    return; // Pylon interaction handled, don't check for gear
+                    interactWithItemPylon(pylon, actor.player, actor.playerId);
+                    continue;
                 }
             }
 
-            // Use selected gear from LootSelection if available
             let gearToPickup = null;
-
             if (typeof LootSelection !== 'undefined') {
-                LootSelection.updateNearbyItems(this.player);
-                gearToPickup = LootSelection.getSelectedGear();
+                LootSelection.updateNearbyItems(actor.player, actor.seatId);
+                gearToPickup = LootSelection.getSelectedGear(actor.seatId);
             }
-
-            // Fallback to closest gear if selection system not available
             if (!gearToPickup && typeof groundLoot !== 'undefined') {
-                let closestDistance = 50; // pickup range
-
+                let closestDistance = 50;
                 groundLoot.forEach(gear => {
-                    const dx = gear.x - this.player.x;
-                    const dy = gear.y - this.player.y;
+                    const dx = gear.x - actor.player.x;
+                    const dy = gear.y - actor.player.y;
                     const distance = Math.sqrt(dx * dx + dy * dy);
-
                     if (distance < closestDistance) {
                         closestDistance = distance;
                         gearToPickup = gear;
                     }
                 });
             }
-
-            // Pick up the gear if found
             if (gearToPickup) {
-                this.pickupGear(gearToPickup);
+                this.pickupGear(gearToPickup, actor.player, actor.playerId);
             }
         }
     },
 
-    // Pick up gear
-    pickupGear(gear) {
+    // Pick up gear for a specific player (defaults to P1)
+    pickupGear(gear, player = null, playerId = null) {
+        const target = player || this.player;
+        if (!target || !gear) return;
+        const claimId = playerId
+            || target.playerId
+            || (typeof this.getLocalPlayerId === 'function' ? this.getLocalPlayerId() : 'local');
+
         // Play gear pickup sound
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-            AudioManager.sounds.pickupChime();
+        if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+            GameAudio.sounds.pickupChime();
         }
 
-        const oldGear = this.player.equipGear(gear);
+        const oldGear = target.equipGear(gear);
         if (typeof Telemetry !== 'undefined' && Telemetry.recordGearEquipped) {
-            const playerId = this.getLocalPlayerId ? this.getLocalPlayerId() : (this.player && this.player.playerId) || 'local';
             Telemetry.recordGearEquipped({
-                playerId,
+                playerId: claimId,
                 gear,
                 oldGear,
                 roomNumber: this.roomNumber || 1
@@ -4051,8 +4664,8 @@ const Game = {
             const offsetY = (Math.random() - 0.5) * 20;
 
             // Set position to player location with offset
-            oldGear.x = this.player.x + offsetX;
-            oldGear.y = this.player.y + offsetY;
+            oldGear.x = target.x + offsetX;
+            oldGear.y = target.y + offsetY;
 
             // Clamp to room bounds to prevent gear spawning outside playable area
             const margin = 50;
@@ -4070,7 +4683,8 @@ const Game = {
             console.log(`Dropped ${oldGear.name || oldGear.tier + ' ' + oldGear.slot} on ground`);
 
             // Multiplayer: Broadcast dropped gear to other clients
-            if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
+            if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager
+                && target === this.player) {
                 multiplayerManager.send({
                     type: 'gear_dropped',
                     data: {
@@ -4106,7 +4720,7 @@ const Game = {
             groundLoot.splice(index, 1);
         }
 
-        console.log(`Picked up ${gear.name || gear.tier + ' ' + gear.slot}`);
+        console.log(`[${claimId}] Picked up ${gear.name || gear.tier + ' ' + gear.slot}`);
         if (gear.weaponType) console.log(`  Weapon Type: ${gear.weaponType}`);
         if (gear.armorType) console.log(`  Armor Type: ${gear.armorType}`);
         if (gear.affixes && gear.affixes.length > 0) {
@@ -4126,11 +4740,12 @@ const Game = {
         if (gear.legendaryEffect) {
             console.log(`  LEGENDARY: ${gear.legendaryEffect.description}`);
         }
-        console.log(`New stats - Damage: ${this.player.damage.toFixed(1)}, Defense: ${(this.player.defense * 100).toFixed(1)}%, Speed: ${this.player.moveSpeed.toFixed(1)}`);
+        console.log(`New stats - Damage: ${target.damage.toFixed(1)}, Defense: ${(target.defense * 100).toFixed(1)}%, Speed: ${target.moveSpeed.toFixed(1)}`);
 
         // Multiplayer: Notify all players of loot pickup so it's removed everywhere
         // Send full gear object so host can equip it on remote player instance
-        if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
+        if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager
+            && target === this.player) {
             const gearPayload = (typeof multiplayerManager.serializeGearForNetwork === 'function')
                 ? multiplayerManager.serializeGearForNetwork(gear)
                 : {
@@ -4167,9 +4782,14 @@ const Game = {
             return;
         }
 
-        // Proximity hint for local player (all peers, including MP clients)
+        // Proximity hint for any local-coop seat (or solo/MP local player)
         if (this.player && this.player.alive && this.isPlayerNearExitDoor(this.player)) {
             this.nearExitDoor = true;
+        } else if (this.localSplitEnabled && this.remotePlayerInstances) {
+            const p2 = this.remotePlayerInstances.get(this.localSplitPlayerId);
+            if (p2 && p2.alive && this.isPlayerNearExitDoor(p2)) {
+                this.nearExitDoor = true;
+            }
         }
 
         const inMultiplayer = this.multiplayerEnabled &&
@@ -4193,6 +4813,11 @@ const Game = {
                     alivePlayers.push({ player: playerInstance, id: playerId, isLocal: false });
                 }
             });
+        } else if (this.localSplitEnabled && this.remotePlayerInstances) {
+            const p2 = this.remotePlayerInstances.get(this.localSplitPlayerId);
+            if (p2 && p2.alive && !p2.dead) {
+                alivePlayers.push({ player: p2, id: this.localSplitPlayerId, isLocal: false });
+            }
         }
 
         if (alivePlayers.length === 0) {
@@ -4580,7 +5205,7 @@ const Game = {
             ? getBiomeForRoom(this.roomNumber)
             : { baseColor: '#1a1a2e', accentColor: '#6699ff' };
 
-        Renderer.clear(ctx, logicalWidth, logicalHeight, biome.baseColor);
+        Engine.Renderer.clear(ctx, logicalWidth, logicalHeight, biome.baseColor);
 
         if (this.roomEnterTransition && this.roomEnterTransition.phase >= 1 &&
             typeof currentRoom !== 'undefined' && currentRoom &&
@@ -5012,7 +5637,7 @@ const Game = {
                 this.player.y = spawnPoint.y;
 
                 // Reset remote player instances to spawn (host only)
-                if (this.isHost() && this.remotePlayerInstances) {
+                if ((this.isHost() || this.localSplitEnabled) && this.remotePlayerInstances) {
                     let remoteIndex = 1;
                     this.remotePlayerInstances.forEach((playerInstance, playerId) => {
                         const remoteSpawn = this.getRoomSpawnPoint(newRoom, remoteIndex);
@@ -5104,7 +5729,7 @@ const Game = {
         // Render boss intro if active (before anything else)
         if (this.bossIntroActive) {
             // Clear with dark background for boss intro
-            Renderer.clear(this.ctx, this.config.width, this.config.height);
+            Engine.Renderer.clear(this.ctx, this.config.width, this.config.height);
             this.renderBossIntro(this.ctx);
             return; // Skip normal rendering during intro
         }
@@ -5120,7 +5745,7 @@ const Game = {
                 }
                 TitleAttract.render(this.ctx);
             } else {
-                Renderer.clear(this.ctx, this.config.width, this.config.height, '#0a0e1a');
+                Engine.Renderer.clear(this.ctx, this.config.width, this.config.height, '#0a0e1a');
             }
             this.renderTitleExitOverlay(this.ctx);
         } else if (this.state === 'NEXUS') {
@@ -5160,7 +5785,7 @@ const Game = {
                     if (typeof renderRoomBackground !== 'undefined') {
                         renderRoomBackground(this.ctx, this.roomNumber);
                     } else {
-                        Renderer.clear(this.ctx, this.config.width, this.config.height);
+                        Engine.Renderer.clear(this.ctx, this.config.width, this.config.height);
                     }
                     this.renderGameWorld(this.ctx);
 
@@ -5189,7 +5814,7 @@ const Game = {
                     if (typeof renderRoomBackground !== 'undefined') {
                         renderRoomBackground(this.ctx, this.roomNumber);
                     } else {
-                        Renderer.clear(this.ctx, this.config.width, this.config.height);
+                        Engine.Renderer.clear(this.ctx, this.config.width, this.config.height);
                     }
 
                     if (this.player && this.player.alive) {
@@ -5200,87 +5825,12 @@ const Game = {
                 }
             }
         } else {
-            // PLAYING state
-            const now = Date.now() / 1000;
-            const damageTraumaDuration = 0.35;
-
-            let playerToCheck = this.player;
-            if (!playerToCheck && this.multiplayerEnabled && typeof this.getLocalPlayerId === 'function') {
-                const localPlayerId = this.getLocalPlayerId();
-                if (localPlayerId && this.remotePlayerInstances) {
-                    playerToCheck = this.remotePlayerInstances.get(localPlayerId);
-                }
-            }
-
-            const traumaNow = performance.now();
-            const traumaParams = this.getDamageTraumaParams(
-                playerToCheck, now, traumaNow, damageTraumaDuration
-            );
-            const useChromaticPass = traumaParams.active && traumaParams.intensity >= 0.18;
-
-            const dpr = this.dpr || 1;
-            const logicalWidth = this.config.width;
-            const logicalHeight = this.config.height;
-            const worldTarget = useChromaticPass
-                ? this.ensureWorldRenderTarget(logicalWidth * dpr, logicalHeight * dpr, dpr)
-                : this.ctx;
-
-            this.renderPlayingWorldLayer(worldTarget);
-
-            if (useChromaticPass) {
-                const postFxStart = performance.now();
-                this.applyChromaticAberrationFromOffscreen(traumaParams);
-                this.currentFrameTimings.postFx += performance.now() - postFxStart;
-            }
-
-            if (typeof currentRoom === 'undefined' || !currentRoom || currentRoom.type !== 'safe') {
-                const vignetteStart = performance.now();
-                this.renderVignette(this.ctx);
-                this.currentFrameTimings.vignette += performance.now() - vignetteStart;
-            }
-
-            // Post-vignette: punch-through screen-space glow for pre-boss healer (after door opens)
-            if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen && currentRoom.preBossHealer && this.player) {
-                const healer = currentRoom.preBossHealer;
-                if (!healer.usedBy) healer.usedBy = new Set();
-                const _localId = typeof this.getLocalPlayerId === 'function' ? this.getLocalPlayerId() : 'local';
-                if (!healer.usedBy.has(_localId)) {
-                    // Convert world coords to screen coords
-                    const _zoom = this.getViewZoom();
-                    const _cX = (this.config.width / 2) + this.screenShakeOffset.x;
-                    const _cY = (this.config.height / 2) + this.screenShakeOffset.y;
-                    const sx = (healer.x - this.camera.x) * _zoom + _cX;
-                    const sy = (healer.y - this.camera.y) * _zoom + _cY;
-                    const _t = Date.now() * 0.002;
-                    const _pulse = 0.5 + Math.sin(_t) * 0.5;
-                    // Draw a bright additive glow that punches through the vignette darkness.
-                    // Gecko/Servo: sprite drawImage (shadowBlur/live gradients are weak or costly).
-                    this.ctx.save();
-                    this.ctx.globalCompositeOperation = 'lighter';
-                    const glowR = (70 + _pulse * 20) * _zoom;
-                    if (this.preferSpriteShadows && this.preferSpriteShadows()) {
-                        const sprite = this.getCachedGlowSprite('#00ff64');
-                        if (sprite) {
-                            this.ctx.globalAlpha = 0.22 + _pulse * 0.14;
-                            this.ctx.drawImage(sprite, sx - glowR, sy - glowR, glowR * 2, glowR * 2);
-                            this.ctx.globalAlpha = 1;
-                        }
-                    } else {
-                        const grad = this.ctx.createRadialGradient(sx, sy, 0, sx, sy, glowR);
-                        grad.addColorStop(0, `rgba(0, 255, 100, ${0.18 + _pulse * 0.12})`);
-                        grad.addColorStop(0.4, `rgba(0, 200, 80, ${0.08 + _pulse * 0.06})`);
-                        grad.addColorStop(1, 'rgba(0,0,0,0)');
-                        this.ctx.fillStyle = grad;
-                        this.ctx.beginPath();
-                        this.ctx.arc(sx, sy, glowR, 0, Math.PI * 2);
-                        this.ctx.fill();
-                    }
-                    this.ctx.restore();
-                }
-            }
+            // PLAYING: ordered stage pipe assembled by GameRenderPipeline.
+            this.renderPlayingPipeline();
+            return;
         }
 
-
+        // Non-PLAYING states still draw shared overlays below.
         const uiStart = performance.now();
         if (typeof renderEnemyDirectionArrows === 'function') {
             renderEnemyDirectionArrows(this.ctx, this.player);
@@ -5292,12 +5842,10 @@ const Game = {
             renderExitChevron(this.ctx);
         }
 
-        // Render touch controls (on top of everything)
-        if (typeof Input !== 'undefined' && Input.render) {
-            Input.render(this.ctx);
+        if ((typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.render) {
+            Engine.Input.render(this.ctx);
         }
 
-        // Room 0 coach + exit-door spotlight (world-space, camera-transformed)
         if (typeof Room0Tutorial !== 'undefined') {
             this.ctx.save();
             const currentZoom = this.getViewZoom();
@@ -5309,7 +5857,6 @@ const Game = {
             if (Room0Tutorial.renderSpotlight) {
                 Room0Tutorial.renderSpotlight(this.ctx);
             }
-            // Redraw player above the exit-coach dim (shade stays full; character sits on top)
             if (Room0Tutorial.isExitCoachActive
                 && Room0Tutorial.isExitCoachActive()
                 && this.player
@@ -5323,11 +5870,126 @@ const Game = {
             this.ctx.restore();
         }
 
-        // Render interaction button (on top of touch controls)
         if (typeof renderInteractionButton === 'function') {
             renderInteractionButton(this.ctx);
         }
         this.currentFrameTimings.ui += performance.now() - uiStart;
+    },
+
+    /** Ensure the PLAYING stage recipe exists (lazy; game owns assembly). */
+    ensurePlayingRenderPipeline() {
+        if (this._playingRenderPipeline) return this._playingRenderPipeline;
+        if (typeof GameRenderPipeline === 'undefined' || !GameRenderPipeline.createPlayingPipeline) {
+            throw new Error('GameRenderPipeline is required for PLAYING render.');
+        }
+        this._playingRenderPipeline = GameRenderPipeline.createPlayingPipeline(this);
+        this._playingRenderTargets = new Engine.Render.Targets();
+        return this._playingRenderPipeline;
+    },
+
+    /** Release pooled render targets (world offscreen). Keeps main canvas. */
+    cleanupPlayingRenderTargets() {
+        if (typeof GameRenderPipeline !== 'undefined' && GameRenderPipeline.cleanupPlayingTargets) {
+            GameRenderPipeline.cleanupPlayingTargets(this);
+        } else if (this._playingRenderTargets && typeof this._playingRenderTargets.releaseAll === 'function') {
+            this._playingRenderTargets.releaseAll();
+            this.offscreenCanvas = null;
+            this.offscreenCtx = null;
+        }
+    },
+
+    /**
+     * PLAYING path: gather trauma bag, ensure named targets, run the ordered pipe.
+     * Local co-op runs the same recipe twice — once per viewport/camera/view-player.
+     */
+    renderPlayingPipeline() {
+        const pipeline = this.ensurePlayingRenderPipeline();
+        const now = Date.now() / 1000;
+        const damageTraumaDuration = 0.35;
+        const traumaNow = performance.now();
+
+        if (!this.localSplitEnabled || !this.localSplitSession) {
+            let playerToCheck = this.player;
+            if (!playerToCheck && this.multiplayerEnabled && typeof this.getLocalPlayerId === 'function') {
+                const localPlayerId = this.getLocalPlayerId();
+                if (localPlayerId && this.remotePlayerInstances) {
+                    playerToCheck = this.remotePlayerInstances.get(localPlayerId);
+                }
+            }
+            const trauma = this.getDamageTraumaParams(
+                playerToCheck, now, traumaNow, damageTraumaDuration
+            );
+            const useChromaticPass = trauma.active && trauma.intensity >= 0.18;
+            const frame = GameRenderPipeline.beginPlayingFrame(this, {
+                alpha: this._renderAlpha || 0,
+                timings: this.currentFrameTimings,
+                targets: this._playingRenderTargets,
+                bag: { trauma, useChromaticPass, viewPlayer: playerToCheck || this.player }
+            });
+            pipeline.run(frame);
+            return;
+        }
+
+        const secondPlayer = this.remotePlayerInstances.get(this.localSplitPlayerId);
+        const passes = [
+            {
+                camera: this.camera,
+                viewport: this.localSplitSession.viewports.seat0,
+                viewPlayer: this.player
+            },
+            {
+                camera: this.splitCamera,
+                viewport: this.localSplitSession.viewports.seat1,
+                viewPlayer: secondPlayer || this.player
+            }
+        ];
+        for (const pass of passes) {
+            const trauma = this.getDamageTraumaParams(
+                pass.viewPlayer, now, traumaNow, damageTraumaDuration
+            );
+            const useChromaticPass = trauma.active && trauma.intensity >= 0.18;
+            const begun = Engine.Render.beginViewport(this.ctx, pass.viewport);
+            try {
+                this._activeRenderCamera = pass.camera;
+                this._activeRenderViewport = pass.viewport;
+                this._activeViewPlayer = pass.viewPlayer;
+                const frame = GameRenderPipeline.beginPlayingFrame(this, {
+                    alpha: this._renderAlpha || 0,
+                    timings: this.currentFrameTimings,
+                    targets: this._playingRenderTargets,
+                    camera: pass.camera,
+                    viewport: pass.viewport,
+                    bag: {
+                        trauma,
+                        useChromaticPass,
+                        viewPlayer: pass.viewPlayer
+                    }
+                });
+                pipeline.run(frame);
+            } finally {
+                this._activeRenderCamera = null;
+                this._activeRenderViewport = null;
+                this._activeViewPlayer = null;
+                Engine.Render.endViewport(this.ctx, begun);
+            }
+        }
+        this.renderLocalSplitDivider();
+    },
+
+    /** Thin seat divider only — each seat already ran the full PLAYING recipe. */
+    renderLocalSplitDivider() {
+        if (!this.localSplitEnabled || !this.localSplitSession) return;
+        const viewport = this.localSplitSession.viewports.seat1;
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.setTransform(this.dpr || 1, 0, 0, this.dpr || 1, 0, 0);
+        ctx.fillStyle = 'rgba(255,255,255,0.65)';
+        if (this.localSplitLayout === 'vertical') {
+            ctx.fillRect(viewport.x - 1, 0, 2, this.config.height);
+        } else {
+            ctx.fillRect(0, viewport.y - 1, this.config.width, 2);
+        }
+        ctx.restore();
     },
 
     // Create cached light sprite for efficient rendering
@@ -5377,9 +6039,9 @@ const Game = {
         }
         glowColors.forEach(color => this.getCachedGlowSprite(color));
 
-        if (typeof Renderer !== 'undefined' && Renderer.getCachedDoor) {
-            Renderer.getCachedDoor(80, 120);
-            Renderer.getCachedDoor(100, 140);
+        if ((typeof GameRender !== 'undefined') && GameRender.getCachedDoor) {
+            GameRender.getCachedDoor(80, 120);
+            GameRender.getCachedDoor(100, 140);
         }
 
         if (this.ctx && typeof BiomeConfig !== 'undefined' && typeof getBiomeGridPattern === 'function') {
@@ -5587,15 +6249,19 @@ const Game = {
     },
 
     // Render dynamic vignette with light sources
-    renderVignette(ctx) {
+    renderVignette(ctx, viewport = null, camera = null) {
         // Initialize light sprite if not exists
         if (!this.lightSprite) {
             this.lightSprite = this.createLightSprite();
         }
         // Get Device Pixel Ratio (or default to 1)
         const dpr = this.dpr || 1;
-        const logicalWidth = this.config.width;
-        const logicalHeight = this.config.height;
+        const activeCamera = camera || this._activeRenderCamera || this.camera;
+        const activeViewport = viewport || this._activeRenderViewport;
+        const logicalWidth = activeViewport ? activeViewport.w : this.config.width;
+        const logicalHeight = activeViewport ? activeViewport.h : this.config.height;
+        const originX = activeViewport ? activeViewport.x : 0;
+        const originY = activeViewport ? activeViewport.y : 0;
         const physicalWidth = Math.floor(logicalWidth * dpr);
         const physicalHeight = Math.floor(logicalHeight * dpr);
 
@@ -5638,11 +6304,11 @@ const Game = {
         const centerY = logicalHeight / 2;
         const visibleLists = this.visibleFrameLists || null;
 
-        // Helper to get screen coordinates
+        // Helper to get screen coordinates (viewport-local)
         const getScreenPos = (x, y) => {
             // Apply camera transform: (world - camera) * zoom + center + shake
-            const screenX = (x - this.camera.x) * currentZoom + centerX + this.screenShakeOffset.x;
-            const screenY = (y - this.camera.y) * currentZoom + centerY + this.screenShakeOffset.y;
+            const screenX = (x - activeCamera.x) * currentZoom + centerX + this.screenShakeOffset.x;
+            const screenY = (y - activeCamera.y) * currentZoom + centerY + this.screenShakeOffset.y;
 
             return { x: screenX, y: screenY, zoom: currentZoom };
         };
@@ -5675,8 +6341,8 @@ const Game = {
             const screenW = logicalWidth / currentZoom;
             const screenH = logicalHeight / currentZoom;
 
-            const viewX = this.camera.x - screenW / 2 - margin;
-            const viewY = this.camera.y - screenH / 2 - margin;
+            const viewX = activeCamera.x - screenW / 2 - margin;
+            const viewY = activeCamera.y - screenH / 2 - margin;
             const viewW = screenW + margin * 2;
             const viewH = screenH + margin * 2;
 
@@ -5735,7 +6401,7 @@ const Game = {
             vCtx.save();
             vCtx.translate(centerX + this.screenShakeOffset.x, centerY + this.screenShakeOffset.y);
             vCtx.scale(currentZoom, currentZoom);
-            vCtx.translate(-this.camera.x, -this.camera.y);
+            vCtx.translate(-activeCamera.x, -activeCamera.y);
 
             const destW = VoxelStaticCanvas.logicalWidth || VoxelStaticCanvas.width || VoxelStaticCanvas.canvas.width;
             const destH = VoxelStaticCanvas.logicalHeight || VoxelStaticCanvas.height || VoxelStaticCanvas.canvas.height;
@@ -5771,8 +6437,8 @@ const Game = {
                 : emitters.length;
             let sceneryLightsToDraw = emitters;
             if (maxSceneryLights < emitters.length) {
-                const camX = this.camera.x;
-                const camY = this.camera.y;
+                const camX = activeCamera.x;
+                const camY = activeCamera.y;
                 sceneryLightsToDraw = emitters
                     .filter(emitter => emitter && isVisibleInVignette(emitter.x, emitter.y, emitter.radius))
                     .sort((a, b) => {
@@ -5895,6 +6561,15 @@ const Game = {
             });
         }
 
+        // Local co-op / host-authoritative remote instances
+        if (this.remotePlayerInstances && this.remotePlayerInstances.size > 0) {
+            this.remotePlayerInstances.forEach((playerInstance) => {
+                if (playerInstance && playerInstance.alive && !playerInstance.dead) {
+                    drawLight(vCtx, playerInstance.x, playerInstance.y, 400);
+                }
+            });
+        }
+
         // Player Projectiles - CULLED
         projectileLightCandidates.forEach(proj => {
             if (proj.playerId) {
@@ -5970,7 +6645,7 @@ const Game = {
         );
 
         vCtx.scale(currentZoom, currentZoom);
-        vCtx.translate(-this.camera.x, -this.camera.y);
+        vCtx.translate(-activeCamera.x, -activeCamera.y);
 
         // Draw grid lines (using lighten to add to light mask)
         // The pattern has the glow "baked in" (wide lines with alpha)
@@ -5999,8 +6674,8 @@ const Game = {
         ctx.save();
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         this._vignetteLightMask.composite(ctx, {
-            x: 0,
-            y: 0,
+            x: Math.floor(originX * dpr),
+            y: Math.floor(originY * dpr),
             width: physicalWidth,
             height: physicalHeight,
             smoothing: true
@@ -6008,37 +6683,30 @@ const Game = {
         ctx.restore();
     },
 
-    // Render game world (player, enemies, etc.)
-    renderGameWorld(ctx) {
-        // Note: ctx is now likely the offscreen context, but logic remains the same
-        // Camera transform is already applied by caller
+    /** Frustum cull helper used by visibility gather and glow extras. */
+    isEntityVisible(entity, margin = 100, camera = null, viewport = null) {
+        if (!entity) return false;
+        const activeCamera = camera || this._activeRenderCamera || this.camera;
+        const activeViewport = viewport || this._activeRenderViewport;
+        const zoom = this.getViewZoom();
+        const halfWidth = ((activeViewport ? activeViewport.w : this.config.width) / 2) / zoom;
+        const halfHeight = ((activeViewport ? activeViewport.h : this.config.height) / 2) / zoom;
+        const prev = entity.cullRadius;
+        entity.cullRadius = margin;
+        const visible = Engine.Render.cullPoints([entity], {
+            left: activeCamera.x - halfWidth,
+            top: activeCamera.y - halfHeight,
+            right: activeCamera.x + halfWidth,
+            bottom: activeCamera.y + halfHeight
+        }).length > 0;
+        if (prev === undefined) delete entity.cullRadius;
+        else entity.cullRadius = prev;
+        return visible;
+    },
 
-        const glowPhaseStart = performance.now();
-
-        // ------------------------------------------
-        // PHASE 1: THE GLOWS (The "Neon" look)
-        // ------------------------------------------
-        ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
-
-        // Helper to check if entity is visible (Culling)
-        const isVisible = (entity, margin = 100) => {
-            const zoom = this.getViewZoom();
-            const halfWidth = (this.config.width / 2) / zoom;
-            const halfHeight = (this.config.height / 2) / zoom;
-            const prev = entity.cullRadius;
-            entity.cullRadius = margin;
-            const visible = Engine.Render.cullPoints([entity], {
-                left: this.camera.x - halfWidth,
-                top: this.camera.y - halfHeight,
-                right: this.camera.x + halfWidth,
-                bottom: this.camera.y + halfHeight
-            }).length > 0;
-            if (prev === undefined) delete entity.cullRadius;
-            else entity.cullRadius = prev;
-            return visible;
-        };
-
+    /** Build per-frame visible lists for glow, bodies, and vignette. */
+    gatherVisibleFrameLists(camera = null, viewport = null) {
+        const isVisible = (entity, margin) => this.isEntityVisible(entity, margin, camera, viewport);
         const frameLists = {
             enemies: [],
             enemyLights: [],
@@ -6071,7 +6739,24 @@ const Game = {
         if (this.itemPylons && Array.isArray(this.itemPylons)) {
             this.itemPylons.forEach(pylon => { if (pylon && !pylon.disappearing && isVisible(pylon, 30)) frameLists.itemPylons.push(pylon); });
         }
-        this.visibleFrameLists = frameLists;
+        return frameLists;
+    },
+
+    /** Additive neon glow phase. Camera must already be applied. */
+    renderWorldGlows(ctx, lists) {
+        const profile = typeof this.shouldCollectDebugMetrics === 'function' && this.shouldCollectDebugMetrics();
+        const glowPhaseStart = profile ? performance.now() : 0;
+        const frameLists = lists || this.visibleFrameLists || {
+            enemies: [], enemyLights: [], projectiles: [], projectileLights: [],
+            groundLoot: [], groundItems: [], itemPylons: []
+        };
+        const isVisible = (entity, margin) => this.isEntityVisible(entity, margin);
+
+        // ------------------------------------------
+        // PHASE 1: THE GLOWS (The "Neon" look)
+        // ------------------------------------------
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
 
         // Create cached glow sprite if not exists
         if (!this.glowSprite) {
@@ -6236,8 +6921,8 @@ const Game = {
 
         // Draw Remote Player Glows (multiplayer)
         const inMultiplayer = this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
-        if (inMultiplayer) {
-            if (this.isHost() && this.remotePlayerInstances && this.remotePlayerInstances.size > 0) {
+        if (inMultiplayer || this.localSplitEnabled) {
+            if ((this.isHost() || this.localSplitEnabled) && this.remotePlayerInstances && this.remotePlayerInstances.size > 0) {
                 this.remotePlayerInstances.forEach((playerInstance, playerId) => {
                     if (!playerInstance || playerInstance.dead || !playerInstance.alive) {
                         return;
@@ -6290,18 +6975,29 @@ const Game = {
 
         ctx.restore(); // Restore to source-over
 
-        const glowPhaseTime = performance.now() - glowPhaseStart;
-        if (this.currentFrameTimings) {
-            this.currentFrameTimings.worldGlow += glowPhaseTime;
+        if (profile) {
+            const glowPhaseTime = performance.now() - glowPhaseStart;
+            if (this.currentFrameTimings) {
+                this.currentFrameTimings.worldGlow += glowPhaseTime;
+                this.currentFrameTimings.world += glowPhaseTime;
+            }
+            this.recordRenderSubTiming('worldGlow', glowPhaseTime);
         }
-        this.recordRenderSubTiming('worldGlow', glowPhaseTime);
 
-        const bodiesPhaseStart = performance.now();
+    },
+
+    /** Solid body / entity phase. Camera must already be applied. */
+    renderWorldBodies(ctx, lists) {
+        const profile = typeof this.shouldCollectDebugMetrics === 'function' && this.shouldCollectDebugMetrics();
+        const bodiesPhaseStart = profile ? performance.now() : 0;
+        const frameLists = lists || this.visibleFrameLists || {
+            enemies: [], enemyLights: [], projectiles: [], projectileLights: [],
+            groundLoot: [], groundItems: [], itemPylons: []
+        };
 
         // ------------------------------------------
         // PHASE 2: THE BODIES (The "Solid" look)
         // ------------------------------------------
-        // ctx.globalCompositeOperation is 'source-over' by default after restore
 
         // Draw item aura rings (damage aura, slow aura) - BEFORE player render so they appear underneath
         if (typeof renderItemVisuals !== 'undefined') {
@@ -6344,7 +7040,8 @@ const Game = {
         }
 
         // Draw remote players (multiplayer)
-        if (this.remotePlayers && this.remotePlayers.length > 0) {
+        if ((this.remotePlayers && this.remotePlayers.length > 0) ||
+            (this.localSplitEnabled && this.remotePlayerInstances && this.remotePlayerInstances.size > 0)) {
             this.renderRemotePlayers(ctx);
         }
 
@@ -6418,11 +7115,17 @@ const Game = {
         if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'safe') {
             const machines = (typeof window.getSafeRoomMachines === 'function') ? window.getSafeRoomMachines(currentRoom) : [];
             machines.forEach(machine => {
-                const dx = machine.x - (this.player ? this.player.x : 0);
-                const dy = machine.y - (this.player ? this.player.y : 0);
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                const isNear = distance < machine.range;
+                const isNear = typeof this.isAnyLocalActorNear === 'function'
+                    ? this.isAnyLocalActorNear(machine.x, machine.y, machine.range)
+                    : (() => {
+                        const dx = machine.x - (this.player ? this.player.x : 0);
+                        const dy = machine.y - (this.player ? this.player.y : 0);
+                        return Math.sqrt(dx * dx + dy * dy) < machine.range;
+                    })();
                 const saveLocked = machine.id === 'runSave' && !!this.safeRoomUsedThisVisit;
+                const promptOpts = typeof this.getInteractionPromptOptionsNear === 'function'
+                    ? this.getInteractionPromptOptionsNear(machine.x, machine.y, machine.range)
+                    : null;
 
                 const isRunSave = machine.id === 'runSave';
                 const machineWidth = isRunSave ? 140 : 130;
@@ -6466,14 +7169,14 @@ const Game = {
                 ctx.fillText(machine.name, machine.x, isRunSave ? machine.y + 22 : machine.y + 20);
 
                 // Prompt
-                if (isNear && typeof Input !== 'undefined') {
+                if (isNear && (typeof Engine !== 'undefined' && Engine.Input)) {
                     const promptY = isRunSave ? machine.y + 52 : machine.y + 48;
                     if (saveLocked) {
                         ctx.fillStyle = '#ff8888';
                         ctx.font = '10px Orbitron';
                         ctx.fillText('Locked after use', machine.x, promptY);
-                    } else if (Input.drawInteractionPrompt) {
-                        Input.drawInteractionPrompt(ctx, 'select', machine.x, promptY);
+                    } else if (Engine.Input.drawInteractionPrompt) {
+                        Engine.Input.drawInteractionPrompt(ctx, 'select', machine.x, promptY, promptOpts);
                     } else {
                         ctx.fillStyle = '#00ffcc';
                         ctx.font = '12px Orbitron';
@@ -6488,15 +7191,39 @@ const Game = {
         // Draw pre-boss healer machine (visible only once the boss door is open)
         if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen && currentRoom.preBossHealer) {
             const healer = currentRoom.preBossHealer;
-            const dx = healer.x - (this.player ? this.player.x : 0);
-            const dy = healer.y - (this.player ? this.player.y : 0);
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            const isNear = distance < healer.range;
-
-            // Per-player used check
             if (!healer.usedBy) healer.usedBy = new Set();
+
+            // Prefer an unclaimed local-coop seat near the healer for prompt glyphs / "near" state.
+            let promptSeat = null;
+            let isNear = false;
+            let usedByNearest = false;
+            const healActors = typeof this.getLocalCoopActors === 'function'
+                ? this.getLocalCoopActors()
+                : (this.player && this.player.alive
+                    ? [{ player: this.player, playerId: this.getLocalPlayerId(), seat: null }]
+                    : []);
+            let bestDist = healer.range;
+            for (const actor of healActors) {
+                if (!actor.player || !actor.player.alive) continue;
+                const dx = healer.x - actor.player.x;
+                const dy = healer.y - actor.player.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist >= healer.range) continue;
+                isNear = true;
+                const already = healer.usedBy.has(actor.playerId);
+                if (!already && dist < bestDist) {
+                    bestDist = dist;
+                    promptSeat = actor.seat || null;
+                    usedByNearest = false;
+                } else if (!promptSeat && dist < bestDist) {
+                    bestDist = dist;
+                    promptSeat = actor.seat || null;
+                    usedByNearest = already;
+                }
+            }
             const localHealerId = typeof this.getLocalPlayerId === 'function' ? this.getLocalPlayerId() : 'local';
             const usedByMe = healer.usedBy.has(localHealerId);
+            const promptOpts = promptSeat ? { seat: promptSeat } : null;
 
             const machineWidth = 150;
             const machineHeight = 72;
@@ -6590,9 +7317,9 @@ const Game = {
                 ctx.fillText('+25% HP', healer.x, healer.y + 35);
 
                 // Interaction Prompt
-                if (isNear && typeof Input !== 'undefined') {
-                    if (Input.drawInteractionPrompt) {
-                        Input.drawInteractionPrompt(ctx, 'select', healer.x, healer.y + 54);
+                if (isNear && !usedByNearest && (typeof Engine !== 'undefined' && Engine.Input)) {
+                    if (Engine.Input.drawInteractionPrompt) {
+                        Engine.Input.drawInteractionPrompt(ctx, 'select', healer.x, healer.y + 54, promptOpts);
                     } else {
                         ctx.fillStyle = '#00ff88';
                         ctx.font = '11px Orbitron';
@@ -6608,8 +7335,8 @@ const Game = {
         // Draw door if room is cleared
         if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen) {
             const door = getDoorPosition();
-            Renderer.door(ctx, door.x, door.y, door.width, door.height, this.doorPulse);
-            if (this.nearExitDoor && typeof Input !== 'undefined' && Input.drawInteractionPrompt) {
+            GameRender.door(ctx, door.x, door.y, door.width, door.height, this.doorPulse);
+            if (this.nearExitDoor && (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.drawInteractionPrompt) {
                 ctx.save();
                 ctx.fillStyle = '#ffffff';
                 ctx.font = 'bold 15px Orbitron, sans-serif';
@@ -6621,9 +7348,34 @@ const Game = {
                 ctx.shadowOffsetY = 1;
                 const promptX = door.x + door.width / 2;
                 const promptY = door.y + door.height + 35;
-                const localId = this.getLocalPlayerId();
-                const isReady = typeof this.isPlayerDoorReady === 'function' && this.isPlayerDoorReady(localId);
-                Input.drawInteractionPrompt(ctx, isReady ? 'cancel ready' : 'ready - enter next room', promptX, promptY);
+                let readyId = this.getLocalPlayerId();
+                let promptOpts = null;
+                if (this.localSplitEnabled && typeof this.getLocalCoopActors === 'function') {
+                    let best = null;
+                    let bestDist = Infinity;
+                    for (const actor of this.getLocalCoopActors()) {
+                        if (!actor.player || !this.isPlayerNearExitDoor(actor.player)) continue;
+                        const dx = actor.player.x - promptX;
+                        const dy = actor.player.y - promptY;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist < bestDist) {
+                            bestDist = dist;
+                            best = actor;
+                        }
+                    }
+                    if (best) {
+                        readyId = best.playerId;
+                        if (best.seat) promptOpts = { seat: best.seat };
+                    }
+                }
+                const isReady = typeof this.isPlayerDoorReady === 'function' && this.isPlayerDoorReady(readyId);
+                Engine.Input.drawInteractionPrompt(
+                    ctx,
+                    isReady ? 'cancel ready' : 'ready - enter next room',
+                    promptX,
+                    promptY,
+                    promptOpts
+                );
                 ctx.restore();
             }
         }
@@ -6655,11 +7407,25 @@ const Game = {
             }
         }
 
-        const bodiesPhaseTime = performance.now() - bodiesPhaseStart;
-        if (this.currentFrameTimings) {
-            this.currentFrameTimings.worldBodies += bodiesPhaseTime;
+        if (profile) {
+            const bodiesPhaseTime = performance.now() - bodiesPhaseStart;
+            if (this.currentFrameTimings) {
+                this.currentFrameTimings.worldBodies += bodiesPhaseTime;
+                this.currentFrameTimings.world += bodiesPhaseTime;
+            }
+            this.recordRenderSubTiming('worldBodies', bodiesPhaseTime);
         }
-        this.recordRenderSubTiming('worldBodies', bodiesPhaseTime);
+    },
+
+    /**
+     * Compatibility wrapper for PAUSED paths: visibility + glow + bodies.
+     * PLAYING uses the stage recipe instead.
+     */
+    renderGameWorld(ctx) {
+        const lists = this.gatherVisibleFrameLists();
+        this.visibleFrameLists = lists;
+        this.renderWorldGlows(ctx, lists);
+        this.renderWorldBodies(ctx, lists);
     },
 
     // Toggle pause
@@ -6752,6 +7518,8 @@ const Game = {
 
     // Cleanup run state (called when returning to nexus, restarting, or game over)
     cleanupRunState() {
+        this.cleanupPlayingRenderTargets();
+
         if (this.player && this.player.itemManager) {
             this.player.itemManager.clearAllItems();
         }
@@ -7361,6 +8129,10 @@ const Game = {
             return;
         }
 
+        if (typeof GameAudio !== 'undefined' && typeof GameAudio.bindSettings === 'function') {
+            GameAudio.bindSettings();
+        }
+
         if (typeof Onboarding !== 'undefined' && Onboarding.notifyRunStarted) {
             Onboarding.notifyRunStarted();
         }
@@ -7701,6 +8473,14 @@ const Game = {
                 const spawnPoint = this.getRoomSpawnPoint(currentRoom, 0);
                 this.player.x = spawnPoint.x;
                 this.player.y = spawnPoint.y;
+                if (this.localSplitEnabled) {
+                    const secondPlayer = this.remotePlayerInstances.get(this.localSplitPlayerId);
+                    if (secondPlayer) {
+                        const secondSpawn = this.getRoomSpawnPoint(currentRoom, 1);
+                        secondPlayer.x = secondSpawn.x;
+                        secondPlayer.y = secondSpawn.y;
+                    }
+                }
             }
 
             if (typeof Room0Tutorial !== 'undefined' && Room0Tutorial.beginIfNeeded) {
@@ -8205,8 +8985,8 @@ const Game = {
                                         isBlocked = true;
 
                                         // Play shield block sound (local feedback on host)
-                                        if (isLocal && typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-                                            AudioManager.sounds.tankShieldHit();
+                                        if (isLocal && typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+                                            GameAudio.sounds.tankShieldHit();
                                         }
 
                                         if (typeof createParticleBurst !== 'undefined') {
@@ -8258,8 +9038,8 @@ const Game = {
                             }
 
                             // Play projectile hit sound
-                            if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-                                AudioManager.sounds.projectileHit();
+                            if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+                                GameAudio.sounds.projectileHit();
                             }
 
                             // Hit player
@@ -8375,22 +9155,25 @@ const Game = {
 
     // Render remote players (multiplayer)
     isRemotePlayerNearby(remote, threshold) {
-        if (!remote || !this.camera) return true;
-        const dist = Math.hypot(remote.x - this.camera.x, remote.y - this.camera.y);
+        const camera = this._activeRenderCamera || this.camera;
+        if (!remote || !camera) return true;
+        const dist = Math.hypot(remote.x - camera.x, remote.y - camera.y);
         return dist < (threshold || 400);
     },
 
     isRemotePlayerVisible(remote, margin) {
-        if (!remote || !this.camera || !this.config) return true;
+        const camera = this._activeRenderCamera || this.camera;
+        const viewport = this._activeRenderViewport;
+        if (!remote || !camera || !this.config) return true;
         const m = margin != null ? margin : remote.size * 4;
         const zoom = this.getViewZoom();
-        const halfWidth = (this.config.width / 2) / zoom + m;
-        const halfHeight = (this.config.height / 2) / zoom + m;
+        const halfWidth = ((viewport ? viewport.w : this.config.width) / 2) / zoom + m;
+        const halfHeight = ((viewport ? viewport.h : this.config.height) / 2) / zoom + m;
         return (
-            remote.x >= this.camera.x - halfWidth &&
-            remote.x <= this.camera.x + halfWidth &&
-            remote.y >= this.camera.y - halfHeight &&
-            remote.y <= this.camera.y + halfHeight
+            remote.x >= camera.x - halfWidth &&
+            remote.x <= camera.x + halfWidth &&
+            remote.y >= camera.y - halfHeight &&
+            remote.y <= camera.y + halfHeight
         );
     },
 
@@ -8469,6 +9252,9 @@ const Game = {
             this.renderSimplifiedRemote(ctx, remote);
         }
 
+        // Local co-op: seats are already split across viewports — name tags live on HUD bars only.
+        if (this.localSplitEnabled) return;
+
         let playerName = 'Player';
         if (typeof multiplayerManager !== 'undefined' && multiplayerManager.players) {
             const playerData = multiplayerManager.players.find(p => p.id === playerId);
@@ -8492,7 +9278,7 @@ const Game = {
                         this.renderRemotePlayerInstance(ctx, shadowInstance, playerId);
                     });
                 }
-            } else if (this.isHost()) {
+            } else if (this.isHost() || this.localSplitEnabled) {
                 if (this.remotePlayerInstances && this.remotePlayerInstances.size > 0) {
                     this.remotePlayerInstances.forEach((playerInstance, playerId) => {
                         this.renderRemotePlayerInstance(ctx, playerInstance, playerId);
@@ -8583,9 +9369,9 @@ const Game = {
                     ctx.fill();
                     ctx.stroke();
                 } else if (classDef.shape === 'pentagon') {
-                    Renderer.polygon(ctx, 0, 0, size, 5, 0, classDef.color);
+                    Engine.Renderer.polygon(ctx, 0, 0, size, 5, 0, classDef.color);
                 } else if (classDef.shape === 'hexagon') {
-                    Renderer.polygon(ctx, 0, 0, size, 6, 0, classDef.color);
+                    Engine.Renderer.polygon(ctx, 0, 0, size, 6, 0, classDef.color);
                 }
 
                 ctx.restore();
@@ -8715,7 +9501,7 @@ const Game = {
                     ctx.save();
                     ctx.globalAlpha = 0.6;
                     ctx.translate(remotePlayer.blinkDecoyX, remotePlayer.blinkDecoyY);
-                    Renderer.polygon(ctx, 0, 0, size, 6, 0, classDef.color);
+                    Engine.Renderer.polygon(ctx, 0, 0, size, 6, 0, classDef.color);
                     ctx.restore();
                 }
 
@@ -9072,6 +9858,7 @@ if (typeof window !== 'undefined' && window.addEventListener) {
             this.init();
         };
         game.tick = function(dt) {
+            this.updateLocalSplitJoin();
             if (this.state === 'PLAYING') {
                 this.update(dt);
             } else if (this.state === 'ENTERING_ROOM') {
@@ -9093,6 +9880,7 @@ if (typeof window !== 'undefined' && window.addEventListener) {
             }
         };
         game.draw = function(ctx, alpha) {
+            this._renderAlpha = alpha;
             this.currentFrameTimings = {
                 static: 0,
                 world: 0,
@@ -9103,6 +9891,7 @@ if (typeof window !== 'undefined' && window.addEventListener) {
                 ui: 0
             };
             this.render();
+            this.renderLocalSplitJoinPrompt();
         };
         game.onFrameEnd = function({ realDeltaTime, processTime, updateTime, renderTime, updatesRun, accumulatorTruncated }) {
             this.frameRenderTimings = Object.assign({}, this.currentFrameTimings || {}, {

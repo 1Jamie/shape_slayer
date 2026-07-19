@@ -557,8 +557,8 @@ function checkRoomCleared() {
         // Normal room with no enemies (or rest/treasure room that was just cleared)
         currentRoom.cleared = true;
         // Play door open sound
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-            AudioManager.sounds.doorOpen();
+        if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+            GameAudio.sounds.doorOpen();
         }
 
         currentRoom.doorOpen = true;
@@ -586,8 +586,8 @@ function checkRoomCleared() {
             }
         }
 
-        if (currentRoom.type === 'boss' && typeof MusicManager !== 'undefined' && MusicManager.currentCategory === 'encounter') {
-            MusicManager.fadeOutCurrent().catch(err => {
+        if (currentRoom.type === 'boss' && typeof Engine !== 'undefined' && Engine.Music && Engine.Music.currentCategory === 'encounter') {
+            Engine.Music.fadeOutCurrent().catch(err => {
                 console.error('[Music] Failed to fade out boss music after room clear:', err);
             });
         }
@@ -744,8 +744,8 @@ function generateBoss(roomNumber) {
     let boss = null;
 
     // Play boss spawn sound
-    if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-        AudioManager.sounds.majorSpawn();
+    if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+        GameAudio.sounds.majorSpawn();
     }
 
     // Determine which boss to spawn based on room number and game mode

@@ -2,7 +2,7 @@
 	let layer, container;
 
 	function getInputSurface() {
-		const input = (typeof Input !== 'undefined') ? Input : null;
+		const input = ((typeof Engine !== 'undefined' && Engine.Input)) ? Engine.Input : null;
 		const mobileViewport = typeof window !== 'undefined' &&
 			(window.innerWidth <= 1024 || window.innerHeight <= 600);
 		const touchModeClass = typeof document !== 'undefined' &&
@@ -106,8 +106,8 @@
 			layer.style.setProperty('opacity', '1', 'important');
 			container.innerHTML = '';
 			const p = game.player;
-			const snapshot = typeof Input !== 'undefined' && Input.getMobileCooldownSnapshot
-				? Input.getMobileCooldownSnapshot(p)
+			const snapshot = (typeof Engine !== 'undefined' && Engine.Input) && GameInput.getMobileCooldownSnapshot
+				? GameInput.getMobileCooldownSnapshot(p)
 				: null;
 			if (!snapshot) {
 				layer.style.display = 'none';

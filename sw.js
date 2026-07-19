@@ -5,7 +5,7 @@
  * Shell is precached on install. Audio warms in the background so playback can start ASAP
  * while the library fills for full offline use.
  */
-const CACHE_VERSION = '0.8.2.25';
+const CACHE_VERSION = '0.8.2.43';
 const SHELL_CACHE = `shape-slayer-shell-v${CACHE_VERSION}`;
 const RUNTIME_CACHE = `shape-slayer-runtime-v${CACHE_VERSION}`;
 const AUDIO_WARM_CONCURRENCY = 2;
@@ -53,6 +53,8 @@ const PRECACHE_URLS = [
   './src/game/presentation/text-renderer.js',
   './src/engine/audio.js',
   './src/engine/music.js',
+  './src/game/audio/game-music.js',
+  './src/game/audio/game-audio.js',
   './src/engine/utils.js',
   './src/engine/save.js',
   './src/engine/physics.js',
@@ -68,6 +70,7 @@ const PRECACHE_URLS = [
   './src/engine/boot.js',
   './src/game/ui/core/modal-adapter.js',
   './src/engine/render-host.js',
+  './src/engine/render-pipeline.js',
   './src/engine/camera.js',
   './src/engine/touch.js',
   './src/engine/net.js',
@@ -79,8 +82,10 @@ const PRECACHE_URLS = [
   './src/game/simulation/room-layout-generator.js',
   './src/game/entities/projectiles-util.js',
   './src/game/presentation/render-adapters.js',
+  './src/game/presentation/render-pipeline.js',
   './src/engine/system.js',
   './src/engine/input.js',
+  './src/engine/split.js',
   './src/game/input-map.js',
   './src/game/ui/core/controllerNavigation.js',
   './src/game/content/gear.js',

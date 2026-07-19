@@ -47,13 +47,39 @@ const GearTooltipUI = {
             return;
         }
 
-        // Update nearby items (this is also called in main loop, but safe to call again)
+        // Update nearby items for the seat whose camera/view owns focus.
+        // In local co-op prefer the player nearest any ground loot; fallback P1.
         if (typeof Game !== 'undefined' && Game.player) {
-            LootSelection.updateNearbyItems(Game.player);
+            let tipPlayer = Game.player;
+            let tipSeat = 'p1';
+            if (Game.localSplitEnabled && typeof Game.getLocalCoopActors === 'function' && window.groundLoot) {
+                let best = null;
+                let bestDist = Infinity;
+                for (const actor of Game.getLocalCoopActors()) {
+                    if (!actor.player) continue;
+                    for (const gear of window.groundLoot) {
+                        const dx = gear.x - actor.player.x;
+                        const dy = gear.y - actor.player.y;
+                        const d = Math.sqrt(dx * dx + dy * dy);
+                        if (d < bestDist) {
+                            bestDist = d;
+                            best = actor;
+                        }
+                    }
+                }
+                if (best && bestDist < 60) {
+                    tipPlayer = best.player;
+                    tipSeat = best.seatId || 'p1';
+                }
+            }
+            LootSelection.updateNearbyItems(tipPlayer, tipSeat);
+            this._tipSeatId = tipSeat;
+            this._tipPlayer = tipPlayer;
         }
 
-        const selectedGear = LootSelection.getSelectedGear();
-        const nearbyCount = LootSelection.getCount();
+        const tipSeat = this._tipSeatId || 'p1';
+        const selectedGear = LootSelection.getSelectedGear(tipSeat);
+        const nearbyCount = LootSelection.getCount(tipSeat);
 
         // Debug log (throttled)
         if (Date.now() - this.lastUpdate > 1000) {
@@ -97,7 +123,9 @@ const GearTooltipUI = {
         // Stats comparison
         // We need to get equipped gear to compare
         let equipped = null;
-        if (typeof Game !== 'undefined' && Game.player && Game.player.getEquippedGear && gear.slot) {
+        if (this._tipPlayer && this._tipPlayer.getEquippedGear && gear.slot) {
+            equipped = this._tipPlayer.getEquippedGear(gear.slot);
+        } else if (typeof Game !== 'undefined' && Game.player && Game.player.getEquippedGear && gear.slot) {
             equipped = Game.player.getEquippedGear(gear.slot);
         }
 
@@ -122,12 +150,32 @@ const GearTooltipUI = {
 
         // Footer with controls
         if (nearbyCount > 1) {
-            const usingGamepad = typeof Input !== 'undefined'
-                && ((Input.isGamepadMode && Input.isGamepadMode())
-                    || Input._activeInputSource === 'gamepad');
+            let tipPromptOpts = null;
+            if (typeof Game !== 'undefined' && Game.localSplitEnabled && Game.localSplitSession
+                && Game.localSplitSession.seats) {
+                const tipSeatId = this._tipSeatId || 'p1';
+                const seat = tipSeatId === 'p2'
+                    ? Game.localSplitSession.seats[1]
+                    : Game.localSplitSession.seats[0];
+                if (seat) tipPromptOpts = { seat };
+            }
+            const tipCtx = (typeof Engine !== 'undefined' && Engine.Input && Engine.Input._resolvePromptContext)
+                ? Engine.Input._resolvePromptContext(tipPromptOpts)
+                : null;
+            const usingGamepad = tipCtx
+                ? tipCtx.mode === 'gamepad'
+                : ((typeof Engine !== 'undefined' && Engine.Input)
+                    && ((Engine.Input.isGamepadMode && Engine.Input.isGamepadMode())
+                        || Engine.Input._activeInputSource === 'gamepad'));
+            const seatLoot = typeof LootSelection !== 'undefined'
+                ? LootSelection.getCount(this._tipSeatId || 'p1')
+                : nearbyCount;
+            const seatIndex = typeof LootSelection !== 'undefined' && LootSelection._seat
+                ? LootSelection._seat(this._tipSeatId || 'p1').selectedIndex
+                : LootSelection.selectedIndex;
             const cycleHint = usingGamepad
-                ? `D-pad ← → to cycle (${LootSelection.selectedIndex + 1}/${nearbyCount})`
-                : `← → to cycle (${LootSelection.selectedIndex + 1}/${nearbyCount})`;
+                ? `D-pad ← → to cycle (${seatIndex + 1}/${seatLoot})`
+                : `← → to cycle (${seatIndex + 1}/${seatLoot})`;
             html += `
                 <div style="margin-top: 10px; padding-top: 5px; border-top: 1px solid #444; text-align: center; color: #ffff00; font-size: 12px;">
                     ${cycleHint}
@@ -152,26 +200,44 @@ const GearTooltipUI = {
 
         prompt.innerHTML = '';
 
-        const isGamepad = typeof Input !== 'undefined' && Input.isGamepadMode && Input.isGamepadMode();
+        let promptOpts = null;
+        if (typeof Game !== 'undefined' && Game.localSplitEnabled && Game.localSplitSession
+            && Game.localSplitSession.seats) {
+            const tipSeatId = this._tipSeatId || 'p1';
+            const seat = tipSeatId === 'p2'
+                ? Game.localSplitSession.seats[1]
+                : Game.localSplitSession.seats[0];
+            if (seat) promptOpts = { seat };
+        }
+
+        const promptCtx = (typeof Engine !== 'undefined' && Engine.Input && Engine.Input._resolvePromptContext)
+            ? Engine.Input._resolvePromptContext(promptOpts)
+            : null;
+        const isGamepad = promptCtx
+            ? promptCtx.mode === 'gamepad'
+            : ((typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isGamepadMode && Engine.Input.isGamepadMode());
+
         if (isGamepad && window.ControllerButtons && ControllerButtons.createButtonBadge) {
             prompt.style.display = 'flex';
             prompt.style.alignItems = 'center';
             prompt.style.justifyContent = 'center';
             prompt.style.gap = '6px';
 
-            prompt.appendChild(document.createTextNode('Press'));
-            prompt.appendChild(ControllerButtons.createButtonBadge('confirm'));
-            prompt.appendChild(document.createTextNode('to equip'));
+			prompt.appendChild(document.createTextNode('Press'));
+			prompt.appendChild(ControllerButtons.createButtonBadge('confirm', {
+				family: promptCtx && promptCtx.family ? promptCtx.family : undefined
+			}));
+			prompt.appendChild(document.createTextNode('to equip'));
 
-            if (ControllerButtons.refreshButtonBadges) {
-                ControllerButtons.refreshButtonBadges(prompt);
-            }
-            return;
+			if (ControllerButtons.refreshButtonBadges) {
+				ControllerButtons.refreshButtonBadges(prompt);
+			}
+			return;
         }
 
         prompt.style.display = 'block';
-        prompt.textContent = (typeof Input !== 'undefined' && Input.getInteractionPrompt)
-            ? Input.getInteractionPrompt('equip')
+        prompt.textContent = ((typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.getInteractionPrompt)
+            ? Engine.Input.getInteractionPrompt('equip', promptOpts)
             : 'Press G to Equip';
     },
 

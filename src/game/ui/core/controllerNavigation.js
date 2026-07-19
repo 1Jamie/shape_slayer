@@ -59,7 +59,7 @@
 	};
 
 	function getFamily() {
-		if (window.Input && Input._gamepadFamily) return Input._gamepadFamily;
+		if (Engine.Input && Engine.Input._gamepadFamily) return Engine.Input._gamepadFamily;
 		return 'generic';
 	}
 
@@ -72,13 +72,18 @@
 		const badge = document.createElement('span');
 		badge.className = 'controller-button-badge';
 		badge.dataset.controllerAction = action;
-		updateButtonBadge(badge, action, options.family);
+		if (options.family) badge.dataset.controllerFamily = options.family;
+		updateButtonBadge(badge, action, options.family || badge.dataset.controllerFamily || getFamily());
 		return badge;
 	}
 
-	function updateButtonBadge(badge, action = badge && badge.dataset ? badge.dataset.controllerAction : 'confirm', family = getFamily()) {
+	function updateButtonBadge(badge, action = badge && badge.dataset ? badge.dataset.controllerAction : 'confirm', family = null) {
 		if (!badge) return badge;
-		const style = getButtonStyle(action, family);
+		const resolvedFamily = family
+			|| (badge.dataset && badge.dataset.controllerFamily)
+			|| getFamily();
+		if (badge.dataset) badge.dataset.controllerFamily = resolvedFamily;
+		const style = getButtonStyle(action, resolvedFamily);
 		badge.setAttribute('aria-label', style.name);
 		badge.title = style.name;
 		badge.style.setProperty('--controller-button-color', style.color || '#ffffff');
@@ -101,7 +106,11 @@
 
 	function refreshButtonBadges(root = document) {
 		Array.from(root.querySelectorAll('.controller-button-badge[data-controller-action]'))
-			.forEach(badge => updateButtonBadge(badge));
+			.forEach(badge => updateButtonBadge(
+				badge,
+				badge.dataset.controllerAction,
+				badge.dataset.controllerFamily || getFamily()
+			));
 	}
 
 	function makeMark(className) {
@@ -192,24 +201,26 @@
 		getActiveGamepad() {
 			const pads = navigator.getGamepads ? navigator.getGamepads() : [];
 			let pad = null;
-			if (window.Input && Input._gamepadIndex !== null && pads[Input._gamepadIndex]) {
-				pad = pads[Input._gamepadIndex];
+			if (Engine.Input && Engine.Input._gamepadIndex !== null && pads[Engine.Input._gamepadIndex]) {
+				pad = pads[Engine.Input._gamepadIndex];
 			} else {
 				pad = Array.from(pads).find(p => p && p.connected) || null;
 			}
-			if (pad && window.Input && typeof window.Input._getMappedGamepad === 'function') {
-				return window.Input._getMappedGamepad(pad);
+			if (pad && Engine.Input && typeof Engine.Input._getMappedGamepad === 'function') {
+				return Engine.Input._getMappedGamepad(pad);
 			}
 			return pad;
 		},
 
 		syncGamepadInputSource(gamepad) {
-			if (!gamepad || typeof Input === 'undefined' || typeof Input._activateGamepadInput !== 'function') return;
+			if (!gamepad || (typeof Engine === 'undefined' || !Engine.Input) || typeof Engine.Input._activateGamepadInput !== 'function') return;
+			// Couch split owns pad routing; don't steal P1 keyboard-primary onto the global pad source.
+			if (Engine.Input._couchSplitActive) return;
 
 			const hasButtonInput = gamepad.buttons.some(button => button && (button.pressed || (button.value || 0) > 0.15));
 			const hasStickInput = (gamepad.axes || []).some(axis => Math.abs(axis || 0) >= this.stickThreshold);
 			if (hasButtonInput || hasStickInput) {
-				Input._activateGamepadInput();
+				Engine.Input._activateGamepadInput();
 			}
 		},
 
@@ -567,6 +578,15 @@
 		},
 
 		handleGlobalButtons(gamepad) {
+			// Title screen: Start (or A/confirm) begins the game. togglePause()
+			// ignores TITLE, so without this the controller has no way forward.
+			if (typeof Game !== 'undefined' && Game.state === 'TITLE' && !this.activeModal) {
+				if ((this.wasPressed(gamepad, 9) || this.wasPressed(gamepad, 0))
+					&& typeof Game.dismissTitleScreen === 'function') {
+					Game.dismissTitleScreen();
+				}
+				return;
+			}
 			if (this.wasPressed(gamepad, 9)) {
 				// Confirm dialog owns the stack — don't unpause underneath it
 				const confirm = document.querySelector('.confirm-dialog');
@@ -586,7 +606,39 @@
 			}
 		},
 
+		resolveLocalSplitSheetSeatId(gamepad) {
+			if (typeof Game === 'undefined' || !Game.localSplitEnabled || !Game.localSplitSession) {
+				return 'p1';
+			}
+			const seats = Game.localSplitSession.seats || [];
+			const seat0 = seats[0];
+			const seat1 = seats[1];
+			const padIndex = gamepad && Number.isInteger(gamepad.index) ? gamepad.index : null;
+			if (padIndex !== null) {
+				if (seat1 && seat1.gamepadIndex === padIndex) return 'p2';
+				if (seat0 && seat0.gamepadIndex === padIndex) return 'p1';
+			}
+			// Keyboard-primary co-op: the only bound pad is P2.
+			if (seat0 && seat0.gamepadIndex === null) return 'p2';
+			return 'p2';
+		},
+
 		openCharacterSheet() {
+			const gamepad = this.getActiveGamepad();
+			const seatId = this.resolveLocalSplitSheetSeatId(gamepad);
+			if (window.CharacterSheet && typeof window.CharacterSheet.openForSeat === 'function') {
+				const alreadyOpen = typeof window.CharacterSheet.isOpen === 'function'
+					&& window.CharacterSheet.isOpen();
+				const activeSeat = typeof window.CharacterSheet.getActiveSeatId === 'function'
+					? window.CharacterSheet.getActiveSeatId()
+					: null;
+				if (alreadyOpen && activeSeat === seatId) {
+					window.CharacterSheet.toggle(false);
+				} else {
+					window.CharacterSheet.openForSeat(seatId, true);
+				}
+				return;
+			}
 			if (window.CharacterSheet && typeof window.CharacterSheet.toggle === 'function') {
 				// Select toggles open/closed (unlike Tab hold-to-view)
 				window.CharacterSheet.toggle();
@@ -701,12 +753,12 @@
 		},
 
 		getActiveInputSource() {
-			if (typeof Input === 'undefined') return 'keyboardMouse';
-			if (Input._activeInputSource === 'gamepad') return 'gamepad';
-			if (Input._activeInputSource === 'touch') return 'touch';
-			if (Input._activeInputSource === 'keyboardMouse') return 'keyboardMouse';
-			if (Input.isGamepadMode && Input.isGamepadMode()) return 'gamepad';
-			if (Input.isMobileUiMode && Input.isMobileUiMode()) return 'touch';
+			if ((typeof Engine === 'undefined' || !Engine.Input)) return 'keyboardMouse';
+			if (Engine.Input._activeInputSource === 'gamepad') return 'gamepad';
+			if (Engine.Input._activeInputSource === 'touch') return 'touch';
+			if (Engine.Input._activeInputSource === 'keyboardMouse') return 'keyboardMouse';
+			if (Engine.Input.isGamepadMode && Engine.Input.isGamepadMode()) return 'gamepad';
+			if (Engine.Input.isMobileUiMode && Engine.Input.isMobileUiMode()) return 'touch';
 			return 'keyboardMouse';
 		},
 

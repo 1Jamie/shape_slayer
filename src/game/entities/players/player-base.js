@@ -1243,8 +1243,8 @@ class PlayerBase {
         }
 
         if (!predictOnly) {
-            if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-                AudioManager.sounds.dodge();
+            if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+                GameAudio.sounds.dodge();
             }
             this.consumeDodgeCharge();
         }
@@ -1476,9 +1476,9 @@ class PlayerBase {
 
         if (input.isTouchMode && input.isTouchMode()) {
             // Check if this class uses joystick for heavy attack
-            const usesHeavyJoystick = typeof Input !== 'undefined' &&
-                Input.getAbilityInputType &&
-                Input.getAbilityInputType(this.playerClass, 'heavyAttack') === 'joystick-press-release';
+            const usesHeavyJoystick = (typeof Engine !== 'undefined' && Engine.Input) &&
+                GameInput.getAbilityInputType &&
+                GameInput.getAbilityInputType(this.playerClass, 'heavyAttack') === 'joystick-press-release';
 
             if (usesHeavyJoystick) {
                 // Aim mode for any class: hold to aim facing, release to fire
@@ -1828,8 +1828,8 @@ class PlayerBase {
             }
 
             // Play player death sound
-            if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-                AudioManager.sounds.avatarDefeat();
+            if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+                GameAudio.sounds.avatarDefeat();
             }
 
             this.hp = 0;
@@ -2150,8 +2150,8 @@ class PlayerBase {
     // Level up function
     levelUp() {
         // Play level up sound
-        if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
-            AudioManager.sounds.levelUp();
+        if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
+            GameAudio.sounds.levelUp();
         }
 
         this.level++;
@@ -2746,12 +2746,12 @@ class PlayerBase {
     }
 
     applyImpulse(forceX, forceY, options = {}) {
-        if (typeof ImpulsePhysics === 'undefined') {
+        if (!Engine.Physics) {
             this.impulseVx = (this.impulseVx || 0) + (forceX || 0);
             this.impulseVy = (this.impulseVy || 0) + (forceY || 0);
             return true;
         }
-        return ImpulsePhysics.apply(this, forceX, forceY, {
+        return Engine.Physics.apply(this, forceX, forceY, {
             resistance: options.resistance != null ? options.resistance : this.knockbackResistance,
             maxSpeed: options.maxSpeed != null ? options.maxSpeed : this.impulseMaxSpeed,
             replace: !!options.replace,
@@ -2769,7 +2769,7 @@ class PlayerBase {
     }
 
     processImpulses(deltaTime) {
-        if (typeof ImpulsePhysics === 'undefined') {
+        if (!Engine.Physics) {
             if (this.impulseVx || this.impulseVy) {
                 this.x += (this.impulseVx || 0) * deltaTime;
                 this.y += (this.impulseVy || 0) * deltaTime;
@@ -2778,7 +2778,7 @@ class PlayerBase {
             return;
         }
 
-        ImpulsePhysics.integrate(this, deltaTime, {
+        Engine.Physics.integrate(this, deltaTime, {
             decay: this.impulseDecay,
             cutoff: this.impulseCutoff,
             maxDuration: this.impulseMaxDuration,
@@ -4863,10 +4863,11 @@ class PlayerBase {
     }
 
     canPlayClientAudio() {
-        return typeof AudioManager !== 'undefined' &&
-            AudioManager.sounds &&
-            AudioManager.initialized &&
-            !AudioManager.muted;
+        return typeof Engine !== 'undefined' && Engine.Audio &&
+            Engine.Audio.initialized &&
+            !Engine.Audio.muted &&
+            typeof GameAudio !== 'undefined' &&
+            GameAudio.sounds;
     }
 
     playClientAudioFromState(prevState, currentState, rawState) {
@@ -4913,8 +4914,8 @@ class PlayerBase {
     }
 
     playDodgeSound() {
-        if (this.canPlayClientAudio() && AudioManager.sounds.dodge) {
-            AudioManager.sounds.dodge();
+        if (this.canPlayClientAudio() && GameAudio.sounds.dodge) {
+            GameAudio.sounds.dodge();
         }
     }
 
@@ -4932,8 +4933,8 @@ class PlayerBase {
     }
 
     onClientDeath(_rawState) {
-        if (this.canPlayClientAudio() && AudioManager.sounds.avatarDefeat) {
-            AudioManager.sounds.avatarDefeat();
+        if (this.canPlayClientAudio() && GameAudio.sounds.avatarDefeat) {
+            GameAudio.sounds.avatarDefeat();
         }
     }
 

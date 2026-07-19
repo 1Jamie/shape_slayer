@@ -46,7 +46,7 @@
 			const progress = Math.max(0, Math.min(1, Game.levelUpMessageTime / 2.0));
 			const alpha = Math.min(1.0, progress * 2.0);
 
-			const isMobile = typeof window.Input !== 'undefined' && window.Input.isMobileUiMode && window.Input.isMobileUiMode();
+			const isMobile = Engine.Input && Engine.Input.isMobileUiMode && Engine.Input.isMobileUiMode();
 			messageEl.style.fontSize = isMobile ? '48px' : '96px';
 			layer.style.paddingTop = isMobile ? '18%' : '22%';
 			layer.style.display = 'flex';

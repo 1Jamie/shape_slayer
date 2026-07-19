@@ -1,5 +1,5 @@
 (function () {
-	let layer, modal, modalBody, resumeBtn, skipGuideBtn, multiplayerBtn;
+	let layer, modal, modalBody, resumeBtn, skipGuideBtn, multiplayerBtn, localCoopBtn;
 	let updateModeButtons, updateCameraDistanceButtons;
 	let wasPauseVisible = false;
 
@@ -50,8 +50,8 @@
 	}
 
 	function getCurrentControlMode() {
-		if (typeof Input !== 'undefined' && Input.controlMode) {
-			return Input.controlMode;
+		if ((typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.controlMode) {
+			return Engine.Input.controlMode;
 		}
 		if (typeof SaveSystem !== 'undefined' && SaveSystem.getControlMode) {
 			return SaveSystem.getControlMode();
@@ -216,6 +216,35 @@
 		// --- Run ---
 		const runSection = makeSection('Run', 'pause-section--run');
 
+		localCoopBtn = makeActionButton('Local Co-op', () => {
+			if (!Game) return;
+			if (Game.localSplitEnabled) {
+				Game.disableLocalSplit();
+				return;
+			}
+			const eligibility = typeof Game.getLocalSplitEligibility === 'function'
+				? Game.getLocalSplitEligibility()
+				: { ok: false, reason: 'Local co-op unavailable' };
+			if (!eligibility.ok) {
+				if (typeof window.showToast === 'function') {
+					window.showToast(eligibility.reason || 'Cannot start local co-op', 3200);
+				}
+				return;
+			}
+			// Prefer keyboard+mouse + pad when available; otherwise two controllers (incl. mobile).
+			const preferKeyboard = eligibility.mode === 'keyboardPad'
+				|| (eligibility.mode === 'dualPad'
+					&& typeof Game.hasLocalSplitKeyboardMouse === 'function'
+					&& Game.hasLocalSplitKeyboardMouse());
+			const joined = Game.enableLocalSplit && Game.enableLocalSplit(
+				preferKeyboard ? { allowKeyboardPrimary: true } : {}
+			);
+			if (!joined && typeof window.showToast === 'function') {
+				window.showToast(eligibility.reason || 'Cannot start local co-op', 3200);
+			}
+		}, { datasetAction: 'local-coop' });
+		runSection.appendChild(localCoopBtn);
+
 		multiplayerBtn = makeActionButton('Multiplayer', () => {
 			if (!canOpenMultiplayer()) {
 				if (typeof window.showToast === 'function') {
@@ -273,11 +302,11 @@
 				if (typeof SaveSystem !== 'undefined') {
 					SaveSystem.setControlMode(id);
 				}
-				if (typeof Input !== 'undefined') {
-					if (Input.applyControlMode) {
-						Input.applyControlMode(id, window.Game && window.Game.canvas);
+				if ((typeof Engine !== 'undefined' && Engine.Input)) {
+					if (Engine.Input.applyControlMode) {
+						Engine.Input.applyControlMode(id, window.Game && window.Game.canvas);
 					} else {
-						Input.controlMode = id;
+						Engine.Input.controlMode = id;
 					}
 				}
 			},
@@ -409,6 +438,19 @@
 		}
 
 		setButtonDisabled(multiplayerBtn, !canOpenMultiplayer(), getMultiplayerLockHint());
+		if (localCoopBtn && typeof Game !== 'undefined') {
+			localCoopBtn.textContent = Game.localSplitEnabled ? 'Leave Local Co-op' : 'Local Co-op';
+			const eligibility = typeof Game.getLocalSplitEligibility === 'function'
+				? Game.getLocalSplitEligibility()
+				: { ok: false, reason: 'Local co-op unavailable' };
+			const disabledHint = eligibility.reason
+				|| 'Connect two controllers, or one controller for Player 2 with keyboard + mouse';
+			setButtonDisabled(
+				localCoopBtn,
+				!Game.localSplitEnabled && !eligibility.ok,
+				disabledHint
+			);
+		}
 
 		if (visible) {
 			if (typeof updateModeButtons === 'function') updateModeButtons();

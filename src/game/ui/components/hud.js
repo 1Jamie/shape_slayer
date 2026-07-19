@@ -13,7 +13,7 @@
 		// Desktop: bottom-left as before
 		// Mobile: completely different layout - top-left for health/XP
 		// Desktop: bottom-left as before
-		const inp = (typeof Input !== 'undefined' ? Input : (window.Input || null));
+		const inp = Engine.Input || null;
 		const isMobile = inp && inp.isMobileUiMode && inp.isMobileUiMode();
 		if (isMobile) {
 			container.style.left = '10px';
@@ -36,6 +36,17 @@
 		container.style.userSelect = 'none';
 		container.style.zIndex = '2000';
 
+		const seatLabel = document.createElement('div');
+		seatLabel.id = 'dom-hud-p1-label';
+		seatLabel.textContent = 'P1';
+		seatLabel.style.display = 'none';
+		seatLabel.style.color = '#88ccff';
+		seatLabel.style.fontFamily = 'Orbitron, monospace';
+		seatLabel.style.fontSize = '12px';
+		seatLabel.style.fontWeight = '700';
+		seatLabel.style.marginBottom = '4px';
+		container.appendChild(seatLabel);
+
 		// Prevent right-click context menu
 		container.addEventListener('contextmenu', (e) => {
 			e.preventDefault();
@@ -57,7 +68,7 @@
 
 		// Mobile: scale down shield bar and adjust width
 		// Mobile: scale down shield bar and adjust width
-		const inpInit = (typeof Input !== 'undefined' ? Input : (window.Input || null));
+		const inpInit = Engine.Input || null;
 		const isMobileInit = inpInit && inpInit.isMobileUiMode && inpInit.isMobileUiMode();
 		if (isMobileInit) {
 			shieldBar.style.maxWidth = '200px'; // Compact for top-left
@@ -242,7 +253,7 @@
 		container.style.display = 'block';
 
 		// Apply mobile layout dynamically (runs every frame to handle state changes)
-		const inp = (typeof Input !== 'undefined' ? Input : (window.Input || null));
+		const inp = Engine.Input || null;
 		const isMobile = inp && inp.isMobileUiMode && inp.isMobileUiMode();
 
 		if (isMobile) {
@@ -258,6 +269,9 @@
 			container.style.alignItems = 'flex-start';
 			container.style.transform = 'none';
 
+			const p1LabelMobile = document.getElementById('dom-hud-p1-label');
+			if (p1LabelMobile) p1LabelMobile.style.display = 'none';
+
 			// Hide cooldowns container on mobile (cooldowns are built into DOM mobile controls)
 			const cdContainer = document.getElementById('dom-cooldowns-container');
 			if (cdContainer) {
@@ -271,16 +285,23 @@
 			}
 		} else {
 			// Desktop: bottom layout (original)
+			const splitActive = typeof Game !== 'undefined' && Game.localSplitEnabled && Game.state === 'PLAYING';
 			container.style.bottom = '60px';
 			container.style.left = '20px';
-			container.style.right = '20px';
+			container.style.right = splitActive ? 'auto' : '20px';
 			container.style.top = 'auto';
-			container.style.width = 'auto';
+			container.style.width = splitActive ? 'calc(50% - 28px)' : 'auto';
+			container.style.maxWidth = splitActive ? 'calc(50% - 28px)' : '';
 			container.style.display = 'block';
 			container.style.flexDirection = 'row';
 			container.style.gap = '0';
 			container.style.alignItems = 'flex-start';
 			container.style.transform = 'none';
+
+			const p1Label = document.getElementById('dom-hud-p1-label');
+			if (p1Label) {
+				p1Label.style.display = splitActive ? 'block' : 'none';
+			}
 
 			// Desktop: cooldowns in main container
 			const cdContainer = document.getElementById('dom-cooldowns-container');
@@ -642,7 +663,7 @@
 					for (let i = 0; i < desiredCount; i++) {
 						const col = document.createElement('div');
 						// Mobile: vertical stack alignment, desktop: center
-						const inpCol = (typeof Input !== 'undefined' ? Input : (window.Input || null));
+						const inpCol = Engine.Input || null;
 						const isMobileCol = inpCol && inpCol.isMobileUiMode && inpCol.isMobileUiMode();
 						col.style.display = 'flex';
 						col.style.flexDirection = 'column';
@@ -650,7 +671,7 @@
 						col.style.gap = isMobileCol ? '2px' : '4px';
 						const bar = document.createElement('div');
 						// Mobile: scale down cooldown bars for vertical stack
-						const inpBar = (typeof Input !== 'undefined' ? Input : (window.Input || null));
+						const inpBar = Engine.Input || null;
 						const isMobileBar = inpBar && inpBar.isMobileUiMode && inpBar.isMobileUiMode();
 						bar.style.width = isMobileBar ? '100px' : '160px';
 						bar.style.height = isMobileBar ? '10px' : '14px';
@@ -697,7 +718,7 @@
 						lab.style.color = '#fff';
 						lab.style.fontWeight = '700';
 						// Mobile: scale down cooldown labels
-						const inpLabel = (typeof Input !== 'undefined' ? Input : (window.Input || null));
+						const inpLabel = Engine.Input || null;
 						const isMobileLabel = inpLabel && inpLabel.isMobileUiMode && inpLabel.isMobileUiMode();
 						lab.style.fontSize = isMobileLabel ? '9px' : '12px';
 						lab.style.marginTop = isMobileLabel ? '1px' : '2px';
@@ -778,8 +799,192 @@
 		}
 	}
 
+	function ensureP2Hud() {
+		let p2 = document.getElementById('dom-hud-p2');
+		if (p2) return p2;
+		const root = window.UIRoot && window.UIRoot.ensure ? window.UIRoot.ensure() : document.body;
+		p2 = document.createElement('div');
+		p2.id = 'dom-hud-p2';
+		p2.className = 'hud hud-p2';
+		p2.style.position = 'fixed';
+		p2.style.pointerEvents = 'none';
+		p2.style.userSelect = 'none';
+		p2.style.zIndex = '2000';
+		p2.style.bottom = '60px';
+		p2.style.right = '20px';
+		p2.style.left = 'auto';
+		p2.style.width = 'calc(50% - 28px)';
+		p2.style.maxWidth = 'calc(50% - 28px)';
+		p2.style.display = 'none';
+
+		const label = document.createElement('div');
+		label.textContent = 'P2';
+		label.style.color = '#ffcc66';
+		label.style.fontFamily = 'Orbitron, monospace';
+		label.style.fontSize = '12px';
+		label.style.fontWeight = '700';
+		label.style.marginBottom = '4px';
+		p2.appendChild(label);
+
+		const hpBar = document.createElement('div');
+		hpBar.id = 'dom-hud-p2-hp';
+		hpBar.style.height = '14px';
+		hpBar.style.background = 'rgba(255,255,255,0.08)';
+		hpBar.style.border = '1px solid rgba(150,150,255,0.3)';
+		hpBar.style.borderRadius = '6px';
+		hpBar.style.overflow = 'hidden';
+		hpBar.style.maxWidth = '420px';
+		hpBar.style.position = 'relative';
+		hpBar.style.marginBottom = '4px';
+		const hpFill = document.createElement('div');
+		hpFill.id = 'dom-hud-p2-hp-fill';
+		hpFill.style.height = '100%';
+		hpFill.style.width = '100%';
+		hpFill.style.background = 'linear-gradient(to bottom, #66ff99, #22aa55)';
+		hpBar.appendChild(hpFill);
+		const hpText = document.createElement('div');
+		hpText.id = 'dom-hud-p2-hp-text';
+		hpText.style.position = 'absolute';
+		hpText.style.left = '50%';
+		hpText.style.top = '50%';
+		hpText.style.transform = 'translate(-50%, -50%)';
+		hpText.style.color = '#ffffff';
+		hpText.style.fontSize = '10px';
+		hpText.style.fontWeight = 'bold';
+		hpText.style.textShadow = '0 0 3px rgba(0,0,0,0.8)';
+		hpBar.appendChild(hpText);
+		p2.appendChild(hpBar);
+
+		const xpBar = document.createElement('div');
+		xpBar.id = 'dom-hud-p2-xp';
+		xpBar.style.height = '10px';
+		xpBar.style.background = 'rgba(255,255,255,0.08)';
+		xpBar.style.border = '1px solid rgba(150,150,255,0.3)';
+		xpBar.style.borderRadius = '6px';
+		xpBar.style.overflow = 'hidden';
+		xpBar.style.maxWidth = '420px';
+		xpBar.style.position = 'relative';
+		const xpFill = document.createElement('div');
+		xpFill.id = 'dom-hud-p2-xp-fill';
+		xpFill.style.height = '100%';
+		xpFill.style.width = '0%';
+		xpFill.style.background = 'linear-gradient(to bottom, #88aaff, #4466cc)';
+		xpBar.appendChild(xpFill);
+		const xpText = document.createElement('div');
+		xpText.id = 'dom-hud-p2-xp-text';
+		xpText.style.position = 'absolute';
+		xpText.style.left = '50%';
+		xpText.style.top = '50%';
+		xpText.style.transform = 'translate(-50%, -50%)';
+		xpText.style.color = '#ffffff';
+		xpText.style.fontSize = '9px';
+		xpText.style.fontWeight = 'bold';
+		xpText.style.textShadow = '0 0 3px rgba(0,0,0,0.8)';
+		xpBar.appendChild(xpText);
+		p2.appendChild(xpBar);
+
+		const cds = document.createElement('div');
+		cds.id = 'dom-hud-p2-cds';
+		cds.style.display = 'flex';
+		cds.style.gap = '12px';
+		cds.style.marginTop = '8px';
+		cds.style.background = 'rgba(0,0,0,0.18)';
+		cds.style.padding = '6px 8px';
+		cds.style.borderRadius = '6px';
+		['Dodge', 'Special', 'Heavy'].forEach((name) => {
+			const col = document.createElement('div');
+			col.style.display = 'flex';
+			col.style.flexDirection = 'column';
+			col.style.alignItems = 'center';
+			col.style.gap = '4px';
+			const bar = document.createElement('div');
+			bar.style.width = '120px';
+			bar.style.height = '12px';
+			bar.style.background = 'rgba(255,255,255,0.08)';
+			bar.style.border = '1px solid rgba(150,150,255,0.3)';
+			bar.style.borderRadius = '6px';
+			bar.style.overflow = 'hidden';
+			const fill = document.createElement('div');
+			fill.className = 'dom-hud-p2-cd-fill';
+			fill.dataset.ability = name.toLowerCase();
+			fill.style.height = '100%';
+			fill.style.width = '100%';
+			fill.style.background = '#00cc00';
+			bar.appendChild(fill);
+			col.appendChild(bar);
+			const lab = document.createElement('div');
+			lab.textContent = name;
+			lab.style.color = '#fff';
+			lab.style.fontWeight = '700';
+			lab.style.fontSize = '11px';
+			col.appendChild(lab);
+			cds.appendChild(col);
+		});
+		p2.appendChild(cds);
+		root.appendChild(p2);
+		return p2;
+	}
+
+	function updateP2Hud() {
+		const p2 = ensureP2Hud();
+		const splitActive = typeof Game !== 'undefined'
+			&& Game.localSplitEnabled
+			&& Game.state === 'PLAYING'
+			&& window.USE_DOM_UI;
+		if (!splitActive) {
+			p2.style.display = 'none';
+			return;
+		}
+		const second = Game.remotePlayerInstances
+			&& Game.localSplitPlayerId
+			&& Game.remotePlayerInstances.get(Game.localSplitPlayerId);
+		if (!second || second.dead) {
+			p2.style.display = 'none';
+			return;
+		}
+		p2.style.display = 'block';
+		const hp = Math.max(0, Math.floor(second.hp || 0));
+		const maxHp = Math.max(1, Math.floor(second.maxHp || 1));
+		const hpFill = document.getElementById('dom-hud-p2-hp-fill');
+		const hpText = document.getElementById('dom-hud-p2-hp-text');
+		if (hpFill) hpFill.style.width = `${Math.max(0, Math.min(100, Math.round((hp / maxHp) * 100)))}%`;
+		if (hpText) hpText.textContent = `${hp}/${maxHp}`;
+
+		const xp = Math.max(0, second.xp || 0);
+		const xpToNext = Math.max(1, second.xpToNext || 100);
+		const xpFill = document.getElementById('dom-hud-p2-xp-fill');
+		const xpText = document.getElementById('dom-hud-p2-xp-text');
+		if (xpFill) xpFill.style.width = `${Math.max(0, Math.min(100, (xp / xpToNext) * 100))}%`;
+		if (xpText) xpText.textContent = `Level ${Math.max(1, second.level || 1)} - ${Math.floor(xp)}/${xpToNext} XP`;
+
+		const pick = (keys, fallback = 0) => {
+			for (const k of keys) {
+				const v = second[k];
+				if (typeof v === 'number' && !Number.isNaN(v)) return v;
+			}
+			return fallback;
+		};
+		const setCd = (ability, rem, max) => {
+			const fill = p2.querySelector(`.dom-hud-p2-cd-fill[data-ability="${ability}"]`);
+			if (!fill) return;
+			const ratio = max > 0 ? Math.max(0, Math.min(1, 1 - (rem / max))) : 1;
+			fill.style.width = `${Math.round(ratio * 100)}%`;
+			fill.style.background = ratio >= 1 ? '#00cc00' : '#cc6600';
+		};
+		const dodgeRem = pick(['dodgeCooldown', 'dashCooldown'], 0);
+		const dodgeMax = Math.max(0.0001, pick(['dodgeCooldownTime', 'dashCooldownTime'], 1));
+		const specialRem = pick(['specialCooldown'], 0);
+		const specialMax = Math.max(0.0001, pick(['specialCooldownTime'], 1));
+		const heavyRem = pick(['heavyCooldown', 'beamCooldown'], 0);
+		const heavyMax = Math.max(0.0001, pick(['heavyCooldownTime', 'beamCooldownTime'], 1));
+		setCd('dodge', dodgeRem, dodgeMax);
+		setCd('special', specialRem, specialMax);
+		setCd('heavy', heavyRem, heavyMax);
+	}
+
 	function tick() {
 		updateHUD();
+		updateP2Hud();
 		requestAnimationFrame(tick);
 	}
 
@@ -797,6 +1002,7 @@
 		// Fallback interval in case rAF is throttled or blocked
 		setInterval(() => {
 			updateHUD();
+			updateP2Hud();
 		}, 250);
 	}
 

@@ -133,8 +133,8 @@
 
             if (typeof MobileControlsDOM !== 'undefined') {
                 MobileControlsDOM.setEditorMode(false);
-                if (typeof Input !== 'undefined' && Input.initTouchControls && Game && Game.canvas) {
-                    Input.initTouchControls(Game.canvas);
+                if ((typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.initTouchControls && Game && Game.canvas) {
+                    Engine.Input.initTouchControls(Game.canvas);
                 } else {
                     MobileControlsDOM.refresh();
                 }

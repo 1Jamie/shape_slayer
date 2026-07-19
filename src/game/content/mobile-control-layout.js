@@ -156,8 +156,8 @@ const MobileControlLayout = {
     getClassDefaultType(playerClass, controlId) {
         // Returns legacy/runtime default from classInputConfig (button | joystick-*)
         if (controlId === 'movement' || controlId === 'basicAttack') return 'joystick';
-        if (typeof Input !== 'undefined' && Input.classInputConfig && Input.classInputConfig[playerClass]) {
-            return Input.classInputConfig[playerClass][controlId] || 'button';
+        if ((typeof Engine !== 'undefined' && Engine.Input) && GameInput.classInputConfig && GameInput.classInputConfig[playerClass]) {
+            return GameInput.classInputConfig[playerClass][controlId] || 'button';
         }
         const fallback = {
             square: { heavyAttack: 'joystick-press-release', specialAbility: 'button', dodge: 'button' },

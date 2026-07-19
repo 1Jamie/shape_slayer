@@ -1270,25 +1270,25 @@ function processMeleeHitOnEnemy(player, enemies, hitbox, enemy, playerId, bodyHi
                 }
                 
                 // Play impact sound based on hit type
-                if (typeof AudioManager !== 'undefined' && AudioManager.sounds) {
+                if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
                     // Normalize damage for intensity (assuming typical damage ranges from 10-100)
                     const intensity = Math.min(damageDealt / 50, 2.0);
                     
                     if (hitWeakPoint) {
-                        AudioManager.sounds.hitWeakPoint(intensity);
+                        GameAudio.sounds.hitWeakPoint(intensity);
                     } else if (hitbox.displayCrit) {
-                        AudioManager.sounds.hitCritical(intensity);
+                        GameAudio.sounds.hitCritical(intensity);
                     } else if (isBackstab) {
-                        AudioManager.sounds.hitBackstab(intensity);
+                        GameAudio.sounds.hitBackstab(intensity);
                     } else {
-                        AudioManager.sounds.hitNormal(intensity);
+                        GameAudio.sounds.hitNormal(intensity);
                     }
                     
                     // Play death sound if enemy died
                     if (!isClient && enemy.hp <= 0) {
                         setTimeout(() => {
-                            if (AudioManager.sounds) {
-                                AudioManager.sounds.enemyDeath();
+                            if (GameAudio.sounds) {
+                                GameAudio.sounds.enemyDeath();
                             }
                         }, 50);
                     }

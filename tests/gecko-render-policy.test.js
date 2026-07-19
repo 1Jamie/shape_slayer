@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const fs = require('node:fs');
-const { DeviceDetection } = require(path.join(__dirname, '..', 'src', 'engine', 'system.js'));
+const { System: DeviceDetection } = require(path.join(__dirname, '..', 'src', 'engine', 'system.js'));
 
 function loadGameHelpers() {
     const mainPath = path.join(__dirname, '..', 'src', 'game', 'main.js');

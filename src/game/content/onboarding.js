@@ -240,8 +240,8 @@ const Onboarding = {
     getCoachCopy() {
         const step = this.getStep();
         const hint = (action) => {
-            if (typeof Input !== 'undefined' && Input.getInteractionPrompt) {
-                return Input.getInteractionPrompt(action);
+            if ((typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.getInteractionPrompt) {
+                return Engine.Input.getInteractionPrompt(action);
             }
             return `Press G to ${action}`;
         };
@@ -258,7 +258,7 @@ const Onboarding = {
             };
         }
         if (step === this.STEPS.CLASS_UPGRADES) {
-            const skipHint = (typeof Input !== 'undefined' && Input.controlMode === 'gamepad')
+            const skipHint = ((typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.controlMode === 'gamepad')
                 ? 'Stuck? Pause → Skip Guide'
                 : 'Stuck? Use Skip Guide';
             return {
@@ -617,7 +617,7 @@ const Onboarding = {
         const viewH = viewHalfH * 2;
         const rect = this.getSpotlightRect();
 
-        const isMobile = typeof Input !== 'undefined' && Input.isMobileUiMode && Input.isMobileUiMode();
+        const isMobile = (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileUiMode && Engine.Input.isMobileUiMode();
         const padX = isMobile ? 14 : 18;
         const boxW = Math.min(isMobile ? 300 : 420, viewW - 40);
         const titleFont = isMobile ? 'bold 15px Orbitron' : 'bold 17px Orbitron';
