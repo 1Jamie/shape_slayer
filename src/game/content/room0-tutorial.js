@@ -351,11 +351,8 @@ const Room0Tutorial = {
 
     _abilityCoachCopy(stepKey, abilityKey, fallbackTitle, fallbackBody) {
         const hint = (() => {
-            if ((typeof Engine !== 'undefined' && Engine.Input) && GameInput.getCombatPrompt) {
-                const p = GameInput.getCombatPrompt(abilityKey);
-                return p ? ` (${p})` : '';
-            }
-            return '';
+            const p = GameInput.getCombatPrompt(abilityKey);
+            return p ? ` (${p})` : '';
         })();
         const profile = this._getClassTutorialProfile();
         const override = profile && profile[stepKey] ? profile[stepKey] : null;
@@ -538,14 +535,9 @@ const Room0Tutorial = {
                     body: 'Defeat the enemy to open the door.'
                 };
             case this.STEPS.EXIT: {
-                let interactHint = '';
-                if ((typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.getInteractionPrompt) {
-                    interactHint = ` ${Engine.Input.getInteractionPrompt('enter')}.`;
-                } else if ((typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileUiMode && Engine.Input.isMobileUiMode()) {
-                    interactHint = ' Tap Enter Door when nearby.';
-                } else {
-                    interactHint = ' Press G when nearby.';
-                }
+                const interactHint = (Engine.Input && typeof Engine.Input.getInteractionPrompt === 'function')
+                    ? ` ${Engine.Input.getInteractionPrompt('enter')}.`
+                    : ' Press G when nearby.';
                 return {
                     title: 'Exit Door',
                     body: `The exit door is open. Walk to it to leave this room and begin your run.${interactHint}`
@@ -644,7 +636,7 @@ const Room0Tutorial = {
         const viewH = viewHalfH * 2;
         const exitRect = this.isExitCoachActive() ? this.getExitSpotlightRect() : null;
 
-        const isMobile = (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileUiMode && Engine.Input.isMobileUiMode();
+        const isMobile = Engine.Input.isMobileUiMode();
         const padX = isMobile ? 14 : 18;
         const boxW = Math.min(isMobile ? 300 : 400, viewW - 40);
         const titleFont = isMobile ? 'bold 15px Orbitron' : 'bold 17px Orbitron';

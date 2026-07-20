@@ -2,7 +2,7 @@
 	let layer, container;
 
 	function getInputSurface() {
-		const input = ((typeof Engine !== 'undefined' && Engine.Input)) ? Engine.Input : null;
+		const input = Engine.Input;
 		const mobileViewport = typeof window !== 'undefined' &&
 			(window.innerWidth <= 1024 || window.innerHeight <= 600);
 		const touchModeClass = typeof document !== 'undefined' &&

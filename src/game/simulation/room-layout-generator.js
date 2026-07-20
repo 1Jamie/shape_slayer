@@ -2939,6 +2939,16 @@
         return null;
     }
 
+    function findPathAsync(layout, start, end, radius, options = {}) {
+        if (typeof Engine !== 'undefined' && Engine.Proc && typeof Engine.Proc.findPathAsync === 'function') {
+            const procGrid = getProcGrid(layout);
+            if (procGrid) {
+                return Engine.Proc.findPathAsync(procGrid, start, end, radius, options);
+            }
+        }
+        return Promise.resolve(findPath(layout, start, end, radius, options));
+    }
+
     function findSafeSpawnPoint(layout, rules) {
         if (!layout) return null;
         const opts = rules || {};
@@ -3128,6 +3138,7 @@
         getProcGrid,
         hasPathBetween,
         findPath,
+        findPathAsync,
         resolveCircleCollision,
         isProjectilePathClear,
         computeLayoutHash,

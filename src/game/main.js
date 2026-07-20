@@ -1099,6 +1099,10 @@ const Game = {
         }
         console.log(`  DocumentElement client: ${document.documentElement.clientWidth}x${document.documentElement.clientHeight}`);
         console.log(`  Window inner: ${window.innerWidth}x${window.innerHeight}`);
+
+        if (typeof GameRenderPipeline !== 'undefined' && GameRenderPipeline.cleanupAllStateTargets) {
+            GameRenderPipeline.cleanupAllStateTargets(this);
+        }
     },
 
     // Convert screen coordinates to game coordinates
@@ -5753,143 +5757,130 @@ const Game = {
         // Check if multiplayer is enabled
         const inMultiplayer = this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
 
-        // Render based on game state
+        // Render based on game state using Engine.Render pipeline runners
         if (this.state === 'TITLE') {
-            if (typeof TitleAttract !== 'undefined' && TitleAttract.render) {
-                if (TitleAttract.resize) {
-                    TitleAttract.resize(this.config.width, this.config.height);
-                }
-                TitleAttract.render(this.ctx);
-            } else {
-                Engine.Renderer.clear(this.ctx, this.config.width, this.config.height, '#0a0e1a');
-            }
-            this.renderTitleExitOverlay(this.ctx);
+            this.renderTitlePipeline();
+            return;
         } else if (this.state === 'NEXUS') {
-            if (typeof renderNexus !== 'undefined') {
-                renderNexus(this.ctx);
-            }
-            this.renderTitleExitOverlay(this.ctx);
-
-            // In multiplayer, show pause menu overlay if showPauseMenu is true
-            if (inMultiplayer && this.showPauseMenu && !window.USE_DOM_UI) {
-                // Draw pause menu overlay
-                if (typeof renderPauseMenu !== 'undefined') {
-                    renderPauseMenu(this.ctx);
-                }
-            }
+            this.renderNexusPipeline();
+            return;
         } else if (this.state === 'ENTERING_ROOM') {
-            this.renderRoomEnterScreen(this.ctx);
+            this.renderEnteringRoomPipeline();
+            return;
         } else if (this.state === 'PAUSED') {
-            // If in multiplayer, convert PAUSED state to proper multiplayer pause menu
             if (inMultiplayer) {
-                // Convert single-player pause state to multiplayer pause menu
                 if (this.pausedFromState === 'NEXUS') {
                     this.state = 'NEXUS';
                     this.showPauseMenu = true;
                     this.paused = false;
-                    // Render nexus with pause menu overlay
-                    if (typeof renderNexus !== 'undefined') {
-                        renderNexus(this.ctx);
-                    }
+                    this.renderNexusPipeline();
+                    return;
                 } else if (this.pausedFromState === 'PLAYING') {
                     this.state = 'PLAYING';
                     this.showPauseMenu = true;
                     this.paused = false;
-                    // Now render as PLAYING state with pause menu overlay
-                    // Re-render with PLAYING logic (will be handled in PLAYING branch next frame)
-                    // For this frame, render game world with pause menu
-                    if (typeof renderRoomBackground !== 'undefined') {
-                        renderRoomBackground(this.ctx, this.roomNumber);
-                    } else {
-                        Engine.Renderer.clear(this.ctx, this.config.width, this.config.height);
-                    }
-                    this.renderGameWorld(this.ctx);
-
-                    return; // Exit early, state conversion done
+                    this.renderPlayingPipeline();
+                    return;
                 } else {
-                    // Unknown paused state, default to nexus
                     this.state = 'NEXUS';
                     this.showPauseMenu = true;
                     this.paused = false;
-                    if (typeof renderNexus !== 'undefined') {
-                        renderNexus(this.ctx);
-                    }
+                    this.renderNexusPipeline();
+                    return;
                 }
             } else {
-                // Single player pause behavior
-                // Render background based on where we paused from
-                if (this.pausedFromState === 'NEXUS') {
-                    // Draw nexus in background (dimmed)
-                    this.ctx.globalAlpha = 0.3;
-                    if (typeof renderNexus !== 'undefined') {
-                        renderNexus(this.ctx);
-                    }
-                    this.ctx.globalAlpha = 1.0;
-                } else {
-                    // Draw game world in background (dimmed)
-                    if (typeof renderRoomBackground !== 'undefined') {
-                        renderRoomBackground(this.ctx, this.roomNumber);
-                    } else {
-                        Engine.Renderer.clear(this.ctx, this.config.width, this.config.height);
-                    }
-
-                    if (this.player && this.player.alive) {
-                        this.ctx.globalAlpha = 0.3;
-                        this.renderGameWorld(this.ctx);
-                        this.ctx.globalAlpha = 1.0;
-                    }
-                }
+                this.renderPausedPipeline();
+                return;
             }
         } else {
             // PLAYING: ordered stage pipe assembled by GameRenderPipeline.
             this.renderPlayingPipeline();
             return;
         }
+    },
 
-        // Non-PLAYING states still draw shared overlays below.
-        const uiStart = performance.now();
-        if (typeof renderEnemyDirectionArrows === 'function') {
-            renderEnemyDirectionArrows(this.ctx, this.player);
+    ensureTitleRenderPipeline() {
+        if (this._titleRenderPipeline) return this._titleRenderPipeline;
+        if (typeof GameRenderPipeline === 'undefined' || !GameRenderPipeline.createTitlePipeline) {
+            throw new Error('GameRenderPipeline is required for TITLE render.');
         }
-        if (typeof renderDoorDirectionArrow === 'function') {
-            renderDoorDirectionArrow(this.ctx, this.player);
+        this._titleRenderPipeline = GameRenderPipeline.createTitlePipeline(this);
+        if (typeof Engine !== 'undefined' && Engine.Debug && typeof Engine.Debug.registerPipeline === 'function') {
+            Engine.Debug.registerPipeline('title', this._titleRenderPipeline, { label: 'TITLE' });
         }
-        if (typeof renderExitChevron === 'function') {
-            renderExitChevron(this.ctx);
-        }
+        return this._titleRenderPipeline;
+    },
 
-        if ((typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.render) {
-            Engine.Input.render(this.ctx);
-        }
+    renderTitlePipeline() {
+        const pipeline = this.ensureTitleRenderPipeline();
+        const frame = GameRenderPipeline.beginTitleFrame(this, {
+            alpha: this._renderAlpha || 0,
+            timings: this.currentFrameTimings
+        });
+        pipeline.run(frame);
+    },
 
-        if (typeof Room0Tutorial !== 'undefined') {
-            this.ctx.save();
-            const currentZoom = this.getViewZoom();
-            const centerX = this.config.width / 2;
-            const centerY = this.config.height / 2;
-            this.ctx.translate(centerX + this.screenShakeOffset.x, centerY + this.screenShakeOffset.y);
-            this.ctx.scale(currentZoom, currentZoom);
-            this.ctx.translate(-this.camera.x, -this.camera.y);
-            if (Room0Tutorial.renderSpotlight) {
-                Room0Tutorial.renderSpotlight(this.ctx);
-            }
-            if (Room0Tutorial.isExitCoachActive
-                && Room0Tutorial.isExitCoachActive()
-                && this.player
-                && this.player.alive
-                && typeof this.player.render === 'function') {
-                this.player.render(this.ctx);
-            }
-            if (Room0Tutorial.renderCoachCard) {
-                Room0Tutorial.renderCoachCard(this.ctx);
-            }
-            this.ctx.restore();
+    ensureNexusRenderPipeline() {
+        if (this._nexusRenderPipeline) return this._nexusRenderPipeline;
+        if (typeof GameRenderPipeline === 'undefined' || !GameRenderPipeline.createNexusPipeline) {
+            throw new Error('GameRenderPipeline is required for NEXUS render.');
         }
+        this._nexusRenderPipeline = GameRenderPipeline.createNexusPipeline(this);
+        if (typeof Engine !== 'undefined' && Engine.Debug && typeof Engine.Debug.registerPipeline === 'function') {
+            Engine.Debug.registerPipeline('nexus', this._nexusRenderPipeline, { label: 'NEXUS' });
+        }
+        return this._nexusRenderPipeline;
+    },
 
-        if (typeof renderInteractionButton === 'function') {
-            renderInteractionButton(this.ctx);
+    renderNexusPipeline() {
+        const pipeline = this.ensureNexusRenderPipeline();
+        const frame = GameRenderPipeline.beginNexusFrame(this, {
+            alpha: this._renderAlpha || 0,
+            timings: this.currentFrameTimings
+        });
+        pipeline.run(frame);
+    },
+
+    ensureEnteringRoomRenderPipeline() {
+        if (this._enteringRoomRenderPipeline) return this._enteringRoomRenderPipeline;
+        if (typeof GameRenderPipeline === 'undefined' || !GameRenderPipeline.createEnteringRoomPipeline) {
+            throw new Error('GameRenderPipeline is required for ENTERING_ROOM render.');
         }
-        this.currentFrameTimings.ui += performance.now() - uiStart;
+        this._enteringRoomRenderPipeline = GameRenderPipeline.createEnteringRoomPipeline(this);
+        if (typeof Engine !== 'undefined' && Engine.Debug && typeof Engine.Debug.registerPipeline === 'function') {
+            Engine.Debug.registerPipeline('enteringRoom', this._enteringRoomRenderPipeline, { label: 'ENTERING_ROOM' });
+        }
+        return this._enteringRoomRenderPipeline;
+    },
+
+    renderEnteringRoomPipeline() {
+        const pipeline = this.ensureEnteringRoomRenderPipeline();
+        const frame = GameRenderPipeline.beginEnteringRoomFrame(this, {
+            alpha: this._renderAlpha || 0,
+            timings: this.currentFrameTimings
+        });
+        pipeline.run(frame);
+    },
+
+    ensurePausedRenderPipeline() {
+        if (this._pausedRenderPipeline) return this._pausedRenderPipeline;
+        if (typeof GameRenderPipeline === 'undefined' || !GameRenderPipeline.createPausedPipeline) {
+            throw new Error('GameRenderPipeline is required for PAUSED render.');
+        }
+        this._pausedRenderPipeline = GameRenderPipeline.createPausedPipeline(this);
+        if (typeof Engine !== 'undefined' && Engine.Debug && typeof Engine.Debug.registerPipeline === 'function') {
+            Engine.Debug.registerPipeline('paused', this._pausedRenderPipeline, { label: 'PAUSED' });
+        }
+        return this._pausedRenderPipeline;
+    },
+
+    renderPausedPipeline() {
+        const pipeline = this.ensurePausedRenderPipeline();
+        const frame = GameRenderPipeline.beginPausedFrame(this, {
+            alpha: this._renderAlpha || 0,
+            timings: this.currentFrameTimings
+        });
+        pipeline.run(frame);
     },
 
     /** Ensure the PLAYING stage recipe exists (lazy; game owns assembly). */
@@ -6029,7 +6020,7 @@ const Game = {
     // Create cached light sprite for efficient rendering
     createLightSprite() {
         const size = 256;
-        const canvas = document.createElement('canvas');
+        const canvas = Engine.Graphics.createCanvas(size, size);
         canvas.width = size;
         canvas.height = size;
         const ctx = canvas.getContext('2d');
@@ -6246,7 +6237,9 @@ const Game = {
         return {
             fps: this.fps || 0,
             qualityTier: this.getRenderQualityTier(),
-            frameBudget: this.debugFrameBudget || { frameAvg: 0, renderAvg: 0 },
+            frameBudget: (typeof window !== 'undefined' && window.engine && window.engine.debugFrameBudget)
+                ? window.engine.debugFrameBudget
+                : (this.debugFrameBudget || { frameAvg: 0, renderAvg: 0 }),
             counts,
             subTimings: {
                 groundLoot: (this.renderSubTimings && this.renderSubTimings.groundLoot) || 0,
@@ -6813,7 +6806,33 @@ const Game = {
         frameLists.groundItems.length = 0;
         frameLists.itemPylons.length = 0;
 
-        const isVisible = (entity, margin) => this.isEntityVisible(entity, margin, camera, viewport);
+        const activeCamera = camera || this._activeRenderCamera || this.camera;
+        let isVisible;
+        if (activeCamera) {
+            const activeViewport = viewport || this._activeRenderViewport;
+            const zoom = typeof this.getViewZoom === 'function' ? this.getViewZoom() : 1;
+            const width = activeViewport ? activeViewport.w : (this.config ? this.config.width : 1280);
+            const height = activeViewport ? activeViewport.h : (this.config ? this.config.height : 720);
+            const halfWidth = (width / 2) / zoom;
+            const halfHeight = (height / 2) / zoom;
+            const shakePadX = this.screenShakeOffset ? Math.abs(this.screenShakeOffset.x || 0) : 0;
+            const shakePadY = this.screenShakeOffset ? Math.abs(this.screenShakeOffset.y || 0) : 0;
+            const left = activeCamera.x - halfWidth - shakePadX;
+            const top = activeCamera.y - halfHeight - shakePadY;
+            const right = activeCamera.x + halfWidth + shakePadX;
+            const bottom = activeCamera.y + halfHeight + shakePadY;
+
+            isVisible = (entity, margin) => {
+                if (!entity) return false;
+                const rad = Math.max(0, Number(margin ?? entity.cullRadius ?? entity.radius) || 0);
+                return entity.x + rad >= left
+                    && entity.x - rad <= right
+                    && entity.y + rad >= top
+                    && entity.y - rad <= bottom;
+            };
+        } else {
+            isVisible = (entity) => !!entity;
+        }
 
         if (Array.isArray(this.enemies)) {
             for (let i = 0; i < this.enemies.length; i++) {
@@ -6877,7 +6896,7 @@ const Game = {
         // Create cached glow sprite if not exists
         if (!this.glowSprite) {
             const size = 128;
-            const canvas = document.createElement('canvas');
+            const canvas = Engine.Graphics.createCanvas(size, size);
             canvas.width = size;
             canvas.height = size;
             const gCtx = canvas.getContext('2d');
@@ -9447,7 +9466,7 @@ const Game = {
 
             // Create cached whirlwind gradient if needed
             if (!this.whirlwindGradient) {
-                const tempCanvas = document.createElement('canvas');
+                const tempCanvas = Engine.Graphics.createCanvas(120, 120);
                 tempCanvas.width = 120;
                 tempCanvas.height = 120;
                 const tempCtx = tempCanvas.getContext('2d');
@@ -10060,10 +10079,17 @@ if (typeof window !== 'undefined' && window.addEventListener) {
                 postFx: 0,
                 ui: 0
             };
+            if (typeof Engine !== 'undefined' && Engine.Profiler && typeof Engine.Profiler.beginFrame === 'function') {
+                Engine.Profiler.beginFrame();
+                if (Engine.Profiler.markPhase) Engine.Profiler.markPhase('render');
+            }
             this.render();
             this.renderLocalSplitJoinPrompt();
         };
         game.onFrameEnd = function({ realDeltaTime, processTime, updateTime, renderTime, updatesRun, accumulatorTruncated }) {
+            if (typeof Engine !== 'undefined' && Engine.Profiler && typeof Engine.Profiler.endFrame === 'function') {
+                Engine.Profiler.endFrame();
+            }
             this.frameRenderTimings = Object.assign({}, this.currentFrameTimings || {}, {
                 update: updateTime,
                 render: renderTime,
@@ -10091,10 +10117,23 @@ if (typeof window !== 'undefined' && window.addEventListener) {
         };
 
         const startCore = () => {
+            if (typeof Engine !== 'undefined' && Engine.Input && typeof Engine.Input.onDeviceChange === 'function') {
+                Engine.Input.onDeviceChange((mode) => {
+                    if (game.canvas && Engine.Input.isMobileUiMode && Engine.Input.isMobileUiMode()) {
+                        if (Engine.Input.initTouchControls) {
+                            Engine.Input.initTouchControls(game.canvas);
+                        }
+                    }
+                });
+            }
+
             window.engine = new Engine.Core({
                 onInit: () => game.setup(),
                 onUpdate: (dt) => {
                     if (typeof Engine !== 'undefined' && Engine.Debug && Engine.Debug.frozen) return;
+                    if (typeof Engine !== 'undefined' && Engine.Profiler && typeof Engine.Profiler.markPhase === 'function') {
+                        Engine.Profiler.markPhase('update');
+                    }
                     game.tick(dt);
                 },
                 onRender: (ctx, alpha) => game.draw(ctx, alpha),

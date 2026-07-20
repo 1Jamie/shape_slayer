@@ -522,8 +522,12 @@
     const _bakeCanvasPool = [];
     const BAKE_CANVAS_POOL_MAX = 24;
 
+    function _createOffscreenCanvas(w, h) {
+        return Engine.Graphics.createCanvas(w, h);
+    }
+
     function _ensureScratchCanvas(holder, w, h) {
-        if (!holder.canvas) holder.canvas = document.createElement('canvas');
+        if (!holder.canvas) holder.canvas = _createOffscreenCanvas(w, h);
         if (holder.canvas.width !== w || holder.canvas.height !== h) {
             holder.canvas.width = w;
             holder.canvas.height = h;
@@ -533,7 +537,7 @@
 
     function _acquireBakeCanvas(w, h) {
         let canvas = _bakeCanvasPool.pop();
-        if (!canvas) canvas = document.createElement('canvas');
+        if (!canvas) canvas = _createOffscreenCanvas(w, h);
         if (canvas.width !== w || canvas.height !== h) {
             canvas.width = w;
             canvas.height = h;
@@ -819,7 +823,7 @@
         const maxDestroyable = Math.floor(cols * rows * destroyFraction);
 
         const canvasSize = Math.ceil(size * 3.2);
-        const canvas = document.createElement('canvas');
+        const canvas = _createOffscreenCanvas(canvasSize, canvasSize);
         canvas.width  = canvasSize;
         canvas.height = canvasSize;
         const offCtx = canvas.getContext('2d');
@@ -2014,7 +2018,7 @@
 
     globalThis.resetVoxelStaticCanvas = function(w, h) {
         if (!VoxelStaticCanvas.canvas) {
-            VoxelStaticCanvas.canvas = document.createElement('canvas');
+            VoxelStaticCanvas.canvas = _createOffscreenCanvas(1, 1);
         }
         // Ensure w and h are valid positive numbers, fallback to defaults
         const validW = (typeof w === 'number' && w > 0 && !isNaN(w)) ? Math.floor(w) : 2400;

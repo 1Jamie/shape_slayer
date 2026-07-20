@@ -153,43 +153,130 @@
     }
 
     class MinHeap {
-        constructor() {
-            this.items = [];
+        constructor(initialCapacity = 1024) {
+            this.capacity = initialCapacity;
+            this.stride = 4; // score, index, x, y
+            this.data = new Float64Array(initialCapacity * this.stride);
+            this.length = 0; // count of items
+            this._popScratch = { score: 0, index: 0, x: 0, y: 0 };
         }
 
-        push(item) {
-            this.items.push(item);
-            let index = this.items.length - 1;
-            while (index > 0) {
-                const parent = (index - 1) >> 1;
-                if (this.items[parent].score <= item.score) break;
-                this.items[index] = this.items[parent];
-                index = parent;
+        _grow() {
+            const newCap = this.capacity * 2;
+            const newData = new Float64Array(newCap * this.stride);
+            newData.set(this.data);
+            this.capacity = newCap;
+            this.data = newData;
+        }
+
+        push(scoreOrObj, index, x, y) {
+            let scoreVal, idxVal, xVal, yVal;
+            if (scoreOrObj && typeof scoreOrObj === 'object') {
+                scoreVal = Number(scoreOrObj.score) || 0;
+                idxVal = Number(scoreOrObj.index) || 0;
+                xVal = Number(scoreOrObj.x) || 0;
+                yVal = Number(scoreOrObj.y) || 0;
+            } else {
+                scoreVal = Number(scoreOrObj) || 0;
+                idxVal = Number(index) || 0;
+                xVal = Number(x) || 0;
+                yVal = Number(y) || 0;
             }
-            this.items[index] = item;
+
+            if (this.length >= this.capacity) {
+                this._grow();
+            }
+
+            const data = this.data;
+            const stride = this.stride;
+            let i = this.length;
+            this.length++;
+
+            while (i > 0) {
+                const parent = (i - 1) >> 1;
+                const parentScore = data[parent * stride];
+                if (parentScore <= scoreVal) break;
+
+                const pOffset = parent * stride;
+                const iOffset = i * stride;
+                data[iOffset] = data[pOffset];
+                data[iOffset + 1] = data[pOffset + 1];
+                data[iOffset + 2] = data[pOffset + 2];
+                data[iOffset + 3] = data[pOffset + 3];
+                i = parent;
+            }
+
+            const offset = i * stride;
+            data[offset] = scoreVal;
+            data[offset + 1] = idxVal;
+            data[offset + 2] = xVal;
+            data[offset + 3] = yVal;
         }
 
-        pop() {
-            if (!this.items.length) return null;
-            const rootItem = this.items[0];
-            const tail = this.items.pop();
-            if (this.items.length) {
-                let index = 0;
+        pop(outObj = null) {
+            if (this.length === 0) return null;
+            const data = this.data;
+            const stride = this.stride;
+
+            const rootScore = data[0];
+            const rootIndex = data[1];
+            const rootX = data[2];
+            const rootY = data[3];
+
+            this.length--;
+            const count = this.length;
+
+            if (count > 0) {
+                const tailOffset = count * stride;
+                const tailScore = data[tailOffset];
+                const tailIndex = data[tailOffset + 1];
+                const tailX = data[tailOffset + 2];
+                const tailY = data[tailOffset + 3];
+
+                let i = 0;
                 while (true) {
-                    const left = index * 2 + 1;
+                    const left = (i << 1) + 1;
                     const right = left + 1;
-                    if (left >= this.items.length) break;
+                    if (left >= count) break;
+
                     let child = left;
-                    if (right < this.items.length && this.items[right].score < this.items[left].score) {
+                    if (right < count && data[right * stride] < data[left * stride]) {
                         child = right;
                     }
-                    if (this.items[child].score >= tail.score) break;
-                    this.items[index] = this.items[child];
-                    index = child;
+
+                    if (data[child * stride] >= tailScore) break;
+
+                    const cOffset = child * stride;
+                    const iOffset = i * stride;
+                    data[iOffset] = data[cOffset];
+                    data[iOffset + 1] = data[cOffset + 1];
+                    data[iOffset + 2] = data[cOffset + 2];
+                    data[iOffset + 3] = data[cOffset + 3];
+                    i = child;
                 }
-                this.items[index] = tail;
+
+                const finalOffset = i * stride;
+                data[finalOffset] = tailScore;
+                data[finalOffset + 1] = tailIndex;
+                data[finalOffset + 2] = tailX;
+                data[finalOffset + 3] = tailY;
             }
-            return rootItem;
+
+            const res = outObj && typeof outObj === 'object' ? outObj : { score: 0, index: 0, x: 0, y: 0 };
+            res.score = rootScore;
+            res.index = rootIndex;
+            res.x = rootX;
+            res.y = rootY;
+            return res;
+        }
+
+        get items() {
+            // For backward compatibility checking length
+            return { length: this.length };
+        }
+
+        clear() {
+            this.length = 0;
         }
     }
 
@@ -647,7 +734,7 @@
         return points.map(point => ({ x: point.x, y: point.y }));
     }
 
-    function projectPointOnSegment(px, py, ax, ay, bx, by) {
+    function projectPointOnSegment(px, py, ax, ay, bx, by, out = null) {
         const geometry = getGeometry();
         if (geometry && typeof geometry.projectPointOnSegment === 'function') {
             return geometry.projectPointOnSegment(px, py, ax, ay, bx, by);
@@ -655,61 +742,109 @@
         const dx = bx - ax;
         const dy = by - ay;
         const lengthSq = dx * dx + dy * dy;
+        let projX = ax, projY = ay, t = 0, distSq = 0;
         if (lengthSq <= 0) {
             const dist = Math.hypot(px - ax, py - ay);
-            return { x: ax, y: ay, t: 0, distSq: dist * dist };
+            projX = ax;
+            projY = ay;
+            t = 0;
+            distSq = dist * dist;
+        } else {
+            t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lengthSq));
+            projX = ax + dx * t;
+            projY = ay + dy * t;
+            const distX = px - projX;
+            const distY = py - projY;
+            distSq = distX * distX + distY * distY;
         }
-        const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lengthSq));
-        const projX = ax + dx * t;
-        const projY = ay + dy * t;
-        const distX = px - projX;
-        const distY = py - projY;
-        return { x: projX, y: projY, t, distSq: distX * distX + distY * distY };
+        if (out && typeof out === 'object') {
+            out.x = projX;
+            out.y = projY;
+            out.t = t;
+            out.distSq = distSq;
+            return out;
+        }
+        return { x: projX, y: projY, t, distSq };
     }
 
     const Polyline = {
-        segmentBounds(points) {
-            const pts = normalizePolylinePoints(points);
-            if (pts.length < 2) return [0];
-            const bounds = [0];
+        segmentBounds(points, outArray = null) {
+            if (!Array.isArray(points) || points.length < 2) {
+                if (outArray) { outArray.length = 0; outArray.push(0); return outArray; }
+                return [0];
+            }
+            const bounds = outArray || [];
+            bounds.length = points.length;
+            bounds[0] = 0;
             let cumulative = 0;
-            for (let i = 1; i < pts.length; i++) {
-                cumulative += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
-                bounds.push(cumulative);
+            for (let i = 1; i < points.length; i++) {
+                const prev = points[i - 1];
+                const curr = points[i];
+                const px = prev ? Number(prev.x) || 0 : 0;
+                const py = prev ? Number(prev.y) || 0 : 0;
+                const cx = curr ? Number(curr.x) || 0 : 0;
+                const cy = curr ? Number(curr.y) || 0 : 0;
+                cumulative += Math.hypot(cx - px, cy - py);
+                bounds[i] = cumulative;
             }
             return bounds;
         },
 
         routeLength(points) {
-            const bounds = this.segmentBounds(points);
-            return bounds.length > 0 ? bounds[bounds.length - 1] : 0;
+            if (!Array.isArray(points) || points.length < 2) return 0;
+            let cumulative = 0;
+            for (let i = 1; i < points.length; i++) {
+                const prev = points[i - 1];
+                const curr = points[i];
+                const px = prev ? Number(prev.x) || 0 : 0;
+                const py = prev ? Number(prev.y) || 0 : 0;
+                const cx = curr ? Number(curr.x) || 0 : 0;
+                const cy = curr ? Number(curr.y) || 0 : 0;
+                cumulative += Math.hypot(cx - px, cy - py);
+            }
+            return cumulative;
         },
 
-        pointAtArc(points, arc) {
-            const pts = normalizePolylinePoints(points);
-            const bounds = this.segmentBounds(pts);
-            const routeLength = bounds[bounds.length - 1] || 0;
-            if (pts.length < 2 || routeLength <= 0) {
-                const first = pts[0] || { x: 0, y: 0 };
-                return { x: first.x, y: first.y, segmentIndex: 0, tangent: 0 };
+        pointAtArc(points, arc, out = null) {
+            const res = out && typeof out === 'object' ? out : { x: 0, y: 0, segmentIndex: 0, tangent: 0 };
+            if (!Array.isArray(points) || points.length === 0) {
+                res.x = 0; res.y = 0; res.segmentIndex = 0; res.tangent = 0;
+                return res;
+            }
+            if (points.length === 1) {
+                const p0 = points[0];
+                res.x = p0 ? Number(p0.x) || 0 : 0;
+                res.y = p0 ? Number(p0.y) || 0 : 0;
+                res.segmentIndex = 0;
+                res.tangent = 0;
+                return res;
             }
 
-            const clampedArc = Math.max(0, Math.min(routeLength, arc));
+            const bounds = this.segmentBounds(points);
+            const routeLength = bounds[bounds.length - 1] || 0;
+            const clampedArc = Math.max(0, Math.min(routeLength, Number(arc) || 0));
+
+            const p0 = points[0];
+            const p1 = points[1];
+            const p0x = p0 ? Number(p0.x) || 0 : 0;
+            const p0y = p0 ? Number(p0.y) || 0 : 0;
+            const p1x = p1 ? Number(p1.x) || 0 : 0;
+            const p1y = p1 ? Number(p1.y) || 0 : 0;
+
             if (clampedArc <= 0) {
-                const dx = pts[1].x - pts[0].x;
-                const dy = pts[1].y - pts[0].y;
-                return { x: pts[0].x, y: pts[0].y, segmentIndex: 0, tangent: Math.atan2(dy, dx) };
+                res.x = p0x; res.y = p0y; res.segmentIndex = 0; res.tangent = Math.atan2(p1y - p0y, p1x - p0x);
+                return res;
             }
             if (clampedArc >= routeLength) {
-                const last = pts.length - 1;
-                const dx = pts[last].x - pts[last - 1].x;
-                const dy = pts[last].y - pts[last - 1].y;
-                return {
-                    x: pts[last].x,
-                    y: pts[last].y,
-                    segmentIndex: last - 1,
-                    tangent: Math.atan2(dy, dx)
-                };
+                const last = points.length - 1;
+                const pLast = points[last];
+                const pPrev = points[last - 1];
+                const plx = pLast ? Number(pLast.x) || 0 : 0;
+                const ply = pLast ? Number(pLast.y) || 0 : 0;
+                const ppx = pPrev ? Number(pPrev.x) || 0 : 0;
+                const ppy = pPrev ? Number(pPrev.y) || 0 : 0;
+                res.x = plx; res.y = ply; res.segmentIndex = last - 1; res.tangent = Math.atan2(ply - ppy, plx - ppx);
+                return res;
             }
 
             for (let i = 1; i < bounds.length; i++) {
@@ -717,21 +852,28 @@
                     const segStart = bounds[i - 1];
                     const segLen = bounds[i] - segStart;
                     const t = segLen > 0 ? (clampedArc - segStart) / segLen : 0;
-                    const from = pts[i - 1];
-                    const to = pts[i];
-                    const dx = to.x - from.x;
-                    const dy = to.y - from.y;
-                    return {
-                        x: from.x + dx * t,
-                        y: from.y + dy * t,
-                        segmentIndex: i - 1,
-                        tangent: Math.atan2(dy, dx)
-                    };
+                    const from = points[i - 1];
+                    const to = points[i];
+                    const fx = from ? Number(from.x) || 0 : 0;
+                    const fy = from ? Number(from.y) || 0 : 0;
+                    const tx = to ? Number(to.x) || 0 : 0;
+                    const ty = to ? Number(to.y) || 0 : 0;
+                    const dx = tx - fx;
+                    const dy = ty - fy;
+                    res.x = fx + dx * t;
+                    res.y = fy + dy * t;
+                    res.segmentIndex = i - 1;
+                    res.tangent = Math.atan2(dy, dx);
+                    return res;
                 }
             }
 
-            const fallback = pts[pts.length - 1];
-            return { x: fallback.x, y: fallback.y, segmentIndex: Math.max(0, pts.length - 2), tangent: 0 };
+            const fallback = points[points.length - 1];
+            res.x = fallback ? Number(fallback.x) || 0 : 0;
+            res.y = fallback ? Number(fallback.y) || 0 : 0;
+            res.segmentIndex = Math.max(0, points.length - 2);
+            res.tangent = 0;
+            return res;
         },
 
         arcAtPoint(points, x, y) {
@@ -778,6 +920,30 @@
             }
             return covered >= routeLength - gapTolerance;
         }
+    };
+
+    Proc.dispatchWorkerTask = function(taskType, payload = {}, callback) {
+        if (typeof Worker !== 'undefined' && typeof window !== 'undefined') {
+            try {
+                const worker = new Worker('src/engine/proc-worker.js');
+                worker.onmessage = function(e) {
+                    if (typeof callback === 'function') callback(e.data);
+                    worker.terminate();
+                };
+                worker.postMessage({ type: taskType, ...payload });
+                return true;
+            } catch (_) {}
+        }
+        // Synchronous fallback
+        if (taskType === 'GENERATE_GRID') {
+            const grid = new Grid(payload.width || 32, payload.height || 32);
+            grid.fillRandom(payload.density || 0.4, payload.seed || 12345);
+            grid.smooth(payload.iterations || 4);
+            if (typeof callback === 'function') {
+                callback({ type: 'GRID_GENERATED', width: grid.width, height: grid.height, data: grid.data.buffer, grid });
+            }
+        }
+        return false;
     };
 
     Proc.Rng = Rng;

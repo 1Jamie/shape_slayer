@@ -18,7 +18,7 @@
                     setSfxVolume: (v) => { if (typeof SaveSystem !== 'undefined' && SaveSystem.setSfxVolume) SaveSystem.setSfxVolume(v); }
                 }
             });
-            if (typeof Engine.Audio.loadSettings === 'function') Engine.Audio.loadSettings();
+            Engine.Audio.loadSettings();
         },
 
         sounds: {

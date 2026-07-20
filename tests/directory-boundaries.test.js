@@ -287,6 +287,7 @@ test('four domain locations remain separate', () => {
         'src/engine/net.js',
         'src/engine/physics.js',
         'src/engine/proc.js',
+        'src/engine/proc-worker.js',
         'src/engine/profiler.js',
         'src/engine/debug.js',
         'src/engine/render-host.js',

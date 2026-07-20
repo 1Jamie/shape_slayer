@@ -84,7 +84,13 @@ function renderMarkdownLine(ctx, line, x, y, maxWidth, baseColor = '#cccccc') {
         let fontStyle = '';
         if (segment.italic) fontStyle = 'italic ';
         if (segment.bold) fontStyle += 'bold ';
-        ctx.font = `${fontStyle}${fontSize} Orbitron`;
+        const fontSpec = `${fontStyle}${fontSize} Orbitron`;
+        
+        if (typeof Engine !== 'undefined' && Engine.Graphics && Engine.Graphics.Text) {
+            Engine.Graphics.Text.setFont(ctx, fontSpec);
+        } else {
+            ctx.font = fontSpec;
+        }
         
         // Set color (special color for quotes)
         ctx.fillStyle = segment.color || (segment.bold ? '#ffdd88' : baseColor);
@@ -93,7 +99,12 @@ function renderMarkdownLine(ctx, line, x, y, maxWidth, baseColor = '#cccccc') {
         const words = segment.text.split(' ');
         words.forEach((word, wordIndex) => {
             const wordWithSpace = wordIndex < words.length - 1 ? word + ' ' : word;
-            const wordWidth = ctx.measureText(wordWithSpace).width;
+            let wordWidth = 0;
+            if (typeof Engine !== 'undefined' && Engine.Graphics && Engine.Graphics.Text) {
+                wordWidth = Engine.Graphics.Text.measureText(ctx, fontSpec, wordWithSpace).width;
+            } else {
+                wordWidth = ctx.measureText(wordWithSpace).width;
+            }
             
             // Check if word fits on current line
             if (currentX + wordWidth > x + maxWidth && currentX > x) {

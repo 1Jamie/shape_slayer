@@ -103,40 +103,65 @@
             return this;
         }
 
-        screenToWorld(screenX, screenY, offset = null) {
+        screenToWorld(screenX, screenY, offset = null, out = null) {
             const dx = offset && Number.isFinite(offset.x) ? offset.x : 0;
             const dy = offset && Number.isFinite(offset.y) ? offset.y : 0;
-            return {
-                x: this.x + (screenX - this.viewWidth / 2 - dx) / this.zoom,
-                y: this.y + (screenY - this.viewHeight / 2 - dy) / this.zoom
-            };
+            const wx = this.x + (screenX - this.viewWidth / 2 - dx) / this.zoom;
+            const wy = this.y + (screenY - this.viewHeight / 2 - dy) / this.zoom;
+            if (out && typeof out === 'object') {
+                out.x = wx;
+                out.y = wy;
+                return out;
+            }
+            return { x: wx, y: wy };
         }
 
-        worldToScreen(worldX, worldY, offset = null) {
+        worldToScreen(worldX, worldY, offset = null, out = null) {
             const dx = offset && Number.isFinite(offset.x) ? offset.x : 0;
             const dy = offset && Number.isFinite(offset.y) ? offset.y : 0;
-            return {
-                x: (worldX - this.x) * this.zoom + this.viewWidth / 2 + dx,
-                y: (worldY - this.y) * this.zoom + this.viewHeight / 2 + dy
-            };
+            const sx = (worldX - this.x) * this.zoom + this.viewWidth / 2 + dx;
+            const sy = (worldY - this.y) * this.zoom + this.viewHeight / 2 + dy;
+            if (out && typeof out === 'object') {
+                out.x = sx;
+                out.y = sy;
+                return out;
+            }
+            return { x: sx, y: sy };
         }
 
-        viewBounds(margin = 0) {
+        viewBounds(margin = 0, offset = null, out = null) {
             const padding = Math.max(0, Number(margin) || 0);
             const halfWidth = this.viewWidth / (2 * this.zoom);
             const halfHeight = this.viewHeight / (2 * this.zoom);
-            return {
-                x: this.x - halfWidth - padding,
-                y: this.y - halfHeight - padding,
-                width: halfWidth * 2 + padding * 2,
-                height: halfHeight * 2 + padding * 2
-            };
+            const offsetX = offset && Number.isFinite(offset.x) ? Math.abs(offset.x) : 0;
+            const offsetY = offset && Number.isFinite(offset.y) ? Math.abs(offset.y) : 0;
+            const extraPaddingX = padding + offsetX;
+            const extraPaddingY = padding + offsetY;
+            const bx = this.x - halfWidth - extraPaddingX;
+            const by = this.y - halfHeight - extraPaddingY;
+            const bw = halfWidth * 2 + extraPaddingX * 2;
+            const bh = halfHeight * 2 + extraPaddingY * 2;
+            if (out && typeof out === 'object') {
+                out.x = bx;
+                out.y = by;
+                out.width = bw;
+                out.height = bh;
+                return out;
+            }
+            return { x: bx, y: by, width: bw, height: bh };
         }
 
-        inView(x, y, margin = 0) {
-            const bounds = this.viewBounds(margin);
-            return x >= bounds.x && x <= bounds.x + bounds.width &&
-                y >= bounds.y && y <= bounds.y + bounds.height;
+        inView(x, y, margin = 0, offset = null) {
+            const padding = Math.max(0, Number(margin) || 0);
+            const halfWidth = this.viewWidth / (2 * this.zoom);
+            const halfHeight = this.viewHeight / (2 * this.zoom);
+            const offsetX = offset && Number.isFinite(offset.x) ? Math.abs(offset.x) : 0;
+            const offsetY = offset && Number.isFinite(offset.y) ? Math.abs(offset.y) : 0;
+            const minX = this.x - halfWidth - padding - offsetX;
+            const maxX = this.x + halfWidth + padding + offsetX;
+            const minY = this.y - halfHeight - padding - offsetY;
+            const maxY = this.y + halfHeight + padding + offsetY;
+            return x >= minX && x <= maxX && y >= minY && y <= maxY;
         }
     }
 

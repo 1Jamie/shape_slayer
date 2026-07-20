@@ -378,3 +378,82 @@ test('absent hooks fail closed — onCharacterSheetTouchStart returns false with
     assert.equal(result, false);
     if (saved !== undefined) Input._hooks.onCharacterSheetTouchStart = saved;
 });
+
+function makeRawButtons(count, pressedIndex = -1) {
+    return Array.from({ length: count }, (_, i) => ({
+        pressed: i === pressedIndex,
+        value: i === pressedIndex ? 1 : 0
+    }));
+}
+
+test('standard-mapped DualSense pads pass through unchanged', () => {
+    const pad = {
+        id: 'DualSense Wireless Controller',
+        index: 0,
+        connected: true,
+        mapping: 'standard',
+        buttons: makeRawButtons(17, 9),
+        axes: [0, 0, 0, 0]
+    };
+    const mapped = Input._getMappedGamepad(pad);
+    assert.equal(mapped, pad);
+    assert.equal(mapped.buttons[9].pressed, true, 'Start stays on standard index 9');
+    assert.equal(mapped.buttons[7].pressed, false, 'RT not pressed');
+});
+
+test('HHD/Linux Xbox legacy layout remaps Start off of RT and pulls triggers from axes', () => {
+    // Classic Linux joystick / HHD Xbox-emu node: buttons 6/7 = Back/Start,
+    // LT/RT live on axes 2/5 — not standard Gamepad indices.
+    const pad = {
+        id: 'Microsoft X-Box 360 pad',
+        index: 0,
+        connected: true,
+        mapping: '',
+        buttons: makeRawButtons(11, 7), // physical Start
+        axes: [0, 0, 0.8, 0.1, -0.2, 0.9, 0, 0] // LT, RX, RY, RT, hat
+    };
+
+    assert.equal(Input._needsXboxLegacyRemap(pad), true);
+    const mapped = Input._getMappedGamepad(pad);
+
+    assert.equal(mapped.mapping, 'standard');
+    assert.equal(mapped._remappedFrom, 'xbox-legacy');
+    assert.equal(mapped.buttons[9].pressed, true, 'Start → standard 9');
+    assert.equal(mapped.buttons[7].pressed, true, 'RT from axis 5');
+    assert.ok(mapped.buttons[7].value > 0.5, 'RT analog value preserved');
+    assert.equal(mapped.buttons[6].pressed, true, 'LT from axis 2');
+    assert.equal(mapped.buttons[8].pressed, false, 'Select not pressed');
+    // Right stick moved off the trigger axes
+    assert.equal(mapped.axes[2], 0.1);
+    assert.equal(mapped.axes[3], -0.2);
+});
+
+test('Xbox legacy Select (raw 6) maps to standard Select, not LT', () => {
+    const pad = {
+        id: 'Xbox Controller',
+        index: 1,
+        connected: true,
+        mapping: '',
+        buttons: makeRawButtons(11, 6),
+        axes: [0, 0, 0, 0, 0, 0]
+    };
+    const mapped = Input._getMappedGamepad(pad);
+    assert.equal(mapped.buttons[8].pressed, true, 'Select → standard 8');
+    assert.equal(mapped.buttons[6].pressed, false, 'LT idle when trigger axis is 0');
+    assert.equal(mapped.buttons[7].pressed, false, 'RT idle — Start no longer aliases fire');
+});
+
+test('Xbox legacy Start alone does not activate RT (the Start→fire bug)', () => {
+    const pad = {
+        id: 'Generic X-Box pad',
+        index: 0,
+        connected: true,
+        mapping: '',
+        buttons: makeRawButtons(11, 7),
+        axes: [0, 0, 0, 0, 0, 0]
+    };
+    const mapped = Input._getMappedGamepad(pad);
+    assert.equal(mapped.buttons[9].pressed, true);
+    assert.equal(mapped.buttons[7].pressed, false);
+    assert.equal(mapped.buttons[7].value, 0);
+});

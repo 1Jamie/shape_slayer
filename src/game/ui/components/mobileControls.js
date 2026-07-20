@@ -122,7 +122,6 @@
         },
 
         shouldShow() {
-            if ((typeof Engine === 'undefined' || !Engine.Input)) return false;
             // Local co-op never uses touch seats — keep on-screen sticks hidden.
             if (typeof Game !== 'undefined' && Game.localSplitEnabled) return false;
             if (Engine.Input.isCouchSplitActive && Engine.Input.isCouchSplitActive()) return false;

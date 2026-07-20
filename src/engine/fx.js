@@ -192,11 +192,12 @@
         return ax * by - ay * bx;
     }
 
-    function castRay(originX, originY, angle, radius, segments) {
+    function castRay(originX, originY, angle, radius, segments, out = null) {
         const dx = Math.cos(angle);
         const dy = Math.sin(angle);
         let nearest = radius;
-        for (const segment of segments) {
+        for (let i = 0; i < segments.length; i++) {
+            const segment = segments[i];
             const sx = segment.b.x - segment.a.x;
             const sy = segment.b.y - segment.a.y;
             const denominator = cross(dx, dy, sx, sy);
@@ -207,11 +208,15 @@
             const along = cross(qx, qy, dx, dy) / denominator;
             if (distance >= 0 && distance <= nearest && along >= 0 && along <= 1) nearest = distance;
         }
-        return {
-            x: originX + dx * nearest,
-            y: originY + dy * nearest,
-            angle
-        };
+        const rx = originX + dx * nearest;
+        const ry = originY + dy * nearest;
+        if (out && typeof out === 'object') {
+            out.x = rx;
+            out.y = ry;
+            out.angle = angle;
+            return out;
+        }
+        return { x: rx, y: ry, angle };
     }
 
     class ShadowCaster {
@@ -223,6 +228,22 @@
             this.viewBounds = null;
             this.activeContext = null;
             this.lightCount = 0;
+
+            this._scratchCorners = [
+                { x: 0, y: 0 },
+                { x: 0, y: 0 },
+                { x: 0, y: 0 },
+                { x: 0, y: 0 }
+            ];
+            this._scratchCornerSegments = [
+                { a: this._scratchCorners[0], b: this._scratchCorners[1] },
+                { a: this._scratchCorners[1], b: this._scratchCorners[2] },
+                { a: this._scratchCorners[2], b: this._scratchCorners[3] },
+                { a: this._scratchCorners[3], b: this._scratchCorners[0] }
+            ];
+            this._nearbyScratch = [];
+            this._anglesScratch = [];
+            this._pointsScratch = [];
         }
 
         setOccluders(segments) {
@@ -234,19 +255,23 @@
             if (!ctx || typeof ctx.save !== 'function') throw new TypeError('A Canvas2D context is required.');
             this.viewBounds = normalizeBounds(viewBounds);
             const bounds = this.viewBounds;
-            const corners = [
-                { x: bounds.left, y: bounds.top },
-                { x: bounds.right, y: bounds.top },
-                { x: bounds.right, y: bounds.bottom },
-                { x: bounds.left, y: bounds.bottom }
-            ];
-            this.visibleOccluders = this.occluders.filter(segment => segmentTouchesBounds(segment, bounds));
-            for (let index = 0; index < corners.length; index++) {
-                this.visibleOccluders.push({
-                    a: corners[index],
-                    b: corners[(index + 1) % corners.length]
-                });
+            const c = this._scratchCorners;
+            c[0].x = bounds.left;  c[0].y = bounds.top;
+            c[1].x = bounds.right; c[1].y = bounds.top;
+            c[2].x = bounds.right; c[2].y = bounds.bottom;
+            c[3].x = bounds.left;  c[3].y = bounds.bottom;
+
+            this.visibleOccluders.length = 0;
+            for (let i = 0; i < this.occluders.length; i++) {
+                const seg = this.occluders[i];
+                if (segmentTouchesBounds(seg, bounds)) {
+                    this.visibleOccluders.push(seg);
+                }
             }
+            for (let i = 0; i < 4; i++) {
+                this.visibleOccluders.push(this._scratchCornerSegments[i]);
+            }
+
             this.lightCount = 0;
             this.activeContext = ctx;
             ctx.save();
@@ -263,25 +288,35 @@
             if (x + radius < bounds.left || x - radius > bounds.right
                 || y + radius < bounds.top || y - radius > bounds.bottom) return false;
 
-            const nearby = this.visibleOccluders.filter(segment => {
+            const nearby = this._nearbyScratch;
+            nearby.length = 0;
+            for (let i = 0; i < this.visibleOccluders.length; i++) {
+                const segment = this.visibleOccluders[i];
                 const minX = Math.min(segment.a.x, segment.b.x);
                 const maxX = Math.max(segment.a.x, segment.b.x);
                 const minY = Math.min(segment.a.y, segment.b.y);
                 const maxY = Math.max(segment.a.y, segment.b.y);
-                return maxX >= x - radius && minX <= x + radius
-                    && maxY >= y - radius && minY <= y + radius;
-            });
+                if (maxX >= x - radius && minX <= x + radius
+                    && maxY >= y - radius && minY <= y + radius) {
+                    nearby.push(segment);
+                }
+            }
+
             const epsilon = 0.00001;
-            let angles = [];
+            const angles = this._anglesScratch;
+            angles.length = 0;
             const baseRayCount = Math.min(this.maxRays, 24);
             for (let index = 0; index < baseRayCount; index++) {
                 angles.push(index * Math.PI * 2 / baseRayCount);
             }
-            for (const segment of nearby) {
-                for (const point of [segment.a, segment.b]) {
-                    const angle = Math.atan2(point.y - y, point.x - x);
-                    angles.push(angle - epsilon, angle, angle + epsilon);
-                }
+            for (let i = 0; i < nearby.length; i++) {
+                const segment = nearby[i];
+                const pA = segment.a;
+                const pB = segment.b;
+                const angleA = Math.atan2(pA.y - y, pA.x - x);
+                angles.push(angleA - epsilon, angleA, angleA + epsilon);
+                const angleB = Math.atan2(pB.y - y, pB.x - x);
+                angles.push(angleB - epsilon, angleB, angleB + epsilon);
             }
             if (!angles.length) {
                 const steps = Math.min(this.maxRays, 32);
@@ -289,20 +324,27 @@
             }
             angles.sort((a, b) => a - b);
             if (angles.length > this.maxRays) {
-                const reduced = [];
                 const stride = angles.length / this.maxRays;
                 for (let index = 0; index < this.maxRays; index++) {
-                    reduced.push(angles[Math.floor(index * stride)]);
+                    angles[index] = angles[Math.floor(index * stride)];
                 }
-                angles = reduced;
+                angles.length = this.maxRays;
             }
-            const points = angles.map(angle => castRay(x, y, angle, radius, nearby));
-            if (points.length < 3) return false;
+
+            const points = this._pointsScratch;
+            while (points.length < angles.length) {
+                points.push({ x: 0, y: 0, angle: 0 });
+            }
+            for (let i = 0; i < angles.length; i++) {
+                castRay(x, y, angles[i], radius, nearby, points[i]);
+            }
+            const numPoints = angles.length;
+            if (numPoints < 3) return false;
 
             ctx.save();
             ctx.beginPath();
             ctx.moveTo(points[0].x, points[0].y);
-            for (let index = 1; index < points.length; index++) ctx.lineTo(points[index].x, points[index].y);
+            for (let index = 1; index < numPoints; index++) ctx.lineTo(points[index].x, points[index].y);
             ctx.closePath();
             ctx.clip();
             const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
@@ -315,6 +357,37 @@
             return true;
         }
 
+        /**
+         * Render a batch of light sources from a flat Float32Array buffer [x0, y0, r0, x1, y1, r1, ...]
+         * or array of light objects.
+         */
+        drawLightsBatch(ctx, lightData, lightCount = 0) {
+            if (!this.viewBounds || this.activeContext !== ctx) {
+                throw new Error('ShadowCaster.begin must be called before drawLightsBatch.');
+            }
+            if (lightData instanceof Float32Array || lightData instanceof Float64Array) {
+                const total = lightCount > 0 ? lightCount : Math.floor(lightData.length / 3);
+                let drawn = 0;
+                for (let i = 0; i < total; i++) {
+                    const offset = i * 3;
+                    const x = lightData[offset];
+                    const y = lightData[offset + 1];
+                    const radius = lightData[offset + 2];
+                    if (this.drawLight(ctx, x, y, radius)) drawn++;
+                }
+                return drawn;
+            } else if (Array.isArray(lightData)) {
+                let drawn = 0;
+                const total = lightCount > 0 ? Math.min(lightCount, lightData.length) : lightData.length;
+                for (let i = 0; i < total; i++) {
+                    const light = lightData[i];
+                    if (light && this.drawLight(ctx, light.x, light.y, light.radius, light.color)) drawn++;
+                }
+                return drawn;
+            }
+            return 0;
+        }
+
         end(ctx) {
             if (!this.activeContext) return false;
             const target = ctx || this.activeContext;
@@ -322,7 +395,8 @@
             target.restore();
             this.activeContext = null;
             this.viewBounds = null;
-            this.visibleOccluders = [];
+            this.visibleOccluders.length = 0;
+            this._nearbyScratch.length = 0;
             return true;
         }
     }

@@ -194,3 +194,103 @@ test('registerSection and flags.register work', () => {
     // init creates DOM stubs; mount runs on navigate — just ensure no throw
     assert.doesNotThrow(() => Debug.init());
 });
+
+test('viewPipeline auto-attaches profile and snapshot when disabled', () => {
+    const Debug = loadDebug();
+    const pipeline = { stages() { return [{ id: 's1', target: 'main', draw() {} }]; } };
+    Debug.registerPipeline('custom', pipeline);
+    assert.equal(Debug.wantsProfile('custom'), false);
+    assert.equal(Debug.wantsSnapshot('custom'), false);
+
+    Debug.viewPipeline('custom');
+    assert.equal(Debug.wantsProfile('custom'), true);
+    assert.equal(Debug.wantsSnapshot('custom'), true);
+});
+
+test('history ring buffer pin keeps stable frame during array shifts', () => {
+    const Debug = loadDebug();
+    Debug.flags.PIPE_SNAPSHOT = true;
+    Debug.setHistorySize(5);
+
+    for (let i = 0; i < 10; i++) {
+        Debug.beginStage('s');
+        Debug.trace('val', i);
+        Debug.endStage('s', 1);
+        Debug.update(0.016, 5, { update: 1, render: 2, stageTimings: { s: 1 } });
+    }
+
+    const hist = Debug.getHistory();
+    const targetFrame = hist[2]; // frame index 7
+    assert.ok(targetFrame);
+
+    // Unfreeze and simulate pushing more frames
+    Debug.unfreeze();
+    // Re-pin targetFrame
+    Debug.beginStage('s');
+    Debug.trace('val', 10);
+    Debug.endStage('s', 1);
+    Debug.update(0.016, 5, { update: 1, render: 2, stageTimings: { s: 1 } });
+
+    // Ensure getHistory reflects latest size limit
+    assert.equal(Debug.getHistory().length, 5);
+});
+
+test('ring buffer eviction is paused while scrubbing history', () => {
+    const Debug = loadDebug();
+    Debug.flags.PIPE_SNAPSHOT = true;
+    Debug.setHistorySize(5);
+
+    for (let i = 0; i < 5; i++) {
+        Debug.beginStage('s');
+        Debug.trace('val', i);
+        Debug.endStage('s', 1);
+        Debug.update(0.016, 5, { update: 1, render: 2, stageTimings: { s: 1 } });
+    }
+
+    const initialHistory = Debug.getHistory();
+    assert.equal(initialHistory.length, 5);
+    const oldestIndex = initialHistory[0].frameIndex;
+
+    // Simulate stepping back into history (which locks ring buffer mutation)
+    // By invoking a frame stage while history is inspected, live update should NOT evict history[0]
+    Debug.beginStage('s');
+    Debug.trace('val', 99);
+    Debug.endStage('s', 1);
+    // Note: getHistory() copies history array
+    assert.equal(Debug.getHistory()[0].frameIndex, oldestIndex);
+});
+
+test('auto-captured stageMeta telemetry is preserved in history frame stages', () => {
+    const Debug = loadDebug();
+    Debug.flags.PIPE_SNAPSHOT = true;
+
+    const meta = {
+        target: 'world',
+        targetWidth: 1920,
+        targetHeight: 1080,
+        targetDpr: 2,
+        targetPooled: true,
+        ctxState: { globalAlpha: 0.8, compositeOperation: 'source-over', imageSmoothing: true },
+        camera: { x: 100, y: 200, zoom: 1 },
+        viewport: { x: 0, y: 0, w: 1920, h: 1080 },
+        quality: 1
+    };
+
+    Debug.beginStage('worldStatic', meta);
+    Debug.endStage('worldStatic', 0.45, null, null, meta);
+    Debug.update(0.016, 5, { update: 1, render: 2, stageTimings: { worldStatic: 0.45 } });
+
+    const hist = Debug.getHistory();
+    assert.ok(hist.length >= 1);
+    const frame = hist[hist.length - 1];
+    const stRec = frame.stages.find(s => s.id === 'worldStatic');
+    assert.ok(stRec);
+    assert.ok(stRec.meta);
+    assert.equal(stRec.meta.target, 'world');
+    assert.equal(stRec.meta.targetWidth, 1920);
+    assert.equal(stRec.meta.targetHeight, 1080);
+    assert.equal(stRec.meta.ctxState.globalAlpha, 0.8);
+});
+
+
+

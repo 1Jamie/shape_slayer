@@ -54,3 +54,31 @@ test('Geometry circleAabbOverlap detects edge contact', () => {
     assert.equal(Geometry.circleAabbOverlap(0, 0, 4, 5, -5, 10, 10), false);
     assert.equal(Geometry.circleAabbOverlap(7, 0, 1, 5, -5, 10, 10), true);
 });
+
+test('SpatialHash inserts entities and queries nearby targets in range', () => {
+    const sandbox = {
+        console, Math, Object, Array, Number, JSON,
+        window: {}, module: { exports: {} }, exports: {}
+    };
+    sandbox.window = sandbox;
+    sandbox.globalThis = sandbox;
+    vm.runInNewContext(fs.readFileSync(path.join(ROOT, 'src/engine/physics.js'), 'utf8'), sandbox);
+    const SpatialHash = sandbox.Engine.Physics.SpatialHash;
+
+    const hash = new SpatialHash(64);
+    const e1 = { x: 10, y: 10, radius: 15 };
+    const e2 = { x: 500, y: 500, radius: 10 };
+    hash.insert(e1);
+    hash.insert(e2);
+
+    const near = hash.queryRadius(0, 0, 30);
+    assert.equal(near.length, 1);
+    assert.equal(near[0], e1);
+
+    const far = hash.queryRadius(490, 490, 30);
+    assert.equal(far.length, 1);
+    assert.equal(far[0], e2);
+
+    const empty = hash.queryRadius(200, 200, 20);
+    assert.equal(empty.length, 0);
+});

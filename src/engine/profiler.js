@@ -56,7 +56,8 @@ function createAccumulator() {
         sum: 0,
         min: Infinity,
         max: -Infinity,
-        reservoir: []
+        resCount: 0,
+        reservoir: new Float64Array(RESERVOIR_MAX)
     };
 }
 
@@ -66,10 +67,10 @@ function pushValue(acc, value) {
     }
     acc.count += 1;
     acc.sum += value;
-    acc.min = Math.min(acc.min, value);
-    acc.max = Math.max(acc.max, value);
-    if (acc.reservoir.length < RESERVOIR_MAX) {
-        acc.reservoir.push(value);
+    if (value < acc.min) acc.min = value;
+    if (value > acc.max) acc.max = value;
+    if (acc.resCount < RESERVOIR_MAX) {
+        acc.reservoir[acc.resCount++] = value;
         return;
     }
     const replaceIndex = Math.floor(Math.random() * acc.count);
@@ -78,13 +79,12 @@ function pushValue(acc, value) {
     }
 }
 
-function percentile(values, p) {
-    if (!values || values.length === 0) {
-        return 0;
-    }
-    const sorted = values.slice().sort((a, b) => a - b);
-    const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1));
-    return sorted[idx];
+function percentile(reservoir, count, p) {
+    if (!reservoir || count === 0) return 0;
+    const slice = reservoir.subarray(0, count);
+    slice.sort();
+    const idx = Math.min(count - 1, Math.max(0, Math.ceil(p * count) - 1));
+    return slice[idx];
 }
 
 function finalizeAccumulator(acc) {
@@ -96,9 +96,9 @@ function finalizeAccumulator(acc) {
         avg: acc.sum / acc.count,
         min: acc.min === Infinity ? 0 : acc.min,
         max: acc.max === -Infinity ? 0 : acc.max,
-        p50: percentile(acc.reservoir, 0.5),
-        p95: percentile(acc.reservoir, 0.95),
-        p99: percentile(acc.reservoir, 0.99)
+        p50: percentile(acc.reservoir, acc.resCount, 0.5),
+        p95: percentile(acc.reservoir, acc.resCount, 0.95),
+        p99: percentile(acc.reservoir, acc.resCount, 0.99)
     };
 }
 

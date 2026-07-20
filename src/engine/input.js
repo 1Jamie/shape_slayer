@@ -7,6 +7,44 @@ const inputRoot = typeof window !== 'undefined' ? window : globalThis;
 inputRoot.Engine = inputRoot.Engine || {};
 const Engine = inputRoot.Engine;
 
+// W3C Standard Gamepad indices — keep combat/UI bindings aligned with launchModal.
+const STANDARD_PAD = Object.freeze({
+    A: 0, B: 1, X: 2, Y: 3,
+    LB: 4, RB: 5, LT: 6, RT: 7,
+    SELECT: 8, START: 9,
+    L3: 10, R3: 11,
+    DPAD_UP: 12, DPAD_DOWN: 13, DPAD_LEFT: 14, DPAD_RIGHT: 15
+});
+
+const ABILITY_BUTTON_MAP = Object.freeze({
+    basicAttack: STANDARD_PAD.RT,
+    heavyAttack: STANDARD_PAD.LT,
+    specialAbility: STANDARD_PAD.LB,
+    dodge: STANDARD_PAD.RB
+});
+
+function _copyPadButton(button) {
+    if (!button) return { pressed: false, value: 0 };
+    const value = typeof button.value === 'number' ? button.value : (button.pressed ? 1 : 0);
+    return { pressed: !!(button.pressed || value > 0.15), value };
+}
+
+function _emptyPadButton() {
+    return { pressed: false, value: 0 };
+}
+
+/** Normalize a raw trigger axis (0..1 rest-0, or -1..1 rest-at--1) into 0..1. */
+function _normalizeTriggerAxis(raw) {
+    const v = typeof raw === 'number' && Number.isFinite(raw) ? raw : 0;
+    if (v < 0) return Math.max(0, Math.min(1, (v + 1) / 2));
+    return Math.max(0, Math.min(1, v));
+}
+
+function _triggerButtonFromAxis(raw) {
+    const value = _normalizeTriggerAxis(raw);
+    return { pressed: value > 0.15, value };
+}
+
 function createInputSeat(input, options = {}) {
     const id = options.id == null ? `seat${input._seats.size}` : String(options.id);
     const seat = {
@@ -14,10 +52,10 @@ function createInputSeat(input, options = {}) {
         gamepadIndex: Number.isInteger(options.gamepadIndex) ? options.gamepadIndex : null,
         allowKeyboardMouse: options.allowKeyboardMouse === true,
         lastAimAngle: 0,
-        _buttons: [],
-        _previousButtons: [],
-        _justPressed: [],
-        _axes: [0, 0, 0, 0],
+        _buttons: new Uint8Array(16),
+        _previousButtons: new Uint8Array(16),
+        _justPressed: new Uint8Array(16),
+        _axes: new Float32Array(4),
         _interactPrev: false,
         // Per-seat input class for prompts/gameplay (never borrow global Input source).
         _seatInputSource: null,
@@ -45,9 +83,14 @@ function createInputSeat(input, options = {}) {
         },
 
         _padHasLiveInput() {
-            if (this._buttons.some(Boolean)) return true;
+            for (let i = 0; i < 16; i++) {
+                if (this._buttons[i]) return true;
+            }
             const dead = (input._gamepadDeadzone != null) ? input._gamepadDeadzone : 0.18;
-            return (this._axes || []).some(v => Math.abs(v || 0) > dead);
+            for (let i = 0; i < 4; i++) {
+                if (Math.abs(this._axes[i] || 0) > dead) return true;
+            }
+            return false;
         },
 
         _keyboardMouseHasLiveInput() {
@@ -76,13 +119,25 @@ function createInputSeat(input, options = {}) {
                 : [];
             const raw = this.gamepadIndex === null ? null : gamepads[this.gamepadIndex];
             const gamepad = raw && raw.connected ? input._getMappedGamepad(raw) : null;
-            const nextButtons = gamepad
-                ? Array.from(gamepad.buttons || [], button => !!(button && (button.pressed || button.value > 0.15)))
-                : [];
-            this._justPressed = nextButtons.map((down, index) => down && !this._previousButtons[index]);
-            this._previousButtons = nextButtons.slice();
-            this._buttons = nextButtons;
-            this._axes = gamepad ? Array.from(gamepad.axes || []) : [0, 0, 0, 0];
+
+            const buttonsLen = gamepad && gamepad.buttons ? Math.min(16, gamepad.buttons.length) : 0;
+            for (let i = 0; i < 16; i++) {
+                this._previousButtons[i] = this._buttons[i];
+                if (i < buttonsLen) {
+                    const btn = gamepad.buttons[i];
+                    const down = btn && (btn.pressed || btn.value > 0.15) ? 1 : 0;
+                    this._buttons[i] = down;
+                    this._justPressed[i] = (down === 1 && this._previousButtons[i] === 0) ? 1 : 0;
+                } else {
+                    this._buttons[i] = 0;
+                    this._justPressed[i] = 0;
+                }
+            }
+
+            const axesLen = gamepad && gamepad.axes ? Math.min(4, gamepad.axes.length) : 0;
+            for (let i = 0; i < 4; i++) {
+                this._axes[i] = i < axesLen ? gamepad.axes[i] || 0 : 0;
+            }
 
             if (raw && raw.connected && typeof input._detectGamepadFamily === 'function') {
                 this._seatGamepadFamily = input._detectGamepadFamily(raw);
@@ -114,20 +169,38 @@ function createInputSeat(input, options = {}) {
             return !this._usesKeyboardMouse();
         },
 
-        getMovementInput() {
+        getMovementInput(out = null) {
+            let resX = 0, resY = 0;
             if (this._usesKeyboardMouse()) {
                 const keyboard = input._getKeyboardMovementInput();
-                if (keyboard.x !== 0 || keyboard.y !== 0) return keyboard;
+                if (keyboard.x !== 0 || keyboard.y !== 0) {
+                    resX = keyboard.x;
+                    resY = keyboard.y;
+                }
             }
-            const stick = this._stick(0, 1);
-            let x = stick.x;
-            let y = stick.y;
-            if (this._buttonDown(12)) y -= 1;
-            if (this._buttonDown(13)) y += 1;
-            if (this._buttonDown(14)) x -= 1;
-            if (this._buttonDown(15)) x += 1;
-            const length = Math.hypot(x, y);
-            return length > 1 ? { x: x / length, y: y / length } : { x, y };
+            if (resX === 0 && resY === 0) {
+                const stick = this._stick(0, 1);
+                let x = stick.x;
+                let y = stick.y;
+                if (this._buttonDown(12)) y -= 1;
+                if (this._buttonDown(13)) y += 1;
+                if (this._buttonDown(14)) x -= 1;
+                if (this._buttonDown(15)) x += 1;
+                const length = Math.hypot(x, y);
+                if (length > 1) {
+                    resX = x / length;
+                    resY = y / length;
+                } else {
+                    resX = x;
+                    resY = y;
+                }
+            }
+            if (out && typeof out === 'object') {
+                out.x = resX;
+                out.y = resY;
+                return out;
+            }
+            return { x: resX, y: resY };
         },
 
         getAimDirection() {
@@ -143,7 +216,7 @@ function createInputSeat(input, options = {}) {
             if (this._usesKeyboardMouse() && input._desktopAbilityDown(ability)) {
                 return true;
             }
-            const button = { basicAttack: 7, heavyAttack: 6, specialAbility: 4, dodge: 5 }[ability];
+            const button = ABILITY_BUTTON_MAP[ability];
             return button === undefined ? false : this._buttonDown(button);
         },
 
@@ -151,13 +224,20 @@ function createInputSeat(input, options = {}) {
             if (this._usesKeyboardMouse() && input._desktopAbilityJust[ability]) {
                 return true;
             }
-            const button = { basicAttack: 7, heavyAttack: 6, specialAbility: 4, dodge: 5 }[ability];
+            const button = ABILITY_BUTTON_MAP[ability];
             return button === undefined ? false : this._buttonJustPressed(button);
         },
 
-        getAbilityDirection() {
+        getAbilityDirection(out = null) {
             const angle = this.getAimDirection();
-            return { x: Math.cos(angle), y: Math.sin(angle) };
+            const ax = Math.cos(angle);
+            const ay = Math.sin(angle);
+            if (out && typeof out === 'object') {
+                out.x = ax;
+                out.y = ay;
+                return out;
+            }
+            return { x: ax, y: ay };
         },
 
         getAbilityAngle() {
@@ -347,15 +427,18 @@ Engine.Input = {
         return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
     },
 
-    _applyRadialDeadzone(rawX, rawY) {
+    _applyRadialDeadzone(rawX, rawY, out = null) {
         const magnitude = Math.hypot(rawX, rawY);
-        if (magnitude < this._gamepadDeadzone) return { x: 0, y: 0, mag: 0 };
+        const res = out && typeof out === 'object' ? out : { x: 0, y: 0, mag: 0 };
+        if (magnitude < this._gamepadDeadzone) {
+            res.x = 0; res.y = 0; res.mag = 0;
+            return res;
+        }
         const scaled = Math.min(1, (magnitude - this._gamepadDeadzone) / (1 - this._gamepadDeadzone));
-        return {
-            x: (rawX / magnitude) * scaled,
-            y: (rawY / magnitude) * scaled,
-            mag: scaled
-        };
+        res.x = (rawX / magnitude) * scaled;
+        res.y = (rawY / magnitude) * scaled;
+        res.mag = scaled;
+        return res;
     },
 
     _hasWindowFocus() {
@@ -695,21 +778,107 @@ Engine.Input = {
         return 'generic';
     },
 
+    /**
+     * True when the browser handed us a raw Linux/DirectInput-style pad where
+     * indices 6/7 are Back/Start (not LT/RT). DualSense / properly remapped
+     * pads report mapping === 'standard' and skip this path. HHD "Xbox" /
+     * generic XInput uinput devices often land here — without remapping,
+     * Start fires primary because we read button 7 as RT.
+     */
+    _needsXboxLegacyRemap(gp) {
+        if (!gp || gp.mapping === 'standard') return false;
+        const family = this._detectGamepadFamily(gp);
+        if (family === 'xbox' || family === 'steam') return true;
+        if (family === 'playstation' || family === 'nintendo') return false;
+        // Generic / unknown: classic joystick node has ~10 face/shoulder/menu
+        // buttons and keeps d-pad + triggers on axes (no buttons[12..15]).
+        const buttonCount = gp.buttons ? gp.buttons.length : 0;
+        const axisCount = gp.axes ? gp.axes.length : 0;
+        return buttonCount > 0 && buttonCount <= 11 && axisCount >= 4;
+    },
+
+    /**
+     * Remap Linux Xbox 360 / HHD Xbox-emu joystick layout → W3C Standard Gamepad.
+     * Raw: 0–5 face+bumpers, 6 Back, 7 Start, 8 L3, 9 R3;
+     *      axes 0–1 left stick, 2 LT, 3–4 right stick, 5 RT; hat on 6–7.
+     */
+    _remapXboxLegacyToStandard(gp) {
+        const srcButtons = gp.buttons || [];
+        const srcAxes = gp.axes || [];
+        const buttons = new Array(16);
+        for (let i = 0; i < 16; i++) buttons[i] = _emptyPadButton();
+
+        for (let i = 0; i <= 5; i++) buttons[i] = _copyPadButton(srcButtons[i]);
+
+        buttons[STANDARD_PAD.SELECT] = _copyPadButton(srcButtons[6]);
+        buttons[STANDARD_PAD.START] = _copyPadButton(srcButtons[7]);
+        buttons[STANDARD_PAD.L3] = _copyPadButton(srcButtons[8]);
+        buttons[STANDARD_PAD.R3] = _copyPadButton(srcButtons[9]);
+
+        if (srcAxes.length >= 6) {
+            buttons[STANDARD_PAD.LT] = _triggerButtonFromAxis(srcAxes[2]);
+            buttons[STANDARD_PAD.RT] = _triggerButtonFromAxis(srcAxes[5]);
+        } else {
+            // No dedicated trigger axes — leave LT/RT idle rather than aliasing
+            // menu buttons (the bug that made Start fire primary).
+            buttons[STANDARD_PAD.LT] = _emptyPadButton();
+            buttons[STANDARD_PAD.RT] = _emptyPadButton();
+        }
+
+        const hatX = srcAxes.length > 6 ? (srcAxes[6] || 0) : 0;
+        const hatY = srcAxes.length > 7 ? (srcAxes[7] || 0) : 0;
+        if (hatX < -0.5 || hatX > 0.5 || hatY < -0.5 || hatY > 0.5) {
+            buttons[STANDARD_PAD.DPAD_LEFT] = { pressed: hatX < -0.5, value: hatX < -0.5 ? 1 : 0 };
+            buttons[STANDARD_PAD.DPAD_RIGHT] = { pressed: hatX > 0.5, value: hatX > 0.5 ? 1 : 0 };
+            buttons[STANDARD_PAD.DPAD_UP] = { pressed: hatY < -0.5, value: hatY < -0.5 ? 1 : 0 };
+            buttons[STANDARD_PAD.DPAD_DOWN] = { pressed: hatY > 0.5, value: hatY > 0.5 ? 1 : 0 };
+        }
+
+        const axes = [
+            srcAxes[0] || 0,
+            srcAxes[1] || 0,
+            srcAxes.length >= 6 ? (srcAxes[3] || 0) : (srcAxes[2] || 0),
+            srcAxes.length >= 6 ? (srcAxes[4] || 0) : (srcAxes[3] || 0)
+        ];
+
+        return {
+            id: gp.id,
+            index: gp.index,
+            connected: gp.connected,
+            mapping: 'standard',
+            buttons,
+            axes,
+            _remappedFrom: 'xbox-legacy'
+        };
+    },
+
     _getMappedGamepad(gp) {
         if (!gp) return null;
         if (gp.mapping === 'standard') return gp;
 
+        if (this._needsXboxLegacyRemap(gp)) {
+            return this._remapXboxLegacyToStandard(gp);
+        }
+
+        // Unknown non-standard pad: copy through without claiming standard
+        // indices for menu buttons (avoid Start→RT collisions).
         const buttons = [];
         const axes = [];
         for (let i = 0; i < (gp.axes || []).length; i++) axes.push(gp.axes[i] || 0);
         for (let i = 0; i < (gp.buttons || []).length; i++) {
-            const b = gp.buttons[i];
-            buttons.push({ pressed: b ? b.pressed : false, value: b ? b.value : 0 });
+            buttons.push(_copyPadButton(gp.buttons[i]));
         }
-        while (axes.length    < 4)  axes.push(0);
-        while (buttons.length < 16) buttons.push({ pressed: false, value: 0 });
+        while (axes.length < 4) axes.push(0);
+        while (buttons.length < 16) buttons.push(_emptyPadButton());
 
-        return { id: gp.id, index: gp.index, connected: gp.connected, mapping: 'standard', buttons, axes };
+        return {
+            id: gp.id,
+            index: gp.index,
+            connected: gp.connected,
+            mapping: '',
+            buttons,
+            axes
+        };
     },
 
     /**
@@ -1138,12 +1307,12 @@ Engine.Input = {
         if (uiBlocking) {
             clearGameplayPad();
             if (!(typeof this._hooks.uiHandlesSystemButtons === 'function' && this._hooks.uiHandlesSystemButtons())) {
-                const startNow = gp.buttons[9]?.pressed || false;
+                const startNow = gp.buttons[STANDARD_PAD.START]?.pressed || false;
                 if (startNow && !this._gamepadStartPrev) {
                     if (typeof this._hooks.onSystemStart === 'function') this._hooks.onSystemStart();
                 }
                 this._gamepadStartPrev = startNow;
-                const selectNow = gp.buttons[8]?.pressed || false;
+                const selectNow = gp.buttons[STANDARD_PAD.SELECT]?.pressed || false;
                 if (selectNow && !this._gamepadSelectPrev)       this.keys['tab'] = true;
                 else if (!selectNow && this._gamepadSelectPrev)  this.keys['tab'] = false;
                 this._gamepadSelectPrev = selectNow;
@@ -1153,10 +1322,10 @@ Engine.Input = {
 
         // ---- Left stick → movement ----
         const leftStick = applyDeadzone(gp.axes[0] || 0, gp.axes[1] || 0);
-        const dpadUp    = gp.buttons[12]?.pressed || false;
-        const dpadDown  = gp.buttons[13]?.pressed || false;
-        const dpadLeft  = gp.buttons[14]?.pressed || false;
-        const dpadRight = gp.buttons[15]?.pressed || false;
+        const dpadUp    = gp.buttons[STANDARD_PAD.DPAD_UP]?.pressed || false;
+        const dpadDown  = gp.buttons[STANDARD_PAD.DPAD_DOWN]?.pressed || false;
+        const dpadLeft  = gp.buttons[STANDARD_PAD.DPAD_LEFT]?.pressed || false;
+        const dpadRight = gp.buttons[STANDARD_PAD.DPAD_RIGHT]?.pressed || false;
 
         const lootCycleActive = typeof this._hooks.isLootCycleActive === 'function'
             && this._hooks.isLootCycleActive(dpadLeft, dpadRight, dpadUp, dpadDown);
@@ -1181,9 +1350,12 @@ Engine.Input = {
             }
         }
 
-        // ---- Right stick → aim, RT/R2 → primary ----
-        const rightStick   = applyDeadzone(gp.axes[2] || 0, gp.axes[3] || 0);
-        const primaryDown  = (gp.buttons[7]?.value ?? 0) > 0.15;
+        // Layout (matches launchModal Controller guide):
+        // RT primary, LT heavy, LB special, RB dodge, A interact, Y modifier,
+        // Start pause, Select character sheet.
+        const rightStick = applyDeadzone(gp.axes[2] || 0, gp.axes[3] || 0);
+        const rt = gp.buttons[STANDARD_PAD.RT];
+        const primaryDown = !!(rt && (rt.pressed || (rt.value ?? 0) > 0.15));
         if (this.touchJoysticks.basicAttack) {
             const j  = this.touchJoysticks.basicAttack;
             j.active = primaryDown;
@@ -1199,40 +1371,35 @@ Engine.Input = {
             j.currentY = j.centerY + Math.sin(j.angle) * j.magnitude * j.radius;
         }
 
-        // ---- LT/L2 → heavy ----
-        const heavyDown = (gp.buttons[6]?.value ?? 0) > 0.15;
+        const lt = gp.buttons[STANDARD_PAD.LT];
+        const heavyDown = !!(lt && (lt.pressed || (lt.value ?? 0) > 0.15));
         syncButton(this.touchButtons.heavyAttack, heavyDown);
         syncAbilityJoystick(this.touchJoysticks.heavyAttack, rightStick.mag > 0.05 ? rightStick : leftStick, heavyDown);
 
-        // ---- LB/L1 → special ----
-        const specialDown = gp.buttons[4]?.pressed || false;
+        const specialDown = gp.buttons[STANDARD_PAD.LB]?.pressed || false;
         syncButton(this.touchButtons.specialAbility, specialDown);
         syncAbilityJoystick(this.touchJoysticks.specialAbility, rightStick.mag > 0.05 ? rightStick : leftStick, specialDown);
 
-        // ---- RB/R1 → dodge ----
-        const dodgeDown = gp.buttons[5]?.pressed || false;
+        const dodgeDown = gp.buttons[STANDARD_PAD.RB]?.pressed || false;
         syncButton(this.touchButtons.dodge, dodgeDown);
         syncAbilityJoystick(this.touchJoysticks.dodge, leftStick, dodgeDown);
 
         if (!(typeof this._hooks.uiHandlesSystemButtons === 'function' && this._hooks.uiHandlesSystemButtons())) {
-            // Start → title dismiss or toggle pause
-            const startNow = gp.buttons[9]?.pressed || false;
+            const startNow = gp.buttons[STANDARD_PAD.START]?.pressed || false;
             if (startNow && !this._gamepadStartPrev) {
                 if (typeof this._hooks.onSystemStart === 'function') this._hooks.onSystemStart();
             }
             this._gamepadStartPrev = startNow;
 
-            // Select → character sheet
-            const selectNow = gp.buttons[8]?.pressed || false;
+            const selectNow = gp.buttons[STANDARD_PAD.SELECT]?.pressed || false;
             if (selectNow && !this._gamepadSelectPrev)       this.keys['tab'] = true;
             else if (!selectNow && this._gamepadSelectPrev)  this.keys['tab'] = false;
             this._gamepadSelectPrev = selectNow;
         }
 
-        // Cross/X → interact (G)
-        this.keys['g'] = gp.buttons[0]?.pressed || false;
-        // Triangle/Y → room modifier (M)
-        this.keys['m'] = gp.buttons[3]?.pressed || false;
+        // A/Cross → interact (G); Y/Triangle → room modifier (M)
+        this.keys['g'] = gp.buttons[STANDARD_PAD.A]?.pressed || false;
+        this.keys['m'] = gp.buttons[STANDARD_PAD.Y]?.pressed || false;
     },
 
     // ------------------------------------------------------------------ touch handlers

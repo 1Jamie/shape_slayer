@@ -208,16 +208,39 @@ describe('Whirlwind kill extension', () => {
             whirlwindActive: true,
             whirlwindDurationBonus: 0,
             _whirlwindKillExtend: 0,
+            _whirlwindKillCount: 0,
             whirlwindElapsed: 2,
             whirlwindResetOnKill: false
         };
-        // Fake WARRIOR_CONFIG via base in function (2.1 default)
-        for (let i = 0; i < 20; i++) {
+        for (let i = 0; i < 40; i++) {
             LedgerManager.applyWhirlwindKillExtend(player);
         }
         const total = 2.1 + player._whirlwindKillExtend;
         assert.ok(total <= LedgerManager.WHIRLWIND_MAX_DURATION + 0.001);
         assert.ok(player._whirlwindKillExtend > 0);
+        assert.ok(player._whirlwindKillCount <= LedgerManager.WHIRLWIND_MAX_KILL_EXTENDS);
+        // Per-kill is small enough that a trash-room clear can't dump a full second per kill
+        assert.ok(LedgerManager.WHIRLWIND_EXTEND_PER_KILL <= 0.3);
+        assert.ok(LedgerManager.WHIRLWIND_MAX_DURATION <= 7.0);
+    });
+
+    it('stops extending after max kill count even below duration cap', () => {
+        const { LedgerManager } = loadLedgerHarness();
+        const player = {
+            whirlwindActive: true,
+            whirlwindDurationBonus: 0,
+            _whirlwindKillExtend: 0,
+            _whirlwindKillCount: 0,
+            whirlwindElapsed: 0,
+            whirlwindResetOnKill: false
+        };
+        for (let i = 0; i < LedgerManager.WHIRLWIND_MAX_KILL_EXTENDS; i++) {
+            LedgerManager.applyWhirlwindKillExtend(player);
+        }
+        const afterCap = player._whirlwindKillExtend;
+        LedgerManager.applyWhirlwindKillExtend(player);
+        assert.equal(player._whirlwindKillExtend, afterCap);
+        assert.equal(player._whirlwindKillCount, LedgerManager.WHIRLWIND_MAX_KILL_EXTENDS);
     });
 });
 

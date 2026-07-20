@@ -124,16 +124,16 @@ function makeGame(overrides = {}) {
     return game;
 }
 
-test('PLAYING recipe stage order is clear → static → visibility → glow → bodies → tutorial → post', () => {
+test('PLAYING recipe stage order is clear → static → visibility → glow → bodies → voxelDecay → particles → tutorial → post', () => {
     const GRP = loadGameRecipe();
     const game = makeGame();
     const ids = [...GRP.createPlayingRecipe(game).map(s => s.id)];
-    assert.deepEqual(ids.slice(0, 6), [
+    assert.deepEqual(ids.slice(0, 8), [
         'worldClear', 'worldStatic', 'worldVisibility',
-        'worldGlow', 'worldBodies', 'worldTutorial'
+        'worldGlow', 'worldBodies', 'worldVoxelDecay', 'worldParticles', 'worldTutorial'
     ]);
-    assert.equal(ids[6], 'damagePostFx');
-    assert.equal(ids[7], 'vignetteLighting');
+    assert.equal(ids[8], 'damagePostFx');
+    assert.equal(ids[9], 'vignetteLighting');
 });
 
 test('normal frames route world stages to main; chromatic routes to world then main post', () => {
@@ -146,7 +146,7 @@ test('normal frames route world stages to main; chromatic routes to world then m
     const recipe = GRP.createPlayingRecipe(game);
     const worldIds = new Set([
         'worldClear', 'worldStatic', 'worldVisibility',
-        'worldGlow', 'worldBodies', 'worldTutorial'
+        'worldGlow', 'worldBodies', 'worldVoxelDecay', 'worldParticles', 'worldTutorial'
     ]);
     for (const stage of recipe) {
         if (!worldIds.has(stage.id)) continue;
@@ -429,3 +429,53 @@ test('local co-op gear and item claims are seat-aware with shared pylons', () =>
     );
     assert.match(ground, /shouldUseItemPylons\(\)\) return/);
 });
+
+test('non-playing state recipes (TITLE, NEXUS, ENTERING_ROOM, PAUSED) execute and recycle targetFrames', () => {
+    const GRP = loadGameRecipe();
+    const game = makeGame();
+
+    // TITLE pipeline
+    const titlePipeline = GRP.createTitlePipeline(game);
+    const titleFrame1 = GRP.beginTitleFrame(game);
+    assert.equal(titleFrame1.debugPipelineId, 'title');
+    titlePipeline.run(titleFrame1);
+    const titleFrame2 = GRP.beginTitleFrame(game);
+    assert.equal(titleFrame1, titleFrame2, 'beginTitleFrame recycles targetFrame');
+
+    // NEXUS pipeline
+    const nexusPipeline = GRP.createNexusPipeline(game);
+    const nexusFrame1 = GRP.beginNexusFrame(game);
+    assert.equal(nexusFrame1.debugPipelineId, 'nexus');
+    nexusPipeline.run(nexusFrame1);
+    const nexusFrame2 = GRP.beginNexusFrame(game);
+    assert.equal(nexusFrame1, nexusFrame2, 'beginNexusFrame recycles targetFrame');
+
+    // ENTERING_ROOM pipeline
+    const enteringPipeline = GRP.createEnteringRoomPipeline(game);
+    const enteringFrame1 = GRP.beginEnteringRoomFrame(game);
+    assert.equal(enteringFrame1.debugPipelineId, 'enteringRoom');
+    enteringPipeline.run(enteringFrame1);
+    const enteringFrame2 = GRP.beginEnteringRoomFrame(game);
+    assert.equal(enteringFrame1, enteringFrame2, 'beginEnteringRoomFrame recycles targetFrame');
+
+    // PAUSED pipeline
+    const pausedPipeline = GRP.createPausedPipeline(game);
+    const pausedFrame1 = GRP.beginPausedFrame(game);
+    assert.equal(pausedFrame1.debugPipelineId, 'paused');
+    pausedPipeline.run(pausedFrame1);
+    const pausedFrame2 = GRP.beginPausedFrame(game);
+    assert.equal(pausedFrame1, pausedFrame2, 'beginPausedFrame recycles targetFrame');
+});
+
+test('main.js registers TITLE, NEXUS, ENTERING_ROOM, PAUSED pipelines with Engine.Debug', () => {
+    const main = fs.readFileSync(path.join(ROOT, 'src/game/main.js'), 'utf8');
+    assert.match(main, /ensureTitleRenderPipeline/);
+    assert.match(main, /ensureNexusRenderPipeline/);
+    assert.match(main, /ensureEnteringRoomRenderPipeline/);
+    assert.match(main, /ensurePausedRenderPipeline/);
+    assert.match(main, /registerPipeline\('title'/);
+    assert.match(main, /registerPipeline\('nexus'/);
+    assert.match(main, /registerPipeline\('enteringRoom'/);
+    assert.match(main, /registerPipeline\('paused'/);
+});
+

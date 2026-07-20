@@ -368,12 +368,13 @@ function getCachedPylon(color, size) {
     }
 
     // Create new cached pylon
-    const canvas = document.createElement('canvas');
-    // Size includes glow + padding
     const padding = 25;
     const diameter = keySize * 2;
-    canvas.width = diameter + padding * 2;
-    canvas.height = diameter + padding * 2;
+    const targetW = diameter + padding * 2;
+    const targetH = diameter + padding * 2;
+    const canvas = Engine.Graphics.createCanvas(targetW, targetH);
+    canvas.width = targetW;
+    canvas.height = targetH;
     const ctx = canvas.getContext('2d');
     const center = keySize + padding;
 

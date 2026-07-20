@@ -288,8 +288,6 @@ const GameMusic = {
 };
 
 // The engine transport is content-agnostic; the game owns the manifest location.
-if (typeof Engine !== 'undefined' && Engine.Music && typeof Engine.Music.configure === 'function') {
-    Engine.Music.configure({ manifestUrl: GameMusic.MANIFEST_URL });
-}
+Engine.Music.configure({ manifestUrl: GameMusic.MANIFEST_URL });
 
 window.GameMusic = GameMusic;

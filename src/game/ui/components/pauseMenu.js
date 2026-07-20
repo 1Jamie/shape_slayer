@@ -50,7 +50,7 @@
 	}
 
 	function getCurrentControlMode() {
-		if ((typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.controlMode) {
+		if (typeof Engine !== 'undefined' && Engine.Input && Engine.Input.controlMode) {
 			return Engine.Input.controlMode;
 		}
 		if (typeof SaveSystem !== 'undefined' && SaveSystem.getControlMode) {
@@ -299,15 +299,9 @@
 		prefsSection.appendChild(makeSegmentedControl(CONTROL_MODES, {
 			getValue: getCurrentControlMode,
 			onSelect: (id) => {
-				if (typeof SaveSystem !== 'undefined') {
-					SaveSystem.setControlMode(id);
-				}
-				if ((typeof Engine !== 'undefined' && Engine.Input)) {
-					if (Engine.Input.applyControlMode) {
-						Engine.Input.applyControlMode(id, window.Game && window.Game.canvas);
-					} else {
-						Engine.Input.controlMode = id;
-					}
+				if (typeof SaveSystem !== 'undefined') SaveSystem.setControlMode(id);
+				if (typeof Engine !== 'undefined' && Engine.Input && typeof Engine.Input.applyControlMode === 'function') {
+					Engine.Input.applyControlMode(id, window.Game && window.Game.canvas);
 				}
 			},
 			updateRef: (fn) => { updateModeButtons = fn; }

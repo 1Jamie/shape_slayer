@@ -7,9 +7,7 @@ const SaveSystem = {
     _store: null,
 
     _engineSave() {
-        if (typeof Engine !== 'undefined' && Engine.Save) return Engine.Save;
-        if (typeof window !== 'undefined' && window.Engine && window.Engine.Save) return window.Engine.Save;
-        return null;
+        return Engine.Save;
     },
 
     _getStore() {

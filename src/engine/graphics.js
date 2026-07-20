@@ -234,6 +234,10 @@
                 bucket = [];
                 this._buckets.set(bucketKey, bucket);
             }
+            if (bucket.includes(canvas)) {
+                console.warn('[CanvasPool] Double-release guarded for canvas:', bucketKey);
+                return false;
+            }
             if (bucket.length >= this.maxPerSize) return false;
             const ctx = typeof canvas.getContext === 'function' ? canvas.getContext('2d') : null;
             if (ctx) {
@@ -243,6 +247,13 @@
             }
             bucket.push(canvas);
             return true;
+        },
+
+        trim(maxPerSize = null) {
+            const cap = maxPerSize != null ? Math.max(0, Math.floor(maxPerSize)) : this.maxPerSize;
+            for (const bucket of this._buckets.values()) {
+                while (bucket.length > cap) bucket.pop();
+            }
         },
 
         clear() {
@@ -293,11 +304,18 @@
         release(key) {
             requireStringKey(key);
             const raw = this._entries.get(key);
-            if (!raw) return null;
-            const entry = normalizeSpriteCacheEntry(raw);
+            if (!raw) return false;
+            disposeSpriteCacheEntry(normalizeSpriteCacheEntry(raw));
             this._entries.delete(key);
-            disposeSpriteCacheEntry(entry);
-            return entry.value;
+            return true;
+        },
+
+        trim(maxEntries = 32) {
+            const limit = Math.max(0, Math.floor(maxEntries));
+            while (this._entries.size > limit) {
+                const oldestKey = this._entries.keys().next().value;
+                this.release(oldestKey);
+            }
         },
 
         clear(prefix) {
@@ -335,6 +353,10 @@
             const pattern = ctx.createPattern(tile, repetition);
             entries.set(fullKey, pattern);
             return pattern;
+        },
+
+        trim() {
+            // WeakMap contexts garbage collect naturally on canvas teardown.
         },
 
         clear(ctx) {
@@ -428,8 +450,69 @@
             return true;
         },
 
+        trim(maxEntries = null) {
+            if (maxEntries != null) {
+                const limit = Math.max(0, Math.floor(maxEntries));
+                while (this._entries.size > limit) {
+                    const oldestKey = this._entries.keys().next().value;
+                    this.release(oldestKey);
+                }
+            } else {
+                this._evict();
+            }
+        },
+
         clear() {
             for (const key of Array.from(this._entries.keys())) this.release(key);
+        }
+    };
+
+    const Text = {
+        _lastFontMap: new WeakMap(),
+        _measureCache: new Map(),
+        _measureLimit: 256,
+
+        setFont(ctx, fontSpec) {
+            if (!ctx || !fontSpec) return;
+            const current = this._lastFontMap.get(ctx);
+            if (current !== fontSpec) {
+                ctx.font = fontSpec;
+                this._lastFontMap.set(ctx, fontSpec);
+            }
+        },
+
+        measureText(ctx, fontSpec, text) {
+            if (!ctx || !text) return { width: 0 };
+            this.setFont(ctx, fontSpec);
+            const key = `${fontSpec}:${text}`;
+            let cached = this._measureCache.get(key);
+            if (cached) return cached;
+
+            const metrics = ctx.measureText(text);
+            cached = { width: metrics.width };
+            if (this._measureCache.size >= this._measureLimit) {
+                const oldest = this._measureCache.keys().next().value;
+                this._measureCache.delete(oldest);
+            }
+            this._measureCache.set(key, cached);
+            return cached;
+        },
+
+        drawText(ctx, text, x, y, fontSpec, color, options = {}) {
+            if (!ctx || !text) return;
+            ctx.save();
+            this.setFont(ctx, fontSpec);
+            if (color) ctx.fillStyle = color;
+            if (options.align) ctx.textAlign = options.align;
+            if (options.baseline) ctx.textBaseline = options.baseline;
+            if (options.alpha != null) ctx.globalAlpha *= options.alpha;
+            ctx.fillText(text, x, y);
+            ctx.restore();
+        },
+
+        clearMeasureCache() {
+            this._measureCache.clear();
+            this._lastFontMap = new WeakMap();
         }
     };
 
@@ -538,9 +621,16 @@
         ctx.restore();
     }
 
+    function createCanvas(width = 1, height = 1) {
+        const pixelWidth = Math.max(1, Math.ceil(width || 1));
+        const pixelHeight = Math.max(1, Math.ceil(height || 1));
+        return CanvasPool._create(pixelWidth, pixelHeight);
+    }
+
     Engine.Graphics = {
         Color,
         NeonMode,
+        createCanvas,
         regularPolygonPath,
         polygon,
         neonStrokeRect,
@@ -549,7 +639,8 @@
         CanvasPool,
         SpriteCache,
         PatternCache,
-        TileBaker
+        TileBaker,
+        Text
     };
 
     if (typeof module !== 'undefined' && module.exports) {

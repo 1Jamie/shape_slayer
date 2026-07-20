@@ -1092,9 +1092,11 @@ function bakeGearSprite(gear) {
     const ringRadius = baseSize + 10;
     const padding = 40;
     const diameter = (ringRadius + 20) * 2;
-    const canvas = document.createElement('canvas');
-    canvas.width = diameter + padding * 2;
-    canvas.height = diameter + padding * 2;
+    const canvasW = diameter + padding * 2;
+    const canvasH = diameter + padding * 2;
+    const canvas = Engine.Graphics.createCanvas(canvasW, canvasH);
+    canvas.width = canvasW;
+    canvas.height = canvasH;
     const ctx = canvas.getContext('2d');
     const center = canvas.width / 2;
 
@@ -1131,7 +1133,7 @@ function bakeGearSprite(gear) {
 
     let ringCanvas = null;
     if (gear.affixes && gear.affixes.length > 0) {
-        ringCanvas = document.createElement('canvas');
+        ringCanvas = Engine.Graphics.createCanvas(canvas.width, canvas.height);
         ringCanvas.width = canvas.width;
         ringCanvas.height = canvas.height;
         const ringCtx = ringCanvas.getContext('2d');
@@ -1142,7 +1144,7 @@ function bakeGearSprite(gear) {
     if (gear.legendaryEffect) {
         legendaryFrames = [];
         for (let f = 0; f < 4; f++) {
-            const frameCanvas = document.createElement('canvas');
+            const frameCanvas = Engine.Graphics.createCanvas(canvas.width, canvas.height);
             frameCanvas.width = canvas.width;
             frameCanvas.height = canvas.height;
             const fCtx = frameCanvas.getContext('2d');
@@ -1157,7 +1159,7 @@ function bakeGearSprite(gear) {
     } else if (gear.tier === 'orange' && gear.classModifier) {
         legendaryFrames = [];
         for (let f = 0; f < 4; f++) {
-            const frameCanvas = document.createElement('canvas');
+            const frameCanvas = Engine.Graphics.createCanvas(canvas.width, canvas.height);
             frameCanvas.width = canvas.width;
             frameCanvas.height = canvas.height;
             const fCtx = frameCanvas.getContext('2d');

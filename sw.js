@@ -5,7 +5,7 @@
  * Shell is precached on install. Audio warms in the background so playback can start ASAP
  * while the library fills for full offline use.
  */
-const CACHE_VERSION = '0.8.2.43';
+const CACHE_VERSION = '0.8.2.44';
 const SHELL_CACHE = `shape-slayer-shell-v${CACHE_VERSION}`;
 const RUNTIME_CACHE = `shape-slayer-runtime-v${CACHE_VERSION}`;
 const AUDIO_WARM_CONCURRENCY = 2;
@@ -59,6 +59,7 @@ const PRECACHE_URLS = [
   './src/engine/save.js',
   './src/engine/physics.js',
   './src/engine/proc.js',
+  './src/engine/proc-worker.js',
   './src/engine/graphics.js',
   './src/engine/fx.js',
   './src/engine/ui/bus.js',

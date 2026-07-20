@@ -20,6 +20,7 @@
             this.states = [];
             this.maxSize = maxSize;
             this.adaptiveMaxSize = maxSize;
+            this._wrapperPool = [];
         }
 
         adjustSize(jitter, packetLossRate) {
@@ -33,14 +34,31 @@
         }
 
         addState(timestamp, data) {
-            this.states = this.states.filter(state => state.timestamp <= timestamp);
-            this.states.push({ timestamp, data });
-            this.states.sort((a, b) => a.timestamp - b.timestamp);
+            let i = this.states.length - 1;
+            while (i >= 0 && this.states[i].timestamp > timestamp) {
+                const discarded = this.states.pop();
+                if (this._wrapperPool.length < 64) this._wrapperPool.push(discarded);
+                i--;
+            }
+
+            let entry;
+            if (this._wrapperPool.length > 0) {
+                entry = this._wrapperPool.pop();
+                entry.timestamp = timestamp;
+                entry.data = data;
+            } else {
+                entry = { timestamp, data };
+            }
+            this.states.push(entry);
+
             const limit = this.adaptiveMaxSize || this.maxSize;
-            while (this.states.length > limit) this.states.shift();
+            while (this.states.length > limit) {
+                const removed = this.states.shift();
+                if (this._wrapperPool.length < 64) this._wrapperPool.push(removed);
+            }
         }
 
-        getInterpolatedState(targetTime, delay = DEFAULTS.interpolationDelay) {
+        getInterpolatedState(targetTime, delay = DEFAULTS.interpolationDelay, out = null) {
             if (this.states.length < 2) return null;
             const renderTime = targetTime - delay;
             let older = null;
@@ -66,6 +84,15 @@
             let amount = range > 0 ? (renderTime - older.timestamp) / range : 0;
             if (renderTime < older.timestamp) amount = -0.1;
             else if (renderTime > newer.timestamp) amount = 1.1;
+
+            if (out && typeof out === 'object') {
+                out.older = older.data;
+                out.newer = newer.data;
+                out.t = amount;
+                out.olderTime = older.timestamp;
+                out.newerTime = newer.timestamp;
+                return out;
+            }
             return {
                 older: older.data,
                 newer: newer.data,
@@ -83,7 +110,7 @@
             return this.states.length > 1 ? this.states[this.states.length - 2].data : null;
         }
 
-        calculateVelocity() {
+        calculateVelocity(out = null) {
             if (this.states.length < 2) return null;
             const latestEntry = this.states[this.states.length - 1];
             const previousEntry = this.states[this.states.length - 2];
@@ -91,13 +118,18 @@
             if (elapsed <= 0) return null;
             const latest = latestEntry.data;
             const previous = previousEntry.data;
-            return {
-                vx: (latest.x - previous.x) / elapsed,
-                vy: (latest.y - previous.y) / elapsed,
-                vr: latest.rotation !== undefined && previous.rotation !== undefined
-                    ? this.normalizeRotationDiff(latest.rotation - previous.rotation) / elapsed
-                    : 0
-            };
+            const vx = (latest.x - previous.x) / elapsed;
+            const vy = (latest.y - previous.y) / elapsed;
+            const vr = latest.rotation !== undefined && previous.rotation !== undefined
+                ? this.normalizeRotationDiff(latest.rotation - previous.rotation) / elapsed
+                : 0;
+            if (out && typeof out === 'object') {
+                out.vx = vx;
+                out.vy = vy;
+                out.vr = vr;
+                return out;
+            }
+            return { vx, vy, vr };
         }
 
         normalizeRotationDiff(diff) {
@@ -107,11 +139,22 @@
         }
 
         cleanup(maxAge = 1000, currentTime = Date.now()) {
-            this.states = this.states.filter(state => currentTime - state.timestamp < maxAge);
+            let keepCount = 0;
+            for (let i = 0; i < this.states.length; i++) {
+                if (currentTime - this.states[i].timestamp < maxAge) {
+                    this.states[keepCount++] = this.states[i];
+                } else if (this._wrapperPool.length < 64) {
+                    this._wrapperPool.push(this.states[i]);
+                }
+            }
+            this.states.length = keepCount;
         }
 
         clear() {
-            this.states.length = 0;
+            while (this.states.length > 0) {
+                const item = this.states.pop();
+                if (this._wrapperPool.length < 64) this._wrapperPool.push(item);
+            }
         }
     }
 

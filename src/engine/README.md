@@ -18,23 +18,23 @@ Game docs: [repo README](../../README.md). This file is just the engine.
 
 | Namespace | Files | What it does |
 | --- | --- | --- |
-| `Engine.Proc` | `proc.js` | Seeded RNG, noise, grids, pathfinding, collision, marching squares, polylines |
-| `Engine.Physics` | `physics.js` | Impulse accumulator + geometry helpers |
-| `Engine.Core` | `loop.js` | Fixed timestep + frame budget / quality governor |
+| `Engine.Proc` | `proc.js`, `proc-worker.js` | Seeded RNG, noise, grids, pathfinding, collision, marching squares, polylines; optional worker grid synth (`dispatchWorkerTask`) |
+| `Engine.Physics` | `physics.js` | Impulse accumulator, geometry helpers, `SpatialHash` for nearby queries |
+| `Engine.Core` | `loop.js` | Fixed timestep + frame budget / quality governor (`onQualityChange`, rings into Audio) |
 | `Engine.Net` | `net.js` | Clone / diff / interpolate (for syncing state, not the MP relay) |
 | `Engine.Boot` | `boot.js`, `ui/boot-screen.js`, `ui/boot-cinematic.js` | Probe, init canvas/UI/save, cover, handoff |
 | `Engine.System` | `system.js` | Device / form-factor detection |
 | `Engine.Input` | `input.js`, `touch.js` | Keyboard, mouse, pads, touch seats, raw hardware |
 | `Engine.Split` | `split.js` | Local split viewports (2 seats for now) |
-| `Engine.Graphics` | `graphics.js` | Canvas pool, neon helpers, patterns, DPR |
-| `Engine.Render` | `render-host.js`, `render-pipeline.js` | Canvas host, named targets, stage pipe |
+| `Engine.Graphics` | `graphics.js` | `createCanvas`, Canvas pool, `Text` (setFont / measureText), neon helpers, patterns, DPR |
+| `Engine.Render` | `render-host.js`, `render-pipeline.js` | Canvas host, named targets, stage pipe (+ stageMeta for Debug) |
 | `Engine.Renderer` / `Engine.FX` | `renderer.js`, `fx.js`, `camera.js` | Shake, particles, light masks, post FX, camera |
-| `Engine.Audio` / `Engine.Music` | `audio.js`, `music.js` | Procedural SFX bits + playlist transport |
+| `Engine.Audio` / `Engine.Music` | `audio.js`, `music.js` | Procedural SFX bits + playlist transport; `Audio.setQualityTier` |
 | `Engine.Save` | `save.js` | Versioned stores, migrations, storage |
 | `Engine.UI` | `ui/*` | Root, bus, modal stack, toasts |
 | `Engine.Shell` | `shell.js` | Feature flags, back-nav guard |
 | `Engine.Profiler` | `profiler.js` | Frame / phase timing |
-| `Engine.Debug` | `debug.js` | Optional debug shell; sections, metrics, pipeline profile / snapshots |
+| `Engine.Debug` | `debug.js` | Optional debug shell; sections, metrics, pipeline profile / snapshots / bag explorer |
 
 Boot **requires**: `System`, `Save`, `Physics`, `Proc`, `Graphics`, `FX`, `Render`, `Core`, `Audio`, `Input`, `Net`, `Shell`, `UI`.
 
@@ -46,11 +46,13 @@ Workers are fine for heavy jobs (optical flow, edge detect, big typed-array pass
 
 If something can run on a Worker, the **same engine file** needs a sync main-thread fallback that does the same work. Probe picks Worker when it can, otherwise falls back (`file://`, no Workers, no SharedArrayBuffer, etc.). Do not assume a second thread exists.
 
+Concrete today: `Proc.dispatchWorkerTask('GENERATE_GRID', …)` spins `src/engine/proc-worker.js` when Workers exist, otherwise runs the same grid fill/smooth on the main thread and invokes the callback.
+
 New Worker script (or module that owns Worker + fallback)? Put every URL it needs in:
 
 1. host HTML / `new Worker('...')` path
 2. `sw.js` `PRECACHE_URLS` (worker entry + imports)
-3. `tests/directory-boundaries.test.js`
+3. `tests/directory-boundaries.test.js` required-file list
 
 PWA/offline only gets what the SW cached. Miss a worker URL and offline testing blows up even if online looked fine.
 
@@ -107,9 +109,10 @@ Shape Slayer: `Boot.start` -> `Engine.Core` -> `Boot.handoff` (`src/game/main.js
 
 Act like GC will ruin your day.
 
-- `Engine.Graphics.CanvasPool`: acquire/release. Do not `createElement('canvas')` every frame.
+- Prefer `Engine.Graphics.createCanvas(w, h)` (and `CanvasPool` acquire/release) over `document.createElement('canvas')`. Retained pattern tiles / door caches still own their canvases; just create them through Graphics.
 - Hot paths: fixed-capacity typed arrays. Grow rarely, not per tick.
 - No fresh `{}` / `[]` / throwaway closures in `onUpdate`, `onRender`, stage `draw()`, input poll, physics integrate. Scratch objects, pooled slots.
+- Optional `out` / scratch args on hot helpers (camera screen/world, physics `integrate`, FX raycasts, net interpolate, proc geometry) so callers can reuse result objects.
 - No DOM size reads while rendering. Resize handler only. Use your cached viewport (or boot `runtime.*` if you never resize).
 - Prefer mutate over `map` / `filter` / `concat` in the frame loop.
 
@@ -131,15 +134,15 @@ Do not put game ability names in `input.js`.
 
 ### Audio / music
 
-Engine owns oscillators, buses, playlist load/fade/duck, and autoplay unlock. On load it tries `AudioContext`; one-shot `pointerdown` / `touchstart` / `mousedown` / `click` / `keydown` call `init` / `resume`. Play helpers call `resume` too. Game does not need its own unlock code.
+Engine owns oscillators, buses, playlist load/fade/duck, and autoplay unlock. On load it tries `AudioContext`; one-shot `pointerdown` / `touchstart` / `mousedown` / `click` / `keydown` call `init` / `resume`. Play helpers call `resume` too. Game does not need its own unlock code. Core quality governor can call `Audio.setQualityTier(tier)` when adaptive quality is on.
 
 Game binds settings and owns cues / playlists (`src/game/audio/` in Shape Slayer). Optional: listen for `audiocontextresume` if you want to start music the instant unlock lands.
 
 ### Render pipeline
 
-Engine: named targets (`main`, pooled `world`, ...) and the ordered stage runner. Stages clean up their own Canvas2D state; the runner does not wrap every draw in `save`/`restore`.
+Engine: named targets (`main`, pooled `world`, ...) and the ordered stage runner. Stages clean up their own Canvas2D state; the runner does not wrap every draw in `save`/`restore`. When Debug profile/snapshot is on, the runner records `stageMeta` (target id/size, ctx snapshot) with each stage.
 
-Game: stage order and draw bodies. Shape Slayer PLAYING recipe: `src/game/presentation/render-pipeline.js`.
+Game: stage order and draw bodies. Shape Slayer keeps all state recipes in `src/game/presentation/render-pipeline.js` (TITLE, NEXUS, ENTERING_ROOM, PLAYING, PAUSED). `main.js` runs them via pipeline runners; call `cleanupAllStateTargets(game)` on teardown/resize so pooled offscreens release.
 
 ### Saves
 
@@ -156,7 +159,7 @@ Game owns key name, `SCHEMA_VERSION`, defaults, and what each migration does to 
 
 Copy the engine block from `index.html`:
 
-1. `utils` -> System -> Save -> Physics -> Proc
+1. `utils` -> System -> Save -> Physics -> Proc (`proc.js`; worker `proc-worker.js` is loaded on demand, not as a classic script tag)
 2. Graphics -> FX -> render host -> render pipeline -> camera -> Core (`loop.js`) -> renderer -> profiler -> **debug** (optional)
 3. Audio -> Music -> touch -> Input -> Split -> Net -> Shell
 4. Engine UI (bus, root, modal stack, toast, boot cinematic/screen) -> `Engine.Boot`
@@ -164,7 +167,7 @@ Copy the engine block from `index.html`:
 
 Load `debug.js` after `profiler.js` and the render pipeline when you want the shell. Omit it for shipping; Core, Render, and game bridges no-op when `Engine.Debug` is missing. Optional for boot verify (same as Profiler).
 
-New engine file or Worker asset: update HTML, `sw.js` precache, and boundary tests.
+New engine file or Worker asset: update HTML (if classic-script), `sw.js` precache, and boundary tests.
 
 ## `Engine.Core` hooks
 
@@ -357,7 +360,9 @@ Engine.Debug.viewPipeline('playing');
 Engine.Debug.listPipelines();
 ```
 
-The runner sets `Engine.Debug.setActivePipelineId(frame.debugPipelineId)` and only records bag summaries / stage hooks when profile or snapshot is on. `bindPipeline(pipeline)` still works for ad-hoc viewing; prefer `registerPipeline`.
+`viewPipeline(id)` auto-attaches profile + snapshot if both were off (so opening a pipe from the panel actually records). Prefer `registerPipeline` over ad-hoc `bindPipeline`.
+
+The runner sets `Engine.Debug.setActivePipelineId(frame.debugPipelineId)` and only records bag summaries / stage hooks when profile or snapshot is on. Stage hooks receive optional `stageMeta` from the runner.
 
 ### Game injection
 
@@ -369,7 +374,8 @@ The runner sets `Engine.Debug.setActivePipelineId(frame.debugPipelineId)` and on
 
 - `trace(key, value)` / `captureSnapshot(stageId, label, data)` - values go through `sanitizeDebugValue` (no live entity refs in history)
 - History ring (default 60): `setHistorySize(n)` / `getHistory()`
-- Pipeline panel: scrubber, nested stage list by target, stage detail, frame diff
+- Scrubbing: history pin keeps a stable frame while the ring shifts; eviction pauses while the cursor is scrubbing so the frame under inspection does not disappear
+- Pipeline panel: scrubber, nested stage list by target, stage detail (incl. `stageMeta`), bag explorer (filter keys / copy JSON / log), frame diff
 - `breakWhen(fn | { stageId, test })` sets `frozen = true` and pins the frame (`setBreakMode('break'|'log')`, `unfreeze()`, `clearBreaks()`)
 
 ### Shell / update

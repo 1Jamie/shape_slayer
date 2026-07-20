@@ -217,11 +217,53 @@ const ImpulsePhysics = {
      * Integrate impulse velocity for one frame.
      * moveFn(dx, dy) should move the entity and return:
      *   { ok, blocked, actualMoved, intendedMoved, actualDx, actualDy, normalX, normalY }
+    /** Non-reentrant scratch objects for zero-allocation integration. */
+    _scratchMoveResult: {
+        ok: true,
+        blocked: false,
+        actualMoved: 0,
+        intendedMoved: 0,
+        actualDx: 0,
+        actualDy: 0,
+        normalX: null,
+        normalY: null
+    },
+    _scratchWallContactInfo: {
+        blocked: false,
+        intendedDx: 0,
+        intendedDy: 0,
+        intendedMoved: 0,
+        actualDx: 0,
+        actualDy: 0,
+        actualMoved: 0,
+        normalX: null,
+        normalY: null
+    },
+    _NO_MOVE_RESULT: Object.freeze({
+        moved: false,
+        blocked: false,
+        wallSlam: null,
+        wallContact: false
+    }),
+
+    /**
+     * Integrate impulse velocity for one frame.
+     * moveFn(dx, dy) should move the entity and return:
+     *   { ok, blocked, actualMoved, intendedMoved, actualDx, actualDy, normalX, normalY }
      *   or a boolean (ok).
+     *
+     * Note: Uses internal non-reentrant scratch objects for zero-allocation performance.
      */
-    integrate(entity, deltaTime, options = {}) {
+    integrate(entity, deltaTime, options = {}, out = null) {
         if (!entity || !(deltaTime > 0)) {
-            return { moved: false, wallSlam: null, wallContact: false };
+            if (out && typeof out === 'object') {
+                out.moved = false;
+                out.blocked = false;
+                out.wallSlam = null;
+                out.wallContact = false;
+                return out;
+            }
+            return this._NO_MOVE_RESULT;
         }
         this.ensureFields(entity, options);
 
@@ -233,7 +275,14 @@ const ImpulsePhysics = {
         const vy = entity.impulseVy || 0;
         if (vx === 0 && vy === 0) {
             entity.impulseTimer = 0;
-            return { moved: false, wallSlam: null, wallContact: false };
+            if (out && typeof out === 'object') {
+                out.moved = false;
+                out.blocked = false;
+                out.wallSlam = null;
+                out.wallContact = false;
+                return out;
+            }
+            return this._NO_MOVE_RESULT;
         }
 
         entity.impulseTimer = (entity.impulseTimer || 0) + deltaTime;
@@ -244,7 +293,14 @@ const ImpulsePhysics = {
             entity.impulseVx = 0;
             entity.impulseVy = 0;
             entity.impulseTimer = 0;
-            return { moved: false, wallSlam: null, wallContact: false };
+            if (out && typeof out === 'object') {
+                out.moved = false;
+                out.blocked = false;
+                out.wallSlam = null;
+                out.wallContact = false;
+                return out;
+            }
+            return this._NO_MOVE_RESULT;
         }
 
         const intendedDx = vx * deltaTime;
@@ -252,39 +308,36 @@ const ImpulsePhysics = {
         const intendedMoved = Math.hypot(intendedDx, intendedDy);
         const speedBefore = Math.hypot(vx, vy);
 
-        let moveResult = {
-            ok: true,
-            blocked: false,
-            actualMoved: intendedMoved,
-            intendedMoved,
-            actualDx: intendedDx,
-            actualDy: intendedDy
-        };
+        const moveResult = this._scratchMoveResult;
+        moveResult.ok = true;
+        moveResult.blocked = false;
+        moveResult.actualMoved = intendedMoved;
+        moveResult.intendedMoved = intendedMoved;
+        moveResult.actualDx = intendedDx;
+        moveResult.actualDy = intendedDy;
+        moveResult.normalX = null;
+        moveResult.normalY = null;
+
         if (typeof options.moveFn === 'function') {
             const raw = options.moveFn(intendedDx, intendedDy);
             if (typeof raw === 'boolean') {
                 const blocked = !raw;
-                moveResult = {
-                    ok: raw,
-                    blocked,
-                    actualMoved: blocked ? 0 : intendedMoved,
-                    intendedMoved,
-                    actualDx: blocked ? 0 : intendedDx,
-                    actualDy: blocked ? 0 : intendedDy
-                };
+                moveResult.ok = raw;
+                moveResult.blocked = blocked;
+                moveResult.actualMoved = blocked ? 0 : intendedMoved;
+                moveResult.actualDx = blocked ? 0 : intendedDx;
+                moveResult.actualDy = blocked ? 0 : intendedDy;
             } else if (raw && typeof raw === 'object') {
                 const actualDx = raw.actualDx != null ? raw.actualDx : (raw.ok === false ? 0 : intendedDx);
                 const actualDy = raw.actualDy != null ? raw.actualDy : (raw.ok === false ? 0 : intendedDy);
-                moveResult = {
-                    ok: raw.ok !== false,
-                    blocked: !!raw.blocked,
-                    actualMoved: raw.actualMoved != null ? raw.actualMoved : Math.hypot(actualDx, actualDy),
-                    intendedMoved: raw.intendedMoved != null ? raw.intendedMoved : intendedMoved,
-                    actualDx,
-                    actualDy,
-                    normalX: raw.normalX,
-                    normalY: raw.normalY
-                };
+                moveResult.ok = raw.ok !== false;
+                moveResult.blocked = !!raw.blocked;
+                moveResult.actualMoved = raw.actualMoved != null ? raw.actualMoved : Math.hypot(actualDx, actualDy);
+                moveResult.intendedMoved = raw.intendedMoved != null ? raw.intendedMoved : intendedMoved;
+                moveResult.actualDx = actualDx;
+                moveResult.actualDy = actualDy;
+                moveResult.normalX = raw.normalX;
+                moveResult.normalY = raw.normalY;
             }
         } else {
             entity.x = (entity.x || 0) + intendedDx;
@@ -322,17 +375,20 @@ const ImpulsePhysics = {
 
         // Kill into-wall impulse so knockback/push doesn't pin the entity until decay
         const skipWallResolve = options.resolveWallContact === false;
-        const wallContact = !skipWallResolve && this.resolveWallContact(entity, {
-            blocked: moveResult.blocked || heavilyBlocked,
-            intendedDx,
-            intendedDy,
-            intendedMoved,
-            actualDx: moveResult.actualDx,
-            actualDy: moveResult.actualDy,
-            actualMoved: moveResult.actualMoved,
-            normalX: moveResult.normalX,
-            normalY: moveResult.normalY
-        }, options);
+        let wallContact = false;
+        if (!skipWallResolve) {
+            const contactInfo = this._scratchWallContactInfo;
+            contactInfo.blocked = moveResult.blocked || heavilyBlocked;
+            contactInfo.intendedDx = intendedDx;
+            contactInfo.intendedDy = intendedDy;
+            contactInfo.intendedMoved = intendedMoved;
+            contactInfo.actualDx = moveResult.actualDx;
+            contactInfo.actualDy = moveResult.actualDy;
+            contactInfo.actualMoved = moveResult.actualMoved;
+            contactInfo.normalX = moveResult.normalX;
+            contactInfo.normalY = moveResult.normalY;
+            wallContact = this.resolveWallContact(entity, contactInfo, options);
+        }
 
         const decay = options.decay != null ? options.decay : (entity.impulseDecay || this.DEFAULTS.enemyDecay);
         const decayFactor = Math.pow(decay, deltaTime);
@@ -350,30 +406,88 @@ const ImpulsePhysics = {
             entity.impulseTimer = 0;
         }
 
+        const moved = moveResult.actualMoved > 0.0001;
+        const blocked = !!moveResult.blocked;
+        if (out && typeof out === 'object') {
+            out.moved = moved;
+            out.blocked = blocked;
+            out.wallSlam = wallSlam;
+            out.wallContact = wallContact;
+            return out;
+        }
+
         return {
-            moved: moveResult.actualMoved > 0.0001,
-            blocked: !!moveResult.blocked,
+            moved,
+            blocked,
             wallSlam,
             wallContact
         };
+    },
+
+    /**
+     * Batch integrate impulse physics over an array or typed buffer of entities.
+     * Fast-path SIMD/L1-cache warm loop with scratch vector reuse.
+     */
+    integrateBatch(entities, deltaTime, options = {}, outResults = null) {
+        if (!Array.isArray(entities) || entities.length === 0 || !(deltaTime > 0)) {
+            return outResults || [];
+        }
+        const count = entities.length;
+        const isTypedOut = outResults && (outResults instanceof Float32Array || outResults instanceof Float64Array);
+        const resArray = !isTypedOut ? (outResults || new Array(count)) : null;
+
+        const scratchOut = this._scratchMoveResult; // Scratch reuse
+        for (let i = 0; i < count; i++) {
+            const entity = entities[i];
+            if (!entity) continue;
+            const res = this.integrate(entity, deltaTime, options, scratchOut);
+            if (isTypedOut) {
+                const offset = i * 4;
+                if (offset + 3 < outResults.length) {
+                    outResults[offset] = res.moved ? 1 : 0;
+                    outResults[offset + 1] = res.blocked ? 1 : 0;
+                    outResults[offset + 2] = res.wallContact ? 1 : 0;
+                    outResults[offset + 3] = entity.impulseVx || 0;
+                }
+            } else if (resArray) {
+                if (!resArray[i] || typeof resArray[i] !== 'object') {
+                    resArray[i] = { moved: res.moved, blocked: res.blocked, wallSlam: res.wallSlam, wallContact: res.wallContact };
+                } else {
+                    resArray[i].moved = res.moved;
+                    resArray[i].blocked = res.blocked;
+                    resArray[i].wallSlam = res.wallSlam;
+                    resArray[i].wallContact = res.wallContact;
+                }
+            }
+        }
+        return isTypedOut ? outResults : resArray;
     }
 };
 
 const Geometry = {
-    projectPointOnSegment(px, py, ax, ay, bx, by) {
+    projectPointOnSegment(px, py, ax, ay, bx, by, out = null) {
         const dx = bx - ax;
         const dy = by - ay;
         const lengthSq = dx * dx + dy * dy;
+        const res = out && typeof out === 'object' ? out : { x: 0, y: 0, t: 0, distSq: 0 };
         if (lengthSq <= 0) {
             const dist = Math.hypot(px - ax, py - ay);
-            return { x: ax, y: ay, t: 0, distSq: dist * dist };
+            res.x = ax;
+            res.y = ay;
+            res.t = 0;
+            res.distSq = dist * dist;
+            return res;
         }
         const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lengthSq));
         const projX = ax + dx * t;
         const projY = ay + dy * t;
         const distX = px - projX;
         const distY = py - projY;
-        return { x: projX, y: projY, t, distSq: distX * distX + distY * distY };
+        res.x = projX;
+        res.y = projY;
+        res.t = t;
+        res.distSq = distX * distX + distY * distY;
+        return res;
     },
 
     distancePointToSegment(px, py, ax, ay, bx, by) {
@@ -399,7 +513,75 @@ const Geometry = {
     }
 };
 
+class SpatialHash {
+    constructor(cellSize = 64) {
+        this.cellSize = Math.max(8, Number(cellSize) || 64);
+        this.grid = new Map();
+    }
+
+    _key(cx, cy) {
+        return (cx & 0xFFFF) | ((cy & 0xFFFF) << 16);
+    }
+
+    clear() {
+        this.grid.clear();
+    }
+
+    insert(entity) {
+        if (!entity || typeof entity.x !== 'number' || typeof entity.y !== 'number') return;
+        const rad = Math.max(0, Number(entity.radius || entity.size || 0));
+        const minX = Math.floor((entity.x - rad) / this.cellSize);
+        const maxX = Math.floor((entity.x + rad) / this.cellSize);
+        const minY = Math.floor((entity.y - rad) / this.cellSize);
+        const maxY = Math.floor((entity.y + rad) / this.cellSize);
+
+        for (let cx = minX; cx <= maxX; cx++) {
+            for (let cy = minY; cy <= maxY; cy++) {
+                const key = this._key(cx, cy);
+                let cell = this.grid.get(key);
+                if (!cell) {
+                    cell = [];
+                    this.grid.set(key, cell);
+                }
+                cell.push(entity);
+            }
+        }
+    }
+
+    queryRadius(x, y, radius, outResults = null) {
+        const results = outResults || [];
+        results.length = 0;
+        const minX = Math.floor((x - radius) / this.cellSize);
+        const maxX = Math.floor((x + radius) / this.cellSize);
+        const minY = Math.floor((y - radius) / this.cellSize);
+        const maxY = Math.floor((y + radius) / this.cellSize);
+        const seen = new Set();
+
+        for (let cx = minX; cx <= maxX; cx++) {
+            for (let cy = minY; cy <= maxY; cy++) {
+                const key = this._key(cx, cy);
+                const cell = this.grid.get(key);
+                if (!cell) continue;
+                for (let i = 0; i < cell.length; i++) {
+                    const item = cell[i];
+                    if (seen.has(item)) continue;
+                    seen.add(item);
+                    const dx = item.x - x;
+                    const dy = item.y - y;
+                    const itemRad = Math.max(0, Number(item.radius || item.size || 0));
+                    const totalRad = radius + itemRad;
+                    if (dx * dx + dy * dy <= totalRad * totalRad) {
+                        results.push(item);
+                    }
+                }
+            }
+        }
+        return results;
+    }
+}
+
 ImpulsePhysics.Geometry = Geometry;
+ImpulsePhysics.SpatialHash = SpatialHash;
 
 const root = typeof window !== 'undefined' ? window : globalThis;
 root.Engine = root.Engine || {};

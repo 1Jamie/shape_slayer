@@ -369,7 +369,7 @@ function getBiomeGridPattern(ctx, biome, isMask, isParallax) {
 
 function buildBiomeGridPatternTile(biome, isMask, isParallax) {
     // Pattern tiles are retained by CanvasPattern; do not borrow from CanvasPool.
-    const patternCanvas = document.createElement('canvas');
+    const patternCanvas = Engine.Graphics.createCanvas(1, 1);
     const pCtx = patternCanvas.getContext('2d');
 
     // Determine grid size and scaling
@@ -2885,10 +2885,12 @@ const GameRender = {
             return this.doorCache.get(key);
         }
 
-        const canvas = document.createElement('canvas');
         const padding = 25;
-        canvas.width = keyWidth + padding * 2;
-        canvas.height = keyHeight + padding * 2;
+        const targetW = keyWidth + padding * 2;
+        const targetH = keyHeight + padding * 2;
+        const canvas = Engine.Graphics.createCanvas(targetW, targetH);
+        canvas.width = targetW;
+        canvas.height = targetH;
         const ctx = canvas.getContext('2d');
 
         const x = padding;

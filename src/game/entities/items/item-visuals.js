@@ -75,12 +75,14 @@ function getCachedAura(type, radius) {
     }
 
     // Create new cached aura
-    const canvas = document.createElement('canvas');
     const diameter = keyRadius * 2;
     // Add padding for glow/spikes
     const padding = 20;
-    canvas.width = diameter + padding * 2;
-    canvas.height = diameter + padding * 2;
+    const targetW = diameter + padding * 2;
+    const targetH = diameter + padding * 2;
+    const canvas = Engine.Graphics.createCanvas(targetW, targetH);
+    canvas.width = targetW;
+    canvas.height = targetH;
     const ctx = canvas.getContext('2d');
     const center = keyRadius + padding;
 
@@ -218,12 +220,14 @@ function getCachedRing(type, radius) {
     }
 
     // Create new cached ring
-    const canvas = document.createElement('canvas');
     const diameter = keyRadius * 2;
     // Add padding for glow/stroke
     const padding = 20;
-    canvas.width = diameter + padding * 2;
-    canvas.height = diameter + padding * 2;
+    const targetW = diameter + padding * 2;
+    const targetH = diameter + padding * 2;
+    const canvas = Engine.Graphics.createCanvas(targetW, targetH);
+    canvas.width = targetW;
+    canvas.height = targetH;
     const ctx = canvas.getContext('2d');
     const center = keyRadius + padding;
 

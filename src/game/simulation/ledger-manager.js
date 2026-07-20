@@ -1,8 +1,12 @@
 // Combat Ledger Manager - run-scoped tracking, feat evaluation, run timing
 
 const LedgerManager = (function () {
-    const WHIRLWIND_EXTEND_PER_KILL = 0.75;
-    const WHIRLWIND_MAX_DURATION = 12.0;
+    // Kill-extend is a chase reward, not a room-clear spin forever.
+    // Base WW is ~2.1s; cyclone feat needs >6s so the cap sits just above that.
+    // ~16 kills to clear the feat, ~20 to hit the hard duration ceiling.
+    const WHIRLWIND_EXTEND_PER_KILL = 0.25;
+    const WHIRLWIND_MAX_DURATION = 7.0;
+    const WHIRLWIND_MAX_KILL_EXTENDS = 20;
     const PHANTOM_WINDOW_MS = 400;
     // Rogue dodge is 0.3s (~216px dash) + knife travel after overshoot; 1s is tight but mechanically fair
     const SHADOW_RIPOSTE_WINDOW_MS = 1000;
@@ -479,17 +483,26 @@ const LedgerManager = (function () {
 
     function recordWhirlwindKill(player) {
         if (!player || !player.whirlwindActive) return;
+        const kills = player._whirlwindKillCount || 0;
+        if (kills >= WHIRLWIND_MAX_KILL_EXTENDS) return;
+
         const bonus = WHIRLWIND_EXTEND_PER_KILL;
         const base = (typeof WARRIOR_CONFIG !== 'undefined' ? WARRIOR_CONFIG.whirlwindDuration : 2.1)
             + (player.whirlwindDurationBonus || 0);
         const currentExtend = player._whirlwindKillExtend || 0;
         const currentEffective = base + currentExtend;
-        if (currentEffective < WHIRLWIND_MAX_DURATION) {
-            const add = Math.min(bonus, WHIRLWIND_MAX_DURATION - currentEffective);
-            player._whirlwindKillExtend = currentExtend + add;
+        if (currentEffective >= WHIRLWIND_MAX_DURATION) {
+            player._whirlwindKillCount = kills + 1;
+            return;
         }
-        if (player.whirlwindResetOnKill) {
-            player.whirlwindElapsed = Math.max(0, player.whirlwindElapsed - bonus);
+
+        const add = Math.min(bonus, WHIRLWIND_MAX_DURATION - currentEffective);
+        player._whirlwindKillExtend = currentExtend + add;
+        player._whirlwindKillCount = kills + 1;
+
+        // Reset-on-kill only rewinds by the time actually added, and never past 0.
+        if (player.whirlwindResetOnKill && add > 0) {
+            player.whirlwindElapsed = Math.max(0, (player.whirlwindElapsed || 0) - add);
         }
     }
 
@@ -728,6 +741,7 @@ const LedgerManager = (function () {
         // constants for tests
         WHIRLWIND_EXTEND_PER_KILL,
         WHIRLWIND_MAX_DURATION,
+        WHIRLWIND_MAX_KILL_EXTENDS,
         PHANTOM_WINDOW_MS,
         SHADOW_RIPOSTE_WINDOW_MS,
         applyWhirlwindKillExtend: recordWhirlwindKill

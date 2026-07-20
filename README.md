@@ -625,7 +625,8 @@ Examples:
 
 - **Input:** `Engine.Input` samples hardware. `src/game/input-map.js` (`GameInput`) turns that into Shape Slayer actions. Old `src/game/simulation/input.js` is gone on purpose.
 - **Audio:** `Engine.Audio` / `Engine.Music` are transport. `src/game/audio/` wires SaveSystem and owns combat cues / playlists.
-- **Render:** `Engine.Render` owns targets + the pipe runner. `src/game/presentation/render-pipeline.js` owns the PLAYING stage list.
+- **Render:** `Engine.Render` owns targets + the pipe runner. `src/game/presentation/render-pipeline.js` owns all state recipes (TITLE, NEXUS, ENTERING_ROOM, PLAYING, PAUSED); `main.js` runs them and cleans pooled targets on teardown/resize.
+- **Graphics:** prefer `Engine.Graphics.createCanvas` / `Graphics.Text` over ad-hoc `document.createElement('canvas')` and raw `ctx.font` / `measureText` in game code.
 
 Details: [`src/engine/README.md`](src/engine/README.md).
 
@@ -644,7 +645,7 @@ shape_slayer/
 │   │   ├── input.js / touch.js / split.js
 │   │   ├── graphics.js / render-host.js / render-pipeline.js / renderer.js / camera.js / fx.js
 │   │   ├── audio.js / music.js
-│   │   ├── save.js / physics.js / proc.js / net.js / system.js / profiler.js / shell.js
+│   │   ├── save.js / physics.js / proc.js / proc-worker.js / net.js / system.js / profiler.js / shell.js
 │   │   └── ui/                # Boot screen, modal stack, bus, toasts, root
 │   └── game/                  # Shape Slayer package
 │       ├── main.js            # Game orchestration; calls Engine.Boot.handoff()
@@ -653,7 +654,7 @@ shape_slayer/
 │       ├── simulation/        # Combat, level, nexus, room layout (no input.js)
 │       ├── entities/          # Players, enemies, bosses, items
 │       ├── content/           # Biomes, gear, saves, tutorials, version
-│       ├── presentation/      # Render adapters, PLAYING pipeline, voxel FX
+│       ├── presentation/      # Render adapters, state pipelines, voxel FX
 │       ├── networking/        # Multiplayer client, mp-config, telemetry
 │       └── ui/                # DOM menus, HUD, Safe Room, Index, shops
 ├── assets/                    # Browser-loaded audio, fonts, and PWA icons

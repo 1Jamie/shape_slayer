@@ -254,7 +254,9 @@
     let frameIndex = 0;
     let historyCursor = -1; // -1 = live (latest)
     let pinnedFrame = null;
+    let pinnedFrameIndex = null;
     let frozen = false;
+    let bufferPaused = false;
     let breakMode = 'break'; // 'break' | 'log'
     const breakPredicates = [];
     let currentStageId = null;
@@ -347,10 +349,15 @@
     }
 
     function getSelectedHistoryFrame() {
+        if (pinnedFrameIndex != null) {
+            const match = history.find((f) => f && f.frameIndex === pinnedFrameIndex);
+            if (match) return match;
+        }
         if (pinnedFrame) return pinnedFrame;
         if (history.length === 0) return null;
         if (historyCursor < 0) return history[history.length - 1];
-        return history[Math.max(0, Math.min(history.length - 1, historyCursor))];
+        const idx = Math.max(0, Math.min(history.length - 1, historyCursor));
+        return history[idx] || null;
     }
 
     function buildDbg() {
@@ -522,6 +529,11 @@
         }
         boundPipeline = entry.pipeline;
         viewingPipelineId = id;
+        if (!entry.profile && !entry.snapshot) {
+            entry.profile = true;
+            entry.snapshot = true;
+            console.log(`[Debug] Auto-attached debug profile & snapshot for "${id}"`);
+        }
         if (visible && view.kind === 'section' && view.id === 'pipeline') {
             invalidateMount();
             mountView();
@@ -546,13 +558,14 @@
         return buildingFrame;
     }
 
-    function ensureStageRec(stageId) {
+    function ensureStageRec(stageId, stageMeta) {
         const frame = ensureBuildingFrame();
         let rec = frame._stageMap[stageId];
         if (!rec) {
             rec = {
                 id: stageId,
                 ms: 0,
+                meta: stageMeta || null,
                 bagInSummary: null,
                 bagOutSummary: null,
                 traces: [],
@@ -560,24 +573,27 @@
             };
             frame._stageMap[stageId] = rec;
             frame.stages.push(rec);
+        } else if (stageMeta && !rec.meta) {
+            rec.meta = stageMeta;
         }
         return rec;
     }
 
-    function beginStage(stageId) {
+    function beginStage(stageId, stageMeta) {
         if (!shouldSnapshot() && !shouldCollect()) return;
         currentStageId = stageId;
         if (shouldSnapshot()) {
-            ensureStageRec(stageId);
+            ensureStageRec(stageId, stageMeta);
         }
     }
 
-    function endStage(stageId, ms, bagInSummary, bagOutSummary) {
+    function endStage(stageId, ms, bagInSummary, bagOutSummary, stageMeta) {
         if (shouldSnapshot()) {
-            const rec = ensureStageRec(stageId);
+            const rec = ensureStageRec(stageId, stageMeta);
             if (typeof ms === 'number') rec.ms = ms;
             if (bagInSummary) rec.bagInSummary = bagInSummary;
             if (bagOutSummary) rec.bagOutSummary = bagOutSummary;
+            if (stageMeta) rec.meta = stageMeta;
         }
         if (currentStageId === stageId) currentStageId = null;
     }
@@ -623,7 +639,7 @@
         }
         delete frame._stageMap;
 
-        if (shouldSnapshot() && !frozen) {
+        if (shouldSnapshot() && !frozen && !bufferPaused && historyCursor < 0) {
             history.push(frame);
             while (history.length > historySize) history.shift();
         }
@@ -1177,6 +1193,100 @@
         return boundPipeline.stages().map((s) => s.id + ':' + resolveTargetName(s)).join('|');
     }
 
+    function createBagExplorer(summary, title) {
+        const box = el('div', 'margin-top:6px;margin-bottom:8px;padding:8px;background:rgba(15,20,30,0.95);border:1px solid #224422;border-radius:6px;');
+        const header = el('div', 'display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:6px;');
+        const headTitle = el('span', 'font-weight:bold;color:#ffcc66;font-size:12px;', title || 'Bag Payload');
+        header.appendChild(headTitle);
+
+        const actions = el('div', 'display:flex;gap:4px;align-items:center;');
+        const filterInput = document.createElement('input');
+        filterInput.type = 'text';
+        filterInput.placeholder = 'Filter keys...';
+        filterInput.style.cssText = 'padding:2px 6px;font-size:11px;background:#111;color:#00ff00;border:1px solid #335533;border-radius:4px;width:100px;font-family:inherit;';
+        actions.appendChild(filterInput);
+
+        const copyBtn = textBtn('Copy JSON', () => {
+            if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                navigator.clipboard.writeText(JSON.stringify(summary, null, 2));
+                copyBtn.textContent = 'Copied!';
+                setTimeout(() => { copyBtn.textContent = 'Copy JSON'; }, 1500);
+            }
+        }, true);
+        copyBtn.style.fontSize = '10px';
+        copyBtn.style.padding = '2px 6px';
+        actions.appendChild(copyBtn);
+
+        const logBtn = textBtn('Log Console', () => {
+            console.log(`[Debug Bag: ${title}]`, summary);
+            logBtn.textContent = 'Logged!';
+            setTimeout(() => { logBtn.textContent = 'Log Console'; }, 1500);
+        }, true);
+        logBtn.style.fontSize = '10px';
+        logBtn.style.padding = '2px 6px';
+        actions.appendChild(logBtn);
+
+        header.appendChild(actions);
+        box.appendChild(header);
+
+        const treeContainer = el('div', 'font-size:11px;font-family:monospace;max-height:220px;overflow-y:auto;background:rgba(10,12,18,0.8);padding:6px;border-radius:4px;border:1px solid #1a331a;');
+        box.appendChild(treeContainer);
+
+        function renderNodes(data, filterText) {
+            while (treeContainer.firstChild) treeContainer.removeChild(treeContainer.firstChild);
+            if (!data || typeof data !== 'object') {
+                treeContainer.appendChild(el('div', 'color:#888;', String(data)));
+                return;
+            }
+            const keys = Object.keys(data);
+            if (!keys.length) {
+                treeContainer.appendChild(el('div', 'color:#888;', '{ empty }'));
+                return;
+            }
+            const q = (filterText || '').toLowerCase().trim();
+            let count = 0;
+            keys.forEach((k) => {
+                const val = data[k];
+                const valStr = typeof val === 'object' ? JSON.stringify(val) : String(val);
+                if (q && !k.toLowerCase().includes(q) && !valStr.toLowerCase().includes(q)) {
+                    return;
+                }
+                count++;
+                const row = el('div', 'display:flex;align-items:flex-start;gap:6px;padding:2px 0;');
+                const keySpan = el('span', 'color:#00ffff;font-weight:bold;', k);
+                const colon = el('span', 'color:#888;', ':');
+                let valSpan;
+                if (val === null || val === undefined) {
+                    valSpan = el('span', 'color:#888;font-style:italic;', String(val));
+                } else if (typeof val === 'number') {
+                    valSpan = el('span', 'color:#ffff00;', String(val));
+                } else if (typeof val === 'boolean') {
+                    valSpan = el('span', 'color:#ff00ff;', String(val));
+                } else if (typeof val === 'string') {
+                    valSpan = el('span', 'color:#88ff88;', `"${val}"`);
+                } else if (typeof val === 'object') {
+                    valSpan = el('span', 'color:#ffaa00;', Array.isArray(val) ? `Array(${val.length})` : JSON.stringify(val));
+                } else {
+                    valSpan = el('span', 'color:#fff;', String(val));
+                }
+                row.appendChild(keySpan);
+                row.appendChild(colon);
+                row.appendChild(valSpan);
+                treeContainer.appendChild(row);
+            });
+            if (count === 0 && q) {
+                treeContainer.appendChild(el('div', 'color:#888;', `No keys matching "${q}"`));
+            }
+        }
+
+        renderNodes(summary, '');
+        filterInput.addEventListener('input', () => {
+            renderNodes(summary, filterInput.value);
+        });
+
+        return box;
+    }
+
     function mountPipeline(root) {
         // Registry attach/detach controls (engine-owned DX)
         const regBox = el('div', 'margin-bottom:10px;padding:8px;border:1px solid #334433;border-radius:6px;');
@@ -1189,11 +1299,28 @@
         } else {
             registered.forEach((info) => {
                 const entry = pipelineRegistry[info.id];
+                const isAttached = entry.profile && entry.snapshot;
                 const row = el('div', 'margin-bottom:8px;padding-bottom:6px;border-bottom:1px dashed #224422;');
                 const title = el('div', 'font-size:12px;color:#fff;margin-bottom:4px;', '');
                 title.textContent = `${info.label} (${info.stageCount} stages)` +
                     (viewingPipelineId === info.id ? ' · viewing' : '');
                 row.appendChild(title);
+
+                const actions = el('div', 'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;');
+                const toggleBtn = textBtn(isAttached ? 'Debug: ON' : 'Debug: OFF', () => {
+                    if (isAttached) detach(info.id);
+                    else attach(info.id, { profile: true, snapshot: true });
+                }, !isAttached);
+                if (isAttached) {
+                    toggleBtn.style.borderColor = '#00ff00';
+                    toggleBtn.style.color = '#00ff00';
+                }
+                actions.appendChild(toggleBtn);
+                actions.appendChild(textBtn('View', () => viewPipeline(info.id), true));
+                if (isAttached) {
+                    actions.appendChild(textBtn('Detach', () => detach(info.id), true));
+                }
+                row.appendChild(actions);
 
                 row.appendChild(checkbox('Profile stages', entry.profile, (v) => {
                     attach(info.id, { profile: v, snapshot: entry.snapshot });
@@ -1202,47 +1329,136 @@
                     attach(info.id, { profile: entry.profile, snapshot: v });
                 }, '#ffcc66'));
 
-                const actions = el('div', 'display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;');
-                actions.appendChild(textBtn('View', () => viewPipeline(info.id), true));
-                actions.appendChild(textBtn('Attach both', () => {
-                    attach(info.id, { profile: true, snapshot: true });
-                }, true));
-                actions.appendChild(textBtn('Detach', () => detach(info.id), true));
-                row.appendChild(actions);
                 regBox.appendChild(row);
             });
         }
         root.appendChild(regBox);
 
         const scrub = el('div', 'margin-bottom:10px;padding:8px;border:1px solid #224422;border-radius:6px;');
-        const label = el('div', 'font-size:12px;color:#88ff88;margin-bottom:6px;', '-');
+        const topRow = el('div', 'display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:6px;');
+        const label = el('div', 'font-size:12px;color:#88ff88;', '-');
         bind('pipe.scrub', label);
-        scrub.appendChild(label);
-        const nav = el('div', 'display:flex;gap:6px;flex-wrap:wrap;');
-        nav.appendChild(textBtn('◀', () => {
+        topRow.appendChild(label);
+
+        const capWrap = el('div', 'display:flex;align-items:center;gap:4px;font-size:11px;color:#88ff88;');
+        capWrap.appendChild(el('span', '', 'Size:'));
+        const capSelect = document.createElement('select');
+        capSelect.style.cssText = 'background:#111;color:#00ff00;border:1px solid #335533;border-radius:4px;font-size:11px;padding:1px 4px;';
+        [60, 180, 300, 600].forEach((sz) => {
+            const opt = document.createElement('option');
+            opt.value = String(sz);
+            opt.textContent = `${sz} (${Math.round(sz / 60)}s)`;
+            if (sz === historySize) opt.selected = true;
+            capSelect.appendChild(opt);
+        });
+        capSelect.addEventListener('change', () => {
+            Debug.setHistorySize(Number(capSelect.value));
+            patchLive();
+        });
+        capWrap.appendChild(capSelect);
+        topRow.appendChild(capWrap);
+        scrub.appendChild(topRow);
+
+        const slider = document.createElement('input');
+        slider.type = 'range';
+        slider.style.cssText = 'width:100%;margin:4px 0 8px;cursor:pointer;accent-color:#00ff00;';
+        slider.min = '0';
+        slider.max = String(Math.max(0, history.length - 1));
+        slider.value = String(historyCursor < 0 ? Math.max(0, history.length - 1) : historyCursor);
+        slider.addEventListener('input', () => {
+            const idx = Number(slider.value);
+            if (idx >= 0 && idx < history.length) {
+                bufferPaused = true;
+                historyCursor = idx;
+                pinnedFrame = history[idx] || null;
+                pinnedFrameIndex = pinnedFrame ? pinnedFrame.frameIndex : null;
+                patchLive();
+            }
+        });
+        bind('pipe.slider', slider);
+        scrub.appendChild(slider);
+
+        const nav = el('div', 'display:flex;gap:4px;flex-wrap:wrap;');
+        nav.appendChild(textBtn('⏮ Oldest', () => {
             if (history.length === 0) return;
-            if (historyCursor < 0) historyCursor = history.length - 1;
-            historyCursor = Math.max(0, historyCursor - 1);
+            bufferPaused = true;
+            historyCursor = 0;
+            pinnedFrame = history[0];
+            pinnedFrameIndex = pinnedFrame ? pinnedFrame.frameIndex : null;
             patchLive();
         }, true));
-        nav.appendChild(textBtn('Live', () => {
+        nav.appendChild(textBtn('◀ Prev', () => {
+            if (history.length === 0) return;
+            bufferPaused = true;
+            const selFrame = getSelectedHistoryFrame();
+            let curr = selFrame ? history.indexOf(selFrame) : (historyCursor >= 0 ? historyCursor : history.length - 1);
+            if (curr < 0) curr = history.length - 1;
+            const target = Math.max(0, curr - 1);
+            historyCursor = target;
+            pinnedFrame = history[target] || null;
+            pinnedFrameIndex = pinnedFrame ? pinnedFrame.frameIndex : null;
+            patchLive();
+        }, true));
+
+        const pauseLiveBtn = textBtn(bufferPaused || historyCursor >= 0 ? '▶ Resume Live' : '⏸ Pause Ring', () => {
+            if (bufferPaused || historyCursor >= 0) {
+                bufferPaused = false;
+                historyCursor = -1;
+                pinnedFrame = null;
+                pinnedFrameIndex = null;
+            } else {
+                bufferPaused = true;
+                if (history.length > 0) {
+                    historyCursor = history.length - 1;
+                    pinnedFrame = history[historyCursor];
+                    pinnedFrameIndex = pinnedFrame ? pinnedFrame.frameIndex : null;
+                }
+            }
+            patchLive();
+        }, false);
+        bind('pipe.pauseLiveBtn', pauseLiveBtn);
+        nav.appendChild(pauseLiveBtn);
+
+        nav.appendChild(textBtn('Next ▶', () => {
+            if (history.length === 0) return;
+            const selFrame = getSelectedHistoryFrame();
+            let curr = selFrame ? history.indexOf(selFrame) : historyCursor;
+            if (curr < 0) return;
+            const target = Math.min(history.length - 1, curr + 1);
+            if (target === history.length - 1) {
+                historyCursor = -1;
+                bufferPaused = false;
+                pinnedFrame = null;
+                pinnedFrameIndex = null;
+            } else {
+                historyCursor = target;
+                pinnedFrame = history[target] || null;
+                pinnedFrameIndex = pinnedFrame ? pinnedFrame.frameIndex : null;
+            }
+            patchLive();
+        }, true));
+
+        nav.appendChild(textBtn('Latest ⏭', () => {
+            bufferPaused = false;
             historyCursor = -1;
-            if (!frozen) pinnedFrame = null;
+            pinnedFrame = null;
+            pinnedFrameIndex = null;
             patchLive();
         }, true));
-        nav.appendChild(textBtn('▶', () => {
-            if (history.length === 0) return;
-            if (historyCursor < 0) return;
-            historyCursor = Math.min(history.length - 1, historyCursor + 1);
-            if (historyCursor === history.length - 1) historyCursor = -1;
-            patchLive();
-        }, true));
-        nav.appendChild(textBtn('Diff', () => setView({ kind: 'pipeline-diff' })));
+
+        nav.appendChild(textBtn('Diff', () => setView({ kind: 'pipeline-diff' }), true));
+
+        const logFrameBtn = textBtn('Log Console', () => {
+            const sel = getSelectedHistoryFrame();
+            if (sel) console.log('[Engine.Debug Log Frame]', sel);
+        }, true);
+        nav.appendChild(logFrameBtn);
+
         const unfreezeBtn = textBtn('Unfreeze', () => Debug.unfreeze());
         bind('pipe.unfreezeBtn', unfreezeBtn);
         unfreezeBtn.style.display = frozen ? '' : 'none';
         nav.appendChild(unfreezeBtn);
-        scrub.appendChild(nav);
+
         root.appendChild(scrub);
 
         // Prefer viewing selection; fall back to first registered / bound
@@ -1295,11 +1511,23 @@
             return;
         }
         const frame = getSelectedHistoryFrame();
+        const selIdx = frame ? history.indexOf(frame) : -1;
+        const relOffset = selIdx >= 0 ? selIdx - (history.length - 1) : 0;
+        const isPaused = bufferPaused || historyCursor >= 0 || frozen;
         setBound('pipe.scrub', frame
-            ? `Frame ${frame.frameIndex}${historyCursor < 0 && !pinnedFrame ? ' (live)' : ''} · ${history.length} buffered`
-            : 'No history — enable Pipe Snapshots or open this view while collecting');
+            ? `${isPaused ? '⏸ PAUSED' : '● LIVE'} Frame #${frame.frameIndex} ${isPaused ? `[${relOffset === 0 ? 'latest' : relOffset}]` : ''} · ${history.length}/${historySize}`
+            : 'No history — enable pipeline debug or open this view while collecting');
+        if (binds['pipe.pauseLiveBtn']) {
+            binds['pipe.pauseLiveBtn'].textContent = isPaused ? '▶ Resume Live' : '⏸ Pause Ring';
+            binds['pipe.pauseLiveBtn'].style.borderColor = isPaused ? '#ffaa00' : '#00ff00';
+            binds['pipe.pauseLiveBtn'].style.color = isPaused ? '#ffaa00' : '#00ff00';
+        }
         if (binds['pipe.unfreezeBtn']) {
             binds['pipe.unfreezeBtn'].style.display = frozen ? '' : 'none';
+        }
+        if (binds['pipe.slider']) {
+            binds['pipe.slider'].max = String(Math.max(0, history.length - 1));
+            binds['pipe.slider'].value = String(Math.max(0, selIdx >= 0 ? selIdx : history.length - 1));
         }
 
         const stageRecs = Object.create(null);
@@ -1321,24 +1549,107 @@
     }
 
     function mountPipelineStageDetail(root, stageId) {
+        const stages = (boundPipeline && typeof boundPipeline.stages === 'function')
+            ? boundPipeline.stages() : [];
+        const stageIdx = stages.findIndex((s) => s.id === stageId);
+        const stageObj = stages[stageIdx] || null;
+
+        const navBar = el('div', 'display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #224422;');
+        const prevBtn = textBtn('▲ Prev Stage', () => {
+            if (stageIdx > 0) setView({ kind: 'pipeline-stage', stageId: stages[stageIdx - 1].id });
+        }, stageIdx <= 0);
+        const nextBtn = textBtn('▼ Next Stage', () => {
+            if (stageIdx >= 0 && stageIdx < stages.length - 1) {
+                setView({ kind: 'pipeline-stage', stageId: stages[stageIdx + 1].id });
+            }
+        }, stageIdx < 0 || stageIdx >= stages.length - 1);
+        const stageNavTitle = el('span', 'font-size:11px;color:#ffcc66;font-weight:bold;',
+            stageIdx >= 0 ? `${stageIdx + 1}/${stages.length}` : '');
+
+        navBar.appendChild(prevBtn);
+        navBar.appendChild(stageNavTitle);
+        navBar.appendChild(nextBtn);
+        root.appendChild(navBar);
+
         const frame = getSelectedHistoryFrame();
         const rec = frame && (frame.stages || []).find((s) => s.id === stageId);
+        const targetName = stageObj ? resolveTargetName(stageObj) : '?';
+
         root.appendChild(el('div', 'font-size:12px;color:#88ff88;margin-bottom:8px;',
-            frame ? `Frame ${frame.frameIndex}` : 'No frame'));
-        root.appendChild(boundMetricLine('Time', 'stage.ms'));
+            (frame ? `Frame #${frame.frameIndex}` : 'No frame') + ` · Target: ${targetName}`));
+        root.appendChild(boundMetricLine('Execution Time', 'stage.ms'));
         setBound('stage.ms', fmtMs(rec && rec.ms), typeof (rec && rec.ms) === 'number' ? rec.ms : undefined);
 
+        const meta = rec && rec.meta;
+        if (meta) {
+            const card = el('div', 'margin-top:6px;margin-bottom:8px;padding:8px;background:rgba(20,25,35,0.95);border:1px solid #00aaaa;border-radius:6px;');
+            card.appendChild(el('div', 'font-weight:bold;margin-bottom:4px;color:#00ffff;font-size:12px;',
+                'Engine Metrics (Auto-Captured)'));
+
+            const grid = el('div', 'display:grid;grid-template-columns:1fr;gap:4px;font-size:11px;color:#ccc;');
+
+            if (meta.target) {
+                const targetText = `${meta.target} (${meta.targetWidth}×${meta.targetHeight} px @ ${meta.targetDpr} DPR` +
+                    (meta.targetPooled ? ', pooled' : ', main') + ')';
+                grid.appendChild(el('div', '', `<span style="color:#88ff88;font-weight:bold;">Surface:</span> ${targetText}`));
+            }
+
+            if (meta.ctxState) {
+                const ctxText = `alpha: ${meta.ctxState.globalAlpha} | blend: ${meta.ctxState.compositeOperation}` +
+                    (meta.ctxState.imageSmoothing ? '' : ' | smooth: off');
+                grid.appendChild(el('div', '', `<span style="color:#88ff88;font-weight:bold;">Canvas Context:</span> ${ctxText}`));
+            }
+
+            if (meta.camera) {
+                const camText = `x:${meta.camera.x.toFixed(1)}, y:${meta.camera.y.toFixed(1)} (zoom: ${meta.camera.zoom.toFixed(2)})` +
+                    (meta.camera.offsetX || meta.camera.offsetY ? ` offset: (${meta.camera.offsetX.toFixed(1)}, ${meta.camera.offsetY.toFixed(1)})` : '');
+                grid.appendChild(el('div', '', `<span style="color:#88ff88;font-weight:bold;">Camera:</span> ${camText}`));
+            }
+
+            if (meta.viewport || meta.quality) {
+                let envText = meta.viewport ? `${meta.viewport.w}×${meta.viewport.h}` : '';
+                if (meta.quality) envText += ` (Quality Tier: ${meta.quality})`;
+                grid.appendChild(el('div', '', `<span style="color:#88ff88;font-weight:bold;">Environment:</span> ${envText}`));
+            }
+
+            card.appendChild(grid);
+            root.appendChild(card);
+        }
+
+        if (rec && rec.bagInSummary && rec.bagOutSummary) {
+            const diffs = shallowDiff(rec.bagInSummary, rec.bagOutSummary, '');
+            const mutBox = el('div', 'margin-top:6px;margin-bottom:8px;padding:8px;background:rgba(20,30,20,0.8);border:1px solid #225522;border-radius:6px;');
+            mutBox.appendChild(el('div', 'font-weight:bold;margin-bottom:4px;color:#ffcc66;font-size:12px;',
+                `Bag Mutations (${diffs.length})`));
+            if (!diffs.length) {
+                mutBox.appendChild(el('div', STYLE.label, 'No bag mutations in this stage'));
+            } else {
+                diffs.forEach((c) => {
+                    const line = el('div', 'font-size:11px;margin:2px 0;');
+                    let badgeStyle = 'color:#00ff00;';
+                    let badgeText = '+ Added';
+                    if (c.kind === 'removed') {
+                        badgeStyle = 'color:#ff6666;';
+                        badgeText = '- Removed';
+                    } else if (c.kind === 'changed') {
+                        badgeStyle = 'color:#ffff00;';
+                        badgeText = '~ Changed';
+                    }
+                    line.appendChild(el('span', badgeStyle + 'font-weight:bold;margin-right:6px;', badgeText));
+                    line.appendChild(el('span', 'color:#00ffff;', c.path));
+                    line.appendChild(el('span', 'color:#888;', ': '));
+                    line.appendChild(el('span', 'color:#ccc;', `${JSON.stringify(c.from)} → ${JSON.stringify(c.to)}`));
+                    mutBox.appendChild(line);
+                });
+            }
+            root.appendChild(mutBox);
+        }
+
         if (rec && rec.bagInSummary) {
-            root.appendChild(el('div', 'font-weight:bold;margin:8px 0 4px;color:#ffcc66;font-size:12px;', 'bagIn'));
-            const preIn = el('pre', 'font-size:10px;color:#ccc;white-space:pre-wrap;margin:0;', '');
-            preIn.textContent = JSON.stringify(rec.bagInSummary, null, 2);
-            root.appendChild(preIn);
+            root.appendChild(createBagExplorer(rec.bagInSummary, 'bagIn Input Payload'));
         }
         if (rec && rec.bagOutSummary) {
-            root.appendChild(el('div', 'font-weight:bold;margin:8px 0 4px;color:#ffcc66;font-size:12px;', 'bagOut'));
-            const preOut = el('pre', 'font-size:10px;color:#ccc;white-space:pre-wrap;margin:0;', '');
-            preOut.textContent = JSON.stringify(rec.bagOutSummary, null, 2);
-            root.appendChild(preOut);
+            root.appendChild(createBagExplorer(rec.bagOutSummary, 'bagOut Output Payload'));
         }
 
         const traces = (rec && rec.traces) || [];
@@ -1482,6 +1793,88 @@
                     e.preventDefault();
                     e.stopPropagation();
                     this.toggle();
+                    return;
+                }
+
+                if (!visible || !pipelineFocus) return;
+                if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) {
+                    if (e.key !== 'Escape') return;
+                }
+
+                if (e.key === ' ' || e.code === 'Space') {
+                    e.preventDefault();
+                    bufferPaused = !bufferPaused;
+                    if (!bufferPaused) {
+                        historyCursor = -1;
+                        pinnedFrame = null;
+                        pinnedFrameIndex = null;
+                    } else if (history.length > 0 && historyCursor < 0) {
+                        historyCursor = history.length - 1;
+                        pinnedFrame = history[historyCursor];
+                        pinnedFrameIndex = pinnedFrame ? pinnedFrame.frameIndex : null;
+                    }
+                    patchLive();
+                } else if (e.key === 'ArrowLeft' || e.key === '[') {
+                    e.preventDefault();
+                    bufferPaused = true;
+                    if (history.length === 0) return;
+                    const selFrame = getSelectedHistoryFrame();
+                    let curr = selFrame ? history.indexOf(selFrame) : (historyCursor >= 0 ? historyCursor : history.length - 1);
+                    if (curr < 0) curr = history.length - 1;
+                    const target = Math.max(0, curr - 1);
+                    historyCursor = target;
+                    pinnedFrame = history[target] || null;
+                    pinnedFrameIndex = pinnedFrame ? pinnedFrame.frameIndex : null;
+                    patchLive();
+                } else if (e.key === 'ArrowRight' || e.key === ']') {
+                    e.preventDefault();
+                    if (history.length === 0) return;
+                    const selFrame = getSelectedHistoryFrame();
+                    let curr = selFrame ? history.indexOf(selFrame) : historyCursor;
+                    if (curr < 0) return;
+                    const target = Math.min(history.length - 1, curr + 1);
+                    if (target === history.length - 1) {
+                        historyCursor = -1;
+                        bufferPaused = false;
+                        pinnedFrame = null;
+                        pinnedFrameIndex = null;
+                    } else {
+                        historyCursor = target;
+                        pinnedFrame = history[target] || null;
+                        pinnedFrameIndex = pinnedFrame ? pinnedFrame.frameIndex : null;
+                    }
+                    patchLive();
+                } else if (e.key === 'ArrowUp' && view.kind === 'pipeline-stage') {
+                    e.preventDefault();
+                    const stages = boundPipeline && typeof boundPipeline.stages === 'function' ? boundPipeline.stages() : [];
+                    const idx = stages.findIndex((s) => s.id === view.stageId);
+                    if (idx > 0) setView({ kind: 'pipeline-stage', stageId: stages[idx - 1].id });
+                } else if (e.key === 'ArrowDown' && view.kind === 'pipeline-stage') {
+                    e.preventDefault();
+                    const stages = boundPipeline && typeof boundPipeline.stages === 'function' ? boundPipeline.stages() : [];
+                    const idx = stages.findIndex((s) => s.id === view.stageId);
+                    if (idx >= 0 && idx < stages.length - 1) setView({ kind: 'pipeline-stage', stageId: stages[idx + 1].id });
+                } else if (e.key === 'Home') {
+                    e.preventDefault();
+                    if (history.length > 0) {
+                        bufferPaused = true;
+                        historyCursor = 0;
+                        pinnedFrame = history[0];
+                        pinnedFrameIndex = pinnedFrame ? pinnedFrame.frameIndex : null;
+                        patchLive();
+                    }
+                } else if (e.key === 'End') {
+                    e.preventDefault();
+                    bufferPaused = false;
+                    historyCursor = -1;
+                    pinnedFrame = null;
+                    pinnedFrameIndex = null;
+                    patchLive();
+                } else if (e.key === 'c' || e.key === 'C') {
+                    const frame = getSelectedHistoryFrame();
+                    if (frame) {
+                        console.log('[Engine.Debug Log Frame]', frame);
+                    }
                 }
             }, { capture: true });
 
@@ -1612,7 +2005,10 @@
 
         unfreeze() {
             frozen = false;
+            bufferPaused = false;
             pinnedFrame = null;
+            pinnedFrameIndex = null;
+            historyCursor = -1;
             if (visible) patchLive();
         },
 

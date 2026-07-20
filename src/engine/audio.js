@@ -301,21 +301,75 @@ const EngineAudio = {
         }
     },
     
-    // Clean up finished sounds from active pool
+    // Dynamic quality tier voice capacity adjustment (HIGH: 32, MEDIUM: 16, LOW: 8)
+    setQualityTier(tier) {
+        if (tier === 2) this.maxConcurrentSounds = 8;
+        else if (tier === 1) this.maxConcurrentSounds = 16;
+        else this.maxConcurrentSounds = 32;
+    },
+
+    _tickSoundCounts: new Map(),
+    _lastTickTime: 0,
+
+    // Clean up finished sounds from active pool without array allocation
     cleanupSounds() {
+        if (!this.context) return;
         const now = this.context.currentTime;
-        this.activeSounds = this.activeSounds.filter(sound => sound.endTime > now);
+        let writeIdx = 0;
+        for (let i = 0; i < this.activeSounds.length; i++) {
+            if (this.activeSounds[i].endTime > now) {
+                this.activeSounds[writeIdx++] = this.activeSounds[i];
+            }
+        }
+        this.activeSounds.length = writeIdx;
     },
     
-    // Check if we can play a new sound (pool limiting)
-    canPlaySound() {
+    // Check if we can play a new sound (pool limiting + Priority Voice Stealing + duplicate throttling)
+    canPlaySound(soundId = 'generic', priority = 1, stopFn = null) {
+        if (!this.context) return false;
         this.cleanupSounds();
-        return this.activeSounds.length < this.maxConcurrentSounds;
+        const now = this.context.currentTime;
+
+        // Same-tick duplicate throttling (max 3 instances per soundId per frame tick)
+        const frameWindow = Math.floor(now * 60);
+        if (frameWindow !== this._lastTickTime) {
+            this._tickSoundCounts.clear();
+            this._lastTickTime = frameWindow;
+        }
+        const count = (this._tickSoundCounts.get(soundId) || 0);
+        if (count >= 3 && priority < 10) {
+            return false;
+        }
+        this._tickSoundCounts.set(soundId, count + 1);
+
+        if (this.activeSounds.length < this.maxConcurrentSounds) {
+            return true;
+        }
+
+        // Priority voice stealing: steal oldest voice with lower priority
+        let lowestIdx = -1;
+        let lowestPriority = priority;
+        for (let i = 0; i < this.activeSounds.length; i++) {
+            const sound = this.activeSounds[i];
+            if (sound.priority < lowestPriority) {
+                lowestPriority = sound.priority;
+                lowestIdx = i;
+            }
+        }
+        if (lowestIdx !== -1) {
+            const victim = this.activeSounds[lowestIdx];
+            if (typeof victim.stopFn === 'function') {
+                try { victim.stopFn(); } catch (_) {}
+            }
+            this.activeSounds.splice(lowestIdx, 1);
+            return true;
+        }
+        return false;
     },
     
     // Register a sound in the active pool
-    registerSound(endTime) {
-        this.activeSounds.push({ endTime });
+    registerSound(endTime, priority = 1, soundId = 'generic', stopFn = null) {
+        this.activeSounds.push({ endTime, priority, soundId, stopFn });
     },
     
     // ============================================================================

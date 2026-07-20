@@ -226,3 +226,78 @@ test('Modal adapter mounts through Engine.UI.Modals while keeping elements reusa
     assert.equal(element.style.display, 'none');
     assert.ok(element.parentNode);
 });
+
+test('GameRenderPipeline.cleanupAllStateTargets releases target sets across all state pipelines', () => {
+    let releasedCount = 0;
+    const mockTargets = () => ({
+        releaseAll() { releasedCount++; }
+    });
+    const game = {
+        _playingRenderTargets: mockTargets(),
+        _titleRenderTargets: mockTargets(),
+        _nexusRenderTargets: mockTargets(),
+        _enteringRoomRenderTargets: mockTargets(),
+        _pausedRenderTargets: mockTargets(),
+        offscreenCanvas: {},
+        offscreenCtx: {}
+    };
+    const GRP = require('../src/game/presentation/render-pipeline.js').GameRenderPipeline
+        || globalThis.GameRenderPipeline;
+    assert.equal(typeof GRP.cleanupAllStateTargets, 'function');
+    GRP.cleanupAllStateTargets(game);
+    assert.equal(releasedCount, 5);
+    assert.equal(game.offscreenCanvas, null);
+    assert.equal(game.offscreenCtx, null);
+});
+
+test('main.js integrates Engine.Profiler, target cleanup, and Engine.Input.onDeviceChange', () => {
+    const main = fs.readFileSync(path.join(ROOT, 'src/game/main.js'), 'utf8');
+    assert.match(main, /Engine\.Profiler\.beginFrame/);
+    assert.match(main, /Engine\.Profiler\.markPhase\('render'\)/);
+    assert.match(main, /Engine\.Profiler\.markPhase\('update'\)/);
+    assert.match(main, /Engine\.Profiler\.endFrame/);
+    assert.match(main, /cleanupAllStateTargets/);
+    assert.match(main, /Engine\.Input\.onDeviceChange/);
+});
+
+test('RoomLayoutGenerator.findPathAsync returns a promise resolving to a valid path', async () => {
+    const RoomLayoutGenerator = loadRoomLayoutGenerator();
+    assert.equal(typeof RoomLayoutGenerator.findPathAsync, 'function');
+    const plan = RoomLayoutGenerator.buildRoomPlan(1, 'gear', 'normal', null);
+    const layout = RoomLayoutGenerator.generateRoomLayout(plan, 'async:1:seed');
+    const pathPromise = RoomLayoutGenerator.findPathAsync(
+        layout,
+        layout.spawnZone,
+        layout.exitZone,
+        20
+    );
+    assert.ok(pathPromise && typeof pathPromise.then === 'function');
+    const resolvedPath = await pathPromise;
+    assert.ok(Array.isArray(resolvedPath) && resolvedPath.length > 0);
+});
+
+test('game presentation, content, and entity scripts route offscreen canvases through Engine.Graphics.createCanvas', () => {
+    const files = [
+        'src/game/presentation/render-adapters.js',
+        'src/game/presentation/voxel-fracture.js',
+        'src/game/entities/items/item-visuals.js',
+        'src/game/entities/items/item-pylon.js',
+        'src/game/content/gear.js',
+        'src/game/main.js'
+    ];
+    for (const rel of files) {
+        const content = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+        assert.match(content, /Engine\.Graphics\.createCanvas/);
+        assert.doesNotMatch(content, /typeof Engine\.Graphics\.createCanvas === 'function'/);
+    }
+});
+
+test('SaveSystem and GameMusic invoke Engine.Save and Engine.Music directly without defensive guards', () => {
+    const saveContent = fs.readFileSync(path.join(ROOT, 'src/game/content/save.js'), 'utf8');
+    assert.match(saveContent, /return Engine\.Save;/);
+    const musicContent = fs.readFileSync(path.join(ROOT, 'src/game/audio/game-music.js'), 'utf8');
+    assert.match(musicContent, /Engine\.Music\.configure\(\{ manifestUrl: GameMusic\.MANIFEST_URL \}\);/);
+});
+
+
+

@@ -365,6 +365,7 @@ class Warrior extends PlayerBase {
                 this.whirlwindElapsed = 0;
                 this.whirlwindHitTimer = 0;
                 this._whirlwindKillExtend = 0;
+                this._whirlwindKillCount = 0;
             }
         }
 
@@ -757,6 +758,7 @@ class Warrior extends PlayerBase {
         this._whirlwindSessionId = (this._whirlwindSessionId || 0) + 1;
         this._whirlwindPulseIndex = 0;
         this._whirlwindKillExtend = 0;
+        this._whirlwindKillCount = 0;
         this.whirlwindStartTime = Date.now(); // Track start time for smooth visual rotation
         // Apply cooldown reduction
         const effectiveSpecialCooldown = this.specialCooldownTime * (1 - this.cooldownReduction);

@@ -58,9 +58,25 @@ class Core {
         this.lastFpsUpdate = 0;
 
         // Frame budget governor variables
+        this.frameBudgetCapacity = 128;
+        this.frameBudgetMask = 127;
+        this._sampleTimes = new Float64Array(128);
+        this._sampleFrames = new Float32Array(128);
+        this._sampleRenders = new Float32Array(128);
+        this._sampleHead = 0;
+        this._sampleCount = 0;
         this.frameBudgetSamples = [];
         this.debugFrameBudget = { frameAvg: 0, renderAvg: 0 };
         this.qualityTier = QUALITY_TIER.HIGH;
+
+        this._frameEndMetrics = {
+            realDeltaTime: 0,
+            processTime: 0,
+            updateTime: 0,
+            renderTime: 0,
+            updatesRun: 0,
+            accumulatorTruncated: false
+        };
 
         this._visibilityHandler = this.handleVisibilityChange.bind(this);
     }
@@ -193,14 +209,14 @@ class Core {
         const processEnd = performance.now();
         const processTime = processEnd - processStart;
         if (this.onFrameEnd) {
-            this.onFrameEnd({
-                realDeltaTime,
-                processTime,
-                updateTime,
-                renderTime,
-                updatesRun,
-                accumulatorTruncated: this.lastAccumulatorTruncated
-            });
+            const metrics = this._frameEndMetrics;
+            metrics.realDeltaTime = realDeltaTime;
+            metrics.processTime = processTime;
+            metrics.updateTime = updateTime;
+            metrics.renderTime = renderTime;
+            metrics.updatesRun = updatesRun;
+            metrics.accumulatorTruncated = this.lastAccumulatorTruncated;
+            this.onFrameEnd(metrics);
         }
 
         if (this.useSetTimeoutLoop) {
@@ -212,40 +228,53 @@ class Core {
 
     // Frame budget governor & performance capabilities
     updateFrameBudgetGovernor(frameTimeMs, renderTimeMs) {
-        const adaptiveEnabled = this.adaptiveRenderQuality
-            && (typeof DebugFlags === 'undefined' || DebugFlags.ADAPTIVE_RENDER_QUALITY !== false);
+        const debugFlagsAdaptive = (typeof Engine !== 'undefined' && Engine.Debug && Engine.Debug.flags)
+            ? Engine.Debug.flags.ADAPTIVE_RENDER_QUALITY !== false
+            : (typeof DebugFlags === 'undefined' || DebugFlags.ADAPTIVE_RENDER_QUALITY !== false);
+        const adaptiveEnabled = this.adaptiveRenderQuality && debugFlagsAdaptive;
         if (!adaptiveEnabled) {
-            this.frameBudgetSamples.length = 0;
             this.setQualityTier(QUALITY_TIER.HIGH);
-            this.debugFrameBudget = { frameAvg: 0, renderAvg: 0 };
-            return;
         }
 
         const now = performance.now();
-        this.frameBudgetSamples.push({ time: now, frame: frameTimeMs, render: renderTimeMs });
-        const cutoff = now - 2000;
-        while (this.frameBudgetSamples.length > 0 && this.frameBudgetSamples[0].time < cutoff) {
-            this.frameBudgetSamples.shift();
+        const head = this._sampleHead;
+        this._sampleTimes[head] = now;
+        this._sampleFrames[head] = frameTimeMs;
+        this._sampleRenders[head] = renderTimeMs;
+
+        this._sampleHead = (head + 1) & this.frameBudgetMask;
+        if (this._sampleCount < this.frameBudgetCapacity) {
+            this._sampleCount++;
         }
 
+        const cutoff = now - 2000;
         let frameSum = 0;
         let renderSum = 0;
-        for (let i = 0; i < this.frameBudgetSamples.length; i++) {
-            frameSum += this.frameBudgetSamples[i].frame;
-            renderSum += this.frameBudgetSamples[i].render;
+        let validCount = 0;
+
+        for (let i = 0; i < this._sampleCount; i++) {
+            const sampleIdx = (this._sampleHead - 1 - i + this.frameBudgetCapacity) & this.frameBudgetMask;
+            if (this._sampleTimes[sampleIdx] < cutoff) break;
+            frameSum += this._sampleFrames[sampleIdx];
+            renderSum += this._sampleRenders[sampleIdx];
+            validCount++;
         }
-        const count = Math.max(1, this.frameBudgetSamples.length);
+
+        const count = Math.max(1, validCount);
         const frameAvg = frameSum / count;
         const renderAvg = renderSum / count;
-        this.debugFrameBudget = { frameAvg, renderAvg };
+        this.debugFrameBudget.frameAvg = frameAvg;
+        this.debugFrameBudget.renderAvg = renderAvg;
 
-        const thresholds = this.getFrameBudgetThresholds();
-        if (frameAvg > thresholds.heavyFrame || renderAvg > thresholds.heavyRender) {
-            this.setQualityTier(QUALITY_TIER.LOW);
-        } else if (frameAvg > thresholds.mediumFrame || renderAvg > thresholds.mediumRender) {
-            this.setQualityTier(QUALITY_TIER.MEDIUM);
-        } else if (frameAvg < thresholds.restoreFrame && renderAvg < thresholds.restoreRender) {
-            this.setQualityTier(QUALITY_TIER.HIGH);
+        if (adaptiveEnabled) {
+            const thresholds = this.getFrameBudgetThresholds();
+            if (frameAvg > thresholds.heavyFrame || renderAvg > thresholds.heavyRender) {
+                this.setQualityTier(QUALITY_TIER.LOW);
+            } else if (frameAvg > thresholds.mediumFrame || renderAvg > thresholds.mediumRender) {
+                this.setQualityTier(QUALITY_TIER.MEDIUM);
+            } else if (frameAvg < thresholds.restoreFrame && renderAvg < thresholds.restoreRender) {
+                this.setQualityTier(QUALITY_TIER.HIGH);
+            }
         }
     }
 
@@ -262,6 +291,9 @@ class Core {
             if (engine.Graphics && engine.Graphics.TileBaker
                 && typeof engine.Graphics.TileBaker.setQualityTier === 'function') {
                 engine.Graphics.TileBaker.setQualityTier(tier);
+            }
+            if (engine.Audio && typeof engine.Audio.setQualityTier === 'function') {
+                engine.Audio.setQualityTier(tier);
             }
         }
         if (this.onQualityChange) {
