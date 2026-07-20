@@ -223,8 +223,7 @@ test('multiplayer reconcilePrediction disables dodge on replay', () => {
 
 test('debug panel exposes MP prediction section', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'game', 'simulation', 'debug.js'), 'utf-8');
-    assert.ok(source.includes('debugMpPredictionSection'));
-    assert.ok(source.includes('updateMpPredictionSection'));
+    assert.ok(source.includes("id: 'mpPrediction'") || source.includes('id: "mpPrediction"'));
     assert.ok(source.includes('PREDICTION_DIVERGENCE'));
     assert.ok(source.includes('getPredictionDebugStats'));
 });

@@ -34,10 +34,11 @@ Game docs: [repo README](../../README.md). This file is just the engine.
 | `Engine.UI` | `ui/*` | Root, bus, modal stack, toasts |
 | `Engine.Shell` | `shell.js` | Feature flags, back-nav guard |
 | `Engine.Profiler` | `profiler.js` | Frame / phase timing |
+| `Engine.Debug` | `debug.js` | Optional debug shell; sections, metrics, pipeline profile / snapshots |
 
 Boot **requires**: `System`, `Save`, `Physics`, `Proc`, `Graphics`, `FX`, `Render`, `Core`, `Audio`, `Input`, `Net`, `Shell`, `UI`.
 
-Optional for verify: `Music`, `Split`, `Profiler`, `Camera` (`Engine.Camera`), touch helpers next to Input.
+Optional for verify: `Music`, `Split`, `Profiler`, `Debug`, `Camera` (`Engine.Camera`), touch helpers next to Input.
 
 ### Workers
 
@@ -156,10 +157,12 @@ Game owns key name, `SCHEMA_VERSION`, defaults, and what each migration does to 
 Copy the engine block from `index.html`:
 
 1. `utils` -> System -> Save -> Physics -> Proc
-2. Graphics -> FX -> render host -> render pipeline -> camera -> Core (`loop.js`) -> renderer -> profiler
+2. Graphics -> FX -> render host -> render pipeline -> camera -> Core (`loop.js`) -> renderer -> profiler -> **debug** (optional)
 3. Audio -> Music -> touch -> Input -> Split -> Net -> Shell
 4. Engine UI (bus, root, modal stack, toast, boot cinematic/screen) -> `Engine.Boot`
 5. Your game scripts (skip for a bare smoke)
+
+Load `debug.js` after `profiler.js` and the render pipeline when you want the shell. Omit it for shipping; Core, Render, and game bridges no-op when `Engine.Debug` is missing. Optional for boot verify (same as Profiler).
 
 New engine file or Worker asset: update HTML, `sw.js` precache, and boundary tests.
 
@@ -282,6 +285,7 @@ npm test
 node --test tests/engine-boot.test.js
 node --test tests/engine-core-kit.test.js
 node --test tests/engine-render-pipeline.test.js
+node --test tests/engine-debug.test.js
 node --test tests/engine-split.test.js
 node --test tests/engine-music.test.js
 node --test tests/engine-fx-save-ui.test.js
@@ -293,9 +297,88 @@ node --test tests/directory-boundaries.test.js
 node --test tests/game-engine-wiring.test.js
 ```
 
+## Debug (`Engine.Debug`)
+
+Optional. Not required by boot. File: `debug.js`. Load after `profiler.js` / render pipeline in `index.html` when you want it. Omit for shipping; Core, Render, and game bridges check `Engine.Debug` before use and no-op when it is missing. Optional for boot verify (same as Profiler).
+
+Shape Slayer `simulation/debug.js` soft-skips panel registration when the shell is absent. Console helpers like `dropGear` still work.
+
+Core does not call Debug. The game bridges it:
+
+```js
+// onFrameEnd (game):
+// breakdown = { update, render, static, world, ... ms } - same coarse shape Engine.Profiler samples
+if (Engine.Debug) Engine.Debug.update(deltaTime, processTime, breakdown);
+
+// onUpdate (game):
+if (Engine.Debug && Engine.Debug.frozen) return;
+```
+
+### UI
+
+- Ctrl+D / `toggle()` / `show()` / `hide()`
+- Home lists sections (built-in Performance, Pipeline, plus game `registerSection`s)
+- Drill in with back/home; Performance uses nested folders
+- Mount once on navigate; patch bound text on a ~200ms tick. Never rebuild the whole panel every frame
+- Section hooks take `dbg` (metrics / flags / pipeline / history frame), never Canvas2D `ctx`
+
+### Flags (`Engine.Debug.flags`)
+
+Engine seeds: `USE_CACHING`, `ADAPTIVE_RENDER_QUALITY`, `RENDER_TIMING`, `PIPE_SNAPSHOT`.
+
+Games call `flags.register(name, default)`. Property access plus `enable` / `disable`. Shape Slayer aliases this as `DebugFlags`.
+
+### Collection gates
+
+| API | When true |
+| --- | --- |
+| `shouldCollect()` | Panel visible, or `RENDER_TIMING`, or any `addCollector(fn)` |
+| `wantsProfile(id)` | That pipeline has profile attached |
+| `wantsSnapshot(id)` / `shouldSnapshot(id)` | Global `PIPE_SNAPSHOT`, or that pipeline has snapshot attached |
+
+### Pipelines
+
+Register once, toggle attach later:
+
+```js
+// After boot / when the recipe exists:
+Engine.Debug.registerPipeline('playing', pipeline, { label: 'PLAYING' });
+Engine.Debug.refresh(); // remount registry UI if the panel is already open
+
+// Frame host (every playing frame):
+profileStages: Engine.Debug.wantsProfile('playing'),
+debugPipelineId: 'playing',
+
+// Panel -> Pipeline checkboxes, or console:
+Engine.Debug.attach('playing', { profile: true, snapshot: true });
+Engine.Debug.detach('playing');           // both off
+Engine.Debug.detach('playing', 'profile'); // one side
+Engine.Debug.viewPipeline('playing');
+Engine.Debug.listPipelines();
+```
+
+The runner sets `Engine.Debug.setActivePipelineId(frame.debugPipelineId)` and only records bag summaries / stage hooks when profile or snapshot is on. `bindPipeline(pipeline)` still works for ad-hoc viewing; prefer `registerPipeline`.
+
+### Game injection
+
+- `registerSection({ id, title, order, mount(root), update(dbg), visible?(dbg), hint? })`
+- `registerMetricGroup({ id, label, order, rows })` - optional breakdown labels
+- `registerRunProfile({ getAutoStart, setAutoStart, onStart, onStop, onExport, getStatus })`
+
+### Pipe diagnosis
+
+- `trace(key, value)` / `captureSnapshot(stageId, label, data)` - values go through `sanitizeDebugValue` (no live entity refs in history)
+- History ring (default 60): `setHistorySize(n)` / `getHistory()`
+- Pipeline panel: scrubber, nested stage list by target, stage detail, frame diff
+- `breakWhen(fn | { stageId, test })` sets `frozen = true` and pins the frame (`setBreakMode('break'|'log')`, `unfreeze()`, `clearBreaks()`)
+
+### Shell / update
+
+- `init()` creates the DOM (games usually call via `DebugPanel.init()` on load)
+- `update(deltaTime, processTime, breakdown)` samples metrics; DOM patch only when visible (throttled)
+
 ## Not doing (yet)
 
 - Bundler / TypeScript emit / publishing the engine as its own npm package
 - Requiring WASM or Workers (optional Workers ok if the same file has a sync fallback)
 - Shape Slayer content (lobbies, gear, rooms)
-`)

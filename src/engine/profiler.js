@@ -17,6 +17,32 @@ const SCENE_COUNT_KEYS = [
     'groundItemsVisible', 'groundItemsTotal'
 ];
 
+function registerPhaseKey(key) {
+    if (typeof key !== 'string' || !key) return;
+    if (PHASE_KEYS.indexOf(key) === -1) PHASE_KEYS.push(key);
+}
+
+function registerSceneCountKey(key) {
+    if (typeof key !== 'string' || !key) return;
+    if (SCENE_COUNT_KEYS.indexOf(key) === -1) SCENE_COUNT_KEYS.push(key);
+}
+
+function ensurePhaseMetric(set, key) {
+    if (!set.metrics[key]) {
+        registerPhaseKey(key);
+        set.metrics[key] = createAccumulator();
+    }
+    return set.metrics[key];
+}
+
+function ensureSceneMetric(set, key) {
+    if (!set.sceneCounts[key]) {
+        registerSceneCountKey(key);
+        set.sceneCounts[key] = createAccumulator();
+    }
+    return set.sceneCounts[key];
+}
+
 const RESERVOIR_MAX = 256;
 const MAX_SPIKES = 80;
 const MAX_TIMELINE = 720;
@@ -100,11 +126,11 @@ function createMetricSet() {
 
 function finalizeMetricSet(set) {
     const metrics = {};
-    PHASE_KEYS.forEach(key => {
+    Object.keys(set.metrics).forEach(key => {
         metrics[key] = finalizeAccumulator(set.metrics[key]);
     });
     const sceneCounts = {};
-    SCENE_COUNT_KEYS.forEach(key => {
+    Object.keys(set.sceneCounts).forEach(key => {
         sceneCounts[key] = finalizeAccumulator(set.sceneCounts[key]);
     });
     return {
@@ -120,24 +146,24 @@ function finalizeMetricSet(set) {
 }
 
 function mergeMetricSets(into, from) {
-    PHASE_KEYS.forEach(key => {
+    Object.keys(from.metrics).forEach(key => {
         const src = from.metrics[key];
         if (!src || src.count === 0) {
             return;
         }
-        const dst = into.metrics[key];
+        const dst = ensurePhaseMetric(into, key);
         dst.count += src.count;
         dst.sum += src.sum;
         dst.min = Math.min(dst.min, src.min);
         dst.max = Math.max(dst.max, src.max);
         src.reservoir.forEach(v => pushValue(dst, v));
     });
-    SCENE_COUNT_KEYS.forEach(key => {
+    Object.keys(from.sceneCounts).forEach(key => {
         const src = from.sceneCounts[key];
         if (!src || src.count === 0) {
             return;
         }
-        const dst = into.sceneCounts[key];
+        const dst = ensureSceneMetric(into, key);
         dst.count += src.count;
         dst.sum += src.sum;
         dst.min = Math.min(dst.min, src.min);
@@ -155,7 +181,7 @@ function mergeMetricSets(into, from) {
 
 function buildPhaseRanking(metrics) {
     const renderAvg = metrics.render && metrics.render.avg ? metrics.render.avg : 0;
-    return PHASE_KEYS
+    return Object.keys(metrics)
         .filter(key => key !== 'frame' && key !== 'process' && key !== 'update' && key !== 'render')
         .map(key => {
             const m = metrics[key] || { avg: 0, p95: 0, max: 0, count: 0 };
@@ -250,13 +276,19 @@ class Profiler {
         const set = this.global;
         if (set) {
             set.sampleCount += 1;
-            PHASE_KEYS.forEach(key => {
-                pushValue(set.metrics[key], values[key]);
+            Object.keys(values).forEach(key => {
+                pushValue(ensurePhaseMetric(set, key), values[key]);
             });
             const counts = snapshot.counts || {};
-            SCENE_COUNT_KEYS.forEach(key => {
+            Object.keys(counts).forEach(key => {
                 if (typeof counts[key] === 'number') {
-                    pushValue(set.sceneCounts[key], counts[key]);
+                    pushValue(ensureSceneMetric(set, key), counts[key]);
+                }
+            });
+            // Also keep registered scene keys for compatibility when present
+            SCENE_COUNT_KEYS.forEach(key => {
+                if (typeof counts[key] === 'number' && !set.sceneCounts[key]) {
+                    pushValue(ensureSceneMetric(set, key), counts[key]);
                 }
             });
             const tier = snapshot.qualityTier || 'unknown';
@@ -394,6 +426,8 @@ class Profiler {
 }
 
 Engine.Profiler = Profiler;
+Engine.Profiler.registerPhaseKey = registerPhaseKey;
+Engine.Profiler.registerSceneCountKey = registerSceneCountKey;
 Engine.Profiler._helpers = {
     createAccumulator,
     pushValue,
@@ -403,6 +437,8 @@ Engine.Profiler._helpers = {
     finalizeMetricSet,
     mergeMetricSets,
     buildPhaseRanking,
+    registerPhaseKey,
+    registerSceneCountKey,
     PHASE_KEYS,
     SCENE_COUNT_KEYS
 };

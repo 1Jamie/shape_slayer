@@ -95,6 +95,14 @@
                     const lists = game.gatherVisibleFrameLists(frame.camera, frame.viewport);
                     frame.bag.visibleLists = lists;
                     game.visibleFrameLists = lists;
+                    if (typeof Engine !== 'undefined' && Engine.Debug && typeof Engine.Debug.trace === 'function') {
+                        Engine.Debug.trace('visibleCounts', {
+                            enemies: lists.enemies ? lists.enemies.length : 0,
+                            projectiles: lists.projectiles ? lists.projectiles.length : 0,
+                            groundLoot: lists.groundLoot ? lists.groundLoot.length : 0,
+                            groundItems: lists.groundItems ? lists.groundItems.length : 0
+                        });
+                    }
                 }
             },
             {
@@ -330,9 +338,10 @@
             timings,
             stageTimings: options.stageTimings || Object.create(null),
             bag,
-            profileStages: typeof game.shouldCollectDebugMetrics === 'function'
-                ? game.shouldCollectDebugMetrics()
-                : false
+            debugPipelineId: 'playing',
+            profileStages: !!(typeof Engine !== 'undefined' && Engine.Debug
+                && typeof Engine.Debug.wantsProfile === 'function'
+                && Engine.Debug.wantsProfile('playing'))
         });
     }
 

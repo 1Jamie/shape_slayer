@@ -194,7 +194,9 @@
             stageTimings: options.stageTimings || Object.create(null),
             bag: options.bag || Object.create(null),
             /** When true, the runner records per-stage performance.now deltas. */
-            profileStages: !!options.profileStages
+            profileStages: !!options.profileStages,
+            /** Registered Engine.Debug pipeline id for attach/detach snapshot gates. */
+            debugPipelineId: options.debugPipelineId || null
         };
     }
 
@@ -268,6 +270,13 @@
                 const now = profile && typeof performance !== 'undefined' && performance.now
                     ? () => performance.now()
                     : null;
+                const Debug = Engine.Debug;
+                if (Debug && typeof Debug.setActivePipelineId === 'function') {
+                    Debug.setActivePipelineId(frame.debugPipelineId || null);
+                }
+                const snap = !!(Debug && typeof Debug.shouldSnapshot === 'function'
+                    && Debug.shouldSnapshot(frame.debugPipelineId || null));
+                const canStageHook = !!(Debug && (profile || snap));
 
                 for (let i = 0; i < stages.length; i++) {
                     const stage = stages[i];
@@ -292,10 +301,27 @@
                         throw new Error(`Stage "${stage.id}" target "${targetName}" is not ready; call targets.ensure() first.`);
                     }
 
+                    let bagIn = null;
+                    if (canStageHook && Debug.beginStage) {
+                        Debug.beginStage(stage.id);
+                    }
+                    if (snap && Debug.summarizeBag) {
+                        bagIn = Debug.summarizeBag(frame.bag);
+                    }
+
                     const t0 = now ? now() : 0;
                     stage.draw(frame, slot.ctx);
+                    const ms = now ? (now() - t0) : 0;
                     if (now) {
-                        stageTimings[stage.id] = (stageTimings[stage.id] || 0) + (now() - t0);
+                        stageTimings[stage.id] = (stageTimings[stage.id] || 0) + ms;
+                    }
+
+                    let bagOut = null;
+                    if (snap && Debug.summarizeBag) {
+                        bagOut = Debug.summarizeBag(frame.bag);
+                    }
+                    if (canStageHook && Debug.endStage) {
+                        Debug.endStage(stage.id, ms, bagIn, bagOut);
                     }
                 }
 

@@ -5900,6 +5900,15 @@ const Game = {
         }
         this._playingRenderPipeline = GameRenderPipeline.createPlayingPipeline(this);
         this._playingRenderTargets = new Engine.Render.Targets();
+        if (typeof Engine !== 'undefined' && Engine.Debug) {
+            if (typeof Engine.Debug.registerPipeline === 'function') {
+                Engine.Debug.registerPipeline('playing', this._playingRenderPipeline, {
+                    label: 'PLAYING'
+                });
+            } else if (typeof Engine.Debug.bindPipeline === 'function') {
+                Engine.Debug.bindPipeline(this._playingRenderPipeline);
+            }
+        }
         return this._playingRenderPipeline;
     },
 
@@ -5943,6 +5952,9 @@ const Game = {
                 bag: { trauma, useChromaticPass, viewPlayer: playerToCheck || this.player }
             });
             pipeline.run(frame);
+            if (frame.stageTimings) {
+                this._lastStageTimings = Object.assign(Object.create(null), frame.stageTimings);
+            }
             return;
         }
 
@@ -5982,6 +5994,12 @@ const Game = {
                     }
                 });
                 pipeline.run(frame);
+                if (frame.stageTimings) {
+                    this._lastStageTimings = Object.assign(
+                        this._lastStageTimings || Object.create(null),
+                        frame.stageTimings
+                    );
+                }
             } finally {
                 this._activeRenderCamera = null;
                 this._activeRenderViewport = null;
@@ -6188,6 +6206,9 @@ const Game = {
     },
 
     shouldCollectDebugMetrics() {
+        if (typeof Engine !== 'undefined' && Engine.Debug && typeof Engine.Debug.shouldCollect === 'function') {
+            return Engine.Debug.shouldCollect();
+        }
         return (typeof RunProfiler !== 'undefined' && RunProfiler.isActive()) ||
             (typeof DebugPanel !== 'undefined' && DebugPanel.visible) ||
             (typeof DebugFlags !== 'undefined' && DebugFlags.RENDER_TIMING);
@@ -6205,11 +6226,13 @@ const Game = {
         const totalGroundLoot = (typeof groundLoot !== 'undefined' && Array.isArray(groundLoot))
             ? groundLoot.length
             : 0;
-        return {
-            fps: this.fps || 0,
-            qualityTier: this.getRenderQualityTier(),
-            frameBudget: this.debugFrameBudget || { frameAvg: 0, renderAvg: 0 },
-            counts: {
+
+        // TITLE attract draws its sandbox without the PLAYING visibility pass, so
+        // visibleFrameLists stays stale/empty while Game.enemies still has attract
+        // actors — report what is actually drawn instead of 0/x.
+        const counts = this.state === 'TITLE'
+            ? this.buildTitleAttractSceneCounts()
+            : {
                 enemiesVisible: lists.enemies ? lists.enemies.length : 0,
                 enemiesTotal: this.enemies ? this.enemies.length : 0,
                 projectilesVisible: lists.projectiles ? lists.projectiles.length : 0,
@@ -6218,14 +6241,59 @@ const Game = {
                 groundLootTotal: totalGroundLoot,
                 groundItemsVisible: lists.groundItems ? lists.groundItems.length : 0,
                 groundItemsTotal: this.groundItems ? this.groundItems.length : 0
-            },
+            };
+
+        return {
+            fps: this.fps || 0,
+            qualityTier: this.getRenderQualityTier(),
+            frameBudget: this.debugFrameBudget || { frameAvg: 0, renderAvg: 0 },
+            counts,
             subTimings: {
                 groundLoot: (this.renderSubTimings && this.renderSubTimings.groundLoot) || 0,
                 detailRings: (this.renderSubTimings && this.renderSubTimings.gearRings) || 0,
                 remoteActors: (this.renderSubTimings && this.renderSubTimings.remotePlayers) || 0,
                 worldGlow: (this.renderSubTimings && this.renderSubTimings.worldGlow) || 0,
                 worldBodies: (this.renderSubTimings && this.renderSubTimings.worldBodies) || 0
+            },
+            stageTimings: this._lastStageTimings || null
+        };
+    },
+
+    /** Attract mode renders without camera cull — count drawable actors. */
+    buildTitleAttractSceneCounts() {
+        let enemiesVisible = 0;
+        const enemies = this.enemies;
+        const enemiesTotal = enemies ? enemies.length : 0;
+        if (enemies) {
+            for (let i = 0; i < enemies.length; i++) {
+                const enemy = enemies[i];
+                if (!enemy) continue;
+                if (enemy.alive) {
+                    enemiesVisible++;
+                    continue;
+                }
+                if (typeof isEnemyDeathJuiceVisible === 'function' && isEnemyDeathJuiceVisible(enemy)) {
+                    enemiesVisible++;
+                }
             }
+        }
+
+        const projectilesTotal = this.projectiles ? this.projectiles.length : 0;
+        const groundLootTotal = (typeof groundLoot !== 'undefined' && Array.isArray(groundLoot))
+            ? groundLoot.length
+            : 0;
+        const groundItemsTotal = this.groundItems ? this.groundItems.length : 0;
+
+        return {
+            enemiesVisible,
+            enemiesTotal,
+            // Attract draws every live projectile (no cull lists).
+            projectilesVisible: projectilesTotal,
+            projectilesTotal,
+            groundLootVisible: groundLootTotal,
+            groundLootTotal,
+            groundItemsVisible: groundItemsTotal,
+            groundItemsTotal
         };
     },
 
@@ -9914,6 +9982,18 @@ if (typeof window !== 'undefined' && window.addEventListener) {
         // Setup getters/setters/methods on the game instance
         game.setup = function() {
             this.init();
+            // Assemble & register PLAYING pipe after boot/init so Debug → Pipeline
+            // toggles are populated before the first PLAYING frame.
+            try {
+                if (typeof this.ensurePlayingRenderPipeline === 'function') {
+                    this.ensurePlayingRenderPipeline();
+                }
+            } catch (err) {
+                console.warn('[Game] Early playing pipeline register failed:', err);
+            }
+            if (typeof Engine !== 'undefined' && Engine.Debug && typeof Engine.Debug.refresh === 'function') {
+                Engine.Debug.refresh();
+            }
         };
         game.tick = function(dt) {
             this.updateLocalSplitJoin();
@@ -9958,11 +10038,13 @@ if (typeof window !== 'undefined' && window.addEventListener) {
                 catchupUpdates: updatesRun,
                 accumulatorMs: window.engine.accumulator * 1000,
                 accumulatorTruncated: accumulatorTruncated,
+                stageTimings: this._lastStageTimings || null,
                 snapshot: typeof this.buildDebugMetricsSnapshot === 'function' ? this.buildDebugMetricsSnapshot() : null
             });
 
-            // Update debug panel metrics with actual CPU time and frame time
-            if (typeof DebugPanel !== 'undefined') {
+            if (typeof Engine !== 'undefined' && Engine.Debug) {
+                Engine.Debug.update(realDeltaTime, processTime, this.frameRenderTimings);
+            } else if (typeof DebugPanel !== 'undefined') {
                 DebugPanel.update(realDeltaTime, processTime, this.frameRenderTimings);
             }
 
@@ -9979,7 +10061,10 @@ if (typeof window !== 'undefined' && window.addEventListener) {
         const startCore = () => {
             window.engine = new Engine.Core({
                 onInit: () => game.setup(),
-                onUpdate: (dt) => game.tick(dt),
+                onUpdate: (dt) => {
+                    if (typeof Engine !== 'undefined' && Engine.Debug && Engine.Debug.frozen) return;
+                    game.tick(dt);
+                },
                 onRender: (ctx, alpha) => game.draw(ctx, alpha),
                 preferBackgroundTimeout: () => !!(
                     game.multiplayerEnabled &&
@@ -10031,6 +10116,11 @@ if (typeof window !== 'undefined' && window.addEventListener) {
             startCore();
             if (typeof Engine !== 'undefined' && Engine.Boot && typeof Engine.Boot.handoff === 'function') {
                 Engine.Boot.handoff();
+            }
+            // Handoff complete — refresh debug registry UI in case the panel was
+            // opened during boot before pipelines were registered.
+            if (typeof Engine !== 'undefined' && Engine.Debug && typeof Engine.Debug.refresh === 'function') {
+                Engine.Debug.refresh();
             }
         }).catch((error) => {
             console.error('Engine boot failed; game start blocked.', error);

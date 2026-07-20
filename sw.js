@@ -78,6 +78,7 @@ const PRECACHE_URLS = [
   './src/engine/loop.js',
   './src/engine/renderer.js',
   './src/engine/profiler.js',
+  './src/engine/debug.js',
   './src/game/content/biomes.js',
   './src/game/simulation/room-layout-generator.js',
   './src/game/entities/projectiles-util.js',
