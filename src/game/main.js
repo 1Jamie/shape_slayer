@@ -1276,6 +1276,10 @@ const Game = {
         if (!Engine.System) {
             return false;
         }
+        // TV boxes are landscape surfaces; never force a rotate lock/gate on them.
+        if (Engine.System.isTv && Engine.System.isTv()) {
+            return false;
+        }
         if (Engine.System.isInstalledDisplayMode && Engine.System.isInstalledDisplayMode()) {
             return true;
         }
@@ -1284,6 +1288,11 @@ const Game = {
 
     lockLandscapeOrientation() {
         if (!this.shouldForceLandscape()) {
+            return Promise.resolve(false);
+        }
+        // Already a usable landscape (or square) CSS viewport — don't fight the platform
+        // (docked tablets / misreported orientation on large Android surfaces).
+        if (Engine.System.isLandscapeUsableViewport && Engine.System.isLandscapeUsableViewport()) {
             return Promise.resolve(false);
         }
         if (!Engine.System || !Engine.System.lockLandscapeOrientation) {
@@ -1299,11 +1308,16 @@ const Game = {
         }
 
         const forceLandscape = this.shouldForceLandscape();
-        const isPortrait = Engine.System && Engine.System.isPortraitViewport
-            ? Engine.System.isPortraitViewport()
-            : (typeof window !== 'undefined' && window.innerHeight > window.innerWidth);
+        const landscapeUsable = Engine.System && Engine.System.isLandscapeUsableViewport
+            ? Engine.System.isLandscapeUsableViewport()
+            : (typeof window !== 'undefined' && window.innerWidth >= window.innerHeight);
 
-        const show = forceLandscape && isPortrait;
+        // Aspect-ratio override: if the current CSS viewport (or, for non-phones,
+        // the screen behind browser chrome) is already landscape-usable, never
+        // block play — even when orientation APIs claim portrait. Does not require
+        // a full 1920x1080 window; chrome-shrunk subsets still count by aspect.
+        // True tall phone portrait still shows the rotate gate.
+        const show = forceLandscape && !landscapeUsable;
         overlay.classList.toggle('is-visible', show);
         if (document.body) {
             document.body.classList.toggle('portrait-blocked', show);

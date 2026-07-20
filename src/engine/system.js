@@ -4,6 +4,12 @@
 const DeviceDetection = {
     _cachedProfile: null,
 
+    // Minimum width/height that counts as playable without the rotate gate.
+    // Uses the *current* CSS viewport (often a chrome-shrunk subset of the
+    // panel before fullscreen) — not a fixed 1920x1080 assumption.
+    // 1.0 = landscape-or-square by pixels.
+    LANDSCAPE_USABLE_MIN_ASPECT: 1.0,
+
     _readNavigator() {
         if (typeof navigator === 'undefined') {
             return { ua: '', platform: '', maxTouchPoints: 0, userAgentData: null };
@@ -25,6 +31,37 @@ const DeviceDetection = {
         }
     },
 
+    _readViewport() {
+        if (typeof window === 'undefined') {
+            return { width: 0, height: 0 };
+        }
+        const vv = window.visualViewport;
+        const width = (vv && vv.width) || window.innerWidth || 0;
+        const height = (vv && vv.height) || window.innerHeight || 0;
+        return { width, height };
+    },
+
+    _readScreen() {
+        if (typeof screen === 'undefined' || !screen) {
+            return { width: 0, height: 0 };
+        }
+        const width = screen.availWidth || screen.width || 0;
+        const height = screen.availHeight || screen.height || 0;
+        return { width, height };
+    },
+
+    _aspectRatio(size) {
+        if (!size || size.width <= 0 || size.height <= 0) return 0;
+        return size.width / size.height;
+    },
+
+    _isTelevisionUserAgent(ua) {
+        if (!ua) return false;
+        // Android / Fire / Google TV boxes, smart TVs, Chromecast-with-Google-TV, etc.
+        // Check before generic Android tablet classification (many TVs omit "Mobile").
+        return /android tv|googletv|google.?tv|\baft[a-z0-9]*\b|fire.?tv|smart-?tv|smarttv|bravia|hbbtv|netcast|viera|webos.?tv|tizen|crkey|apple.?tv|cubotv|shield.?android.?tv/i.test(ua);
+    },
+
     _parseUserAgent(ua, platform, maxTouchPoints) {
         const lowerUa = ua.toLowerCase();
 
@@ -39,6 +76,13 @@ const DeviceDetection = {
         // iPadOS 13+ desktop UA: Macintosh + multi-touch (MacBooks report 0 touch points).
         if (/macintosh/i.test(ua) && maxTouchPoints > 1) {
             return { formFactor: 'tablet', os: 'ios', confidence: 'high', reason: 'ua-ipados-desktop-mode' };
+        }
+
+        if (this._isTelevisionUserAgent(ua)) {
+            const os = /android/i.test(ua) || /\baft[a-z0-9]*\b/i.test(ua) || /fire.?tv/i.test(ua)
+                ? 'android'
+                : (/webos/i.test(ua) ? 'webos' : (/tizen/i.test(ua) ? 'tizen' : 'unknown'));
+            return { formFactor: 'tv', os, confidence: 'high', reason: 'ua-television' };
         }
 
         if (/android/i.test(ua)) {
@@ -225,6 +269,7 @@ const DeviceDetection = {
             isMobile,
             isPhone: formFactor === 'phone',
             isTablet: formFactor === 'tablet',
+            isTv: formFactor === 'tv',
             isDesktop: formFactor === 'desktop',
             confidence: parsed.confidence || 'low',
             reason: parsed.reason || 'unknown',
@@ -256,6 +301,10 @@ const DeviceDetection = {
 
     isTablet() {
         return this.getProfile().isTablet;
+    },
+
+    isTv() {
+        return !!this.getProfile().isTv;
     },
 
     isDesktop() {
@@ -316,11 +365,46 @@ const DeviceDetection = {
     },
 
     isPortraitViewport() {
-        if (typeof window === 'undefined') return false;
-        if (typeof window.orientation === 'number') {
+        const { width, height } = this._readViewport();
+        if (width > 0 && height > 0) {
+            // Prefer CSS pixels over window.orientation. Android TV / Fire TV
+            // WebViews often report orientation 0 while the window is landscape.
+            return height > width;
+        }
+        if (typeof window !== 'undefined' && typeof window.orientation === 'number') {
             return window.orientation === 0 || window.orientation === 180;
         }
-        return window.innerHeight > window.innerWidth;
+        return false;
+    },
+
+    getViewportAspectRatio() {
+        return this._aspectRatio(this._readViewport()) || 1;
+    },
+
+    getScreenAspectRatio() {
+        return this._aspectRatio(this._readScreen()) || 0;
+    },
+
+    // True when the playable surface is wide enough without a rotate gate.
+    // Checks the *current* CSS viewport first (any size — often a browser-chrome
+    // subset of the panel before fullscreen), then falls back to screen metrics
+    // for non-phone devices so pre-fullscreen TV/tablet windows still unlock.
+    isLandscapeUsableViewport(minAspect) {
+        const floor = typeof minAspect === 'number' && Number.isFinite(minAspect)
+            ? minAspect
+            : this.LANDSCAPE_USABLE_MIN_ASPECT;
+
+        if (this.getViewportAspectRatio() >= floor) {
+            return true;
+        }
+
+        // Phones must use the live CSS viewport so true portrait stays gated.
+        if (this.isPhone && this.isPhone()) {
+            return false;
+        }
+
+        const screenAspect = this.getScreenAspectRatio();
+        return screenAspect > 0 && screenAspect >= floor;
     },
 
     // Best-effort landscape lock. Works reliably in installed Android PWAs / fullscreen;

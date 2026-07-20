@@ -3,6 +3,9 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const { System: DeviceDetection } = require(path.join(__dirname, '..', 'src', 'engine', 'system.js'));
 
+const originalReadViewport = DeviceDetection._readViewport.bind(DeviceDetection);
+const originalReadScreen = DeviceDetection._readScreen.bind(DeviceDetection);
+
 function mockEnv({ ua, platform, maxTouchPoints = 0, userAgentData = null, media = {} }) {
     const queries = {
         '(pointer: coarse)': false,
@@ -12,13 +15,6 @@ function mockEnv({ ua, platform, maxTouchPoints = 0, userAgentData = null, media
         '(hover: hover)': true,
         '(any-hover: hover)': true,
         ...media
-    };
-
-    const win = {
-        ontouchstart: maxTouchPoints > 0 ? null : undefined,
-        matchMedia(query) {
-            return { matches: queries[query] === true };
-        }
     };
 
     DeviceDetection.invalidateCache();
@@ -51,6 +47,9 @@ function mockEnv({ ua, platform, maxTouchPoints = 0, userAgentData = null, media
             hasHover: canHover || anyHover
         };
     };
+    // Reset viewport/screen hooks so aspect tests don't leak across cases.
+    DeviceDetection._readViewport = originalReadViewport;
+    DeviceDetection._readScreen = originalReadScreen;
 }
 
 test('detects Android phone from UA', () => {
@@ -220,4 +219,96 @@ test('detects Safari as webkit', () => {
     const profile = DeviceDetection.getProfile(true);
     assert.equal(profile.engine, 'webkit');
     assert.equal(profile.isGeckoFamily, false);
+});
+
+test('detects Android TV / Fire TV as tv, not mobile tablet', () => {
+    mockEnv({
+        ua: 'Mozilla/5.0 (Linux; Android 9; AFTMM Build/PS7233) AppleWebKit/537.36 (KHTML, like Gecko) Silk/112.6.3 like Chrome/112.0.5615.213 Safari/537.36',
+        platform: 'Linux armv7l',
+        maxTouchPoints: 0
+    });
+    const profile = DeviceDetection.getProfile(true);
+    assert.equal(profile.formFactor, 'tv');
+    assert.equal(profile.isTv, true);
+    assert.equal(profile.isMobile, false);
+    assert.equal(profile.isTablet, false);
+    assert.equal(DeviceDetection.isTv(), true);
+    assert.equal(DeviceDetection.isMobileDevice(), false);
+});
+
+test('detects Google TV style Android TV UA', () => {
+    mockEnv({
+        ua: 'Mozilla/5.0 (Linux; Android 12; Chromecast HD Build/STTL.230911.001) AppleWebKit/537.36 Chrome/108.0.5359.128 Safari/537.36 CrKey/1.56.500000 Android TV',
+        platform: 'Linux armv8l',
+        maxTouchPoints: 0
+    });
+    const profile = DeviceDetection.getProfile(true);
+    assert.equal(profile.formFactor, 'tv');
+    assert.equal(profile.isMobile, false);
+});
+
+test('landscape CSS pixels are landscape-usable even if orientation claims portrait', () => {
+    mockEnv({
+        ua: 'Mozilla/5.0 (Linux; Android 13; SM-X900) AppleWebKit/537.36 Safari/537.36',
+        platform: 'Linux armv81',
+        maxTouchPoints: 10
+    });
+    DeviceDetection._readViewport = () => ({ width: 1920, height: 1080 });
+    DeviceDetection._readScreen = () => ({ width: 1920, height: 1080 });
+    assert.equal(DeviceDetection.getViewportAspectRatio(), 1920 / 1080);
+    assert.equal(DeviceDetection.isLandscapeUsableViewport(), true);
+    assert.equal(DeviceDetection.isPortraitViewport(), false);
+});
+
+test('chrome-shrunk TV/tablet window still unlocks via screen aspect', () => {
+    mockEnv({
+        ua: 'Mozilla/5.0 (Linux; Android 9; AFTMM Build/PS7233) AppleWebKit/537.36 Silk/112.6.3 like Chrome/112.0.5615.213 Safari/537.36',
+        platform: 'Linux armv7l',
+        maxTouchPoints: 0
+    });
+    // Pre-fullscreen browser chrome: window is a landscape subset, not full panel.
+    DeviceDetection._readViewport = () => ({ width: 1280, height: 800 });
+    DeviceDetection._readScreen = () => ({ width: 1920, height: 1080 });
+    assert.equal(DeviceDetection.isLandscapeUsableViewport(), true);
+
+    // Even a temporarily awkward window unlocks if the panel itself is landscape.
+    DeviceDetection._readViewport = () => ({ width: 900, height: 1000 });
+    assert.equal(DeviceDetection.isLandscapeUsableViewport(), true);
+});
+
+test('phone portrait stays gated even when screen hardware is landscape-sized', () => {
+    mockEnv({
+        ua: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Mobile Safari/537.36',
+        platform: 'Linux armv81',
+        maxTouchPoints: 5
+    });
+    DeviceDetection._readViewport = () => ({ width: 390, height: 844 });
+    DeviceDetection._readScreen = () => ({ width: 1080, height: 2400 });
+    assert.equal(DeviceDetection.isLandscapeUsableViewport(), false);
+    assert.equal(DeviceDetection.isPortraitViewport(), true);
+});
+
+test('tall phone portrait is not landscape-usable and stays portrait', () => {
+    mockEnv({
+        ua: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Mobile Safari/537.36',
+        platform: 'Linux armv81',
+        maxTouchPoints: 5
+    });
+    DeviceDetection._readViewport = () => ({ width: 390, height: 844 });
+    DeviceDetection._readScreen = () => ({ width: 390, height: 844 });
+    assert.ok(DeviceDetection.getViewportAspectRatio() < 1);
+    assert.equal(DeviceDetection.isLandscapeUsableViewport(), false);
+    assert.equal(DeviceDetection.isPortraitViewport(), true);
+});
+
+test('aspect override threshold can allow near-square docked surfaces', () => {
+    mockEnv({
+        ua: 'Mozilla/5.0 (Linux; Android 13; SM-X900) AppleWebKit/537.36 Safari/537.36',
+        platform: 'Linux armv81',
+        maxTouchPoints: 10
+    });
+    DeviceDetection._readViewport = () => ({ width: 1024, height: 1000 });
+    DeviceDetection._readScreen = () => ({ width: 1024, height: 1000 });
+    assert.equal(DeviceDetection.isLandscapeUsableViewport(), true);
+    assert.equal(DeviceDetection.isLandscapeUsableViewport(1.1), false);
 });
