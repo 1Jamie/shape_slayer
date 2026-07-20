@@ -6767,61 +6767,93 @@ const Game = {
         ctx.restore();
     },
 
+    _visibleFrameListsCache: null,
+
     /** Frustum cull helper used by visibility gather and glow extras. */
     isEntityVisible(entity, margin = 100, camera = null, viewport = null) {
         if (!entity) return false;
         const activeCamera = camera || this._activeRenderCamera || this.camera;
+        if (!activeCamera) return true;
         const activeViewport = viewport || this._activeRenderViewport;
-        const zoom = this.getViewZoom();
-        const halfWidth = ((activeViewport ? activeViewport.w : this.config.width) / 2) / zoom;
-        const halfHeight = ((activeViewport ? activeViewport.h : this.config.height) / 2) / zoom;
-        const prev = entity.cullRadius;
-        entity.cullRadius = margin;
-        const visible = Engine.Render.cullPoints([entity], {
-            left: activeCamera.x - halfWidth,
-            top: activeCamera.y - halfHeight,
-            right: activeCamera.x + halfWidth,
-            bottom: activeCamera.y + halfHeight
-        }).length > 0;
-        if (prev === undefined) delete entity.cullRadius;
-        else entity.cullRadius = prev;
-        return visible;
+        const zoom = typeof this.getViewZoom === 'function' ? this.getViewZoom() : 1;
+        const width = activeViewport ? activeViewport.w : (this.config ? this.config.width : 1280);
+        const height = activeViewport ? activeViewport.h : (this.config ? this.config.height : 720);
+        const halfWidth = (width / 2) / zoom;
+        const halfHeight = (height / 2) / zoom;
+        const left = activeCamera.x - halfWidth;
+        const top = activeCamera.y - halfHeight;
+        const right = activeCamera.x + halfWidth;
+        const bottom = activeCamera.y + halfHeight;
+        const rad = Math.max(0, Number(margin ?? entity.cullRadius ?? entity.radius) || 0);
+        return entity.x + rad >= left
+            && entity.x - rad <= right
+            && entity.y + rad >= top
+            && entity.y - rad <= bottom;
     },
 
     /** Build per-frame visible lists for glow, bodies, and vignette. */
     gatherVisibleFrameLists(camera = null, viewport = null) {
+        if (!this._visibleFrameListsCache) {
+            this._visibleFrameListsCache = {
+                enemies: [],
+                enemyLights: [],
+                projectiles: [],
+                projectileLights: [],
+                groundLoot: [],
+                groundItems: [],
+                itemPylons: []
+            };
+        }
+        const frameLists = this._visibleFrameListsCache;
+        frameLists.enemies.length = 0;
+        frameLists.enemyLights.length = 0;
+        frameLists.projectiles.length = 0;
+        frameLists.projectileLights.length = 0;
+        frameLists.groundLoot.length = 0;
+        frameLists.groundItems.length = 0;
+        frameLists.itemPylons.length = 0;
+
         const isVisible = (entity, margin) => this.isEntityVisible(entity, margin, camera, viewport);
-        const frameLists = {
-            enemies: [],
-            enemyLights: [],
-            projectiles: [],
-            projectileLights: [],
-            groundLoot: [],
-            groundItems: [],
-            itemPylons: []
-        };
-        this.enemies.forEach(enemy => {
-            if (!enemy) return;
-            const visible = enemy.alive ||
-                (typeof isEnemyDeathJuiceVisible === 'function' && isEnemyDeathJuiceVisible(enemy));
-            if (!visible) return;
-            if (isVisible(enemy, enemy.size * 3)) frameLists.enemies.push(enemy);
-            if (isVisible(enemy, enemy.size * 4 + 100)) frameLists.enemyLights.push(enemy);
-        });
-        this.projectiles.forEach(projectile => {
-            if (!projectile) return;
-            if (isVisible(projectile, projectile.size * 4)) frameLists.projectiles.push(projectile);
-            const lightMargin = projectile.vignetteLightRadius || (projectile.size * 6 + 50);
-            if (isVisible(projectile, lightMargin)) frameLists.projectileLights.push(projectile);
-        });
+
+        if (Array.isArray(this.enemies)) {
+            for (let i = 0; i < this.enemies.length; i++) {
+                const enemy = this.enemies[i];
+                if (!enemy) continue;
+                const visible = enemy.alive ||
+                    (typeof isEnemyDeathJuiceVisible === 'function' && isEnemyDeathJuiceVisible(enemy));
+                if (!visible) continue;
+                const enemySize = enemy.size || 20;
+                if (isVisible(enemy, enemySize * 3)) frameLists.enemies.push(enemy);
+                if (isVisible(enemy, enemySize * 4 + 100)) frameLists.enemyLights.push(enemy);
+            }
+        }
+        if (Array.isArray(this.projectiles)) {
+            for (let i = 0; i < this.projectiles.length; i++) {
+                const projectile = this.projectiles[i];
+                if (!projectile) continue;
+                const projSize = projectile.size || 5;
+                if (isVisible(projectile, projSize * 4)) frameLists.projectiles.push(projectile);
+                const lightMargin = projectile.vignetteLightRadius || (projSize * 6 + 50);
+                if (isVisible(projectile, lightMargin)) frameLists.projectileLights.push(projectile);
+            }
+        }
         if (typeof groundLoot !== 'undefined' && Array.isArray(groundLoot)) {
-            groundLoot.forEach(item => { if (isVisible(item, 50)) frameLists.groundLoot.push(item); });
+            for (let i = 0; i < groundLoot.length; i++) {
+                const item = groundLoot[i];
+                if (item && isVisible(item, 50)) frameLists.groundLoot.push(item);
+            }
         }
-        if (this.groundItems && Array.isArray(this.groundItems)) {
-            this.groundItems.forEach(item => { if (isVisible(item, 20)) frameLists.groundItems.push(item); });
+        if (Array.isArray(this.groundItems)) {
+            for (let i = 0; i < this.groundItems.length; i++) {
+                const item = this.groundItems[i];
+                if (item && isVisible(item, 20)) frameLists.groundItems.push(item);
+            }
         }
-        if (this.itemPylons && Array.isArray(this.itemPylons)) {
-            this.itemPylons.forEach(pylon => { if (pylon && !pylon.disappearing && isVisible(pylon, 30)) frameLists.itemPylons.push(pylon); });
+        if (Array.isArray(this.itemPylons)) {
+            for (let i = 0; i < this.itemPylons.length; i++) {
+                const pylon = this.itemPylons[i];
+                if (pylon && !pylon.disappearing && isVisible(pylon, 30)) frameLists.itemPylons.push(pylon);
+            }
         }
         return frameLists;
     },

@@ -382,8 +382,10 @@
         sprite: new Array(VOXEL_POOL_MAX),
         _nextFree: 0,
         _activeCount: 0,
-        _activeIndices: []
+        _activeIndices: new Int32Array(VOXEL_POOL_MAX),
+        _activeIndexPos: new Int32Array(VOXEL_POOL_MAX).fill(-1)
     };
+    const _groupScratchIndices = new Int32Array(VOXEL_POOL_MAX);
 
     const VoxelStaticCanvas = {
         canvas: null,
@@ -513,8 +515,9 @@
     function activateSlot(idx) {
         if (VoxelParticlePool.alive[idx]) return;
         VoxelParticlePool.alive[idx] = 1;
-        VoxelParticlePool._activeCount++;
-        VoxelParticlePool._activeIndices.push(idx);
+        const pos = VoxelParticlePool._activeCount++;
+        VoxelParticlePool._activeIndices[pos] = idx;
+        VoxelParticlePool._activeIndexPos[idx] = pos;
     }
 
     function deactivateSlot(idx) {
@@ -529,13 +532,16 @@
         VoxelParticlePool.sprite[idx] = null;
         VoxelParticlePool.settleT[idx] = 0;
         VoxelParticlePool.age[idx] = 0;
-        VoxelParticlePool._activeCount--;
-        const list = VoxelParticlePool._activeIndices;
-        const pos = list.indexOf(idx);
-        if (pos !== -1) {
-            list[pos] = list[list.length - 1];
-            list.pop();
+        
+        const pos = VoxelParticlePool._activeIndexPos[idx];
+        const lastPos = --VoxelParticlePool._activeCount;
+        if (pos !== -1 && pos <= lastPos) {
+            const lastIdx = VoxelParticlePool._activeIndices[lastPos];
+            VoxelParticlePool._activeIndices[pos] = lastIdx;
+            VoxelParticlePool._activeIndexPos[lastIdx] = pos;
         }
+        VoxelParticlePool._activeIndexPos[idx] = -1;
+
         if (idx < VoxelParticlePool._nextFree) {
             VoxelParticlePool._nextFree = idx;
         }
@@ -801,18 +807,19 @@
     }
 
     function _stampAndDeactivateGroup(leaderIdx, skipStamp) {
-        const indices = VoxelParticlePool._activeIndices.slice();
-        const toKill = [];
-        for (let n = 0; n < indices.length; n++) {
-            const i = indices[n];
+        let count = 0;
+        const activeCount = VoxelParticlePool._activeCount;
+        for (let n = 0; n < activeCount; n++) {
+            const i = VoxelParticlePool._activeIndices[n];
             if (!VoxelParticlePool.alive[i]) continue;
             if (i !== leaderIdx && VoxelParticlePool.linkLeader[i] !== leaderIdx) continue;
-            if (!skipStamp) _stampToStaticCanvas(i);
-            toKill.push(i);
+            _groupScratchIndices[count++] = i;
         }
         // Deactivate after all stamps so pooled sprite canvases stay valid for the whole group.
-        for (let k = 0; k < toKill.length; k++) {
-            deactivateSlot(toKill[k]);
+        for (let k = 0; k < count; k++) {
+            const i = _groupScratchIndices[k];
+            if (!skipStamp) _stampToStaticCanvas(i);
+            deactivateSlot(i);
         }
     }
 
@@ -1552,10 +1559,11 @@
     globalThis.updateVoxelParticles = function(dt) {
         if (VoxelParticlePool._activeCount === 0) return;
 
+        const activeCount = VoxelParticlePool._activeCount;
         const indices = VoxelParticlePool._activeIndices;
         const skipStamp = getFxScale() < 0.5;
 
-        for (let n = indices.length - 1; n >= 0; n--) {
+        for (let n = activeCount - 1; n >= 0; n--) {
             const i = indices[n];
             if (!VoxelParticlePool.alive[i]) continue;
             if (VoxelParticlePool.linkLeader[i] >= 0) continue;
@@ -1766,11 +1774,12 @@
     globalThis.renderVoxelActiveParticles = function(ctx) {
         if (VoxelParticlePool._activeCount === 0) return;
 
+        const activeCount = VoxelParticlePool._activeCount;
         const indices = VoxelParticlePool._activeIndices;
         const drawHalo = getFxScale() >= 0.75;
 
         ctx.save();
-        for (let n = 0; n < indices.length; n++) {
+        for (let n = 0; n < activeCount; n++) {
             const i = indices[n];
             if (!VoxelParticlePool.alive[i]) continue;
             const particleType = VoxelParticlePool.type[i];
@@ -1803,7 +1812,7 @@
 
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
-        for (let n = 0; n < indices.length; n++) {
+        for (let n = 0; n < activeCount; n++) {
             const i = indices[n];
             if (!VoxelParticlePool.alive[i]) continue;
             if (VoxelParticlePool.type[i] !== 1) continue;
@@ -1923,7 +1932,7 @@
             VoxelParticlePool.sprite[i] = null;
         }
         VoxelParticlePool._activeCount = 0;
-        VoxelParticlePool._activeIndices.length = 0;
+        VoxelParticlePool._activeIndexPos.fill(-1);
         VoxelParticlePool._nextFree = 0;
     };
 })();

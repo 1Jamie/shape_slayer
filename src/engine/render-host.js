@@ -82,8 +82,8 @@
         return ctx;
     };
 
-    Render.cullPoints = function(entities, viewBounds) {
-        if (!Array.isArray(entities)) return [];
+    Render.cullPoints = function(entities, viewBounds, outArray = null) {
+        if (!Array.isArray(entities)) return outArray || [];
         const bounds = viewBounds || {};
         const left = Number.isFinite(bounds.left) ? bounds.left : Number(bounds.x) || 0;
         const top = Number.isFinite(bounds.top) ? bounds.top : Number(bounds.y) || 0;
@@ -93,6 +93,22 @@
         const bottom = Number.isFinite(bounds.bottom)
             ? bounds.bottom
             : top + (Number(bounds.height) || 0);
+
+        if (outArray) {
+            outArray.length = 0;
+            for (let i = 0; i < entities.length; i++) {
+                const entity = entities[i];
+                if (!entity) continue;
+                const margin = Math.max(0, Number(entity.cullRadius ?? entity.radius) || 0);
+                if (entity.x + margin >= left
+                    && entity.x - margin <= right
+                    && entity.y + margin >= top
+                    && entity.y - margin <= bottom) {
+                    outArray.push(entity);
+                }
+            }
+            return outArray;
+        }
 
         return entities.filter(entity => {
             if (!entity) return false;

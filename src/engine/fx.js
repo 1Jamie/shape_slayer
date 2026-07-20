@@ -327,6 +327,66 @@
         }
     }
 
+    const COLOR_RGB_CACHE = new Map();
+
+    function getCachedRgbString(r, g, b) {
+        const ir = Math.round(Math.max(0, Math.min(1, r)) * 255);
+        const ig = Math.round(Math.max(0, Math.min(1, g)) * 255);
+        const ib = Math.round(Math.max(0, Math.min(1, b)) * 255);
+        const key = (ir << 16) | (ig << 8) | ib;
+        let cached = COLOR_RGB_CACHE.get(key);
+        if (!cached) {
+            cached = `rgb(${ir},${ig},${ib})`;
+            COLOR_RGB_CACHE.set(key, cached);
+        }
+        return cached;
+    }
+
+    function parseColorToRgb(color) {
+        if (!color) return [1, 1, 1];
+        if (typeof color === 'string') {
+            const str = color.trim().toLowerCase();
+            if (str.startsWith('#')) {
+                if (str.length === 4) {
+                    const r = parseInt(str[1] + str[1], 16) / 255;
+                    const g = parseInt(str[2] + str[2], 16) / 255;
+                    const b = parseInt(str[3] + str[3], 16) / 255;
+                    return [r, g, b];
+                } else if (str.length >= 7) {
+                    const r = parseInt(str.substring(1, 3), 16) / 255;
+                    const g = parseInt(str.substring(3, 5), 16) / 255;
+                    const b = parseInt(str.substring(5, 7), 16) / 255;
+                    return [r, g, b];
+                }
+            } else if (str.startsWith('rgb')) {
+                const match = str.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+                if (match) {
+                    return [
+                        Number(match[1]) / 255,
+                        Number(match[2]) / 255,
+                        Number(match[3]) / 255
+                    ];
+                }
+            }
+        } else if (Array.isArray(color)) {
+            return [
+                color[0] > 1 ? color[0] / 255 : color[0],
+                color[1] > 1 ? color[1] / 255 : color[1],
+                color[2] > 1 ? color[2] / 255 : color[2]
+            ];
+        } else if (typeof color === 'object') {
+            const rVal = color.r ?? color.cr ?? 1;
+            const gVal = color.g ?? color.cg ?? 1;
+            const bVal = color.b ?? color.cb ?? 1;
+            return [
+                rVal > 1 ? rVal / 255 : rVal,
+                gVal > 1 ? gVal / 255 : gVal,
+                bVal > 1 ? bVal / 255 : bVal
+            ];
+        }
+        return [1, 1, 1];
+    }
+
     class ParticleSystem {
         constructor(options = {}) {
             this.particleCap = Math.max(0, Math.floor(options.particleCap ?? 1000));
@@ -343,9 +403,33 @@
             this.gravity = new Float32Array(this.particleCap);
             this.drag = new Float32Array(this.particleCap);
             this.bounce = new Float32Array(this.particleCap);
-            this.colors = new Array(this.particleCap);
+            this.cr = new Float32Array(this.particleCap);
+            this.cg = new Float32Array(this.particleCap);
+            this.cb = new Float32Array(this.particleCap);
             this.circleColliders = [];
             this.segmentColliders = [];
+        }
+
+        get colors() {
+            const result = new Array(this.particleCap);
+            for (let index = 0; index < this.count; index++) {
+                result[index] = getCachedRgbString(this.cr[index], this.cg[index], this.cb[index]);
+            }
+            return result;
+        }
+
+        set colors(val) {
+            // Support legacy array setter if needed
+            if (Array.isArray(val)) {
+                for (let index = 0; index < Math.min(val.length, this.particleCap); index++) {
+                    if (val[index]) {
+                        const [r, g, b] = parseColorToRgb(val[index]);
+                        this.cr[index] = r;
+                        this.cg[index] = g;
+                        this.cb[index] = b;
+                    }
+                }
+            }
         }
 
         setParticleCap(cap) {
@@ -354,15 +438,13 @@
             const nextCount = Math.min(this.count, nextCap);
             for (const name of [
                 'x', 'y', 'vx', 'vy', 'size', 'life',
-                'maxLife', 'gravity', 'drag', 'bounce'
+                'maxLife', 'gravity', 'drag', 'bounce',
+                'cr', 'cg', 'cb'
             ]) {
                 const values = new Float32Array(nextCap);
                 values.set(this[name].subarray(0, nextCount));
                 this[name] = values;
             }
-            const colors = new Array(nextCap);
-            for (let index = 0; index < nextCount; index++) colors[index] = this.colors[index];
-            this.colors = colors;
             this.particleCap = nextCap;
             this.count = nextCount;
             return this;
@@ -382,7 +464,10 @@
             this.gravity[index] = Number(options.gravity) || 0;
             this.drag[index] = Math.max(0, Number(options.drag) || 0);
             this.bounce[index] = Math.max(0, Math.min(1, Number(options.bounce) || 0));
-            this.colors[index] = options.color || '#ffffff';
+            const [cr, cg, cb] = parseColorToRgb(options.color || '#ffffff');
+            this.cr[index] = cr;
+            this.cg[index] = cg;
+            this.cb[index] = cb;
             return index;
         }
 
@@ -468,18 +553,14 @@
 
         _remove(index) {
             const last = --this.count;
-            if (index === last) {
-                this.colors[last] = undefined;
-                return;
-            }
+            if (index === last) return;
             for (const field of [
                 this.x, this.y, this.vx, this.vy, this.size, this.life,
-                this.maxLife, this.gravity, this.drag, this.bounce
+                this.maxLife, this.gravity, this.drag, this.bounce,
+                this.cr, this.cg, this.cb
             ]) {
                 field[index] = field[last];
             }
-            this.colors[index] = this.colors[last];
-            this.colors[last] = undefined;
         }
 
         update(deltaTime) {
@@ -512,7 +593,7 @@
                     || this.y[index] + radius < bounds.top
                     || this.y[index] - radius > bounds.bottom)) continue;
                 ctx.globalAlpha = Math.max(0, this.life[index] / this.maxLife[index]);
-                ctx.fillStyle = this.colors[index];
+                ctx.fillStyle = getCachedRgbString(this.cr[index], this.cg[index], this.cb[index]);
                 ctx.beginPath();
                 ctx.arc(this.x[index], this.y[index], radius, 0, Math.PI * 2);
                 ctx.fill();
@@ -523,7 +604,6 @@
 
         clear() {
             this.count = 0;
-            this.colors.fill(undefined);
         }
 
         toArray() {
@@ -534,7 +614,7 @@
                     y: this.y[index],
                     vx: this.vx[index],
                     vy: this.vy[index],
-                    color: this.colors[index],
+                    color: getCachedRgbString(this.cr[index], this.cg[index], this.cb[index]),
                     size: this.size[index],
                     life: this.life[index],
                     maxLife: this.maxLife[index]
