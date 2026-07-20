@@ -105,7 +105,10 @@ const server = http.createServer((req, res) => {
         res.writeHead(200, {
             'Content-Type': contentType,
             'Content-Length': stats.size,
-            'Cache-Control': cacheControlFor(filePath)
+            'Cache-Control': cacheControlFor(filePath),
+            'Cross-Origin-Opener-Policy': 'same-origin',
+            'Cross-Origin-Embedder-Policy': 'require-corp',
+            'Cross-Origin-Resource-Policy': 'cross-origin'
         });
 
         pipeline(fs.createReadStream(filePath), res, (err) => {

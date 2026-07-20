@@ -355,35 +355,117 @@
         blast:  { speedMult: 1.45, spread: Math.PI * 0.52, fluidPerCell: 0 }
     };
 
+    function createVoxelBackingBuffer(byteLength) {
+        const hasSAB = typeof SharedArrayBuffer !== 'undefined'
+            && typeof window !== 'undefined'
+            && window.crossOriginIsolated === true;
+        return hasSAB ? new SharedArrayBuffer(byteLength) : new ArrayBuffer(byteLength);
+    }
+
+    function atomicLoad(arr, idx) {
+        try {
+            if (typeof Atomics !== 'undefined' && arr.buffer instanceof (globalThis.SharedArrayBuffer || Object)) {
+                return Atomics.load(arr, idx);
+            }
+        } catch (_) {}
+        return arr[idx];
+    }
+
+    function atomicAdd(arr, idx, val) {
+        try {
+            if (typeof Atomics !== 'undefined' && arr.buffer instanceof (globalThis.SharedArrayBuffer || Object)) {
+                return Atomics.add(arr, idx, val);
+            }
+        } catch (_) {}
+        const old = arr[idx];
+        arr[idx] += val;
+        return old;
+    }
+
+    function atomicSub(arr, idx, val) {
+        try {
+            if (typeof Atomics !== 'undefined' && arr.buffer instanceof (globalThis.SharedArrayBuffer || Object)) {
+                return Atomics.sub(arr, idx, val);
+            }
+        } catch (_) {}
+        const old = arr[idx];
+        arr[idx] -= val;
+        return old;
+    }
+
+    function atomicStore(arr, idx, val) {
+        try {
+            if (typeof Atomics !== 'undefined' && arr.buffer instanceof (globalThis.SharedArrayBuffer || Object)) {
+                Atomics.store(arr, idx, val);
+                return val;
+            }
+        } catch (_) {}
+        arr[idx] = val;
+        return val;
+    }
+
+    const _voxelHeaderBytes = 64; // 16 Int32 slots
+    const _f32Bytes = VOXEL_POOL_MAX * 4;
+    const _u8Bytes = VOXEL_POOL_MAX * 1;
+    const _i16Bytes = VOXEL_POOL_MAX * 2;
+    const _i32Bytes = VOXEL_POOL_MAX * 4;
+
+    const _totalVoxelBytes = _voxelHeaderBytes
+        + 20 * _f32Bytes
+        + 2 * _u8Bytes
+        + 1 * _i16Bytes
+        + 2 * _i32Bytes;
+
+    const _voxelBuffer = createVoxelBackingBuffer(_totalVoxelBytes);
+    const _voxelHeader = new Int32Array(_voxelBuffer, 0, 16);
+
+    let _vOffset = _voxelHeaderBytes;
+    function _nextF32() { const off = _vOffset; _vOffset += _f32Bytes; return new Float32Array(_voxelBuffer, off, VOXEL_POOL_MAX); }
+    function _nextU8() { const off = _vOffset; _vOffset += _u8Bytes; return new Uint8Array(_voxelBuffer, off, VOXEL_POOL_MAX); }
+    function _nextI16() { const off = _vOffset; _vOffset += _i16Bytes; return new Int16Array(_voxelBuffer, off, VOXEL_POOL_MAX); }
+    function _nextI32() { const off = _vOffset; _vOffset += _i32Bytes; return new Int32Array(_voxelBuffer, off, VOXEL_POOL_MAX); }
+
     const VoxelParticlePool = {
-        px:      new Float32Array(VOXEL_POOL_MAX),
-        py:      new Float32Array(VOXEL_POOL_MAX),
-        vx:      new Float32Array(VOXEL_POOL_MAX),
-        vy:      new Float32Array(VOXEL_POOL_MAX),
-        cr:      new Float32Array(VOXEL_POOL_MAX),
-        cg:      new Float32Array(VOXEL_POOL_MAX),
-        cb:      new Float32Array(VOXEL_POOL_MAX),
-        alpha:   new Float32Array(VOXEL_POOL_MAX),
-        life:    new Float32Array(VOXEL_POOL_MAX),
-        maxLife: new Float32Array(VOXEL_POOL_MAX),
-        w:       new Float32Array(VOXEL_POOL_MAX),
-        h:       new Float32Array(VOXEL_POOL_MAX),
-        rot:     new Float32Array(VOXEL_POOL_MAX),
-        rotV:    new Float32Array(VOXEL_POOL_MAX),
-        type:    new Uint8Array(VOXEL_POOL_MAX),
-        alive:   new Uint8Array(VOXEL_POOL_MAX),
-        linkLeader: new Int16Array(VOXEL_POOL_MAX).fill(-1),
-        groupOx: new Float32Array(VOXEL_POOL_MAX),
-        groupOy: new Float32Array(VOXEL_POOL_MAX),
-        vxGoal: new Float32Array(VOXEL_POOL_MAX),
-        vyGoal: new Float32Array(VOXEL_POOL_MAX),
-        settleT: new Float32Array(VOXEL_POOL_MAX),
-        age: new Float32Array(VOXEL_POOL_MAX),
+        buffer:  _voxelBuffer,
+        header:  _voxelHeader,
+        px:      _nextF32(),
+        py:      _nextF32(),
+        vx:      _nextF32(),
+        vy:      _nextF32(),
+        cr:      _nextF32(),
+        cg:      _nextF32(),
+        cb:      _nextF32(),
+        alpha:   _nextF32(),
+        life:    _nextF32(),
+        maxLife: _nextF32(),
+        w:       _nextF32(),
+        h:       _nextF32(),
+        rot:     _nextF32(),
+        rotV:    _nextF32(),
+        groupOx: _nextF32(),
+        groupOy: _nextF32(),
+        vxGoal:  _nextF32(),
+        vyGoal:  _nextF32(),
+        settleT: _nextF32(),
+        age:     _nextF32(),
+        type:    _nextU8(),
+        alive:   _nextU8(),
+        linkLeader: _nextI16().fill(-1),
+        _activeIndices: _nextI32(),
+        _activeIndexPos: _nextI32().fill(-1),
         sprite: new Array(VOXEL_POOL_MAX),
-        _nextFree: 0,
-        _activeCount: 0,
-        _activeIndices: new Int32Array(VOXEL_POOL_MAX),
-        _activeIndexPos: new Int32Array(VOXEL_POOL_MAX).fill(-1)
+        get _nextFree() {
+            return atomicLoad(_voxelHeader, 1);
+        },
+        set _nextFree(val) {
+            atomicStore(_voxelHeader, 1, Math.max(0, Math.floor(val)));
+        },
+        get _activeCount() {
+            return atomicLoad(_voxelHeader, 0);
+        },
+        set _activeCount(val) {
+            atomicStore(_voxelHeader, 0, Math.max(0, Math.floor(val)));
+        }
     };
     const _groupScratchIndices = new Int32Array(VOXEL_POOL_MAX);
 
@@ -398,6 +480,41 @@
         dirty: false
     };
     globalThis.VoxelStaticCanvas = VoxelStaticCanvas;
+
+    function activateSlot(idx) {
+        if (VoxelParticlePool.alive[idx]) return;
+        VoxelParticlePool.alive[idx] = 1;
+        const pos = atomicAdd(VoxelParticlePool.header, 0, 1);
+        VoxelParticlePool._activeIndices[pos] = idx;
+        VoxelParticlePool._activeIndexPos[idx] = pos;
+    }
+
+    function deactivateSlot(idx) {
+        if (!VoxelParticlePool.alive[idx]) return;
+        const sprite = VoxelParticlePool.sprite[idx];
+        if (sprite && sprite._pooled && sprite.canvas) {
+            _releaseBakeCanvas(sprite.canvas);
+            sprite.canvas = null;
+        }
+        VoxelParticlePool.alive[idx] = 0;
+        VoxelParticlePool.linkLeader[idx] = -1;
+        VoxelParticlePool.sprite[idx] = null;
+        VoxelParticlePool.settleT[idx] = 0;
+        VoxelParticlePool.age[idx] = 0;
+        
+        const pos = VoxelParticlePool._activeIndexPos[idx];
+        const lastPos = atomicSub(VoxelParticlePool.header, 0, 1) - 1;
+        if (pos !== -1 && pos <= lastPos) {
+            const lastIdx = VoxelParticlePool._activeIndices[lastPos];
+            VoxelParticlePool._activeIndices[pos] = lastIdx;
+            VoxelParticlePool._activeIndexPos[lastIdx] = pos;
+        }
+        VoxelParticlePool._activeIndexPos[idx] = -1;
+
+        if (idx < VoxelParticlePool._nextFree) {
+            VoxelParticlePool._nextFree = idx;
+        }
+    }
 
     // Scratch canvases + small pool to cut SpiderMonkey/Servo alloc storms on shatter.
     const _scratchSnapshot = { canvas: null };

@@ -387,39 +387,108 @@
         return [1, 1, 1];
     }
 
+    function createBackingBuffer(byteLength) {
+        const hasSAB = typeof SharedArrayBuffer !== 'undefined'
+            && typeof window !== 'undefined'
+            && window.crossOriginIsolated === true;
+        return hasSAB ? new SharedArrayBuffer(byteLength) : new ArrayBuffer(byteLength);
+    }
+
+    function atomicLoad(arr, idx) {
+        try {
+            if (typeof Atomics !== 'undefined' && arr.buffer instanceof (globalThis.SharedArrayBuffer || Object)) {
+                return Atomics.load(arr, idx);
+            }
+        } catch (_) {}
+        return arr[idx];
+    }
+
+    function atomicAdd(arr, idx, val) {
+        try {
+            if (typeof Atomics !== 'undefined' && arr.buffer instanceof (globalThis.SharedArrayBuffer || Object)) {
+                return Atomics.add(arr, idx, val);
+            }
+        } catch (_) {}
+        const old = arr[idx];
+        arr[idx] += val;
+        return old;
+    }
+
+    function atomicSub(arr, idx, val) {
+        try {
+            if (typeof Atomics !== 'undefined' && arr.buffer instanceof (globalThis.SharedArrayBuffer || Object)) {
+                return Atomics.sub(arr, idx, val);
+            }
+        } catch (_) {}
+        const old = arr[idx];
+        arr[idx] -= val;
+        return old;
+    }
+
+    function atomicStore(arr, idx, val) {
+        try {
+            if (typeof Atomics !== 'undefined' && arr.buffer instanceof (globalThis.SharedArrayBuffer || Object)) {
+                Atomics.store(arr, idx, val);
+                return val;
+            }
+        } catch (_) {}
+        arr[idx] = val;
+        return val;
+    }
+
     class ParticleSystem {
         constructor(options = {}) {
             this.particleCap = Math.max(0, Math.floor(options.particleCap ?? 1000));
-            this.count = 0;
             this.gravityX = Number(options.gravityX) || 0;
             this.gravityY = Number(options.gravityY) || 0;
-            this.x = new Float32Array(this.particleCap);
-            this.y = new Float32Array(this.particleCap);
-            this.vx = new Float32Array(this.particleCap);
-            this.vy = new Float32Array(this.particleCap);
-            this.size = new Float32Array(this.particleCap);
-            this.life = new Float32Array(this.particleCap);
-            this.maxLife = new Float32Array(this.particleCap);
-            this.gravity = new Float32Array(this.particleCap);
-            this.drag = new Float32Array(this.particleCap);
-            this.bounce = new Float32Array(this.particleCap);
-            this.cr = new Float32Array(this.particleCap);
-            this.cg = new Float32Array(this.particleCap);
-            this.cb = new Float32Array(this.particleCap);
             this.circleColliders = [];
             this.segmentColliders = [];
+            this.worker = null;
+            this._initBuffer(this.particleCap);
+        }
+
+        _initBuffer(cap) {
+            const headerBytes = 64; // 16 Int32 slots
+            const channelBytes = cap * 4;
+            const totalBytes = headerBytes + 13 * channelBytes;
+            this.buffer = createBackingBuffer(totalBytes);
+            this.header = new Int32Array(this.buffer, 0, 16);
+            this.header[1] = cap; // particleCap
+
+            const offset = (idx) => headerBytes + idx * channelBytes;
+            this.x = new Float32Array(this.buffer, offset(0), cap);
+            this.y = new Float32Array(this.buffer, offset(1), cap);
+            this.vx = new Float32Array(this.buffer, offset(2), cap);
+            this.vy = new Float32Array(this.buffer, offset(3), cap);
+            this.size = new Float32Array(this.buffer, offset(4), cap);
+            this.life = new Float32Array(this.buffer, offset(5), cap);
+            this.maxLife = new Float32Array(this.buffer, offset(6), cap);
+            this.gravity = new Float32Array(this.buffer, offset(7), cap);
+            this.drag = new Float32Array(this.buffer, offset(8), cap);
+            this.bounce = new Float32Array(this.buffer, offset(9), cap);
+            this.cr = new Float32Array(this.buffer, offset(10), cap);
+            this.cg = new Float32Array(this.buffer, offset(11), cap);
+            this.cb = new Float32Array(this.buffer, offset(12), cap);
+        }
+
+        get count() {
+            return atomicLoad(this.header, 0);
+        }
+
+        set count(val) {
+            atomicStore(this.header, 0, Math.max(0, Math.floor(val)));
         }
 
         get colors() {
+            const currentCount = this.count;
             const result = new Array(this.particleCap);
-            for (let index = 0; index < this.count; index++) {
+            for (let index = 0; index < currentCount; index++) {
                 result[index] = getCachedRgbString(this.cr[index], this.cg[index], this.cb[index]);
             }
             return result;
         }
 
         set colors(val) {
-            // Support legacy array setter if needed
             if (Array.isArray(val)) {
                 for (let index = 0; index < Math.min(val.length, this.particleCap); index++) {
                     if (val[index]) {
@@ -435,24 +504,38 @@
         setParticleCap(cap) {
             const nextCap = Math.max(0, Math.floor(cap));
             if (nextCap === this.particleCap) return this;
-            const nextCount = Math.min(this.count, nextCap);
-            for (const name of [
-                'x', 'y', 'vx', 'vy', 'size', 'life',
-                'maxLife', 'gravity', 'drag', 'bounce',
-                'cr', 'cg', 'cb'
-            ]) {
-                const values = new Float32Array(nextCap);
-                values.set(this[name].subarray(0, nextCount));
-                this[name] = values;
-            }
+            const currentCount = this.count;
+            const nextCount = Math.min(currentCount, nextCap);
+
+            const oldChannels = {
+                x: new Float32Array(this.x), y: new Float32Array(this.y),
+                vx: new Float32Array(this.vx), vy: new Float32Array(this.vy),
+                size: new Float32Array(this.size), life: new Float32Array(this.life),
+                maxLife: new Float32Array(this.maxLife), gravity: new Float32Array(this.gravity),
+                drag: new Float32Array(this.drag), bounce: new Float32Array(this.bounce),
+                cr: new Float32Array(this.cr), cg: new Float32Array(this.cg), cb: new Float32Array(this.cb)
+            };
+
             this.particleCap = nextCap;
+            this._initBuffer(nextCap);
             this.count = nextCount;
+
+            for (const name of Object.keys(oldChannels)) {
+                this[name].set(oldChannels[name].subarray(0, nextCount));
+            }
             return this;
         }
 
         spawn(options = {}) {
-            if (this.count >= this.particleCap) return -1;
-            const index = this.count++;
+            const cap = this.particleCap;
+            if (cap === 0) return -1;
+            const currentCount = atomicLoad(this.header, 0);
+            if (currentCount >= cap) return -1;
+            const index = atomicAdd(this.header, 0, 1);
+            if (index >= cap) {
+                atomicStore(this.header, 0, cap);
+                return -1;
+            }
             const life = Math.max(0.0001, Number(options.life) || 1);
             this.x[index] = Number(options.x) || 0;
             this.y[index] = Number(options.y) || 0;
@@ -469,6 +552,32 @@
             this.cg[index] = cg;
             this.cb[index] = cb;
             return index;
+        }
+
+        initWorkerOffscreen(canvas) {
+            if (typeof Worker === 'undefined' || !canvas || typeof canvas.transferControlToOffscreen !== 'function') {
+                return false;
+            }
+            if (!(this.buffer instanceof (globalThis.SharedArrayBuffer || Object))) {
+                return false;
+            }
+            try {
+                const offscreen = canvas.transferControlToOffscreen();
+                this.worker = new Worker('./src/engine/particle-worker.js');
+                this.worker.postMessage({
+                    type: 'INIT_PARTICLE_WORKER',
+                    canvas: offscreen,
+                    buffer: this.buffer,
+                    particleCap: this.particleCap,
+                    gravityX: this.gravityX,
+                    gravityY: this.gravityY
+                }, [offscreen]);
+                this.header[3] = 1; // workerActive
+                return true;
+            } catch (err) {
+                console.warn('[ParticleSystem] Worker Offscreen initialization skipped:', err.message);
+                return false;
+            }
         }
 
         setColliders(colliders = {}) {
@@ -552,8 +661,10 @@
         }
 
         _remove(index) {
-            const last = --this.count;
-            if (index === last) return;
+            const currentCount = atomicLoad(this.header, 0);
+            if (currentCount <= 0) return;
+            const last = atomicSub(this.header, 0, 1) - 1;
+            if (index === last || index > last) return;
             for (const field of [
                 this.x, this.y, this.vx, this.vy, this.size, this.life,
                 this.maxLife, this.gravity, this.drag, this.bounce,
@@ -564,8 +675,10 @@
         }
 
         update(deltaTime) {
+            if (this.header[3] === 1) return this.count; // Worker is driving update
             const dt = Math.max(0, Number(deltaTime) || 0);
-            for (let index = this.count - 1; index >= 0; index--) {
+            const currentCount = this.count;
+            for (let index = currentCount - 1; index >= 0; index--) {
                 this.life[index] -= dt;
                 if (this.life[index] <= 0) {
                     this._remove(index);
@@ -584,9 +697,11 @@
         }
 
         render(ctx, viewBounds) {
+            if (this.header[3] === 1) return this.count; // Worker is driving render
             const bounds = viewBounds ? normalizeBounds(viewBounds) : null;
             ctx.save();
-            for (let index = 0; index < this.count; index++) {
+            const currentCount = this.count;
+            for (let index = 0; index < currentCount; index++) {
                 const radius = this.size[index];
                 if (bounds && (this.x[index] + radius < bounds.left
                     || this.x[index] - radius > bounds.right
@@ -603,12 +718,13 @@
         }
 
         clear() {
-            this.count = 0;
+            atomicStore(this.header, 0, 0);
         }
 
         toArray() {
+            const currentCount = this.count;
             const result = [];
-            for (let index = 0; index < this.count; index++) {
+            for (let index = 0; index < currentCount; index++) {
                 result.push({
                     x: this.x[index],
                     y: this.y[index],
