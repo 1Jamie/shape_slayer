@@ -1,13 +1,32 @@
-// Engine.Music - generic playlist transport: buffer cache, playSet, fade, duck, pause/resume, stop, loadManifest
+/**
+ * @typedef {Object} MusicTrackInfo
+ * @property {string} id
+ * @property {string} url
+ * @property {number} [duration]
+ * @property {boolean} [loop=false]
+ *
+ * @typedef {Object} MusicPlaylistConfig
+ * @property {Record<string, Array<MusicTrackInfo>>} sets
+ * @property {Record<string, any>} [categories]
+ */
 
+/**
+ * Engine.Music - generic playlist transport: buffer cache, playSet, fade, duck, pause/resume, stop, loadManifest
+ */
 const EngineMusic = {
+    /** @type {MusicPlaylistConfig|null} */
     config: null,
+    /** @type {string|null} */
     _manifestUrl: null,
+    /** @type {Object|null} */
     _manifest: null,
     initialized: false,
     initPromise: null,
+    /** @type {AudioContext|null} */
     context: null,
+    /** @type {Object|null} */
     musicBus: null,
+    /** @type {Map<string, AudioBuffer>} */
     buffers: new Map(),
     pendingLoads: new Map(),
     backgroundWarmStarted: false,
@@ -17,7 +36,9 @@ const EngineMusic = {
     currentSetId: null,
     currentCategory: null,
     currentTrack: null,
+    /** @type {AudioBufferSourceNode|null} */
     currentSource: null,
+    /** @type {GainNode|null} */
     currentGain: null,
     currentLoop: false,
     currentStartTime: 0,
@@ -36,6 +57,8 @@ const EngineMusic = {
      * Inject the playlist manifest. The transport never assumes a location or
      * a content schema; the application supplies either a URL to fetch or the
      * manifest object itself before (or instead of) init().
+     * @param {{manifestUrl?: string, manifest?: Object}} [options]
+     * @returns {EngineMusic}
      */
     configure(options = {}) {
         if (options.manifestUrl !== undefined) {

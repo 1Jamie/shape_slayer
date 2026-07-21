@@ -27,15 +27,26 @@
     // Keep in sync with the exit transition duration in the boot-screen CSS.
     const EXIT_FADE_MS = 700;
 
+    /**
+     * Boot intro screen overlay and progress indicator UI manager.
+     */
     const BootScreen = {
         EXIT_FADE_MS,
+        /** @type {HTMLElement|null} */
         layer: null,
+        /** @type {HTMLElement|null} */
         statusEl: null,
+        /** @type {HTMLElement|null} */
         brandEl: null,
+        /** @type {HTMLElement|null} */
         titleEl: null,
+        /** @type {HTMLElement|null} */
         versionEl: null,
+        /** @type {HTMLElement|null} */
         actionsEl: null,
+        /** @type {HTMLElement|null} */
         stageEl: null,
+        /** @type {HTMLElement|null} */
         scanlineEl: null,
         _cinematic: null,
         _scanStopHandler: null,
@@ -45,6 +56,11 @@
         _diagnosticTimer: null,
         _errorWait: null,
 
+        /**
+         * Mount and display the boot screen cover overlay.
+         * @param {Object} [options]
+         * @returns {HTMLElement|null}
+         */
         show(options = {}) {
             const document = documentRef();
             if (!document) return null;
@@ -131,6 +147,8 @@
          * Run the engine-primitive cinematic on the stage canvas. The DOM
          * panel stays mounted (visually hidden) as the accessible narration
          * and as the fallback whenever the cinematic cannot run.
+         * @param {string} [version] Version label string
+         * @returns {Object|null} Active cinematic controller instance or null
          */
         startCinematic(version) {
             if (this._cinematic) return this._cinematic;

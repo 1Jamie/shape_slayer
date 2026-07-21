@@ -1,3 +1,17 @@
+/**
+ * @typedef {Object} StateInterpolationResult
+ * @property {any} older
+ * @property {any} newer
+ * @property {number} t Interpolation factor
+ * @property {number} olderTime
+ * @property {number} newerTime
+ *
+ * @typedef {Object} StateVelocityResult
+ * @property {number} vx
+ * @property {number} vy
+ * @property {number} vr
+ */
+
 (function(root) {
     const Engine = root.Engine = root.Engine || {};
 

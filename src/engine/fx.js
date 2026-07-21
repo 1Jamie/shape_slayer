@@ -360,6 +360,10 @@
         /**
          * Render a batch of light sources from a flat Float32Array buffer [x0, y0, r0, x1, y1, r1, ...]
          * or array of light objects.
+         * @param {CanvasRenderingContext2D} ctx
+         * @param {Float32Array|Float64Array|Array<Object>} lightData
+         * @param {number} [lightCount=0]
+         * @returns {number} Number of lights drawn
          */
         drawLightsBatch(ctx, lightData, lightCount = 0) {
             if (!this.viewBounds || this.activeContext !== ctx) {

@@ -57,6 +57,28 @@
         righty: 3
     });
 
+    /**
+     * @typedef {Object} SDLMappingBinding
+     * @property {'button'|'axis'|'hat'} type Binding type
+     * @property {number} [index] Source index
+     * @property {boolean} [invert] Axis inversion flag
+     * @property {boolean} [positiveOnly] Axis positive constraint
+     * @property {boolean} [negativeOnly] Axis negative constraint
+     * @property {number} [hatIndex] Hat index
+     * @property {number} [mask] Hat bitmask flag
+     *
+     * @typedef {Object} ParsedGameControllerMapping
+     * @property {string} guid SDL GUID string
+     * @property {string} name Human-readable controller name
+     * @property {string|null} platform Platform identifier
+     * @property {string|null} vidPid "vid:pid" identifier
+     * @property {Record<string, SDLMappingBinding>} bindings Map of target names to bindings
+     * @property {string} rawLine Original string line
+     */
+
+    /**
+     * SDL_GameControllerDB Database parser and remapping layer.
+     */
     class SDLGameControllerDB {
         constructor() {
             /** Map of lowercase 32-char hex GUID -> Parsed mapping entry */
@@ -71,6 +93,8 @@
         /**
          * Extract 4-digit hex VID and PID from a 32-character SDL GUID.
          * SDL GUID format: 03000000 <VID_LE> 0000 <PID_LE> 0000 ...
+         * @param {string} guid SDL GUID string
+         * @returns {string|null} Format "vid:pid" or null
          */
         extractVidPidFromGuid(guid) {
             if (!guid || typeof guid !== 'string' || guid.length < 16) return null;
@@ -107,6 +131,8 @@
          * Extract 4-digit hex VID and PID from browser gamepad.id string via regex.
          * Handles Linux/Chromium udev/evdev variations:
          * e.g., "045e:028e", "Vendor: 045e Product: 028e", "045e-028e-Xbox Controller"
+         * @param {string} idString Gamepad ID string
+         * @returns {string|null} Format "vid:pid" or null
          */
         extractVidPid(idString) {
             if (!idString || typeof idString !== 'string') return null;
@@ -134,6 +160,8 @@
 
         /**
          * Parse a single SDL mapping token (e.g., "b0", "a2", "+a2", "-a1", "h0.1").
+         * @param {string} token SDL mapping token
+         * @returns {Object|null} Parsed binding descriptor or null
          */
         parseBindingToken(token) {
             if (!token || typeof token !== 'string') return null;
@@ -181,6 +209,8 @@
 
         /**
          * Parse a single line from gamecontrollerdb.txt.
+         * @param {string} line Raw text line
+         * @returns {Object|null} Parsed mapping entry or null
          */
         parseMappingLine(line) {
             if (!line || typeof line !== 'string') return null;
@@ -229,6 +259,8 @@
 
         /**
          * Add a single SDL mapping string line to the local database.
+         * @param {string} line Raw mapping text line
+         * @returns {boolean} True if mapping was parsed and added successfully
          */
         addMapping(line) {
             const entry = this.parseMappingLine(line);
@@ -247,6 +279,8 @@
 
         /**
          * Load mapping text (content of gamecontrollerdb.txt).
+         * @param {string} text Raw database text content
+         * @returns {number} Count of added mapping entries
          */
         loadText(text) {
             if (!text || typeof text !== 'string') return 0;
@@ -261,6 +295,8 @@
 
         /**
          * Fetch and load gamecontrollerdb.txt asynchronously.
+         * @param {string} [url='assets/gamecontrollerdb.txt'] Database URL
+         * @returns {Promise<number>} Count of added mapping entries
          */
         async loadFromUrl(url = 'assets/gamecontrollerdb.txt') {
             try {
@@ -280,6 +316,8 @@
          * Tries:
          * 1. Exact 32-char GUID match
          * 2. Linux VID:PID fallback regex match from gamepad.id
+         * @param {Gamepad} gamepad Browser Gamepad instance
+         * @returns {Object|null} Matching mapping entry or null
          */
         findMapping(gamepad) {
             if (!gamepad || !gamepad.id) return null;
@@ -309,6 +347,10 @@
 
         /**
          * Evaluate a target binding against raw gamepad hardware state.
+         * @param {Object} binding Binding descriptor
+         * @param {Gamepad} gp Raw browser Gamepad instance
+         * @param {string} [padKey] Target control identifier key
+         * @returns {number} Evaluated normalized input value
          */
         _readBindingValue(binding, gp, padKey) {
             if (!binding || !gp) return 0;
@@ -386,6 +428,8 @@
 
         /**
          * Remap a raw non-standard Gamepad into a W3C Standard Gamepad structure.
+         * @param {Gamepad} gp Raw browser Gamepad instance
+         * @returns {Object|null} Standardized Gamepad clone or original Gamepad
          */
         remapGamepad(gp) {
             if (!gp) return null;

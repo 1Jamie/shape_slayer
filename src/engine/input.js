@@ -1,7 +1,21 @@
-// Engine.Input — raw hardware sampling layer.
-// BOUNDARY CONTRACT: This file MUST NOT reference any game-specific content.
-// It polls keyboard, mouse, pointer, gamepad, and touch hardware and exposes
-// a clean generic query API. All game-action vocabulary lives in game/input-map.js.
+/**
+ * Engine.Input — raw hardware sampling layer.
+ * BOUNDARY CONTRACT: This file MUST NOT reference any game-specific content.
+ * It polls keyboard, mouse, pointer, gamepad, and touch hardware and exposes
+ * a clean generic query API. All game-action vocabulary lives in game/input-map.js.
+ *
+ * @typedef {Object} ControlSeat
+ * @property {string} id Seat identifier (e.g. 'seat0', 'seat1')
+ * @property {number|null} gamepadIndex Associated gamepad index
+ * @property {boolean} allowKeyboardMouse True if seat can accept keyboard/mouse inputs
+ * @property {number} lastAimAngle Last aim direction angle in radians
+ * @property {'keyboardMouse'|'gamepad'|'touch'} inputClass Active input device modality for seat
+ *
+ * @typedef {Object} TouchSeatControlOptions
+ * @property {string} [id]
+ * @property {number} [gamepadIndex]
+ * @property {boolean} [allowKeyboardMouse]
+ */
 
 const inputRoot = typeof window !== 'undefined' ? window : globalThis;
 inputRoot.Engine = inputRoot.Engine || {};
@@ -784,6 +798,8 @@ Engine.Input = {
      * pads report mapping === 'standard' and skip this path. HHD "Xbox" /
      * generic XInput uinput devices often land here — without remapping,
      * Start fires primary because we read button 7 as RT.
+     * @param {Gamepad} gp Raw browser Gamepad object
+     * @returns {boolean}
      */
     _needsXboxLegacyRemap(gp) {
         if (!gp || gp.mapping === 'standard') return false;
@@ -801,6 +817,8 @@ Engine.Input = {
      * Remap Linux Xbox 360 / HHD Xbox-emu joystick layout → W3C Standard Gamepad.
      * Raw: 0–5 face+bumpers, 6 Back, 7 Start, 8 L3, 9 R3;
      *      axes 0–1 left stick, 2 LT, 3–4 right stick, 5 RT; hat on 6–7.
+     * @param {Gamepad} gp Raw browser Gamepad object
+     * @returns {Object} Remapped gamepad-like structure
      */
     _remapXboxLegacyToStandard(gp) {
         const srcButtons = gp.buttons || [];
@@ -913,6 +931,8 @@ Engine.Input = {
     /**
      * Returns hardware button-style metadata for the given abstract button name.
      * @param {'interact'|'modifier'} button
+     * @param {string|null} [family=null] Gamepad family override
+     * @returns {Object} Button style metadata
      */
     _getGamepadButtonStyle(button, family = null) {
         const styles = {
@@ -944,9 +964,8 @@ Engine.Input = {
 
     /**
      * Resolve glyph mode for prompts.
-     * options.seat — local-coop seat that owns the interaction
-     * options.source — 'gamepad' | 'keyboardMouse' | 'touch'
-     * options.family — gamepad family override
+     * @param {{seat?: Object, source?: string, family?: string}|null} [options=null]
+     * @returns {{mode: 'gamepad'|'touch'|'keyboard', family: string}}
      */
     _resolvePromptContext(options = null) {
         const opts = options && typeof options === 'object' ? options : null;
@@ -985,6 +1004,9 @@ Engine.Input = {
 
     /**
      * Returns the display hint string for an abstract action ('interact' | 'modifier').
+     * @param {'interact'|'modifier'} action
+     * @param {Object|null} [options=null]
+     * @returns {string} Display hint label
      */
     getInputHint(action, options = null) {
         const promptCtx = this._resolvePromptContext(options);
@@ -1972,6 +1994,8 @@ Engine.Input = {
     /**
      * Check if a named ability slot is currently pressed.
      * Ability names are abstract slot names ('basicAttack', 'heavyAttack', 'specialAbility', 'dodge').
+     * @param {'basicAttack'|'heavyAttack'|'specialAbility'|'dodge'} ability Abstract slot name
+     * @returns {boolean}
      */
     isAbilityPressed(ability) {
         if (this.isTouchMode()) {

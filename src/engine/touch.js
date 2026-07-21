@@ -1,7 +1,27 @@
+/**
+ * @typedef {Object} TouchTheme
+ * @property {string} accent
+ * @property {string} surface
+ * @property {string} muted
+ * @property {string} danger
+ * @property {string} text
+ * @property {string} font
+ *
+ * @typedef {Object} VirtualJoystickConfig
+ * @property {number} x
+ * @property {number} y
+ * @property {number} [radius=60]
+ * @property {number} [deadZoneRadius=15]
+ */
+
 (function(root) {
     const Engine = root.Engine = root.Engine || {};
 
+    /**
+     * Touch UI widget configuration and haptics facade.
+     */
     const Touch = {
+        /** @type {TouchTheme} */
         theme: {
             accent: '#ffffff',
             surface: 'rgba(0, 0, 0, 0.45)',
@@ -12,12 +32,22 @@
         },
         hooks: {},
 
+        /**
+         * Configure theme and haptic hooks.
+         * @param {{theme?: Partial<TouchTheme>, hooks?: Object}} [options]
+         * @returns {Touch}
+         */
         configure(options = {}) {
             if (options.theme) this.theme = Object.assign({}, this.theme, options.theme);
             if (options.hooks) this.hooks = Object.assign({}, this.hooks, options.hooks);
             return this;
         },
 
+        /**
+         * Resolve active touch theme palette.
+         * @param {Object} [options]
+         * @returns {TouchTheme}
+         */
         resolveTheme(options) {
             if (typeof this.hooks.resolveTheme === 'function') {
                 return Object.assign({}, this.theme, this.hooks.resolveTheme(options || {}));
@@ -25,6 +55,10 @@
             return this.theme;
         },
 
+        /**
+         * Trigger haptic feedback pulse.
+         * @param {number} [duration] Duration in ms
+         */
         pulse(duration) {
             if (typeof this.hooks.haptic === 'function') {
                 this.hooks.haptic(duration);

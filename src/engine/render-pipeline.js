@@ -1,5 +1,25 @@
-// Engine.Render pipeline: named targets + ordered stage runner (pipe, not graph).
-// Stages own Canvas2D state cleanup; the runner never wraps draw in save/restore.
+/**
+ * Engine.Render pipeline: named targets + ordered stage runner (pipe, not graph).
+ * Stages own Canvas2D state cleanup; the runner never wraps draw in save/restore.
+ *
+ * @typedef {Object} RenderTargetSlot
+ * @property {string} name Target identifier (e.g. 'main', 'world')
+ * @property {HTMLCanvasElement|OffscreenCanvas} canvas Canvas surface
+ * @property {CanvasRenderingContext2D} ctx 2D render context
+ * @property {boolean} pooled True if allocated from CanvasPool
+ * @property {number} dpr Device pixel ratio
+ * @property {number} logicalW Width in CSS pixels
+ * @property {number} logicalH Height in CSS pixels
+ * @property {number} pixelW Width in physical pixels
+ * @property {number} pixelH Height in physical pixels
+ *
+ * @typedef {Object} PipelineStage
+ * @property {string} id Unique stage ID
+ * @property {string} target Target name (e.g. 'main', 'world')
+ * @property {function(CanvasRenderingContext2D, Object): void} draw Stage draw callback
+ * @property {boolean} [enabled=true] Stage enabled flag
+ * @property {Object} [meta] Metadata for debug profiling
+ */
 
 (function(root) {
     const Engine = root.Engine = root.Engine || {};
@@ -27,12 +47,24 @@
      * so leftover pixels from a prior frame cannot ghost through.
      */
     class Targets {
+        /**
+         * @param {{canvasPool?: Object}} [options]
+         */
         constructor(options = {}) {
+            /** @type {Map<string, RenderTargetSlot>} */
             this._slots = new Map();
             this._pool = options.canvasPool || null;
+            /** @type {RenderTargetSlot|null} */
             this._main = null;
         }
 
+        /**
+         * Bind main display canvas and context.
+         * @param {HTMLCanvasElement} canvas
+         * @param {CanvasRenderingContext2D} ctx
+         * @param {{dpr?: number, logicalW?: number, logicalH?: number}} [meta]
+         * @returns {RenderTargetSlot}
+         */
         bindMain(canvas, ctx, meta = {}) {
             if (!canvas || !ctx) {
                 throw new TypeError('bindMain requires canvas and ctx.');
@@ -60,6 +92,9 @@
          * Ensure a named target is sized, DPR-scaled, and ready to draw.
          * Pooled targets clear on every ensure (default) to prevent ghosting.
          * Pass { clear: false } only when a later stage will fully replace pixels.
+         * @param {string} name Target slot key name
+         * @param {{pixelW?: number, width?: number, pixelH?: number, height?: number, dpr?: number, logicalW?: number, logicalH?: number, clear?: boolean}} [options]
+         * @returns {Object} Target slot object
          */
         ensure(name, options = {}) {
             requireName(name);
@@ -152,6 +187,8 @@
      * `bag` is an opaque game payload; the engine never inspects it.
      * Optional per-stage measurements land in `stageTimings` (never in `timings`)
      * so game coarse profiler buckets stay unpolluted.
+     * @param {Object} [options] Frame options
+     * @returns {Object} Frame context object
      */
     function createFrame(options = {}) {
         const targets = options.targets || new Targets(options);
@@ -226,6 +263,9 @@
     /**
      * Restrict a complete render pass to a logical-canvas viewport.
      * Keep this paired with endViewport(); Canvas2D clips intersect rather than replace.
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {{x: number, y: number, w: number, h: number}} viewport
+     * @returns {boolean} True if viewport was applied
      */
     function beginViewport(ctx, viewport) {
         if (!ctx || !viewport) return false;
@@ -253,6 +293,9 @@
      *
      * Profiling is off unless frame.profileStages is true (game sets this from
      * debug/profiler flags). Clock math is skipped entirely otherwise.
+     * @param {Array<Object>} recipe List of pipeline stages
+     * @param {Object} [options] Pipeline configuration options
+     * @returns {Object} Pipeline runner instance
      */
     function createPipeline(recipe, options = {}) {
         if (!Array.isArray(recipe)) {

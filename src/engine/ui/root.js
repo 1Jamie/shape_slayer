@@ -25,16 +25,29 @@
             || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
     }
 
+    /**
+     * UI Container root node and Focus Trap manager.
+     */
     const Root = {
         id: 'ui-root',
+        /** @type {HTMLElement|null} */
         element: null,
 
+        /**
+         * Configure root container ID or direct element override.
+         * @param {{id?: string, element?: HTMLElement}} [options]
+         * @returns {Root}
+         */
         configure(options = {}) {
             if (options.id) this.id = String(options.id);
             if (options.element) this.element = options.element;
             return this;
         },
 
+        /**
+         * Ensure UI root DOM node exists and is styled.
+         * @returns {HTMLElement}
+         */
         ensure() {
             const document = documentRef();
             let element = this.element || document.getElementById(this.id);
@@ -67,6 +80,16 @@
             return element;
         },
 
+        /**
+         * Create a nested UI DOM layer inside the UI root.
+         * @param {string} [className='ui-layer']
+         * @param {Object} [options]
+         * @param {string} [options.tagName='div']
+         * @param {string} [options.pointerEvents='auto']
+         * @param {number|string} [options.zIndex]
+         * @param {HTMLElement} [options.parent]
+         * @returns {HTMLElement}
+         */
         createLayer(className = 'ui-layer', options = {}) {
             const document = documentRef();
             const layer = document.createElement(options.tagName || 'div');
@@ -77,6 +100,11 @@
             return layer;
         },
 
+        /**
+         * Trap keyboard tab focus inside container element.
+         * @param {HTMLElement} container
+         * @returns {function(): void} Unbind focus trap handler function
+         */
         trapFocus(container) {
             const document = documentRef();
             const handleKeydown = event => {

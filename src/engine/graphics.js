@@ -190,11 +190,21 @@
         return ctx;
     }
 
+    /**
+     * Pooled offscreen surface manager to reduce GC allocations during rendering.
+     */
     const CanvasPool = {
+        /** @type {Map<string, Array<HTMLCanvasElement|OffscreenCanvas>>} */
         _buckets: new Map(),
+        /** @type {(function(number, number): (HTMLCanvasElement|OffscreenCanvas))|null} */
         _factory: null,
         maxPerSize: 8,
 
+        /**
+         * Configure factory override and per-size cache cap.
+         * @param {{createCanvas?: function(number, number): (HTMLCanvasElement|OffscreenCanvas), maxPerSize?: number}} [options]
+         * @returns {CanvasPool}
+         */
         configure(options = {}) {
             if (typeof options.createCanvas === 'function') this._factory = options.createCanvas;
             if (Number.isFinite(options.maxPerSize)) {
@@ -203,6 +213,12 @@
             return this;
         },
 
+        /**
+         * @private
+         * @param {number} width
+         * @param {number} height
+         * @returns {HTMLCanvasElement|OffscreenCanvas}
+         */
         _create(width, height) {
             if (this._factory) return this._factory(width, height);
             if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(width, height);
@@ -215,6 +231,12 @@
             throw new Error('No Canvas2D factory is available.');
         },
 
+        /**
+         * Acquire an offscreen canvas surface from pool or allocate a new surface.
+         * @param {number} width
+         * @param {number} height
+         * @returns {HTMLCanvasElement|OffscreenCanvas}
+         */
         acquire(width, height) {
             const pixelWidth = Math.max(1, Math.ceil(width || 1));
             const pixelHeight = Math.max(1, Math.ceil(height || 1));
@@ -226,6 +248,11 @@
             return canvas;
         },
 
+        /**
+         * Return a canvas surface to pool for reuse.
+         * @param {HTMLCanvasElement|OffscreenCanvas|null} canvas
+         * @returns {boolean} True if accepted into pool.
+         */
         release(canvas) {
             if (!canvas || !Number.isFinite(canvas.width) || !Number.isFinite(canvas.height)) return false;
             const bucketKey = `${canvas.width}x${canvas.height}`;
@@ -249,6 +276,10 @@
             return true;
         },
 
+        /**
+         * Trim bucket sizes to cap.
+         * @param {number|null} [maxPerSize=null]
+         */
         trim(maxPerSize = null) {
             const cap = maxPerSize != null ? Math.max(0, Math.floor(maxPerSize)) : this.maxPerSize;
             for (const bucket of this._buckets.values()) {
@@ -256,6 +287,9 @@
             }
         },
 
+        /**
+         * Clear all pooled canvas instances.
+         */
         clear() {
             this._buckets.clear();
         }

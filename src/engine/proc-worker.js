@@ -1,4 +1,14 @@
-// Engine.Proc Background Worker for Offscreen Grid Synthesis & Pathfinding
+/**
+ * Engine.Proc Background Worker for Offscreen Grid Synthesis & Pathfinding.
+ *
+ * @typedef {Object} GenerateGridWorkerMessage
+ * @property {'GENERATE_GRID'} type
+ * @property {number} width Grid width
+ * @property {number} height Grid height
+ * @property {number} [density=0.4] Random fill density ratio
+ * @property {number} [seed=12345] PRNG seed integer
+ * @property {number} [iterations=4] Cellular automata smoothing passes
+ */
 self.onmessage = function(e) {
     const data = e.data || {};
     const type = data.type;

@@ -1,4 +1,35 @@
 /**
+ * @typedef {Object} PhysicsEntity
+ * @property {number} x World X position
+ * @property {number} y World Y position
+ * @property {number} [impulseVx=0] Accumulated impulse X velocity
+ * @property {number} [impulseVy=0] Accumulated impulse Y velocity
+ * @property {number} [impulseDecay] Exponential decay rate per second
+ * @property {number} [impulseMaxSpeed] Maximum speed ceiling
+ * @property {number} [impulseCutoff] Velocity cutoff below which impulse is zeroed
+ * @property {number} [impulseMaxDuration] Max active impulse duration
+ * @property {number} [impulseTimer=0] Active impulse timer accumulator
+ * @property {number} [wallSlamCooldown=0] Cooldown timer before next wall slam damage
+ * @property {number} [knockbackResistance=1] Mass/resistance scaling factor (>= 0.1)
+ * @property {boolean} [hasKnockbackImmunity=false] True if entity ignores all impulse forces
+ * @property {any} [lastImpulseSourceId] Source ID for analytics/attribution
+ *
+ * @typedef {Object} IntegrateResult
+ * @property {boolean} moved True if entity moved significantly
+ * @property {boolean} blocked True if entity was blocked by wall/obstacle
+ * @property {{damage: number, speed: number, sourceId: any}|null} wallSlam Wall slam event payload if triggered
+ * @property {boolean} wallContact True if entity impacted a wall during integration
+ *
+ * @typedef {Object} MoveResult
+ * @property {number} actualDx
+ * @property {number} actualDy
+ * @property {number} actualMoved
+ * @property {boolean} [blocked]
+ * @property {number} [normalX]
+ * @property {number} [normalY]
+ */
+
+/**
  * Shared impulse accumulator for dynamic entities.
  * Forces add into impulseVx/Vy, integrate through a collision-aware moveFn,
  * and optionally trigger wall-slam damage when a high-speed impulse is blocked.
@@ -29,6 +60,11 @@ const ImpulsePhysics = {
         aiDampMinScale: 0.1
     },
 
+    /**
+     * Ensure required impulse fields exist on an entity object.
+     * @param {PhysicsEntity} entity
+     * @param {{decay?: number, maxSpeed?: number, cutoff?: number, maxDuration?: number}} [options]
+     */
     ensureFields(entity, options = {}) {
         if (!entity) return;
         if (typeof entity.impulseVx !== 'number') entity.impulseVx = 0;
@@ -50,12 +86,22 @@ const ImpulsePhysics = {
         if (typeof entity.wallSlamCooldown !== 'number') entity.wallSlamCooldown = 0;
     },
 
+    /**
+     * Calculate scalar speed magnitude of current impulse vector.
+     * @param {PhysicsEntity} entity
+     * @returns {number}
+     */
     getSpeed(entity) {
         const vx = entity && entity.impulseVx ? entity.impulseVx : 0;
         const vy = entity && entity.impulseVy ? entity.impulseVy : 0;
         return Math.hypot(vx, vy);
     },
 
+    /**
+     * Clamp impulse velocity magnitude to maxSpeed ceiling.
+     * @param {PhysicsEntity} entity
+     * @param {number} [maxSpeed]
+     */
     clamp(entity, maxSpeed) {
         if (!entity) return;
         const limit = maxSpeed != null ? maxSpeed : (entity.impulseMaxSpeed || this.DEFAULTS.enemyMaxSpeed);
@@ -68,7 +114,16 @@ const ImpulsePhysics = {
     },
 
     /**
-     * Apply an impulse. By default accumulates; set replace:true to overwrite.
+     * Apply an impulse force. By default accumulates into impulseVx/Vy; set replace:true to overwrite.
+     * @param {PhysicsEntity} entity Target entity
+     * @param {number} forceX Force vector X component
+     * @param {number} forceY Force vector Y component
+     * @param {Object} [options]
+     * @param {number} [options.resistance] Knockback resistance override
+     * @param {boolean} [options.replace] Replace existing velocity instead of adding
+     * @param {number} [options.maxSpeed] Speed cap override
+     * @param {any} [options.sourceId] Source ID for attribution
+     * @returns {boolean} True if force was applied successfully.
      */
     apply(entity, forceX, forceY, options = {}) {
         if (!entity) return false;
@@ -111,6 +166,8 @@ const ImpulsePhysics = {
     /**
      * Scale AI / non-impulse movement while under strong impulse so same-frame
      * AI steps cannot fully cancel knockback.
+     * @param {PhysicsEntity} entity
+     * @returns {number} Scale factor between 0.1 and 1.0.
      */
     getAiMoveScale(entity) {
         const speed = this.getSpeed(entity);
@@ -143,6 +200,10 @@ const ImpulsePhysics = {
      * Keeps tangential slide; hard hits also apply friction to the remainder.
      *
      * Wall normal convention: outward (points into free space).
+     * @param {PhysicsEntity} entity
+     * @param {Object} [info] Contact move collision metadata
+     * @param {Object} [options]
+     * @returns {boolean} True if wall contact was resolved
      */
     resolveWallContact(entity, info = {}, options = {}) {
         if (!entity) return false;
@@ -253,6 +314,11 @@ const ImpulsePhysics = {
      *   or a boolean (ok).
      *
      * Note: Uses internal non-reentrant scratch objects for zero-allocation performance.
+     * @param {PhysicsEntity} entity
+     * @param {number} deltaTime
+     * @param {Object} [options]
+     * @param {Object} [out] Zero-allocation output object target
+     * @returns {Object} Integration result object containing {moved, blocked, wallSlam, wallContact}
      */
     integrate(entity, deltaTime, options = {}, out = null) {
         if (!entity || !(deltaTime > 0)) {
@@ -427,6 +493,11 @@ const ImpulsePhysics = {
     /**
      * Batch integrate impulse physics over an array or typed buffer of entities.
      * Fast-path SIMD/L1-cache warm loop with scratch vector reuse.
+     * @param {Array<PhysicsEntity>} entities
+     * @param {number} deltaTime
+     * @param {Object} [options]
+     * @param {Array|Float32Array|Float64Array|null} [outResults=null] Optional buffer target
+     * @returns {Array|Float32Array|Float64Array} Integrated results buffer
      */
     integrateBatch(entities, deltaTime, options = {}, outResults = null) {
         if (!Array.isArray(entities) || entities.length === 0 || !(deltaTime > 0)) {

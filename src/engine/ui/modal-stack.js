@@ -2,14 +2,42 @@
     const Engine = root.Engine = root.Engine || {};
     const UI = Engine.UI = Engine.UI || {};
 
+    /**
+     * @typedef {Object} ModalEntry
+     * @property {HTMLElement} element Dialog element
+     * @property {boolean} closeOnEscape
+     * @property {boolean} restoreFocus
+     * @property {Element|null} previousFocus
+     * @property {function(any): void} [onClose]
+     * @property {function(): void} [releaseFocus]
+     *
+     * @typedef {Object} ModalPushOptions
+     * @property {boolean} [closeOnEscape=true] Close dialog on Escape key press
+     * @property {boolean} [restoreFocus=true] Restore focus to active element on close
+     * @property {function(any): void} [onClose] Close callback
+     * @property {HTMLElement} [focus] Explicit focus target element
+     * @property {string} [role='dialog'] ARIA role tag
+     */
+
+    /**
+     * Accessible Modal Stack manager with focus trapping and ESC closing.
+     */
     class ModalStack {
+        /**
+         * @param {{root?: Object, baseZIndex?: number}} [options]
+         */
         constructor(options = {}) {
             this.root = options.root || UI.Root;
             this.baseZIndex = Number(options.baseZIndex) || 10020;
+            /** @type {Array<ModalEntry>} */
             this.entries = [];
             this._handleEscape = this._handleEscape.bind(this);
         }
 
+        /**
+         * @private
+         * @param {KeyboardEvent} event
+         */
         _handleEscape(event) {
             if (event.key !== 'Escape') return;
             const entry = this.top();
@@ -19,6 +47,12 @@
             this.pop(entry, false);
         }
 
+        /**
+         * Push a new modal container onto stack.
+         * @param {HTMLElement} element
+         * @param {ModalPushOptions} [options]
+         * @returns {ModalEntry}
+         */
         push(element, options = {}) {
             if (!element) throw new TypeError('ModalStack.push requires an element.');
             const document = root.document;
@@ -45,6 +79,12 @@
             return entry;
         }
 
+        /**
+         * Pop modal entry off the stack.
+         * @param {ModalEntry} [entry=this.top()]
+         * @param {any} [result]
+         * @returns {boolean} True if popped
+         */
         pop(entry = this.top(), result) {
             if (!entry) return false;
             const index = this.entries.indexOf(entry);
@@ -62,6 +102,9 @@
             return true;
         }
 
+        /**
+         * @returns {ModalEntry|null} Top active modal entry
+         */
         top() {
             return this.entries[this.entries.length - 1] || null;
         }

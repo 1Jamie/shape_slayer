@@ -1,5 +1,28 @@
-// Engine.Debug — navigable debug shell, metric registry, and pipe diagnosis.
-// Optional for boot verify. Core stays agnostic; the game bridges onFrameEnd.
+/**
+ * @typedef {Object} DebugFlagMap
+ * @property {boolean} USE_CACHING
+ * @property {boolean} ADAPTIVE_RENDER_QUALITY
+ * @property {boolean} RENDER_TIMING
+ * @property {boolean} PIPE_SNAPSHOT
+ *
+ * @typedef {Object} PipelineDebugOptions
+ * @property {boolean} [profile]
+ * @property {boolean} [snapshot]
+ * @property {string} [label]
+ *
+ * @typedef {Object} SectionMountContext
+ * @property {HTMLElement} root
+ * @property {typeof Debug} dbg
+ *
+ * @typedef {Object} DebugSection
+ * @property {string} id
+ * @property {string} title
+ * @property {number} [order]
+ * @property {function(HTMLElement): void} [mount]
+ * @property {function(Object): void} [update]
+ * @property {function(Object): boolean} [visible]
+ * @property {string} [hint]
+ */
 
 (function (root) {
     'use strict';

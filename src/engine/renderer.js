@@ -9,6 +9,9 @@ Engine.FX.ShakeBias = Engine.FX.ShakeBias || Object.freeze({
     HORIZONTAL: 'horizontal'
 });
 
+/**
+ * Generic canvas rendering host facade, camera math, and screen shake accumulator.
+ */
 const Renderer = {
     // Screen shake accumulator state
     screenShakeOffset: { x: 0, y: 0 },
@@ -26,20 +29,38 @@ const Renderer = {
         for (const value of values || []) Engine.FX.Particles.spawn(value);
     },
 
-    // Clear canvas host
+    /**
+     * Clear canvas host context with solid background color.
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {number} width
+     * @param {number} height
+     * @param {string} [color='#1a1a2e']
+     */
     clear(ctx, width, height, color = '#1a1a2e') {
         ctx.fillStyle = color;
         ctx.fillRect(0, 0, width, height);
     },
 
-    // Camera transform projection (translate and scale zoom)
+    /**
+     * Camera transform projection (translate and scale zoom).
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {number} centerX
+     * @param {number} centerY
+     * @param {number} cameraX
+     * @param {number} cameraY
+     * @param {number} zoom
+     */
     applyCameraTransform(ctx, centerX, centerY, cameraX, cameraY, zoom) {
         ctx.translate(centerX + this.screenShakeOffset.x, centerY + this.screenShakeOffset.y);
         ctx.scale(zoom, zoom);
         ctx.translate(-cameraX, -cameraY);
     },
 
-    // Screen shake update tick
+    /**
+     * Screen shake update tick.
+     * @param {number} deltaTime Delta time in seconds
+     * @param {function(): number} [rng=Math.random]
+     */
     updateScreenShake(deltaTime, rng = Math.random) {
         if (this.screenShakeDuration > 0) {
             this.screenShakeDuration -= deltaTime;
@@ -70,7 +91,12 @@ const Renderer = {
         }
     },
 
-    // Trigger new screen shake intensity/duration
+    /**
+     * Trigger new screen shake intensity and duration.
+     * @param {number} intensity
+     * @param {number} duration
+     * @param {string|null} [direction=null]
+     */
     triggerScreenShake(intensity, duration, direction = null) {
         const shouldReplace = this.screenShakeDuration <= 0 || intensity >= this.screenShakeIntensity;
         if (shouldReplace) {
@@ -82,7 +108,16 @@ const Renderer = {
         }
     },
 
-    // Draw regular polygon
+    /**
+     * Draw filled and stroked regular polygon.
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {number} x
+     * @param {number} y
+     * @param {number} radius
+     * @param {number} sides
+     * @param {number} rotation
+     * @param {string} color
+     */
     polygon(ctx, x, y, radius, sides, rotation, color) {
         ctx.save();
         ctx.translate(x, y);
@@ -111,15 +146,36 @@ const Renderer = {
         ctx.restore();
     },
 
-    // Flat Particle submission pipeline
+    /**
+     * Particle submission facade.
+     * @param {number} x
+     * @param {number} y
+     * @param {number} vx
+     * @param {number} vy
+     * @param {string} color
+     * @param {number} size
+     * @param {number} life
+     * @returns {boolean} True if spawned successfully.
+     */
     submitParticle(x, y, vx, vy, color, size, life) {
         return Engine.FX.Particles.spawn({ x, y, vx, vy, color, size, life });
     },
 
+    /**
+     * @param {number} deltaTime
+     */
     updateParticles(deltaTime) {
         return Engine.FX.Particles.update(deltaTime);
     },
 
+    /**
+     * Render active particles.
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {number} [viewX]
+     * @param {number} [viewY]
+     * @param {number} [viewW]
+     * @param {number} [viewH]
+     */
     renderParticles(ctx, viewX, viewY, viewW, viewH) {
         const viewBounds = viewX === undefined
             ? null

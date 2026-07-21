@@ -2,9 +2,25 @@
     const Engine = root.Engine = root.Engine || {};
     const UI = Engine.UI = Engine.UI || {};
 
+    /**
+     * @typedef {Object} ToastOptions
+     * @property {number} [duration=2000] Visible display duration in ms (-1 for persistent)
+     * @property {number} [transitionMs=300] Fade transition duration in ms
+     * @property {number} [maxVisible=5] Maximum visible toast items in stack
+     * @property {string} [className='engine-toast'] CSS class name
+     * @property {Record<string, string>} [style] Inline style overrides
+     */
+
+    /**
+     * Toast notification stack manager for floating status alerts.
+     */
     class ToastManager {
+        /**
+         * @param {ToastOptions & {root?: Object, containerClassName?: string, position?: function(): Object}} [options]
+         */
         constructor(options = {}) {
             this.root = options.root || UI.Root;
+            /** @type {HTMLElement|null} */
             this.container = null;
             this.defaults = {
                 duration: 2000,
@@ -17,12 +33,21 @@
             };
         }
 
+        /**
+         * Configure default toast manager settings.
+         * @param {Partial<ToastOptions>} [options]
+         * @returns {ToastManager}
+         */
         configure(options = {}) {
             Object.assign(this.defaults, options);
             if (this.container) this._position();
             return this;
         }
 
+        /**
+         * Ensure container element exists and is mounted.
+         * @returns {HTMLElement}
+         */
         ensure() {
             if (this.container) return this.container;
             if (!root.document) throw new Error('Engine.UI.Toast requires a DOM document.');
@@ -45,12 +70,21 @@
             return container;
         }
 
+        /**
+         * @private
+         */
         _position() {
             if (!this.container || typeof this.defaults.position !== 'function') return;
             const position = this.defaults.position();
             if (position) Object.assign(this.container.style, position);
         }
 
+        /**
+         * Show floating toast notification message.
+         * @param {string} message Toast text content
+         * @param {number|ToastOptions} [options]
+         * @returns {{element: HTMLElement, dismiss: function(): void}}
+         */
         show(message, options = {}) {
             if (typeof options === 'number') options = { duration: options };
             const container = this.ensure();

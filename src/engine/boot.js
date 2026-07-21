@@ -1,6 +1,39 @@
 /**
  * Shape Engine boot lifecycle: probe, verify, initialize, and publish runtime
  * before any game code touches the canvas/input/save stack.
+ *
+ * @typedef {Object} BootProbeOptions
+ * @property {string} [canvasId='gameCanvas'] Canvas element ID
+ * @property {HTMLCanvasElement} [canvas] Direct canvas reference
+ * @property {number} [logicalW] Requested logical width
+ * @property {number} [logicalH] Requested logical height
+ * @property {number} [dprCap] Device pixel ratio cap
+ * @property {boolean} [preferWorker] Whether workers are preferred
+ *
+ * @typedef {Object} BootProbeReport
+ * @property {number} timestamp
+ * @property {string} mode
+ * @property {Record<string, any>} checks
+ * @property {'ready'|'degraded'|'fatal'} status
+ * @property {Array<string>} fatal
+ * @property {Array<string>} warnings
+ *
+ * @typedef {Object} EngineRuntime
+ * @property {boolean} ok True if status is ready or degraded
+ * @property {'ready'|'degraded'|'fatal'} status Boot status classification
+ * @property {Array<string>} fatal List of fatal startup errors
+ * @property {Array<string>} warnings List of non-fatal warnings
+ * @property {HTMLCanvasElement} canvas Active game canvas element
+ * @property {CanvasRenderingContext2D} ctx Backing 2D render context
+ * @property {number} dpr Applied device pixel ratio scale factor
+ * @property {number} logicalW Logical render width in CSS pixels
+ * @property {number} logicalH Logical render height in CSS pixels
+ * @property {number} pixelWidth Backing store width (logicalW * dpr)
+ * @property {number} pixelHeight Backing store height (logicalH * dpr)
+ * @property {HTMLElement|null} uiRoot UI mounting container element
+ * @property {boolean} poolWarmed True if CanvasPool was pre-warmed
+ * @property {boolean} reducedMotion True if user requested reduced motion
+ * @property {function(import('./loop.js').CoreHooks): import('./loop.js').Core} createCore Factory creating configured Engine.Core loop
  */
 (function(root) {
     const Engine = root.Engine = root.Engine || {};
@@ -68,13 +101,22 @@
         return { status, fatal, warnings };
     }
 
+    /**
+     * Engine Boot lifecycle manager.
+     */
     const Boot = {
         VERSION: Engine.VERSION,
+        /** @type {EngineRuntime|null} */
         runtime: null,
         _initializing: false,
         _lastReport: null,
         _handoffPromise: null,
 
+        /**
+         * Probe host capabilities, required DOM targets, and engine namespaces.
+         * @param {BootProbeOptions} [options]
+         * @returns {BootProbeReport}
+         */
         probe(options = {}) {
             const document = resolveDocument();
             const canvasId = options.canvasId || 'gameCanvas';
@@ -145,6 +187,11 @@
             return report;
         },
 
+        /**
+         * Verify probe report and determine status classification.
+         * @param {BootProbeReport} [report]
+         * @returns {{ok: boolean, status: 'ready'|'degraded'|'fatal', fatal: Array<string>, warnings: Array<string>, report: BootProbeReport}}
+         */
         verify(report = this._lastReport || this.probe()) {
             const verdict = classify(report);
             return {
@@ -156,6 +203,11 @@
             };
         },
 
+        /**
+         * Initialize engine runtime, configure render targets, and warm canvas pools.
+         * @param {BootProbeOptions & {force?: boolean}} [options]
+         * @returns {EngineRuntime}
+         */
         initialize(options = {}) {
             if (this.runtime && options.force !== true) return this.runtime;
             if (this._initializing) {
@@ -402,6 +454,8 @@
          * initialized and rendering beneath the cover. Waits a couple of
          * painted frames so the reveal lands on real content, then fades and
          * purges the boot state completely. Idempotent.
+         * @param {{afterFrames?: number, fadeDuration?: number}} [options]
+         * @returns {Promise<void>}
          */
         handoff(options = {}) {
             if (this._handoffPromise) return this._handoffPromise;

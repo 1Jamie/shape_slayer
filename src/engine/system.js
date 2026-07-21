@@ -1,7 +1,38 @@
-// Device and input-capability detection.
-// Uses layered signals (Client Hints, UA, media queries, touch points) instead of UA alone.
+/**
+ * @typedef {'phone'|'tablet'|'tv'|'desktop'|'unknown'} FormFactor
+ * @typedef {'ios'|'android'|'windows'|'macos'|'linux'|'chromeos'|'webos'|'tizen'|'unknown'} OperatingSystem
+ * @typedef {'gecko'|'servo'|'blink'|'webkit'|'unknown'} RenderingEngine
+ *
+ * @typedef {Object} PointerCapabilities
+ * @property {boolean|null} coarsePointer
+ * @property {boolean|null} finePointer
+ * @property {boolean|null} anyCoarsePointer
+ * @property {boolean|null} anyFinePointer
+ * @property {boolean|null} canHover
+ * @property {boolean|null} anyHover
+ * @property {boolean} touchPrimary
+ * @property {boolean} hasFinePointer
+ * @property {boolean} hasHover
+ *
+ * @typedef {Object} DeviceProfile
+ * @property {FormFactor} formFactor
+ * @property {OperatingSystem} os
+ * @property {RenderingEngine} engine
+ * @property {boolean} isGeckoFamily
+ * @property {boolean} isMobile
+ * @property {boolean} isPhone
+ * @property {boolean} isTablet
+ * @property {boolean} isTv
+ * @property {boolean} isDesktop
+ * @property {'high'|'medium'|'low'} confidence
+ * @property {string} reason
+ * @property {string} engineReason
+ * @property {PointerCapabilities} capabilities
+ * @property {boolean} userAgentDataAvailable
+ */
 
 const DeviceDetection = {
+    /** @type {DeviceProfile|null} */
     _cachedProfile: null,
 
     // Minimum width/height that counts as playable without the rotate gate.
@@ -239,6 +270,11 @@ const DeviceDetection = {
         return { engine: 'unknown', confidence: 'low', reason: 'ua-unknown-engine' };
     },
 
+    /**
+     * Get or build the cached device capability and form-factor profile.
+     * @param {boolean} [forceRefresh=false]
+     * @returns {DeviceProfile}
+     */
     getProfile(forceRefresh = false) {
         if (!forceRefresh && this._cachedProfile) {
             return this._cachedProfile;
@@ -291,57 +327,96 @@ const DeviceDetection = {
         return this._cachedProfile;
     },
 
+    /**
+     * @returns {boolean} True if device is a phone or tablet.
+     */
     isMobileDevice() {
         return this.getProfile().isMobile;
     },
 
+    /**
+     * @returns {boolean} True if form factor is a phone.
+     */
     isPhone() {
         return this.getProfile().isPhone;
     },
 
+    /**
+     * @returns {boolean} True if form factor is a tablet.
+     */
     isTablet() {
         return this.getProfile().isTablet;
     },
 
+    /**
+     * @returns {boolean} True if form factor is a TV.
+     */
     isTv() {
         return !!this.getProfile().isTv;
     },
 
+    /**
+     * @returns {boolean} True if form factor is a desktop.
+     */
     isDesktop() {
         return this.getProfile().isDesktop;
     },
 
+    /**
+     * @returns {boolean} True if touch is the primary input modality.
+     */
     isTouchPrimary() {
         const profile = this.getProfile();
         return profile.capabilities.touchPrimary || profile.isMobile;
     },
 
+    /**
+     * @returns {boolean} True if hardware supports touch events or points.
+     */
     hasTouchCapability() {
         return this.getProfile().capabilities.touch;
     },
 
+    /**
+     * Invalidate the cached profile object.
+     */
     invalidateCache() {
         this._cachedProfile = null;
     },
 
+    /**
+     * @returns {boolean} True if OS is iOS.
+     */
     isIos() {
         return this.getProfile().os === 'ios';
     },
 
+    /**
+     * @returns {RenderingEngine} Name of detected rendering engine.
+     */
     getEngine() {
         return this.getProfile().engine || 'unknown';
     },
 
-    // Firefox + Servo share Canvas2D pain: expensive composites, weak/missing shadowBlur.
+    /**
+     * Firefox + Servo share Canvas2D features / pain points (e.g. expensive composites).
+     * @returns {boolean}
+     */
     isGeckoFamily() {
         return !!this.getProfile().isGeckoFamily;
     },
 
+    /**
+     * @returns {boolean}
+     */
     isServo() {
         return this.getEngine() === 'servo';
     },
 
-    // Canvas/document fullscreen is not available on iOS Safari (non-video elements).
+    /**
+     * Canvas/document fullscreen is not available on iOS Safari (non-video elements).
+     * @returns {boolean}
+     */
     supportsElementFullscreen() {
         if (typeof document === 'undefined') return false;
         if (this.isIos()) return false;
@@ -349,7 +424,10 @@ const DeviceDetection = {
         return !!(el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen);
     },
 
-    // Installed PWA / home-screen app (fullscreen or standalone display mode).
+    /**
+     * Installed PWA / home-screen app (fullscreen or standalone display mode).
+     * @returns {boolean}
+     */
     isInstalledDisplayMode() {
         if (typeof window === 'undefined') return false;
         try {
@@ -364,11 +442,12 @@ const DeviceDetection = {
         return false;
     },
 
+    /**
+     * @returns {boolean} True if current CSS viewport height > width.
+     */
     isPortraitViewport() {
         const { width, height } = this._readViewport();
         if (width > 0 && height > 0) {
-            // Prefer CSS pixels over window.orientation. Android TV / Fire TV
-            // WebViews often report orientation 0 while the window is landscape.
             return height > width;
         }
         if (typeof window !== 'undefined' && typeof window.orientation === 'number') {
@@ -377,18 +456,25 @@ const DeviceDetection = {
         return false;
     },
 
+    /**
+     * @returns {number} Aspect ratio (width / height) of current viewport.
+     */
     getViewportAspectRatio() {
         return this._aspectRatio(this._readViewport()) || 1;
     },
 
+    /**
+     * @returns {number} Aspect ratio of physical screen.
+     */
     getScreenAspectRatio() {
         return this._aspectRatio(this._readScreen()) || 0;
     },
 
-    // True when the playable surface is wide enough without a rotate gate.
-    // Checks the *current* CSS viewport first (any size — often a browser-chrome
-    // subset of the panel before fullscreen), then falls back to screen metrics
-    // for non-phone devices so pre-fullscreen TV/tablet windows still unlock.
+    /**
+     * True when the playable surface is wide enough without a rotate gate.
+     * @param {number} [minAspect]
+     * @returns {boolean}
+     */
     isLandscapeUsableViewport(minAspect) {
         const floor = typeof minAspect === 'number' && Number.isFinite(minAspect)
             ? minAspect
@@ -407,8 +493,10 @@ const DeviceDetection = {
         return screenAspect > 0 && screenAspect >= floor;
     },
 
-    // Best-effort landscape lock. Works reliably in installed Android PWAs / fullscreen;
-    // may require a user gesture elsewhere and is limited on iOS.
+    /**
+     * Best-effort landscape orientation lock.
+     * @returns {Promise<boolean>}
+     */
     lockLandscapeOrientation() {
         if (typeof screen === 'undefined' || !screen.orientation || typeof screen.orientation.lock !== 'function') {
             return Promise.resolve(false);

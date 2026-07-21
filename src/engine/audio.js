@@ -1,14 +1,33 @@
-// Audio Manager - Procedural sound generation using Web Audio API
-// Generates all game sounds procedurally to match mathematical/geometric aesthetic
+/**
+ * @typedef {Object} SoundEffectOptions
+ * @property {number} [frequency=440] Base oscillator frequency in Hz
+ * @property {OscillatorType} [type='sine'] Waveform shape type
+ * @property {number} [duration=0.2] Duration in seconds
+ * @property {number} [gain=0.5] Peak volume gain scale
+ * @property {number} [detune=0] Pitch detune in cents
+ * @property {function(AudioParam, number): void} [pitchEnv] Pitch envelope automation callback
+ * @property {function(AudioParam, number): void} [gainEnv] Gain envelope automation callback
+ *
+ * @typedef {Object} AudioBus
+ * @property {GainNode} input
+ * @property {GainNode} duckGain
+ * @property {BiquadFilterNode} filter
+ */
 
 const EngineAudio = {
-    // Core audio context
+    /** @type {AudioContext|null} */
     context: null,
+    /** @type {GainNode|null} */
     masterGain: null,
+    /** @type {GainNode|null} */
     musicGain: null,
+    /** @type {GainNode|null} */
     musicDuckGain: null,
+    /** @type {BiquadFilterNode|null} */
     musicFilter: null,
+    /** @type {GainNode|null} */
     sfxGain: null,
+    /** @type {AudioBus|null} */
     musicBus: null,
     
     // Settings
@@ -21,6 +40,7 @@ const EngineAudio = {
     fadeInDuration: 1.5,
     
     // Sound pool tracking
+    /** @type {Array<any>} */
     activeSounds: [],
     maxConcurrentSounds: 32,
     
@@ -30,13 +50,19 @@ const EngineAudio = {
     // Injected settings store (set via configure())
     _settingsStore: null,
 
-    // Inject a settings store; returns this for chaining
+    /**
+     * Inject a settings store adapter; returns this for chaining.
+     * @param {{settingsStore?: Object}} [options]
+     * @returns {EngineAudio}
+     */
     configure(options = {}) {
         if (options.settingsStore) this._settingsStore = options.settingsStore;
         return this;
     },
     
-    // Initialize audio context and master gain
+    /**
+     * Initialize Web Audio API AudioContext and gain node graph.
+     */
     init() {
         if (this.initialized) return;
         

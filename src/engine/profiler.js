@@ -198,6 +198,55 @@ function buildPhaseRanking(metrics) {
         .sort((a, b) => b.score - a.score);
 }
 
+/**
+ * @typedef {Object} MetricAccumulator
+ * @property {number} count
+ * @property {number} sum
+ * @property {number} min
+ * @property {number} max
+ * @property {number} resCount
+ * @property {Float64Array} reservoir
+ *
+ * @typedef {Object} FinalizedMetric
+ * @property {number} count
+ * @property {number} avg
+ * @property {number} min
+ * @property {number} max
+ * @property {number} p50
+ * @property {number} p95
+ * @property {number} p99
+ *
+ * @typedef {Object} PhaseRankEntry
+ * @property {string} phase
+ * @property {number} avgMs
+ * @property {number} p95Ms
+ * @property {number} maxMs
+ * @property {number} shareOfRenderAvg
+ * @property {number} score
+ *
+ * @typedef {Object} ProfilerSpike
+ * @property {number} atMs
+ * @property {number} frameMs
+ * @property {number|null} roomNumber
+ * @property {string|null} state
+ * @property {string|null} qualityTier
+ * @property {Record<string, number>} phases
+ * @property {Record<string, number>|null} counts
+ * @property {number} catchupUpdates
+ * @property {boolean} accumulatorTruncated
+ *
+ * @typedef {Object} ProfilerReport
+ * @property {number} version
+ * @property {string} exportedAt
+ * @property {number} startedAtMs
+ * @property {number} endedAtMs
+ * @property {number} durationMs
+ * @property {Object} summary
+ * @property {Object} global
+ * @property {Array<ProfilerSpike>} spikes
+ * @property {Array<Object>} timeline
+ */
+
 class Profiler {
     constructor() {
         this.active = false;
@@ -205,15 +254,24 @@ class Profiler {
         this.lastSampleTime = 0;
         this.startedAt = 0;
         this.endedAt = 0;
+        /** @type {Object|null} */
         this.global = null;
+        /** @type {Array<ProfilerSpike>} */
         this.spikes = [];
+        /** @type {Array<Object>} */
         this.timeline = [];
     }
 
+    /**
+     * @returns {boolean} True if profiling is active.
+     */
     isActive() {
         return this.active;
     }
 
+    /**
+     * Start metrics collection session.
+     */
     start() {
         this.active = true;
         this.startedAt = performance.now();
@@ -225,6 +283,10 @@ class Profiler {
         this.global.startedAt = this.startedAt;
     }
 
+    /**
+     * Stop profiling and return the aggregated report.
+     * @returns {ProfilerReport|null}
+     */
     stop() {
         if (!this.active) {
             return null;
@@ -237,6 +299,14 @@ class Profiler {
         return this.buildReport();
     }
 
+    /**
+     * Sample frame timing metrics.
+     * @param {number} frameTimeMs Frame time in seconds (multiplied by 1000 internally)
+     * @param {number} processTimeMs CPU process duration in ms
+     * @param {Object} [breakdown] Detailed breakdown of phase timings
+     * @param {Object} [context] Frame execution context
+     * @returns {boolean} True if frame was sampled.
+     */
     recordFrame(frameTimeMs, processTimeMs, breakdown, context) {
         if (!this.active) {
             return false;
@@ -309,6 +379,14 @@ class Profiler {
         return true;
     }
 
+    /**
+     * @private
+     * @param {number} now
+     * @param {number} frameMs
+     * @param {Object} values
+     * @param {Object} context
+     * @param {Object} snapshot
+     */
     _recordSpike(now, frameMs, values, context, snapshot) {
         if (this.global) {
             this.global.spikes += 1;
@@ -342,6 +420,13 @@ class Profiler {
         }
     }
 
+    /**
+     * @private
+     * @param {number} now
+     * @param {Object} values
+     * @param {Object} context
+     * @param {Object} snapshot
+     */
     _pushTimeline(now, values, context, snapshot) {
         this.timeline.push({
             atMs: Math.round(now - this.startedAt),
@@ -358,6 +443,10 @@ class Profiler {
         }
     }
 
+    /**
+     * Construct aggregated profiler report.
+     * @returns {ProfilerReport}
+     */
     buildReport() {
         const endedAt = this.endedAt || performance.now();
         const globalWorking = createMetricSet();
@@ -406,6 +495,11 @@ class Profiler {
         };
     }
 
+    /**
+     * Serialize profiling report to JSON, optionally triggering browser download.
+     * @param {{pretty?: boolean, download?: boolean, filename?: string}} [options]
+     * @returns {string} JSON string of report
+     */
     exportJson(options) {
         const opts = options || {};
         const report = this.buildReport();

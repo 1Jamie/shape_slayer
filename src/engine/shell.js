@@ -1,28 +1,59 @@
 (function(root) {
     const Engine = root.Engine = root.Engine || {};
 
+    /**
+     * @typedef {Object} BackNavigationGuardOptions
+     * @property {function(string): void} [log] Optional logging callback when navigation is blocked.
+     */
+
+    /**
+     * Engine Shell namespace for feature flags and navigation guards.
+     */
     const Shell = {
+        /** @type {Record<string, any>} */
         flags: Object.create(null),
         _guardInstalled: false,
 
+        /**
+         * Ensure a global shell flag exists and has a default value.
+         * @param {string} name
+         * @param {any} defaultValue
+         * @returns {any}
+         */
         ensureFlag(name, defaultValue) {
             if (typeof root[name] === 'undefined') root[name] = defaultValue;
             this.flags[name] = root[name];
             return root[name];
         },
 
+        /**
+         * Get current value of a shell flag.
+         * @param {string} name
+         * @returns {any}
+         */
         getFlag(name) {
             return Object.prototype.hasOwnProperty.call(this.flags, name)
                 ? this.flags[name]
                 : root[name];
         },
 
+        /**
+         * Set the value of a shell flag.
+         * @param {string} name
+         * @param {any} value
+         * @returns {any}
+         */
         setFlag(name, value) {
             this.flags[name] = value;
             root[name] = value;
             return value;
         },
 
+        /**
+         * Install history pushState guard and side-button mouse event blocker.
+         * @param {BackNavigationGuardOptions} [options]
+         * @returns {boolean}
+         */
         installBackNavigationGuard(options = {}) {
             if (this._guardInstalled || !root.addEventListener || !root.document || !root.history) {
                 return false;

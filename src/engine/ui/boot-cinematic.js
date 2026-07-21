@@ -42,10 +42,17 @@
         return points;
     }
 
+    /**
+     * Micro tech-demo cinematic controller for engine boot branding.
+     */
     const BootCinematic = {
+        /** @type {Object|null} */
         active: null,
 
-        /** True when the environment can run the canvas cinematic. */
+        /**
+         * Check if canvas and engine dependencies support running the cinematic.
+         * @returns {boolean}
+         */
         supported() {
             return !!(root.document
                 && typeof root.requestAnimationFrame === 'function'
@@ -58,6 +65,8 @@
         /**
          * Start the sequence on the supplied canvas. Returns a controller or
          * null when the canvas cannot provide a 2d context.
+         * @param {Object} [options]
+         * @returns {Object|null} Cinematic session controller instance
          */
         start(options = {}) {
             if (!this.supported() || !options.canvas) return null;
@@ -241,6 +250,10 @@
          * Gravity-well integration. Bodies accelerate the whole way in — slow
          * off the line, violent at the well — and report the exact frame the
          * first body crosses the origin.
+         * @param {Object} state
+         * @param {number} t
+         * @param {number} dt
+         * @returns {boolean} True if body arrived at origin
          */
         _updateBodies(state, t, dt) {
             if (t < BEAT_PIPELINE || dt <= 0) return false;

@@ -1,4 +1,15 @@
-// OffscreenCanvas + SharedArrayBuffer Particle Rendering Worker
+/**
+ * OffscreenCanvas + SharedArrayBuffer Particle Rendering Worker.
+ * Reads typed array buffers and renders offscreen particles off the main thread.
+ *
+ * @typedef {Object} InitParticleWorkerMessage
+ * @property {'INIT_PARTICLE_WORKER'} type
+ * @property {OffscreenCanvas} canvas
+ * @property {SharedArrayBuffer} buffer
+ * @property {number} particleCap
+ * @property {number} [gravityX]
+ * @property {number} [gravityY]
+ */
 self.onmessage = function(e) {
     const data = e.data || {};
     if (data.type === 'INIT_PARTICLE_WORKER') {

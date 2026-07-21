@@ -1,7 +1,35 @@
+/**
+ * @typedef {Object} CameraOptions
+ * @property {number} [x=0] Initial world X position
+ * @property {number} [y=0] Initial world Y position
+ * @property {number} [targetX] Initial target X position
+ * @property {number} [targetY] Initial target Y position
+ * @property {number} [offsetX=0] Dynamic lookahead offset X
+ * @property {number} [offsetY=0] Dynamic lookahead offset Y
+ * @property {number} [smoothSpeed=5] Lerp smoothing speed factor
+ * @property {number} [offsetAmount=0] Max lookahead lead distance
+ * @property {number} [deadzone=0] Velocity deadzone threshold
+ * @property {number} [zoom=1] Zoom scale multiplier (> 0)
+ * @property {number} [viewWidth=0] Viewport logical width in CSS pixels
+ * @property {number} [viewHeight=0] Viewport logical height in CSS pixels
+ *
+ * @typedef {Object} CameraBounds
+ * @property {number} [x] World X origin
+ * @property {number} [y] World Y origin
+ * @property {number} [width] World bounding width
+ * @property {number} [height] World bounding height
+ */
+
 (function(root) {
     const Engine = root.Engine = root.Engine || {};
 
+    /**
+     * 2D World Camera tracker with smooth target lerp, velocity lookahead, and viewport projection.
+     */
     class Camera {
+        /**
+         * @param {CameraOptions} [options]
+         */
         constructor(options = {}) {
             this.x = Number.isFinite(options.x) ? options.x : 0;
             this.y = Number.isFinite(options.y) ? options.y : 0;
@@ -17,25 +45,52 @@
             this.viewHeight = Number.isFinite(options.viewHeight) ? options.viewHeight : 0;
         }
 
+        /**
+         * Update logical viewport size.
+         * @param {number} width
+         * @param {number} height
+         * @returns {Camera}
+         */
         setViewSize(width, height) {
             this.viewWidth = Math.max(0, Number(width) || 0);
             this.viewHeight = Math.max(0, Number(height) || 0);
             return this;
         }
 
+        /**
+         * Set zoom scale factor.
+         * @param {number} zoom
+         * @returns {Camera}
+         */
         setZoom(zoom) {
             if (Number.isFinite(zoom) && zoom > 0) this.zoom = zoom;
             return this;
         }
 
+        /**
+         * @returns {number} Current zoom level.
+         */
         getZoom() {
             return this.zoom;
         }
 
+        /**
+         * Linear interpolation helper.
+         * @param {number} from
+         * @param {number} to
+         * @param {number} amount
+         * @returns {number}
+         */
         lerp(from, to, amount) {
             return from + (to - from) * amount;
         }
 
+        /**
+         * Instantly snap camera position and target to world coordinates.
+         * @param {number} x
+         * @param {number} y
+         * @returns {Camera}
+         */
         snapTo(x, y) {
             this.x = Number(x) || 0;
             this.y = Number(y) || 0;
@@ -46,12 +101,25 @@
             return this;
         }
 
+        /**
+         * Set target focus coordinates for smooth lerping.
+         * @param {number} x
+         * @param {number} y
+         * @returns {Camera}
+         */
         setTarget(x, y) {
             this.targetX = Number(x) || 0;
             this.targetY = Number(y) || 0;
             return this;
         }
 
+        /**
+         * Update velocity lookahead offsets.
+         * @param {number} vx Velocity X
+         * @param {number} vy Velocity Y
+         * @param {{deadzone?: number, amount?: number, fullSpeed?: number, decay?: number}} [options]
+         * @returns {Camera}
+         */
         updateOffset(vx, vy, options = {}) {
             const speed = Math.hypot(vx || 0, vy || 0);
             const threshold = Number.isFinite(options.deadzone) ? options.deadzone : this.deadzone;
@@ -72,6 +140,14 @@
             return this;
         }
 
+        /**
+         * Smoothly follow a target entity subject.
+         * @param {{x: number, y: number, vx?: number, vy?: number}} subject Target entity
+         * @param {number} deltaTime Delta time in seconds
+         * @param {CameraBounds} [bounds] World clamp bounds
+         * @param {{deadzone?: number, amount?: number, fullSpeed?: number, decay?: number}} [options] Lookahead options
+         * @returns {Camera}
+         */
         follow(subject, deltaTime, bounds, options = {}) {
             if (!subject) return this;
             this.updateOffset(subject.vx || 0, subject.vy || 0, options);
@@ -80,6 +156,11 @@
             return this.update(deltaTime);
         }
 
+        /**
+         * Clamp target position to stay within world bounds.
+         * @param {CameraBounds} bounds
+         * @returns {Camera}
+         */
         clampToBounds(bounds) {
             if (!bounds) return this;
             const width = Math.max(0, Number(bounds.width) || 0);
@@ -96,6 +177,11 @@
             return this;
         }
 
+        /**
+         * Step camera smoothing lerp.
+         * @param {number} deltaTime Delta time in seconds
+         * @returns {Camera}
+         */
         update(deltaTime) {
             const amount = 1 - Math.exp(-this.smoothSpeed * Math.max(0, deltaTime || 0));
             this.x = this.lerp(this.x, this.targetX, amount);
@@ -103,6 +189,14 @@
             return this;
         }
 
+        /**
+         * Convert screen canvas coordinates to world coordinates.
+         * @param {number} screenX
+         * @param {number} screenY
+         * @param {{x?: number, y?: number}|null} [offset=null] Viewport offset
+         * @param {{x: number, y: number}|null} [out=null] Zero-allocation out target point
+         * @returns {{x: number, y: number}}
+         */
         screenToWorld(screenX, screenY, offset = null, out = null) {
             const dx = offset && Number.isFinite(offset.x) ? offset.x : 0;
             const dy = offset && Number.isFinite(offset.y) ? offset.y : 0;
@@ -116,6 +210,14 @@
             return { x: wx, y: wy };
         }
 
+        /**
+         * Convert world coordinates to screen canvas coordinates.
+         * @param {number} worldX
+         * @param {number} worldY
+         * @param {{x?: number, y?: number}|null} [offset=null] Viewport offset
+         * @param {{x: number, y: number}|null} [out=null] Zero-allocation out target point
+         * @returns {{x: number, y: number}}
+         */
         worldToScreen(worldX, worldY, offset = null, out = null) {
             const dx = offset && Number.isFinite(offset.x) ? offset.x : 0;
             const dy = offset && Number.isFinite(offset.y) ? offset.y : 0;
@@ -129,6 +231,13 @@
             return { x: sx, y: sy };
         }
 
+        /**
+         * Get current visible world bounding box.
+         * @param {number} [margin=0] Extra padding margin around viewport
+         * @param {{x?: number, y?: number}|null} [offset=null] Viewport offset
+         * @param {{x: number, y: number, width: number, height: number}|null} [out=null] Zero-allocation out box
+         * @returns {{x: number, y: number, width: number, height: number}}
+         */
         viewBounds(margin = 0, offset = null, out = null) {
             const padding = Math.max(0, Number(margin) || 0);
             const halfWidth = this.viewWidth / (2 * this.zoom);
@@ -151,6 +260,14 @@
             return { x: bx, y: by, width: bw, height: bh };
         }
 
+        /**
+         * Check if world point is within current visible camera viewport.
+         * @param {number} x World X coordinate
+         * @param {number} y World Y coordinate
+         * @param {number} [margin=0] Padding margin
+         * @param {{x?: number, y?: number}|null} [offset=null] Viewport offset
+         * @returns {boolean}
+         */
         inView(x, y, margin = 0, offset = null) {
             const padding = Math.max(0, Number(margin) || 0);
             const halfWidth = this.viewWidth / (2 * this.zoom);

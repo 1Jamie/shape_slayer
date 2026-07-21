@@ -1,5 +1,33 @@
-// Generic game loop, fixed-timestep scheduler, and frame-budget governor.
-// Composition-based design with zero Shape Slayer game references.
+/**
+ * @typedef {Object} FrameEndMetrics
+ * @property {number} realDeltaTime Delta time in seconds
+ * @property {number} processTime CPU work time in ms
+ * @property {number} updateTime Fixed update time in ms
+ * @property {number} renderTime Render time in ms
+ * @property {number} updatesRun Number of fixed timestep steps executed
+ * @property {boolean} accumulatorTruncated True if spike caused accumulator reset
+ *
+ * @typedef {Object} CoreHooks
+ * @property {function(): void} [onInit] Called once during start()
+ * @property {function(number): void} [onUpdate] Fixed timestep update callback (dt in seconds)
+ * @property {function(CanvasRenderingContext2D|null, number): void} [onRender] Render callback (ctx placeholder, alpha interpolation factor)
+ * @property {function(number): void} [onHitPauseTick] Tick callback while hit-pause freezes sim
+ * @property {function(FrameEndMetrics): void} [onFrameEnd] Frame metrics collector hook
+ * @property {function(boolean): void} [onVisibilityChange] Tab visibility change handler
+ * @property {function(number, {frameAvg: number, renderAvg: number}): void} [onQualityChange] Quality tier change callback
+ * @property {function(): boolean} [preferBackgroundTimeout] Callback returning true if setTimeout loop should run when hidden
+ * @property {boolean} [adaptiveRenderQuality] Enable adaptive frame budget governor (default true)
+ *
+ * @typedef {Object} FrameBudgetThresholds
+ * @property {number} mediumFrame
+ * @property {number} mediumRender
+ * @property {number} heavyFrame
+ * @property {number} heavyRender
+ * @property {number} restoreFrame
+ * @property {number} restoreRender
+ * @property {number} mediumVignetteScale
+ * @property {number} heavyVignetteScale
+ */
 
 if (typeof window !== 'undefined') {
     window.Engine = window.Engine || {};
@@ -12,7 +40,13 @@ const QUALITY_TIER = (
     globalThis.Engine.Render.QualityTier
 ) || Object.freeze({ HIGH: 0, MEDIUM: 1, LOW: 2 });
 
+/**
+ * Generic game loop, fixed-timestep scheduler, and frame-budget governor.
+ */
 class Core {
+    /**
+     * @param {CoreHooks} [hooks]
+     */
     constructor({
         onInit,
         onUpdate,
@@ -23,7 +57,7 @@ class Core {
         onQualityChange,
         preferBackgroundTimeout,
         adaptiveRenderQuality
-    }) {
+    } = {}) {
         this.onInit = onInit;
         this.onUpdate = onUpdate;
         this.onRender = onRender;
@@ -81,6 +115,9 @@ class Core {
         this._visibilityHandler = this.handleVisibilityChange.bind(this);
     }
 
+    /**
+     * Start the game loop.
+     */
     start() {
         this.lastTime = performance.now();
         this.accumulator = 0;
@@ -96,6 +133,9 @@ class Core {
         this.gameLoop();
     }
 
+    /**
+     * Stop the game loop and unbind listeners.
+     */
     stop() {
         this.loopStopped = true;
         if (this.timeoutId) {
@@ -105,6 +145,9 @@ class Core {
         document.removeEventListener('visibilitychange', this._visibilityHandler);
     }
 
+    /**
+     * Handle document visibility change (switch to background setTimeout loop if requested).
+     */
     handleVisibilityChange() {
         const isHidden = document.hidden;
 
@@ -123,6 +166,10 @@ class Core {
         }
     }
 
+    /**
+     * Main loop step function called via rAF or setTimeout.
+     * @param {number} [currentTime=0]
+     */
     gameLoop(currentTime = 0) {
         if (this.loopStopped) return;
 
