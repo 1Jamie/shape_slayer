@@ -856,6 +856,11 @@ Engine.Input = {
         if (!gp) return null;
         if (gp.mapping === 'standard') return gp;
 
+        if (Engine.SDLGameControllerDB) {
+            const remapped = Engine.SDLGameControllerDB.remapGamepad(gp);
+            if (remapped) return remapped;
+        }
+
         if (this._needsXboxLegacyRemap(gp)) {
             return this._remapXboxLegacyToStandard(gp);
         }
@@ -879,6 +884,30 @@ Engine.Input = {
             buttons,
             axes
         };
+    },
+
+    /** Load gamecontrollerdb.txt into engine gamepad mapper. */
+    async initGameControllerDB(url = 'assets/gamecontrollerdb.txt') {
+        if (Engine.SDLGameControllerDB) {
+            return await Engine.SDLGameControllerDB.loadFromUrl(url);
+        }
+        return 0;
+    },
+
+    /** Manually add an SDL mapping string (e.g. "030000005e0400008e02000014010000,X360 Controller,a:b0,..."). */
+    addGamepadMapping(sdlString) {
+        if (Engine.SDLGameControllerDB) {
+            return Engine.SDLGameControllerDB.addMapping(sdlString);
+        }
+        return false;
+    },
+
+    /** Load raw gamecontrollerdb mapping text into memory. */
+    loadGameControllerDBText(text) {
+        if (Engine.SDLGameControllerDB) {
+            return Engine.SDLGameControllerDB.loadText(text);
+        }
+        return 0;
     },
 
     /**
@@ -1103,10 +1132,12 @@ Engine.Input = {
     getGamepadAxis(gamepadIndex, axisIndex) {
         if (!navigator.getGamepads) return 0;
         const gamepads = navigator.getGamepads();
-        const gp = gamepads[gamepadIndex];
-        if (!gp || !gp.connected || !gp.axes) return 0;
+        const rawGp = gamepads[gamepadIndex];
+        if (!rawGp || !rawGp.connected) return 0;
+        const gp = this._getMappedGamepad(rawGp) || rawGp;
+        if (!gp || !gp.axes) return 0;
         const raw = gp.axes[axisIndex] || 0;
-        const dz  = this._gamepadDeadzone;
+        const dz  = (this._gamepadDeadzone != null) ? this._gamepadDeadzone : 0.18;
         const mag  = Math.abs(raw);
         if (mag < dz) return 0;
         return (raw / mag) * ((mag - dz) / (1 - dz));
@@ -1114,9 +1145,22 @@ Engine.Input = {
 
     _hasGamepadInput(gamepad) {
         if (!gamepad || !gamepad.connected) return false;
-        const axisMoved    = Array.from(gamepad.axes || []).some(a => Math.abs(a) > this._gamepadDeadzone);
-        const buttonPressed = Array.from(gamepad.buttons || []).some(b => b && (b.pressed || b.value > 0.15));
-        return axisMoved || buttonPressed;
+        const gp = this._getMappedGamepad(gamepad) || gamepad;
+        const dz = (this._gamepadDeadzone != null) ? this._gamepadDeadzone : 0.18;
+
+        if (gp.mapping === 'standard') {
+            const buttonPressed = Array.from(gp.buttons || []).some(b => b && (b.pressed || b.value > 0.15));
+            const axisMoved = Array.from(gp.axes || []).slice(0, 4).some(a => Math.abs(a) > dz);
+            return buttonPressed || axisMoved;
+        }
+
+        const buttonPressed = Array.from(gp.buttons || []).some(b => b && (b.pressed || b.value > 0.15));
+        const axisMoved = Array.from(gp.axes || []).some(a => {
+            if (a == null) return false;
+            if (a < -0.8) return false;
+            return Math.abs(a) > dz;
+        });
+        return buttonPressed || axisMoved;
     },
 
     _findGamepadWithInput() {
@@ -1710,6 +1754,10 @@ Engine.Input = {
 
         this.applyControlMode(this.controlMode, canvas);
         this._installLifecycleHandlers(canvas);
+
+        if (Engine.SDLGameControllerDB && !Engine.SDLGameControllerDB.isLoaded) {
+            this.initGameControllerDB();
+        }
 
         if (typeof window !== 'undefined') {
             const recheckDeviceProfile = () => {

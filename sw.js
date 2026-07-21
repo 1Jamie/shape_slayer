@@ -5,7 +5,7 @@
  * Shell is precached on install. Audio warms in the background so playback can start ASAP
  * while the library fills for full offline use.
  */
-const CACHE_VERSION = '0.8.2.44';
+const CACHE_VERSION = '0.8.2.45';
 const SHELL_CACHE = `shape-slayer-shell-v${CACHE_VERSION}`;
 const RUNTIME_CACHE = `shape-slayer-runtime-v${CACHE_VERSION}`;
 const AUDIO_WARM_CONCURRENCY = 2;
@@ -15,6 +15,7 @@ const PRECACHE_URLS = [
   './index.html',
   './privacy.html',
   './manifest.json',
+  './assets/gamecontrollerdb.txt',
   './assets/icons/icon-192.png',
   './assets/icons/icon-512.png',
   './assets/icons/icon-512-maskable.png',
@@ -86,6 +87,7 @@ const PRECACHE_URLS = [
   './src/game/presentation/render-adapters.js',
   './src/game/presentation/render-pipeline.js',
   './src/engine/system.js',
+  './src/engine/sdl-gamecontrollerdb.js',
   './src/engine/input.js',
   './src/engine/split.js',
   './src/game/input-map.js',
