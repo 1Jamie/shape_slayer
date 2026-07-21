@@ -457,3 +457,15 @@ test('Xbox legacy Start alone does not activate RT (the Start→fire bug)', () =
     assert.equal(mapped.buttons[7].pressed, false);
     assert.equal(mapped.buttons[7].value, 0);
 });
+
+test('Engine.Input facade exposes getAbilityInputType', () => {
+    assert.equal(typeof Input.getAbilityInputType, 'function');
+    assert.equal(Input.getAbilityInputType('triangle', 'heavyAttack'), 'button'); // Default without hooks
+    Input.configure({
+        getAbilityInputType(cls, ability) {
+            return `${cls}-${ability}-joystick-press-release`;
+        }
+    });
+    assert.equal(Input.getAbilityInputType('triangle', 'heavyAttack'), 'triangle-heavyAttack-joystick-press-release');
+});
+

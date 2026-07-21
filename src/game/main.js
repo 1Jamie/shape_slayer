@@ -1,98 +1,5 @@
 // Main game loop and initialization
-
-// PlayerStats class for tracking individual player statistics
-class PlayerStats {
-    constructor(playerId) {
-        this.playerId = playerId;
-        this.damageDealt = 0;
-        this.kills = 0;
-        this.damageTaken = 0;
-        this.roomsCleared = 0;
-
-        // Time tracking - only counts time while alive (NOT total run time)
-        this.timeAlive = 0; // Accumulated alive time in seconds
-        this.lastAliveTimestamp = null; // When player last became alive (null = timer not started)
-        this.isAlive = true;
-        this.timerStarted = false; // Whether the timer has been started (game must start first)
-        this.timerStopped = false; // Whether the timer is frozen (game ended)
-    }
-
-    // Start the timer - called when game actually begins
-    startTimer() {
-        if (!this.timerStarted && !this.timerStopped) {
-            this.lastAliveTimestamp = Date.now();
-            this.timerStarted = true;
-            this.isAlive = true;
-        }
-    }
-
-    // Stop the timer - freeze the value (game ended)
-    stopTimer() {
-        if (this.timerStarted && !this.timerStopped) {
-            // Accumulate any remaining time before stopping
-            if (this.isAlive && this.lastAliveTimestamp) {
-                this.timeAlive += (Date.now() - this.lastAliveTimestamp) / 1000;
-            }
-            this.timerStopped = true;
-            this.lastAliveTimestamp = null;
-        }
-    }
-
-    // Called when player dies - accumulate time from this life
-    onDeath() {
-        if (this.isAlive && this.timerStarted && !this.timerStopped) {
-            this.timeAlive += (Date.now() - this.lastAliveTimestamp) / 1000;
-            this.isAlive = false;
-            this.lastAliveTimestamp = null;
-        }
-    }
-
-    // Called when player revives - start new life timer
-    onRevive() {
-        if (!this.isAlive && this.timerStarted && !this.timerStopped) {
-            this.lastAliveTimestamp = Date.now();
-            this.isAlive = true;
-        }
-    }
-
-    // Get total time alive (includes current life if still alive, but frozen if timer stopped)
-    getTimeAlive() {
-        // If timer is stopped, return frozen value
-        if (this.timerStopped) {
-            return this.timeAlive;
-        }
-        // If timer hasn't started yet, return 0
-        if (!this.timerStarted) {
-            return 0;
-        }
-        // If alive and timer is running, calculate current time
-        if (this.isAlive && this.lastAliveTimestamp) {
-            return this.timeAlive + (Date.now() - this.lastAliveTimestamp) / 1000;
-        }
-        // Otherwise return accumulated time
-        return this.timeAlive;
-    }
-
-    // Add to a stat (for modular stat additions)
-    addStat(statName, value) {
-        if (this.hasOwnProperty(statName)) {
-            this[statName] += value;
-        }
-    }
-
-    // Reset stats (for new game)
-    reset() {
-        this.damageDealt = 0;
-        this.kills = 0;
-        this.damageTaken = 0;
-        this.roomsCleared = 0;
-        this.timeAlive = 0;
-        this.lastAliveTimestamp = null;
-        this.isAlive = true;
-        this.timerStarted = false;
-        this.timerStopped = false;
-    }
-}
+// PlayerStats class is extracted to src/game/simulation/player-stats.js
 
 const Game = {
     // Version tracking (from version.js)
@@ -156,15 +63,19 @@ const Game = {
     set frameBudgetSamples(v) { if (window.engine) { window.engine.frameBudgetSamples = v; } else { this._frameBudgetSamples = v; } },
     get renderQuality() { return this._renderQuality || this._defaultRenderQuality; },
     set renderQuality(v) { this._renderQuality = v; },
-    _defaultRenderQuality: {
-        vignetteScale: 0.5,
-        maxSceneryLights: Infinity,
-        gearRingPoints: 64,
-        groundLootAnimatedRing: true,
-        remoteFullRender: true,
-        maxBeamLights: 8,
-        damageFxScale: 1,
-        voxelParticleCap: 512
+    get _defaultRenderQuality() {
+        return (typeof GameRenderQuality !== 'undefined')
+            ? GameRenderQuality.DEFAULT_RENDER_QUALITY
+            : {
+                vignetteScale: 0.5,
+                maxSceneryLights: Infinity,
+                gearRingPoints: 64,
+                groundLootAnimatedRing: true,
+                remoteFullRender: true,
+                maxBeamLights: 8,
+                damageFxScale: 1,
+                voxelParticleCap: 512
+            };
     },
     renderSubTimings: { groundLoot: 0, gearRings: 0, remotePlayers: 0, worldGlow: 0, worldBodies: 0 },
     renderSubTimingSamples: null,
@@ -334,32 +245,23 @@ const Game = {
     CAMERA_DISTANCE_MULT_MOBILE: { close: 1.0, medium: 0.85, far: 0.7 },
     bossIntroZoom: 1.3, // Extra zoom during boss intro (30% closer total)
 
-    /** Effective world zoom for the current platform + camera-distance setting. */
     getViewZoom() {
-        const isMobile = (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileUiMode && Engine.Input.isMobileUiMode();
-        const platformZoom = isMobile ? (this.mobileZoom || 0.9) : (this.baseZoom || 1.1);
-        const table = isMobile
-            ? (this.CAMERA_DISTANCE_MULT_MOBILE || this.CAMERA_DISTANCE_MULT)
-            : this.CAMERA_DISTANCE_MULT;
-        const mult = (table && table[this.cameraDistance]) || 1.0;
-        return platformZoom * mult;
+        if (typeof GameCameraManager !== 'undefined') {
+            return GameCameraManager.getViewZoom(this);
+        }
+        return 1.0;
     },
 
     setCameraDistance(distance) {
-        if (distance !== 'close' && distance !== 'medium' && distance !== 'far') return false;
-        this.cameraDistance = distance;
-        if (typeof SaveSystem !== 'undefined' && SaveSystem.setCameraDistance) {
-            SaveSystem.setCameraDistance(distance);
+        if (typeof GameCameraManager !== 'undefined') {
+            return GameCameraManager.setCameraDistance(this, distance);
         }
-        return true;
+        return false;
     },
 
     getCameraDistance() {
-        if (this.cameraDistance === 'close' || this.cameraDistance === 'medium' || this.cameraDistance === 'far') {
-            return this.cameraDistance;
-        }
-        if (typeof SaveSystem !== 'undefined' && SaveSystem.getCameraDistance) {
-            return SaveSystem.getCameraDistance();
+        if (typeof GameCameraManager !== 'undefined') {
+            return GameCameraManager.getCameraDistance(this);
         }
         return 'medium';
     },
@@ -809,122 +711,45 @@ const Game = {
     },
 
     applyDeferredBootModals() {
-        const pending = this.pendingBootModals;
-        this.pendingBootModals = null;
-        if (!pending) return;
-
-        if (pending.privacy) {
-            this.openPrivacyModal('onboarding');
-        } else if (pending.launch) {
-            this.launchModalVisible = true;
-        }
-
-        if (pending.update) {
-            this.updateModalVisible = true;
-        }
-
-        if (typeof Onboarding !== 'undefined' && Onboarding.onNexusEnter) {
-            setTimeout(() => {
-                Onboarding.onNexusEnter();
-                if (typeof FeatureTutorials !== 'undefined' && FeatureTutorials.onNexusEnter) {
-                    FeatureTutorials.onNexusEnter();
-                }
-            }, 0);
-        } else if (typeof FeatureTutorials !== 'undefined' && FeatureTutorials.onNexusEnter) {
-            setTimeout(() => FeatureTutorials.onNexusEnter(), 0);
+        if (typeof GameTitleTransition !== 'undefined') {
+            GameTitleTransition.applyDeferredBootModals(this);
+            return;
         }
     },
 
     dismissTitleScreen() {
-        if (this.state !== 'TITLE') return;
-        if (this.titleExitTransition) return;
-
-        this.titleExitTransition = {
-            phase: 'fadeOut',
-            elapsed: 0,
-            fadeOutSec: 0.45,
-            holdSec: 0.14,
-            fadeInSec: 0.55,
-            swapped: false
-        };
-
-        if (typeof window !== 'undefined' && window.TitleScreen && typeof window.TitleScreen.beginExit === 'function') {
-            window.TitleScreen.beginExit(this.titleExitTransition.fadeOutSec);
+        if (typeof GameTitleTransition !== 'undefined') {
+            GameTitleTransition.dismissTitleScreen(this);
+            return;
         }
     },
 
     updateTitleExitTransition(dt) {
-        const tr = this.titleExitTransition;
-        if (!tr) return;
-
-        tr.elapsed += dt;
-
-        if (tr.phase === 'fadeOut') {
-            if (tr.elapsed >= tr.fadeOutSec) {
-                this.swapTitleToNexus();
-                tr.phase = 'hold';
-                tr.elapsed = 0;
-            }
+        if (typeof GameTitleTransition !== 'undefined') {
+            GameTitleTransition.updateTitleExitTransition(this, dt);
             return;
-        }
-
-        if (tr.phase === 'hold') {
-            if (tr.elapsed >= tr.holdSec) {
-                tr.phase = 'fadeIn';
-                tr.elapsed = 0;
-            }
-            return;
-        }
-
-        if (tr.phase === 'fadeIn' && tr.elapsed >= tr.fadeInSec) {
-            this.titleExitTransition = null;
-            this.applyDeferredBootModals();
         }
     },
 
     swapTitleToNexus() {
-        const tr = this.titleExitTransition;
-        if (tr && tr.swapped) return;
-        if (tr) tr.swapped = true;
-
-        if (typeof TitleAttract !== 'undefined' && TitleAttract.dispose) {
-            TitleAttract.dispose();
+        if (typeof GameTitleTransition !== 'undefined') {
+            GameTitleTransition.swapTitleToNexus(this);
+            return;
         }
-
-        this.state = 'NEXUS';
-        if (typeof initNexus !== 'undefined') {
-            initNexus();
-        }
-        this.updateMusicForCurrentRoom();
     },
 
     getTitleExitFadeAlpha() {
-        const tr = this.titleExitTransition;
-        if (!tr) return 0;
-
-        const easeInOut = (t) => {
-            const x = Math.max(0, Math.min(1, t));
-            return x * x * (3 - 2 * x);
-        };
-
-        if (tr.phase === 'fadeOut') {
-            return easeInOut(tr.elapsed / Math.max(0.0001, tr.fadeOutSec));
-        }
-        if (tr.phase === 'hold') return 1;
-        if (tr.phase === 'fadeIn') {
-            return 1 - easeInOut(tr.elapsed / Math.max(0.0001, tr.fadeInSec));
+        if (typeof GameTitleTransition !== 'undefined') {
+            return GameTitleTransition.getTitleExitFadeAlpha(this);
         }
         return 0;
     },
 
     renderTitleExitOverlay(ctx) {
-        const alpha = this.getTitleExitFadeAlpha();
-        if (!ctx || alpha <= 0.001) return;
-        ctx.save();
-        ctx.globalAlpha = Math.min(1, alpha);
-        ctx.fillStyle = '#05070f';
-        ctx.fillRect(0, 0, this.config.width, this.config.height);
-        ctx.restore();
+        if (typeof GameTitleTransition !== 'undefined') {
+            GameTitleTransition.renderTitleExitOverlay(this, ctx);
+            return;
+        }
     },
 
     // Setup responsive canvas sizing - dynamic viewport to match screen
@@ -1107,24 +932,10 @@ const Game = {
 
     // Convert screen coordinates to game coordinates
     screenToGame(x, y) {
-        const rect = this.canvas.getBoundingClientRect();
-        
-        // Calculate scale factors based on actual canvas display size vs logical size
-        // This handles cases where canvas CSS size might differ from logical size
-        const scaleX = this.config.width / rect.width;
-        const scaleY = this.config.height / rect.height;
-        
-        // Convert screen coordinates to canvas coordinates, then scale to logical coordinates
-        const canvasX = x - rect.left;
-        const canvasY = y - rect.top;
-        const gameX = canvasX * scaleX;
-        const gameY = canvasY * scaleY;
-
-        // Clamp to game bounds to prevent out-of-range coordinates
-        const clampedX = Math.max(0, Math.min(this.config.width, gameX));
-        const clampedY = Math.max(0, Math.min(this.config.height, gameY));
-
-        return { x: clampedX, y: clampedY };
+        if (typeof GameCameraManager !== 'undefined') {
+            return GameCameraManager.screenToGame(this, x, y);
+        }
+        return { x: Math.max(0, x || 0), y: Math.max(0, y || 0) };
     },
 
     getViewportSize() {
@@ -1141,241 +952,77 @@ const Game = {
     },
 
     isNativeFullscreenActive() {
-        return !!(document.fullscreenElement ||
-            document.webkitFullscreenElement ||
-            document.mozFullScreenElement);
+        return (typeof GameDisplayManager !== 'undefined')
+            ? GameDisplayManager.isNativeFullscreenActive()
+            : !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement);
     },
 
     isFullscreenActive() {
-        return this.isNativeFullscreenActive() || !!this.pseudoFullscreenActive;
+        return (typeof GameDisplayManager !== 'undefined')
+            ? GameDisplayManager.isFullscreenActive(this)
+            : (this.isNativeFullscreenActive() || !!this.pseudoFullscreenActive);
     },
 
     // Setup fullscreen API listeners
     setupFullscreenListeners() {
-        // Listen for fullscreen changes
-        const fullscreenChange = () => {
-            const isFullscreen = this.isNativeFullscreenActive();
-            this.fullscreenEnabled = isFullscreen || !!this.pseudoFullscreenActive;
-
-            console.log(`[FULLSCREEN] Changed to: ${isFullscreen}`);
-
-            // Update save preference
-            if (typeof SaveSystem !== 'undefined') {
-                SaveSystem.setFullscreenPreference(isFullscreen);
-            }
-
-            // Recalculate canvas size after fullscreen change
-            // Use multiple requestAnimationFrame calls to ensure canvas has fully updated
-            // Fullscreen transitions can take time, especially on mobile devices
-            requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                    requestAnimationFrame(() => {
-                        // Force canvas resize
-                        this.setupResponsiveCanvas();
-
-                        // Force multiple reflows to ensure everything is updated
-                        if (this.canvas) {
-                            void this.canvas.offsetWidth;
-                            void this.canvas.offsetHeight;
-                            // Get fresh rect to verify
-                            const rect = this.canvas.getBoundingClientRect();
-                            console.log(`[FULLSCREEN] Canvas rect after resize: ${rect.width.toFixed(0)}x${rect.height.toFixed(0)} at (${rect.left.toFixed(0)}, ${rect.top.toFixed(0)})`);
-                        }
-
-                        if ((typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileUiMode && Engine.Input.isMobileUiMode()) {
-                            // Clear all existing touch controls and active touches
-                            if (Engine.Input.touchJoysticks) {
-                                // End all active joysticks first
-                                for (const joystick of Object.values(Engine.Input.touchJoysticks)) {
-                                    if (joystick && joystick.active && joystick.touchId !== null) {
-                                        joystick.endTouch(joystick.touchId);
-                                    }
-                                }
-                                Engine.Input.touchJoysticks = {};
-                            }
-                            if (Engine.Input.touchButtons) {
-                                // End all active buttons first
-                                for (const button of Object.values(Engine.Input.touchButtons)) {
-                                    if (button && button.active && button.touchId !== null) {
-                                        button.endTouch(button.touchId);
-                                    }
-                                }
-                                Engine.Input.touchButtons = {};
-                            }
-                            if (Engine.Input.activeTouches) {
-                                Engine.Input.activeTouches = {};
-                            }
-                            Engine.Input.touchActive = false;
-
-                            // Reinitialize with correct positions after a brief delay
-                            // This ensures the canvas bounding rect is fully updated
-                            setTimeout(() => {
-                                if (this.canvas && (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.initTouchControls) {
-                                    // Force one more reflow before reinitializing
-                                    void this.canvas.offsetWidth;
-                                    const rect = this.canvas.getBoundingClientRect();
-                                    console.log(`[FULLSCREEN] Reinitializing controls, rect: ${rect.width.toFixed(0)}x${rect.height.toFixed(0)}`);
-                                    Engine.Input.initTouchControls(this.canvas);
-                                    console.log('[FULLSCREEN] Touch controls reinitialized');
-                                }
-                            }, 100); // Increased delay for mobile devices
-                        }
-
-                        this.updatePortraitRotateOverlay();
-                        this.lockLandscapeOrientation();
-                    });
-                });
-            });
-        };
-
-        document.addEventListener('fullscreenchange', fullscreenChange);
-        document.addEventListener('webkitfullscreenchange', fullscreenChange);
-        document.addEventListener('mozfullscreenchange', fullscreenChange);
+        if (typeof GameDisplayManager !== 'undefined') {
+            GameDisplayManager.setupFullscreenListeners(this);
+            return;
+        }
     },
 
     setupLandscapeMode() {
-        this.ensurePortraitRotateOverlay();
-        this.updatePortraitRotateOverlay();
-        this.lockLandscapeOrientation();
-
-        const refresh = () => {
-            setTimeout(() => {
-                this.updatePortraitRotateOverlay();
-                this.lockLandscapeOrientation();
-            }, 100);
-        };
-
-        window.addEventListener('orientationchange', refresh);
-        window.addEventListener('resize', () => {
-            this.updatePortraitRotateOverlay();
-        });
-
-        // Some browsers only allow orientation.lock after a user gesture.
-        const lockOnGesture = () => {
-            this.lockLandscapeOrientation();
-        };
-        ['pointerdown', 'touchstart', 'click'].forEach((eventType) => {
-            window.addEventListener(eventType, lockOnGesture, { once: true, capture: true });
-        });
+        if (typeof GameDisplayManager !== 'undefined') {
+            GameDisplayManager.setupLandscapeMode(this);
+            return;
+        }
     },
 
     ensurePortraitRotateOverlay() {
-        if (this._rotateOverlay || typeof document === 'undefined') {
-            return this._rotateOverlay || null;
+        if (typeof GameDisplayManager !== 'undefined') {
+            return GameDisplayManager.ensurePortraitRotateOverlay(this);
         }
-
-        const overlay = document.createElement('div');
-        overlay.id = 'rotate-landscape-overlay';
-        overlay.setAttribute('aria-live', 'polite');
-        overlay.innerHTML = [
-            '<div class="rotate-landscape-icon" aria-hidden="true"></div>',
-            '<p>Rotate your device to landscape to play Shape Slayer.</p>'
-        ].join('');
-        document.body.appendChild(overlay);
-        this._rotateOverlay = overlay;
-        return overlay;
+        return this._rotateOverlay || null;
     },
 
     shouldForceLandscape() {
-        if (!Engine.System) {
-            return false;
+        if (typeof GameDisplayManager !== 'undefined') {
+            return GameDisplayManager.shouldForceLandscape();
         }
-        // TV boxes are landscape surfaces; never force a rotate lock/gate on them.
-        if (Engine.System.isTv && Engine.System.isTv()) {
-            return false;
-        }
-        if (Engine.System.isInstalledDisplayMode && Engine.System.isInstalledDisplayMode()) {
-            return true;
-        }
-        return !!(Engine.System.isMobileDevice && Engine.System.isMobileDevice());
+        return false;
     },
 
     lockLandscapeOrientation() {
-        if (!this.shouldForceLandscape()) {
-            return Promise.resolve(false);
+        if (typeof GameDisplayManager !== 'undefined') {
+            return GameDisplayManager.lockLandscapeOrientation();
         }
-        // Already a usable landscape (or square) CSS viewport — don't fight the platform
-        // (docked tablets / misreported orientation on large Android surfaces).
-        if (Engine.System.isLandscapeUsableViewport && Engine.System.isLandscapeUsableViewport()) {
-            return Promise.resolve(false);
-        }
-        if (!Engine.System || !Engine.System.lockLandscapeOrientation) {
-            return Promise.resolve(false);
-        }
-        return Engine.System.lockLandscapeOrientation();
+        return Promise.resolve(false);
     },
 
     updatePortraitRotateOverlay() {
-        const overlay = this.ensurePortraitRotateOverlay();
-        if (!overlay) {
+        if (typeof GameDisplayManager !== 'undefined') {
+            GameDisplayManager.updatePortraitRotateOverlay(this);
             return;
-        }
-
-        const forceLandscape = this.shouldForceLandscape();
-        const landscapeUsable = Engine.System && Engine.System.isLandscapeUsableViewport
-            ? Engine.System.isLandscapeUsableViewport()
-            : (typeof window !== 'undefined' && window.innerWidth >= window.innerHeight);
-
-        // Aspect-ratio override: if the current CSS viewport (or, for non-phones,
-        // the screen behind browser chrome) is already landscape-usable, never
-        // block play — even when orientation APIs claim portrait. Does not require
-        // a full 1920x1080 window; chrome-shrunk subsets still count by aspect.
-        // True tall phone portrait still shows the rotate gate.
-        const show = forceLandscape && !landscapeUsable;
-        overlay.classList.toggle('is-visible', show);
-        if (document.body) {
-            document.body.classList.toggle('portrait-blocked', show);
         }
     },
 
     // Toggle fullscreen
     toggleFullscreen() {
-        if (!this.canvas) return;
-
-        if (Engine.System &&
-            Engine.System.supportsElementFullscreen &&
-            !Engine.System.supportsElementFullscreen()) {
-            this.pseudoFullscreenActive = !this.pseudoFullscreenActive;
-            document.body.classList.toggle('pseudo-fullscreen', this.pseudoFullscreenActive);
-            this.fullscreenEnabled = this.pseudoFullscreenActive;
-            this.setupResponsiveCanvas();
-            if (typeof SaveSystem !== 'undefined') {
-                SaveSystem.setFullscreenPreference(this.fullscreenEnabled);
-            }
-            if (typeof window.showToast === 'function') {
-                const msg = this.pseudoFullscreenActive
-                    ? 'Expanded to screen - add to Home Screen for true fullscreen on iOS'
-                    : 'Exited expanded view';
-                window.showToast(msg, 2500);
-            }
+        if (typeof GameDisplayManager !== 'undefined') {
+            GameDisplayManager.toggleFullscreen(this);
             return;
-        }
-
-        const isFullscreen = this.isNativeFullscreenActive();
-
-        if (isFullscreen) {
-            if (document.exitFullscreen) {
-                document.exitFullscreen();
-            } else if (document.webkitExitFullscreen) {
-                document.webkitExitFullscreen();
-            } else if (document.mozCancelFullScreen) {
-                document.mozCancelFullScreen();
-            }
-        } else {
-            const element = document.documentElement;
-            if (element.requestFullscreen) {
-                element.requestFullscreen();
-            } else if (element.webkitRequestFullscreen) {
-                element.webkitRequestFullscreen();
-            } else if (element.mozRequestFullScreen) {
-                element.mozRequestFullScreen();
-            }
         }
     },
 
     // Handle visibility change (delegated from Engine.Core)
     handleVisibilityChange(isHidden) {
+        if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
+            if (multiplayerManager.isHost && typeof multiplayerManager.sendHostStatus === 'function') {
+                multiplayerManager.sendHostStatus();
+            }
+        }
         const isMobile = this.isMobileDevice;
+        const inMultiplayer = this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
         if (isMobile && isHidden) {
             this.backgroundPauseActive = true;
             if (typeof GameMusic !== 'undefined' && GameMusic) {
@@ -1383,9 +1030,11 @@ const Game = {
                     console.warn('[Music] Failed to pause background playback:', err);
                 });
             }
-            if (this.state === 'PLAYING' && !this.paused) {
+            if (this.state === 'PLAYING' && !this.paused && !inMultiplayer) {
                 this.autoPausedForBackground = true;
                 this.togglePause();
+            } else if (inMultiplayer) {
+                this.showPauseMenu = true;
             }
         } else if (!isHidden) {
             this.backgroundPauseActive = false;
@@ -1398,72 +1047,24 @@ const Game = {
 
     // Trigger screen shake
     triggerScreenShake(intensity, duration, direction = null) {
-        const bias = direction === 'player'
-            ? Engine.FX.ShakeBias.VERTICAL
-            : (direction === 'boss' ? Engine.FX.ShakeBias.HORIZONTAL : Engine.FX.ShakeBias.NONE);
-        if (Engine.Renderer && Engine.Renderer.triggerScreenShake) {
-            Engine.Renderer.triggerScreenShake(intensity, duration, bias);
-        } else {
-            const shouldReplace = this.screenShakeDuration <= 0 || intensity >= this.screenShakeIntensity;
-            if (shouldReplace) {
-                this.screenShakeIntensity = intensity;
-                this.screenShakeDuration = duration;
-                this.screenShakeDirection = bias;
-            } else {
-                this.screenShakeDuration = Math.max(this.screenShakeDuration, duration * 0.45);
-            }
+        if (typeof GameScreenEffects !== 'undefined') {
+            GameScreenEffects.triggerScreenShake(this, intensity, duration, direction);
+            return;
         }
     },
 
     triggerChromaticTrauma(frames = 5, intensity = 0.75) {
-        const now = performance.now();
-        const duration = Math.max(1, frames) * (1000 / 60);
-        this.chromaticTraumaStart = now;
-        this.chromaticTraumaDuration = duration;
-        this.chromaticTraumaUntil = now + duration;
-        this.chromaticTraumaIntensity = Math.max(0, Math.min(1, intensity));
+        if (typeof GameScreenEffects !== 'undefined') {
+            GameScreenEffects.triggerChromaticTrauma(this, frames, intensity);
+            return;
+        }
     },
 
     getDamageTraumaParams(playerToCheck, nowSec, traumaNowMs, damageTraumaDuration) {
-        const params = { intensity: 0, offset: 0, damagePercentage: 0, active: false };
-        const minHitRatioForCa = 0.03;
-
-        if (playerToCheck && playerToCheck.lastDamageTime) {
-            const elapsed = nowSec - playerToCheck.lastDamageTime;
-            if (elapsed >= 0 && elapsed < damageTraumaDuration) {
-                const hitRatio = playerToCheck.maxHp > 0 && playerToCheck.lastDamageAmount > 0
-                    ? playerToCheck.lastDamageAmount / playerToCheck.maxHp
-                    : 0;
-                if (hitRatio >= minHitRatioForCa) {
-                    const progress = Math.min(elapsed / damageTraumaDuration, 1.0);
-                    params.intensity = Math.max(params.intensity, 1.0 - progress);
-                    const normalizedDamage = Math.min(hitRatio / 0.45, 1.0);
-                    params.damagePercentage = Math.max(params.damagePercentage, 0.1 + 0.9 * normalizedDamage);
-                    params.active = true;
-                }
-            }
+        if (typeof GameScreenEffects !== 'undefined') {
+            return GameScreenEffects.getDamageTraumaParams(this, playerToCheck, nowSec, traumaNowMs, damageTraumaDuration);
         }
-
-        if (this.chromaticTraumaUntil && traumaNowMs < this.chromaticTraumaUntil) {
-            const traumaElapsed = traumaNowMs - (this.chromaticTraumaStart || traumaNowMs);
-            const traumaDuration = Math.max(1, this.chromaticTraumaDuration || (5 * 1000 / 60));
-            const traumaProgress = Math.min(traumaElapsed / traumaDuration, 1.0);
-            const traumaIntensity = (1.0 - traumaProgress) * (this.chromaticTraumaIntensity || 0.75);
-            params.intensity = Math.max(params.intensity, traumaIntensity);
-            params.damagePercentage = Math.max(params.damagePercentage, 0.45 * (this.chromaticTraumaIntensity || 0.75));
-            params.active = true;
-        }
-
-        if (!params.active || params.intensity <= 0) {
-            return params;
-        }
-
-        const baseMaxOffset = 2;
-        const maxMaxOffset = 16;
-        const maxOffset = baseMaxOffset + (maxMaxOffset - baseMaxOffset) * params.damagePercentage;
-        const easeIntensity = params.intensity * (2 - params.intensity);
-        params.offset = maxOffset * easeIntensity;
-        return params;
+        return { intensity: 0, offset: 0, damagePercentage: 0, active: false };
     },
 
     renderPlayingWorldClear(ctx, viewport = null) {
@@ -1560,305 +1161,62 @@ const Game = {
     },
 
     applyChromaticAberrationFromOffscreen(traumaParams, viewport = null) {
-        const logicalWidth = viewport ? viewport.w : this.config.width;
-        const logicalHeight = viewport ? viewport.h : this.config.height;
-        const targetX = viewport ? viewport.x : 0;
-        const targetY = viewport ? viewport.y : 0;
-        const adaptiveEnabled = typeof DebugFlags === 'undefined' || DebugFlags.ADAPTIVE_RENDER_QUALITY !== false;
-        const processScale = adaptiveEnabled && this.renderQuality && this.renderQuality.damageFxScale
-            ? this.renderQuality.damageFxScale
-            : 1;
-        const intensity = traumaParams.intensity;
-        const offset = traumaParams.offset * processScale;
-
-        this.ctx.clearRect(targetX, targetY, logicalWidth, logicalHeight);
-        if (intensity < 0.18) {
-            this.ctx.drawImage(this.offscreenCanvas, targetX, targetY, logicalWidth, logicalHeight);
+        if (typeof GameScreenEffects !== 'undefined') {
+            GameScreenEffects.applyChromaticAberrationFromOffscreen(this, traumaParams, viewport);
             return;
         }
-
-        Engine.FX.Post.chromaticAberration(this.ctx, {
-            source: this.offscreenCanvas,
-            x: targetX,
-            y: targetY,
-            width: logicalWidth,
-            height: logicalHeight,
-            offset,
-            intensity,
-            replace: true
-        });
     },
 
     /** Post-vignette screen-space glow for the pre-boss healer (after door opens). */
     renderPreBossHealerPunchThrough(ctx, viewPlayer = null, viewport = null, camera = null) {
-        const player = viewPlayer || this._activeViewPlayer || this.player;
-        if (typeof currentRoom === 'undefined' || !currentRoom || !currentRoom.doorOpen || !currentRoom.preBossHealer || !player) {
+        if (typeof GameScreenEffects !== 'undefined') {
+            GameScreenEffects.renderPreBossHealerPunchThrough(this, ctx, viewPlayer, viewport, camera);
             return;
         }
-        const healer = currentRoom.preBossHealer;
-        if (!healer.usedBy) healer.usedBy = new Set();
-        const localId = player === this.player
-            ? (typeof this.getLocalPlayerId === 'function' ? this.getLocalPlayerId() : 'local')
-            : (this.localSplitPlayerId || 'local-seat-1');
-        if (healer.usedBy.has(localId)) return;
-
-        const activeCamera = camera || this._activeRenderCamera || this.camera;
-        const activeViewport = viewport || this._activeRenderViewport;
-        const viewW = activeViewport ? activeViewport.w : this.config.width;
-        const viewH = activeViewport ? activeViewport.h : this.config.height;
-        const originX = activeViewport ? activeViewport.x : 0;
-        const originY = activeViewport ? activeViewport.y : 0;
-        const zoom = this.getViewZoom();
-        const cX = originX + (viewW / 2) + this.screenShakeOffset.x;
-        const cY = originY + (viewH / 2) + this.screenShakeOffset.y;
-        const sx = (healer.x - activeCamera.x) * zoom + cX;
-        const sy = (healer.y - activeCamera.y) * zoom + cY;
-        const t = Date.now() * 0.002;
-        const pulse = 0.5 + Math.sin(t) * 0.5;
-        const glowR = (70 + pulse * 20) * zoom;
-
-        // Stage-local state only: lighter composite then restore.
-        ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
-        if (this.preferSpriteShadows && this.preferSpriteShadows()) {
-            const sprite = this.getCachedGlowSprite('#00ff64');
-            if (sprite) {
-                ctx.globalAlpha = 0.22 + pulse * 0.14;
-                ctx.drawImage(sprite, sx - glowR, sy - glowR, glowR * 2, glowR * 2);
-                ctx.globalAlpha = 1;
-            }
-        } else {
-            const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, glowR);
-            grad.addColorStop(0, `rgba(0, 255, 100, ${0.18 + pulse * 0.12})`);
-            grad.addColorStop(0.4, `rgba(0, 200, 80, ${0.08 + pulse * 0.06})`);
-            grad.addColorStop(1, 'rgba(0,0,0,0)');
-            ctx.fillStyle = grad;
-            ctx.beginPath();
-            ctx.arc(sx, sy, glowR, 0, Math.PI * 2);
-            ctx.fill();
-        }
-        ctx.restore();
     },
 
     // Trigger hit pause — ~1 frame sells weight; longer / stacking reads as hitch
     triggerHitPause(duration = 0.016) {
-        // Attract mode: freezing the whole sim reads as lag, not impact
-        if (this.state === 'TITLE') return;
-        const capped = Math.min(Math.max(0, duration), 0.02);
-        // Never extend an active pause (cleave / slam refresh = stutter)
-        if (this.hitPauseTime <= 0) {
-            this.hitPauseTime = capped;
+        if (typeof GameScreenEffects !== 'undefined') {
+            GameScreenEffects.triggerHitPause(this, duration);
+            return;
         }
     },
 
     // Update screen shake
     updateScreenShake(deltaTime) {
-        if (Engine.Renderer && Engine.Renderer.updateScreenShake) {
-            Engine.Renderer.updateScreenShake(deltaTime);
-        } else {
-            if (this.screenShakeDuration > 0) {
-                this.screenShakeDuration -= deltaTime;
-                const baseShake = this.screenShakeIntensity * 10;
-                let xOffset = 0;
-                let yOffset = 0;
-
-                if (this.screenShakeDirection === 'player') {
-                    xOffset = (Math.random() - 0.5) * baseShake * 0.15;
-                    yOffset = (Math.random() - 0.5) * baseShake * 1.2;
-                } else if (this.screenShakeDirection === 'boss') {
-                    const angle = Math.random() * Math.PI * 2;
-                    const radius = Math.random() * baseShake;
-                    xOffset = Math.cos(angle) * radius * 1.1;
-                    yOffset = Math.sin(angle) * radius * 0.9;
-                } else {
-                    xOffset = (Math.random() - 0.5) * baseShake;
-                    yOffset = (Math.random() - 0.5) * baseShake;
-                }
-
-                this.screenShakeOffset.x = xOffset;
-                this.screenShakeOffset.y = yOffset;
-
-                if (this.screenShakeDuration <= 0) {
-                    this.screenShakeDuration = 0;
-                    this.screenShakeOffset.x = 0;
-                    this.screenShakeOffset.y = 0;
-                    this.screenShakeDirection = null;
-                }
-            }
+        if (typeof GameScreenEffects !== 'undefined') {
+            GameScreenEffects.updateScreenShake(this, deltaTime);
+            return;
         }
     },
 
     // Update camera to follow player
     updateCamera(deltaTime) {
-        // Only update camera in PLAYING state
-        if (this.state !== 'PLAYING' || !this.player) return;
-
-        // Handle boss intro camera override - center on boss
-        if (this.bossIntroActive && this.bossIntroData && this.bossIntroData.boss) {
-            // Directly center camera on boss during intro
-            this.camera.x = this.bossIntroData.boss.x;
-            this.camera.y = this.bossIntroData.boss.y;
+        if (typeof GameCameraManager !== 'undefined') {
+            GameCameraManager.updateCamera(this, deltaTime);
             return;
         }
-
-        // Handle smooth camera pan after boss intro
-        if (this.bossIntroCameraPan) {
-            this.bossIntroPanProgress += deltaTime / this.bossIntroPanDuration;
-
-            if (this.bossIntroPanProgress >= 1.0) {
-                // Pan complete, resume normal camera following
-                this.bossIntroCameraPan = false;
-                this.bossIntroPanProgress = 0;
-            } else {
-                // Smooth easing (ease-out cubic)
-                const t = this.bossIntroPanProgress;
-                const eased = 1 - Math.pow(1 - t, 3);
-
-                // Lerp from boss position to player position
-                const targetPlayer = this.player;
-                if (targetPlayer && targetPlayer.alive) {
-                    this.camera.x = this.bossIntroPanStartX + (targetPlayer.x - this.bossIntroPanStartX) * eased;
-                    this.camera.y = this.bossIntroPanStartY + (targetPlayer.y - this.bossIntroPanStartY) * eased;
-                }
-                return;
-            }
-        }
-
-        // Room 0 exit-door coach: bias camera toward the open door
-        if (typeof Room0Tutorial !== 'undefined'
-            && Room0Tutorial.getCameraOverride
-            && Room0Tutorial.isExitCoachActive
-            && Room0Tutorial.isExitCoachActive()) {
-            const override = Room0Tutorial.getCameraOverride();
-            if (override && Number.isFinite(override.x) && Number.isFinite(override.y)) {
-                this.camera.setTarget(override.x, override.y).update(deltaTime);
-                return;
-            }
-        }
-
-        // Get the player to follow
-        let targetPlayer = this.player;
-
-        // In multiplayer, if local player is dead, spectate another player
-        const inMultiplayer = this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
-        if (inMultiplayer && targetPlayer && targetPlayer.dead) {
-            // Local player is dead - find a living player to spectate
-            this.spectateMode = true;
-
-            // Look for alive remote player instances (host authority)
-            let spectateTarget = null;
-            if (this.remotePlayerInstances && this.remotePlayerInstances.size > 0) {
-                // Try to find an alive remote player instance
-                for (const [playerId, playerInstance] of this.remotePlayerInstances) {
-                    if (playerInstance && playerInstance.alive && !playerInstance.dead) {
-                        spectateTarget = playerInstance;
-                        this.spectatedPlayerId = playerId;
-                        break;
-                    }
-                }
-            }
-
-            // If no instances found, try remote players array (for clients)
-            if (!spectateTarget && this.remotePlayers && this.remotePlayers.length > 0) {
-                for (const remotePlayer of this.remotePlayers) {
-                    if (remotePlayer && !remotePlayer.dead) {
-                        spectateTarget = remotePlayer;
-                        this.spectatedPlayerId = remotePlayer.id;
-                        break;
-                    }
-                }
-            }
-
-            if (spectateTarget) {
-                targetPlayer = spectateTarget;
-            } else {
-                // No one to spectate - just stay at current camera position
-                return;
-            }
-        } else if (targetPlayer && targetPlayer.alive) {
-            // Local player is alive - clear spectate mode
-            this.spectateMode = false;
-            this.spectatedPlayerId = null;
-        }
-
-        if (!targetPlayer || !targetPlayer.alive) return;
-
-        // Resolve the follow point; engine camera owns look-ahead, clamping, and smoothing.
-        let followX = targetPlayer.x;
-        let followY = targetPlayer.y;
-        if (targetPlayer === this.player && typeof targetPlayer.getPredictedRenderPosition === 'function') {
-            const rp = targetPlayer.getPredictedRenderPosition();
-            followX = rp.x;
-            followY = rp.y;
-        }
-        const splitViewport = this.localSplitEnabled && this.localSplitSession
-            ? this.localSplitSession.viewports.seat0
-            : null;
-        this.camera
-            .setViewSize(
-                splitViewport ? splitViewport.w : this.config.width,
-                splitViewport ? splitViewport.h : this.config.height
-            )
-            .setZoom(this.getViewZoom())
-            .follow({
-                x: followX,
-                y: followY,
-                vx: targetPlayer.vx || 0,
-                vy: targetPlayer.vy || 0
-            }, deltaTime, typeof currentRoom !== 'undefined' ? currentRoom : null);
     },
 
-    // Initialize camera position (when entering room or starting game)
     initializeCamera() {
-        if (this.player) {
-            this.camera.snapTo(this.player.x, this.player.y);
-        } else {
-            // Default to room center
-            const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : 2400;
-            const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : 1350;
-            this.camera.snapTo(roomWidth / 2, roomHeight / 2);
+        if (typeof GameCameraManager !== 'undefined') {
+            GameCameraManager.initializeCamera(this);
+            return;
         }
     },
 
-    // Update nexus camera to follow player
     updateNexusCamera(deltaTime) {
-        if (!this.player || typeof nexusRoom === 'undefined' || !nexusRoom) return;
-
-        // Onboarding spotlight: lock camera to cutout center so the hole cannot scroll off-screen
-        let camOverride = (typeof Onboarding !== 'undefined' && Onboarding.getCameraOverride)
-            ? Onboarding.getCameraOverride()
-            : null;
-        if (!camOverride && typeof FeatureTutorials !== 'undefined' && FeatureTutorials.getCameraOverride) {
-            camOverride = FeatureTutorials.getCameraOverride();
+        if (typeof GameCameraManager !== 'undefined') {
+            GameCameraManager.updateNexusCamera(this, deltaTime);
+            return;
         }
-        if (camOverride) {
-            this.nexusCamera.setTarget(camOverride.x, camOverride.y);
-        } else {
-            // Target camera on player position
-            this.nexusCamera.setTarget(this.player.x, this.player.y);
-        }
-
-        this.nexusCamera
-            .setViewSize(this.config.width, this.config.height)
-            .setZoom(this.getViewZoom())
-            .clampToBounds(nexusRoom)
-            .update(deltaTime);
     },
 
-    // Initialize nexus camera
     initializeNexusCamera() {
-        let camOverride = (typeof Onboarding !== 'undefined' && Onboarding.getCameraOverride)
-            ? Onboarding.getCameraOverride()
-            : null;
-        if (!camOverride && typeof FeatureTutorials !== 'undefined' && FeatureTutorials.getCameraOverride) {
-            camOverride = FeatureTutorials.getCameraOverride();
-        }
-        if (camOverride) {
-            this.nexusCamera.snapTo(camOverride.x, camOverride.y);
-        } else if (this.player) {
-            this.nexusCamera.snapTo(this.player.x, this.player.y);
-        } else if (typeof nexusRoom !== 'undefined' && nexusRoom) {
-            this.nexusCamera.snapTo(nexusRoom.width / 2, nexusRoom.height / 2);
+        if (typeof GameCameraManager !== 'undefined') {
+            GameCameraManager.initializeNexusCamera(this);
+            return;
         }
     },
 
@@ -1880,168 +1238,73 @@ const Game = {
     },
 
     getExitDoorNearRange(player) {
-        const size = (player && player.size) || 28;
-        const isMobile = (typeof Engine !== 'undefined' && Engine.Input) && Engine.Input.isMobileUiMode && Engine.Input.isMobileUiMode();
-        return size * (isMobile ? 3.2 : 1.8);
+        if (typeof GameDoorController !== 'undefined') {
+            return GameDoorController.getExitDoorNearRange(this, player);
+        }
+        return (player && player.size || 28) * 1.8;
     },
 
     isPlayerNearExitDoor(player) {
-        if (!player || typeof getDoorPosition === 'undefined') return false;
-        if (typeof currentRoom === 'undefined' || !currentRoom || !currentRoom.doorOpen) return false;
-        const doorPos = getDoorPosition();
-        const dx = player.x - Math.max(doorPos.x, Math.min(player.x, doorPos.x + doorPos.width));
-        const dy = player.y - Math.max(doorPos.y, Math.min(player.y, doorPos.y + doorPos.height));
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        return distance <= this.getExitDoorNearRange(player);
+        if (typeof GameDoorController !== 'undefined') {
+            return GameDoorController.isPlayerNearExitDoor(this, player);
+        }
+        return false;
     },
 
     ensureDoorReadySet() {
-        if (!this.doorReadyPlayers) {
-            this.doorReadyPlayers = new Set(Array.isArray(this.playersOnDoor) ? this.playersOnDoor : []);
+        if (typeof GameDoorController !== 'undefined') {
+            return GameDoorController.ensureDoorReadySet(this);
         }
+        if (!this.doorReadyPlayers) this.doorReadyPlayers = new Set();
         return this.doorReadyPlayers;
     },
 
     isPlayerDoorReady(playerId) {
-        return this.ensureDoorReadySet().has(playerId);
+        if (typeof GameDoorController !== 'undefined') {
+            return GameDoorController.isPlayerDoorReady(this, playerId);
+        }
+        return false;
     },
 
     toggleDoorReadyForPlayer(playerId) {
-        const ready = this.ensureDoorReadySet();
-        if (ready.has(playerId)) {
-            ready.delete(playerId);
-        } else {
-            ready.add(playerId);
+        if (typeof GameDoorController !== 'undefined') {
+            GameDoorController.toggleDoorReadyForPlayer(this, playerId);
+            return;
         }
-        this.syncPlayersOnDoorFromReady();
     },
 
     syncPlayersOnDoorFromReady() {
-        this.playersOnDoor = Array.from(this.ensureDoorReadySet());
+        if (typeof GameDoorController !== 'undefined') {
+            GameDoorController.syncPlayersOnDoorFromReady(this);
+            return;
+        }
     },
 
     clearDoorReadyState() {
-        if (this.doorReadyPlayers) {
-            this.doorReadyPlayers.clear();
+        if (typeof GameDoorController !== 'undefined') {
+            GameDoorController.clearDoorReadyState(this);
+            return;
         }
-        this.playersOnDoor = [];
-        this.totalAlivePlayers = 0;
-        this._doorGKeyPrevLocal = false;
-        if (this._doorGKeyPrevByPlayer) {
-            this._doorGKeyPrevByPlayer.clear();
-        }
-        this._doorInteractPrevBySeat = {};
-        this.pendingDoorReadyToggle = false;
     },
 
     toggleDoorReadyAtExit() {
-        if (!this.player || !this.player.alive) return false;
-        if (!this.isPlayerNearExitDoor(this.player)) return false;
-
-        const localId = this.getLocalPlayerId();
-        const inMultiplayer = this.multiplayerEnabled &&
-            typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
-
-        if (inMultiplayer && !this.isHost()) {
-            this.pendingDoorReadyToggle = true;
-            return true;
+        if (typeof GameDoorController !== 'undefined') {
+            return GameDoorController.toggleDoorReadyAtExit(this);
         }
-
-        this.toggleDoorReadyForPlayer(localId);
-
-        if (!inMultiplayer) {
-            this.tryAdvanceWhenAllDoorReady();
-        }
-        return true;
+        return false;
     },
 
     didPlayerRequestDoorInteract(playerId, isLocal, inputState) {
-        // Local co-op: each seat's Interact (G / A) with door-owned edge tracking so
-        // gear/pylon isInteractJustPressed does not steal the door rising edge.
-        if (this.localSplitEnabled && this.localSplitSession && this.localSplitSession.seats) {
-            const seats = this.localSplitSession.seats;
-            const localId = typeof this.getLocalPlayerId === 'function' ? this.getLocalPlayerId() : 'local';
-            let seat = null;
-            if (isLocal || playerId === localId) seat = seats[0];
-            else if (playerId === this.localSplitPlayerId) seat = seats[1];
-            if (seat && typeof seat.isInteractPressed === 'function') {
-                if (this.pendingDoorReadyToggle && (isLocal || playerId === localId)) {
-                    this.pendingDoorReadyToggle = false;
-                    return true;
-                }
-                if (!this._doorInteractPrevBySeat) this._doorInteractPrevBySeat = {};
-                const down = !!seat.isInteractPressed();
-                const prev = !!this._doorInteractPrevBySeat[playerId];
-                this._doorInteractPrevBySeat[playerId] = down;
-                return down && !prev;
-            }
+        if (typeof GameDoorController !== 'undefined') {
+            return GameDoorController.didPlayerRequestDoorInteract(this, playerId, isLocal, inputState);
         }
-
-        if (isLocal) {
-            if (this.pendingDoorReadyToggle) {
-                this.pendingDoorReadyToggle = false;
-                return true;
-            }
-            const gDown = !!(Engine.Input && Engine.Input.keys && Engine.Input.keys['g']);
-            const justPressed = gDown && !this._doorGKeyPrevLocal;
-            this._doorGKeyPrevLocal = gDown;
-            return justPressed;
-        }
-
-        if (!inputState) return false;
-        if (inputState.doorInteractJustPressed) return true;
-        if (inputState.touchButtons && inputState.touchButtons.interact && inputState.touchButtons.interact.justPressed) {
-            return true;
-        }
-
-        if (!this._doorGKeyPrevByPlayer) {
-            this._doorGKeyPrevByPlayer = new Map();
-        }
-        const gDown = !!(inputState.keys && inputState.keys['g']);
-        const prev = this._doorGKeyPrevByPlayer.get(playerId) || false;
-        this._doorGKeyPrevByPlayer.set(playerId, gDown);
-        return gDown && !prev;
+        return false;
     },
 
     tryAdvanceWhenAllDoorReady() {
-        if (typeof currentRoom === 'undefined' || !currentRoom || !currentRoom.doorOpen) return;
-
-        const alivePlayers = [];
-        const inMultiplayer = this.multiplayerEnabled &&
-            typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
-
-        if (inMultiplayer) {
-            if (!this.isHost()) return;
-
-            if (this.player && this.player.alive) {
-                alivePlayers.push(this.getLocalPlayerId());
-            }
-            if (this.remotePlayerInstances) {
-                this.remotePlayerInstances.forEach((playerInstance, playerId) => {
-                    if (!this.isPlayerConnectedForMp(playerId)) return;
-                    if (playerInstance && playerInstance.alive && !playerInstance.dead) {
-                        alivePlayers.push(playerId);
-                    }
-                });
-            }
-        } else {
-            if (this.player && this.player.alive) {
-                alivePlayers.push(this.getLocalPlayerId());
-            }
-            if (this.localSplitEnabled && this.remotePlayerInstances) {
-                const p2 = this.remotePlayerInstances.get(this.localSplitPlayerId);
-                if (p2 && p2.alive && !p2.dead) {
-                    alivePlayers.push(this.localSplitPlayerId);
-                }
-            }
-        }
-
-        if (alivePlayers.length === 0) return;
-
-        const ready = this.ensureDoorReadySet();
-        const allReady = alivePlayers.every(id => ready.has(id));
-        if (allReady && ready.size > 0) {
-            this.advanceToNextRoom();
+        if (typeof GameDoorController !== 'undefined') {
+            GameDoorController.tryAdvanceWhenAllDoorReady(this);
+            return;
         }
     },
 
@@ -2089,104 +1352,23 @@ const Game = {
      * audio, privacy) without unpausing. Returns true if something was dismissed.
      */
     dismissOverlayAbovePause() {
-        // DOM audio menu (opened from pause)
-        if (typeof window !== 'undefined' && window.UIAudio && typeof window.UIAudio.close === 'function') {
-            const audioPanel = document.querySelector('.audio-menu');
-            const audioLayer = audioPanel && audioPanel.closest('.ui-layer--modal');
-            if (audioLayer) {
-                const display = audioLayer.style.display || (window.getComputedStyle
-                    ? window.getComputedStyle(audioLayer).display
-                    : '');
-                if (display && display !== 'none') {
-                    window.UIAudio.close();
-                    return true;
-                }
-            }
+        if (typeof GameModalController !== 'undefined') {
+            return GameModalController.dismissOverlayAbovePause(this);
         }
-
-        // Legacy canvas audio menu flag
-        if (typeof audioMenuVisible !== 'undefined' && audioMenuVisible) {
-            audioMenuVisible = false;
-            if (typeof activeAudioSliderKey !== 'undefined') activeAudioSliderKey = null;
-            if (typeof activeAudioSliderPointerId !== 'undefined') activeAudioSliderPointerId = null;
-            if (typeof Engine !== 'undefined' && Engine.Audio && Engine.Audio.saveSettings) {
-                Engine.Audio.saveSettings();
-            }
-            return true;
-        }
-
-        if (this.updateModalVisible) {
-            this.updateModalVisible = false;
-            if (typeof SaveSystem !== 'undefined' && SaveSystem.setLastRunVersion && this.VERSION) {
-                SaveSystem.setLastRunVersion(this.VERSION);
-            }
-            if (typeof updateModalScroll !== 'undefined') {
-                updateModalScroll = 0;
-            }
-            return true;
-        }
-
-        if (this.launchModalVisible) {
-            // Forced first-run controls step: Esc cannot dismiss
-            if (typeof Onboarding !== 'undefined' && Onboarding.getStep
-                && Onboarding.getStep() === Onboarding.STEPS.CONTROLS
-                && !Onboarding.isSuspended()) {
-                return true; // consumed; stay on how-to-play / controls
-            }
-            this.launchModalVisible = false;
-            if (typeof SaveSystem !== 'undefined' && SaveSystem.setHasSeenLaunchModal) {
-                SaveSystem.setHasSeenLaunchModal(true);
-            }
-            return true;
-        }
-
-        if (this.privacyModalVisible) {
-            if (typeof Onboarding !== 'undefined'
-                && Onboarding.getStep
-                && Onboarding.getStep() === Onboarding.STEPS.PRIVACY
-                && this.privacyModalContext === 'onboarding') {
-                return true; // consumed; stay on privacy
-            }
-            this.closePrivacyModal();
-            return true;
-        }
-
         return false;
     },
 
     setTelemetryPreference(optIn) {
-        const enabled = optIn === true;
-        this.telemetryOptIn = enabled;
-        if (typeof SaveSystem !== 'undefined' && SaveSystem.setTelemetryOptIn) {
-            SaveSystem.setTelemetryOptIn(enabled);
-        }
-        if (!enabled && typeof Telemetry !== 'undefined' && Telemetry.reset) {
-            Telemetry.reset();
+        if (typeof GameModalController !== 'undefined') {
+            GameModalController.setTelemetryPreference(this, optIn);
+            return;
         }
     },
 
     handlePrivacyChoice(optIn) {
-        if (typeof SaveSystem !== 'undefined' && SaveSystem.setPrivacyAcknowledged) {
-            SaveSystem.setPrivacyAcknowledged(true);
-        }
-        const context = this.privacyModalContext;
-        this.setTelemetryPreference(optIn);
-        // Force-close after ack (privacy step is done; do not use the blocked close path)
-        this.privacyModalVisible = false;
-        this.privacyModalReturnToPause = false;
-        this.privacyModalContext = 'onboarding';
-        this.privacyModalPreviousShowPauseMenu = false;
-        if (context === 'onboarding') {
-            if (typeof Onboarding !== 'undefined' && Onboarding.notifyPrivacyDone) {
-                Onboarding.notifyPrivacyDone();
-            }
-            if (typeof SaveSystem !== 'undefined' && !SaveSystem.getHasSeenLaunchModal()) {
-                this.launchModalVisible = true;
-            }
-        } else if (context === 'pause') {
-            if (this.multiplayerEnabled) {
-                this.showPauseMenu = true;
-            }
+        if (typeof GameModalController !== 'undefined') {
+            GameModalController.handlePrivacyChoice(this, optIn);
+            return;
         }
     },
 
@@ -2509,6 +1691,19 @@ const Game = {
             this.remotePlayerInstances.set(playerId, playerInstance);
             console.log(`[Host] Created player instance for ${playerId} (${playerClass})`);
         }
+    },
+
+    // Get suppressed input adapter for local player when navigating menus
+    getSuppressedInputAdapter() {
+        return {
+            getKeyState: () => false,
+            getWorldMousePos: () => (Engine.Input && Engine.Input.getWorldMousePos ? Engine.Input.getWorldMousePos() : { x: 0, y: 0 }),
+            mouseLeft: false,
+            mouseRight: false,
+            touchJoysticks: {},
+            touchButtons: {},
+            keys: {}
+        };
     },
 
     // Create input adapter for remote player (passes raw input directly)
@@ -3143,119 +2338,49 @@ const Game = {
     },
 
     enableLocalSplit(options = {}) {
-        if (this.localSplitEnabled) return true;
-        const inOnlineSession = this.multiplayerEnabled &&
-            typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
-        if (inOnlineSession || !Engine.Split || !this.player) return false;
-
-        const eligibility = this.getLocalSplitEligibility();
-        let primaryPadIndex = null;
-        let seat1PadIndex = null;
-
-        if (Number.isInteger(options.gamepadIndex)) {
-            // START-to-join: both seats must be pads (never touch / never lone pad + touch).
-            seat1PadIndex = options.gamepadIndex;
-            primaryPadIndex = this.getLocalSplitPrimaryGamepadIndex(seat1PadIndex);
-            if (primaryPadIndex === null) return false;
-        } else if (options.allowKeyboardPrimary && this.hasLocalSplitKeyboardMouse()) {
-            const pad = this.getLocalSplitMenuGamepad();
-            if (!pad) return false;
-            primaryPadIndex = null;
-            seat1PadIndex = pad.index;
-        } else if (eligibility.ok && eligibility.mode === 'dualPad') {
-            primaryPadIndex = eligibility.pads[0].index;
-            seat1PadIndex = eligibility.pads[1].index;
-        } else {
-            return false;
+        if (typeof GameSplitSession !== 'undefined') {
+            const eligibility = this.getLocalSplitEligibility();
+            let primaryPadIndex = null;
+            let seat1PadIndex = null;
+            if (Number.isInteger(options.gamepadIndex)) {
+                seat1PadIndex = options.gamepadIndex;
+                primaryPadIndex = this.getLocalSplitPrimaryGamepadIndex(seat1PadIndex);
+                if (primaryPadIndex === null) return false;
+            } else if (options.allowKeyboardPrimary && this.hasLocalSplitKeyboardMouse()) {
+                const pad = this.getLocalSplitMenuGamepad();
+                if (!pad) return false;
+                primaryPadIndex = null;
+                seat1PadIndex = pad.index;
+            } else if (eligibility.ok && eligibility.mode === 'dualPad') {
+                primaryPadIndex = eligibility.pads[0].index;
+                seat1PadIndex = eligibility.pads[1].index;
+            } else {
+                return false;
+            }
+            return GameSplitSession.enableLocalSplit(this, primaryPadIndex, seat1PadIndex);
         }
-
-        const input = Engine.Input;
-        const session = Engine.Split.createSession({
-            seatCount: 2,
-            layout: this.localSplitLayout,
-            logicalW: this.config.width,
-            logicalH: this.config.height,
-            seat0GamepadIndex: primaryPadIndex,
-            seat1GamepadIndex: seat1PadIndex
-        });
-        if (primaryPadIndex === null && input) {
-            input._gamepadIndex = null;
-            input._gamepadActive = false;
-            input._activeInputSource = 'keyboardMouse';
-        }
-        this.localSplitEnabled = true;
-        this.localSplitSelectedClass = this.player.playerClass || this.selectedClass || 'square';
-        this.initializeRemotePlayerInstance(
-            this.localSplitPlayerId,
-            this.localSplitSelectedClass
-        );
-        const secondPlayer = this.remotePlayerInstances.get(this.localSplitPlayerId);
-        if (!secondPlayer) {
-            this.localSplitEnabled = false;
-            Engine.Split.endSession();
-            return false;
-        }
-        secondPlayer.localSplitControlled = true;
-        secondPlayer.x = this.player.x + (this.player.size || 20) * 3;
-        secondPlayer.y = this.player.y;
-        this.initializeRemotePlayerState(this.localSplitPlayerId);
-        const splitState = this.remotePlayerStates.get(this.localSplitPlayerId);
-        if (splitState) {
-            splitState.hp = secondPlayer.hp;
-            splitState.maxHp = secondPlayer.maxHp;
-            splitState.size = secondPlayer.size;
-        }
-        this.splitCamera.snapTo(secondPlayer.x, secondPlayer.y);
-        this.getPlayerStats(this.localSplitPlayerId);
-        this.localSplitSession = session;
-        // Any solo ground items already out become shared pylons so both seats can claim.
-        if (typeof convertGroundItemsToPylons === 'function') {
-            convertGroundItemsToPylons();
-        }
-        return true;
+        return false;
     },
 
     disableLocalSplit() {
-        if (!this.localSplitEnabled) return;
-        this.remotePlayerInstances.delete(this.localSplitPlayerId);
-        this.remotePlayerInputs.delete(this.localSplitPlayerId);
-        this.remotePlayerStates.delete(this.localSplitPlayerId);
-        if (Engine.Split) Engine.Split.endSession();
-        this.localSplitSession = null;
-        this.localSplitEnabled = false;
-        this.localSplitSelectedClass = null;
+        if (typeof GameSplitSession !== 'undefined') {
+            GameSplitSession.disableLocalSplit(this);
+            return;
+        }
     },
 
-    /** Apply a nexus class pick to the local-split P2 instance (shared profile/economy). */
     setLocalSplitClass(classKey, x = null, y = null) {
-        if (!classKey || !this.localSplitEnabled) return false;
-        this.localSplitSelectedClass = classKey;
-        const existing = this.remotePlayerInstances.get(this.localSplitPlayerId);
-        const px = Number.isFinite(x) ? x : (existing ? existing.x : (this.player ? this.player.x + 60 : 0));
-        const py = Number.isFinite(y) ? y : (existing ? existing.y : (this.player ? this.player.y : 0));
-        this.initializeRemotePlayerInstance(this.localSplitPlayerId, classKey);
-        const secondPlayer = this.remotePlayerInstances.get(this.localSplitPlayerId);
-        if (!secondPlayer) return false;
-        secondPlayer.localSplitControlled = true;
-        secondPlayer.x = px;
-        secondPlayer.y = py;
-        this.initializeRemotePlayerState(this.localSplitPlayerId);
-        const splitState = this.remotePlayerStates.get(this.localSplitPlayerId);
-        if (splitState) {
-            splitState.hp = secondPlayer.hp;
-            splitState.maxHp = secondPlayer.maxHp;
-            splitState.size = secondPlayer.size;
-            splitState.class = classKey;
+        if (typeof GameSplitSession !== 'undefined') {
+            return GameSplitSession.setLocalSplitClass(this, classKey, x, y);
         }
-        this.getPlayerStats(this.localSplitPlayerId);
-        return true;
+        return false;
     },
 
     getLocalSplitClass() {
-        if (!this.localSplitEnabled) return null;
-        return this.localSplitSelectedClass
-            || (this.remotePlayerInstances.get(this.localSplitPlayerId) || {}).playerClass
-            || null;
+        if (typeof GameSplitSession !== 'undefined') {
+            return GameSplitSession.getLocalSplitClass(this);
+        }
+        return null;
     },
 
     /** Local-coop / solo actors that can claim gear, items, doors, healers. */
@@ -4065,10 +3190,14 @@ const Game = {
 
         // Update players based on multiplayer role
         if (this.multiplayerEnabled) {
+            const activeInput = (this.showPauseMenu || (typeof multiplayerMenuVisible !== 'undefined' && multiplayerMenuVisible))
+                ? this.getSuppressedInputAdapter()
+                : Engine.Input;
+
             if (this.isHost()) {
                 // HOST: Update local player + simulate all remote player instances
                 if (this.player && this.player.alive) {
-                    this.player.update(deltaTime, Engine.Input);
+                    this.player.update(deltaTime, activeInput);
                 }
 
                 // Update all remote player instances with their inputs
@@ -4205,7 +3334,10 @@ const Game = {
             if (this.localSplitEnabled) {
                 this.updateLocalSplit(deltaTime);
             } else if (this.player && this.player.alive) {
-                this.player.update(deltaTime, Engine.Input);
+                const activeInput = (this.showPauseMenu || (typeof multiplayerMenuVisible !== 'undefined' && multiplayerMenuVisible))
+                    ? this.getSuppressedInputAdapter()
+                    : Engine.Input;
+                this.player.update(deltaTime, activeInput);
             }
         }
 
@@ -4388,268 +3520,49 @@ const Game = {
 
     // Start boss intro sequence
     startBossIntro(boss) {
-        if (!boss || !boss.isBoss) {
-            console.error('startBossIntro called with invalid boss');
+        if (typeof GameBossIntro !== 'undefined') {
+            GameBossIntro.startBossIntro(this, boss);
             return;
         }
-
-        // Disable boss intros after room 30
-        const currentRoomNumber = this.roomNumber || (typeof currentRoom !== 'undefined' && currentRoom ? currentRoom.number : 0);
-        if (currentRoomNumber > 30) {
-            // Skip intro - immediately mark as complete
-            boss.introComplete = true;
-            console.log(`Boss intro skipped for ${boss.bossName} (room ${currentRoomNumber} > 30)`);
-            return;
-        }
-
-        this.bossIntroActive = true;
-        this.bossIntroData = {
-            boss: boss,
-            name: boss.bossName || 'BOSS',
-            duration: 3.0, // 3 seconds total
-            elapsedTime: 0,
-            skipAvailable: false
-        };
-
-        // Mark boss intro as started (boss will freeze during intro)
-        boss.introComplete = false;
-
-        console.log(`Boss intro started for ${boss.bossName}`);
     },
 
     // Update boss intro sequence
     updateBossIntro(deltaTime) {
-        if (!this.bossIntroData) return;
-
-        this.bossIntroData.elapsedTime += deltaTime;
-
-        // Enable skip after 2 seconds
-        if (this.bossIntroData.elapsedTime >= 2.0) {
-            this.bossIntroData.skipAvailable = true;
-        }
-
-        // End intro after duration or if skipped
-        if (this.bossIntroData.elapsedTime >= this.bossIntroData.duration) {
-            this.endBossIntro();
+        if (typeof GameBossIntro !== 'undefined') {
+            GameBossIntro.updateBossIntro(this, deltaTime);
+            return;
         }
     },
 
     // Skip boss intro
     skipBossIntro() {
-        if (!this.bossIntroData || !this.bossIntroData.skipAvailable) return;
-
-        this.endBossIntro();
+        if (typeof GameBossIntro !== 'undefined') {
+            GameBossIntro.skipBossIntro(this);
+            return;
+        }
     },
 
     // End boss intro sequence
     endBossIntro() {
-        if (!this.bossIntroData || !this.bossIntroData.boss) return;
-
-        // Mark boss intro as complete
-        this.bossIntroData.boss.introComplete = true;
-
-        // Start smooth camera pan from boss to player
-        this.bossIntroCameraPan = true;
-        this.bossIntroPanProgress = 0;
-        this.bossIntroPanStartX = this.camera.x; // Current position (on boss)
-        this.bossIntroPanStartY = this.camera.y;
-
-        this.bossIntroActive = false;
-        this.bossIntroData = null;
-
-        console.log('Boss intro ended, starting camera pan to player');
+        if (typeof GameBossIntro !== 'undefined') {
+            GameBossIntro.endBossIntro(this);
+            return;
+        }
     },
 
-    // Render boss intro sequence
+        // Render boss intro sequence
     renderBossIntro(ctx) {
-        if (!this.bossIntroData || !this.bossIntroData.boss) return;
-
-        // Dark overlay (80% opacity)
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-        ctx.fillRect(0, 0, this.config.width, this.config.height);
-
-        // Calculate fade and scale for boss name text
-        const elapsed = this.bossIntroData.elapsedTime;
-        const nameFadeIn = Math.min(1.0, elapsed / 0.5); // Fade in over 0.5s
-        const nameScale = 0.5 + (nameFadeIn * 0.5); // Scale from 0.5 to 1.0
-
-        // Apply camera transform with boss intro zoom to render boss centered and zoomed
-        ctx.save();
-
-        // Center point of screen
-        const centerX = this.config.width / 2;
-        const centerY = this.config.height / 2;
-
-        // Translate to center, apply zoom, then offset by camera position
-        ctx.translate(centerX, centerY);
-        ctx.scale(this.bossIntroZoom, this.bossIntroZoom);
-        ctx.translate(-this.camera.x, -this.camera.y);
-
-        // Render boss (frozen during intro)
-        ctx.globalAlpha = 1.0;
-        this.bossIntroData.boss.render(ctx);
-        ctx.restore();
-
-        // Boss name text (positioned above boss to avoid health bar overlap)
-        ctx.save();
-        ctx.globalAlpha = nameFadeIn;
-        ctx.fillStyle = '#ffffff';
-        ctx.font = `bold ${48 * nameScale}px Orbitron`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        // Scale-aware positioning: move up based on screen height
-        const nameOffsetY = this.config.height * 0.20; // 20% from center
-        ctx.fillText(this.bossIntroData.name, this.config.width / 2, this.config.height / 2 - nameOffsetY);
-        ctx.restore();
-
-        // "Press any key to continue" text (after 2 seconds)
-        if (this.bossIntroData.skipAvailable) {
-            const skipFade = Math.sin(Date.now() / 200); // Blinking effect
-            ctx.save();
-            ctx.globalAlpha = 0.5 + skipFade * 0.5;
-            ctx.fillStyle = '#ffff00';
-            ctx.font = 'bold 20px Orbitron';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            // Position at bottom of screen area
-            const skipOffsetY = this.config.height * 0.25; // 25% from center
-            ctx.fillText('Press any key to continue', this.config.width / 2, this.config.height / 2 + skipOffsetY);
-            ctx.restore();
+        if (typeof GameBossIntro !== 'undefined') {
+            GameBossIntro.renderBossIntro(this, ctx);
+            return;
         }
     },
 
     // Check for gear pickup
     checkGearPickup() {
-        if (!Engine.Input) return;
-
-        // Don't interact with world while a machine/sheet modal owns focus
-        if (typeof window !== 'undefined') {
-            if (window.SafeRoomMenu && window.SafeRoomMenu.isOpen) return;
-            if (window.GearUpgradeMenu && window.GearUpgradeMenu.isOpen) return;
-            if (Game && Game.showingIndexMachine) return;
-            if (window.CharacterSheet && typeof window.CharacterSheet.isOpen === 'function' && window.CharacterSheet.isOpen()) return;
-            if (window.ControllerNav && typeof window.ControllerNav.isBlockingGameplay === 'function'
-                && window.ControllerNav.isBlockingGameplay()) return;
-        }
-
-        const actors = typeof this.getLocalCoopActors === 'function'
-            ? this.getLocalCoopActors()
-            : (this.player && this.player.alive
-                ? [{ seatId: 'p1', player: this.player, playerId: this.getLocalPlayerId(), seat: null, isPrimary: true }]
-                : []);
-        if (actors.length === 0) return;
-
-        const splitActive = !!this.localSplitEnabled;
-        for (const actor of actors) {
-            if (!actor.player || !actor.player.alive) continue;
-
-            // Loot cycling: P1 arrows / P2 dpad
-            if (typeof LootSelection !== 'undefined' && (!Engine.Input.isMobileUiMode || !Engine.Input.isMobileUiMode())) {
-                LootSelection.updateNearbyItems(actor.player, actor.seatId);
-                if (actor.isPrimary) {
-                    if (Engine.Input.keys && Engine.Input.keys['arrowleft'] && !this.lastLeftArrowState) {
-                        this.lastLeftArrowState = true;
-                        LootSelection.cyclePrevious(actor.seatId);
-                    } else if (Engine.Input.keys && Engine.Input.keys['arrowleft'] === false) {
-                        this.lastLeftArrowState = false;
-                    }
-                    if (Engine.Input.keys && Engine.Input.keys['arrowright'] && !this.lastRightArrowState) {
-                        this.lastRightArrowState = true;
-                        LootSelection.cycleNext(actor.seatId);
-                    } else if (Engine.Input.keys && Engine.Input.keys['arrowright'] === false) {
-                        this.lastRightArrowState = false;
-                    }
-                } else if (actor.seat) {
-                    if (!this._lootCyclePrevBySeat) this._lootCyclePrevBySeat = {};
-                    const prev = this._lootCyclePrevBySeat[actor.seatId] || { left: false, right: false };
-                    const left = !!(actor.seat._buttonDown && actor.seat._buttonDown(14));
-                    const right = !!(actor.seat._buttonDown && actor.seat._buttonDown(15));
-                    if (left && !prev.left) LootSelection.cyclePrevious(actor.seatId);
-                    if (right && !prev.right) LootSelection.cycleNext(actor.seatId);
-                    this._lootCyclePrevBySeat[actor.seatId] = { left, right };
-                }
-            }
-
-            let shouldPickup = false;
-            if (splitActive && actor.seat && typeof actor.seat.isInteractJustPressed === 'function') {
-                shouldPickup = actor.seat.isInteractJustPressed();
-            } else if (actor.isPrimary) {
-                if (Engine.Input.keys && !this.lastGKeyState && Engine.Input.keys['g']) {
-                    this.lastGKeyState = true;
-                    shouldPickup = true;
-                } else if (Engine.Input.keys && Engine.Input.keys['g'] === false) {
-                    this.lastGKeyState = false;
-                }
-            }
-            if (!shouldPickup) continue;
-
-            // Safe room machines (shared UI — either seat can open)
-            if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'safe') {
-                const machines = (typeof window.getSafeRoomMachines === 'function') ? window.getSafeRoomMachines(currentRoom) : [];
-                const nearMachine = machines.find(m => {
-                    const dx = m.x - actor.player.x;
-                    const dy = m.y - actor.player.y;
-                    return Math.sqrt(dx * dx + dy * dy) < m.range;
-                });
-                if (nearMachine) {
-                    if (typeof window.toggleSafeRoomMachine === 'function') {
-                        window.toggleSafeRoomMachine(true, nearMachine.id);
-                        continue;
-                    }
-                }
-            }
-
-            // Pre-boss healer (per player claim)
-            if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen && currentRoom.preBossHealer) {
-                const healer = currentRoom.preBossHealer;
-                if (!healer.usedBy) healer.usedBy = new Set();
-                if (!healer.usedBy.has(actor.playerId)) {
-                    const dx = healer.x - actor.player.x;
-                    const dy = healer.y - actor.player.y;
-                    if (Math.sqrt(dx * dx + dy * dy) < healer.range) {
-                        healer.usedBy.add(actor.playerId);
-                        actor.player.hp = Math.min(actor.player.maxHp, actor.player.hp + Math.floor(actor.player.maxHp * 0.25));
-                        if (typeof actor.player.updateEffectiveStats === 'function') {
-                            actor.player.updateEffectiveStats();
-                        }
-                        if (typeof GameAudio !== 'undefined' && GameAudio.sounds && GameAudio.sounds.heal) {
-                            GameAudio.sounds.heal();
-                        }
-                        console.log("[Healer] Restored 25% HP to player", actor.playerId);
-                        continue;
-                    }
-                }
-            }
-
-            // Item pylons (online MP or local co-op — each seat claims once)
-            if (typeof checkItemPylonInteraction !== 'undefined') {
-                const pylon = checkItemPylonInteraction(actor.player, actor.playerId);
-                if (pylon && typeof interactWithItemPylon === 'function') {
-                    interactWithItemPylon(pylon, actor.player, actor.playerId);
-                    continue;
-                }
-            }
-
-            let gearToPickup = null;
-            if (typeof LootSelection !== 'undefined') {
-                LootSelection.updateNearbyItems(actor.player, actor.seatId);
-                gearToPickup = LootSelection.getSelectedGear(actor.seatId);
-            }
-            if (!gearToPickup && typeof groundLoot !== 'undefined') {
-                let closestDistance = 50;
-                groundLoot.forEach(gear => {
-                    const dx = gear.x - actor.player.x;
-                    const dy = gear.y - actor.player.y;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
-                    if (distance < closestDistance) {
-                        closestDistance = distance;
-                        gearToPickup = gear;
-                    }
-                });
-            }
-            if (gearToPickup) {
-                this.pickupGear(gearToPickup, actor.player, actor.playerId);
-            }
+        if (typeof GameLootInteraction !== 'undefined') {
+            GameLootInteraction.checkGearPickup(this);
+            return;
         }
     },
 
@@ -4795,78 +3708,10 @@ const Game = {
 
     // Check door collision
     checkDoorCollision() {
-        this.nearExitDoor = false;
-
-        if (typeof currentRoom === 'undefined' || !currentRoom || !currentRoom.doorOpen) {
+        if (typeof GameDoorController !== 'undefined') {
+            GameDoorController.checkDoorCollision(this);
             return;
         }
-
-        // Proximity hint for any local-coop seat (or solo/MP local player)
-        if (this.player && this.player.alive && this.isPlayerNearExitDoor(this.player)) {
-            this.nearExitDoor = true;
-        } else if (this.localSplitEnabled && this.remotePlayerInstances) {
-            const p2 = this.remotePlayerInstances.get(this.localSplitPlayerId);
-            if (p2 && p2.alive && this.isPlayerNearExitDoor(p2)) {
-                this.nearExitDoor = true;
-            }
-        }
-
-        const inMultiplayer = this.multiplayerEnabled &&
-            typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
-
-        if (inMultiplayer && !this.isHost()) {
-            return;
-        }
-
-        const ready = this.ensureDoorReadySet();
-        const alivePlayers = [];
-
-        if (this.player && this.player.alive) {
-            alivePlayers.push({ player: this.player, id: this.getLocalPlayerId(), isLocal: true });
-        }
-
-        if (inMultiplayer && this.remotePlayerInstances) {
-            this.remotePlayerInstances.forEach((playerInstance, playerId) => {
-                if (!this.isPlayerConnectedForMp(playerId)) return;
-                if (playerInstance && playerInstance.alive && !playerInstance.dead) {
-                    alivePlayers.push({ player: playerInstance, id: playerId, isLocal: false });
-                }
-            });
-        } else if (this.localSplitEnabled && this.remotePlayerInstances) {
-            const p2 = this.remotePlayerInstances.get(this.localSplitPlayerId);
-            if (p2 && p2.alive && !p2.dead) {
-                alivePlayers.push({ player: p2, id: this.localSplitPlayerId, isLocal: false });
-            }
-        }
-
-        if (alivePlayers.length === 0) {
-            this.syncPlayersOnDoorFromReady();
-            this.totalAlivePlayers = 0;
-            return;
-        }
-
-        alivePlayers.forEach(({ player, id, isLocal }) => {
-            const nearDoor = this.isPlayerNearExitDoor(player);
-            const inputState = isLocal ? null : this.getRemotePlayerInput(id);
-
-            if (!nearDoor) {
-                if (ready.has(id)) {
-                    ready.delete(id);
-                }
-                if (!isLocal && this._doorGKeyPrevByPlayer) {
-                    this._doorGKeyPrevByPlayer.delete(id);
-                }
-                return;
-            }
-
-            if (this.didPlayerRequestDoorInteract(id, isLocal, inputState)) {
-                this.toggleDoorReadyForPlayer(id);
-            }
-        });
-
-        this.syncPlayersOnDoorFromReady();
-        this.totalAlivePlayers = alivePlayers.length;
-        this.tryAdvanceWhenAllDoorReady();
     },
 
     getRoomSpawnPoint(room = null, index = 0) {
@@ -5088,132 +3933,44 @@ const Game = {
     },
 
     beginRoomEnterTransition(options = {}) {
-        if (typeof RunProfiler !== 'undefined' && RunProfiler.isActive()) {
-            RunProfiler.markRoomTransitionStart();
+        if (typeof GameRoomTransition !== 'undefined') {
+            GameRoomTransition.beginRoomEnterTransition(this, options);
+            return;
         }
-        this.roomEnterTransition = {
-            phase: 0,
-            roomNumber: options.roomNumber != null ? options.roomNumber : this.roomNumber,
-            startedAt: performance.now(),
-            minMs: options.minMs != null ? options.minMs : 280,
-            onComplete: typeof options.onComplete === 'function' ? options.onComplete : null
-        };
-        this.state = 'ENTERING_ROOM';
-        this.paused = false;
     },
 
     updateRoomEnterTransition() {
-        const transition = this.roomEnterTransition;
-        if (!transition) {
-            this.finishRoomEnterTransition();
+        if (typeof GameRoomTransition !== 'undefined') {
+            GameRoomTransition.updateRoomEnterTransition(this);
             return;
-        }
-
-        if (transition.phase === 0) {
-            if (typeof currentRoom !== 'undefined' && currentRoom && typeof prepareRoomRenderData === 'function') {
-                prepareRoomRenderData(currentRoom, transition.roomNumber);
-            }
-            if (typeof resetVoxelStaticCanvas === 'function' && typeof currentRoom !== 'undefined' && currentRoom) {
-                resetVoxelStaticCanvas(currentRoom.width || 2400, currentRoom.height || 1350);
-            }
-            // Fresh frame-budget window per room so end-of-fight load does not crush vignette on entry.
-            this.frameBudgetSamples.length = 0;
-            this.renderQuality = this.getBaseRenderQuality();
-            transition.phase = 1;
-            return;
-        }
-
-        if (transition.phase === 1) {
-            if (typeof currentRoom !== 'undefined' && currentRoom) {
-                if (typeof bakeRoomStaticSceneCache === 'function') {
-                    bakeRoomStaticSceneCache(currentRoom, transition.roomNumber);
-                } else if (typeof prepareRoomRenderCaches === 'function') {
-                    prepareRoomRenderCaches(currentRoom, transition.roomNumber);
-                }
-            }
-            transition.phase = 2;
-            return;
-        }
-
-        if (transition.phase === 2 && performance.now() - transition.startedAt >= transition.minMs) {
-            this.finishRoomEnterTransition();
         }
     },
 
     finishRoomEnterTransition() {
-        const onComplete = this.roomEnterTransition && this.roomEnterTransition.onComplete;
-        const roomNumber = this.roomEnterTransition ? this.roomEnterTransition.roomNumber : this.roomNumber;
-        this.roomEnterTransition = null;
-        this.state = 'PLAYING';
-        if (typeof RunProfiler !== 'undefined' && RunProfiler.isActive()) {
-            RunProfiler.markRoomTransitionEnd(roomNumber);
-            const roomType = (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type) ? currentRoom.type : 'normal';
-            const biomeId = (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.biomeId) ? currentRoom.biomeId : null;
-            RunProfiler.markRoomEnter(roomNumber, roomType, biomeId);
-        }
-        if (typeof this.initializeCamera === 'function') {
-            this.initializeCamera();
-        }
-        if (typeof onComplete === 'function') {
-            onComplete();
+        if (typeof GameRoomTransition !== 'undefined') {
+            GameRoomTransition.finishRoomEnterTransition(this);
+            return;
         }
     },
 
     maybeStartBossIntroForCurrentRoom() {
-        if (typeof currentRoom === 'undefined' || !currentRoom || currentRoom.type !== 'boss') {
+        if (typeof GameRoomTransition !== 'undefined') {
+            GameRoomTransition.maybeStartBossIntroForCurrentRoom(this);
             return;
-        }
-        if (!Array.isArray(this.enemies) || this.enemies.length === 0 || !this.enemies[0].isBoss) {
-            return;
-        }
-        const boss = this.enemies[0];
-        const currentRoomNumber = this.roomNumber || (currentRoom ? currentRoom.number : 0);
-        if (currentRoomNumber <= 50) {
-            this.startBossIntro(boss);
-        } else {
-            boss.introComplete = true;
         }
     },
 
     tickNexusPrewarm() {
-        if (this.state !== 'NEXUS' || this.nexusPrewarmComplete) {
+        if (typeof GameRoomTransition !== 'undefined') {
+            GameRoomTransition.tickNexusPrewarm(this);
             return;
         }
-        if (!this.selectedClass) {
+    },
+
+    renderRoomEnterScreen(ctx) {
+        if (typeof GameRoomTransition !== 'undefined') {
+            GameRoomTransition.renderRoomEnterScreen(this, ctx);
             return;
-        }
-
-        if (!this.nexusPrewarm) {
-            if (typeof generateRoom === 'undefined') {
-                return;
-            }
-            this.nexusPrewarm = {
-                phase: 0,
-                room: generateRoom(1),
-                roomNumber: 1
-            };
-        }
-
-        const prewarm = this.nexusPrewarm;
-        if (prewarm.phase === 0) {
-            if (typeof prepareRoomRenderData === 'function') {
-                prepareRoomRenderData(prewarm.room, prewarm.roomNumber);
-            }
-            prewarm.phase = 1;
-            return;
-        }
-
-        if (prewarm.phase === 1) {
-            if (typeof bakeRoomStaticSceneCache === 'function') {
-                bakeRoomStaticSceneCache(prewarm.room, prewarm.roomNumber);
-            } else if (typeof prepareRoomRenderCaches === 'function') {
-                prepareRoomRenderCaches(prewarm.room, prewarm.roomNumber);
-            }
-            if (typeof releaseRoomRenderCaches === 'function') {
-                releaseRoomRenderCaches(prewarm.room);
-            }
-            this.nexusPrewarm = null;
-            this.nexusPrewarmComplete = true;
         }
     },
 
@@ -5814,7 +4571,7 @@ const Game = {
     renderTitlePipeline() {
         const pipeline = this.ensureTitleRenderPipeline();
         const frame = GameRenderPipeline.beginTitleFrame(this, {
-            alpha: this._renderAlpha || 0,
+            alpha: this._renderAlpha,
             timings: this.currentFrameTimings
         });
         pipeline.run(frame);
@@ -5835,7 +4592,7 @@ const Game = {
     renderNexusPipeline() {
         const pipeline = this.ensureNexusRenderPipeline();
         const frame = GameRenderPipeline.beginNexusFrame(this, {
-            alpha: this._renderAlpha || 0,
+            alpha: this._renderAlpha,
             timings: this.currentFrameTimings
         });
         pipeline.run(frame);
@@ -5856,7 +4613,7 @@ const Game = {
     renderEnteringRoomPipeline() {
         const pipeline = this.ensureEnteringRoomRenderPipeline();
         const frame = GameRenderPipeline.beginEnteringRoomFrame(this, {
-            alpha: this._renderAlpha || 0,
+            alpha: this._renderAlpha,
             timings: this.currentFrameTimings
         });
         pipeline.run(frame);
@@ -5877,7 +4634,7 @@ const Game = {
     renderPausedPipeline() {
         const pipeline = this.ensurePausedRenderPipeline();
         const frame = GameRenderPipeline.beginPausedFrame(this, {
-            alpha: this._renderAlpha || 0,
+            alpha: this._renderAlpha,
             timings: this.currentFrameTimings
         });
         pipeline.run(frame);
@@ -5937,7 +4694,7 @@ const Game = {
             );
             const useChromaticPass = trauma.active && trauma.intensity >= 0.18;
             const frame = GameRenderPipeline.beginPlayingFrame(this, {
-                alpha: this._renderAlpha || 0,
+                alpha: this._renderAlpha,
                 timings: this.currentFrameTimings,
                 targets: this._playingRenderTargets,
                 bag: { trauma, useChromaticPass, viewPlayer: playerToCheck || this.player }
@@ -5973,7 +4730,7 @@ const Game = {
                 this._activeRenderViewport = pass.viewport;
                 this._activeViewPlayer = pass.viewPlayer;
                 const frame = GameRenderPipeline.beginPlayingFrame(this, {
-                    alpha: this._renderAlpha || 0,
+                    alpha: this._renderAlpha,
                     timings: this.currentFrameTimings,
                     targets: this._playingRenderTargets,
                     camera: pass.camera,
@@ -6101,63 +4858,21 @@ const Game = {
     },
 
     getBaseRenderQuality() {
-        const gecko = this.isGeckoFamilyEngine();
-        return {
-            vignetteScale: 0.5,
-            maxSceneryLights: gecko ? 96 : Infinity,
-            gearRingPoints: 64,
-            groundLootAnimatedRing: true,
-            remoteFullRender: true,
-            maxBeamLights: 8,
-            damageFxScale: 1,
-            voxelParticleCap: 512
-        };
+        return (typeof GameRenderQuality !== 'undefined')
+            ? GameRenderQuality.getBaseRenderQuality(this)
+            : { vignetteScale: 0.5, maxSceneryLights: Infinity, gearRingPoints: 64, groundLootAnimatedRing: true, remoteFullRender: true, maxBeamLights: 8, damageFxScale: 1, voxelParticleCap: 512 };
     },
 
     getRenderQualityForTier(tier) {
-        const tiers = Engine.Render.QualityTier;
-        const thresholds = this.getFrameBudgetThresholds();
-        const preset = (Engine.Render.Quality && typeof Engine.Render.Quality.preset === 'function')
-            ? Engine.Render.Quality.preset(tier)
-            : {};
-        if (tier === tiers.LOW) {
-            return Object.assign({}, preset, {
-                vignetteScale: thresholds.heavyVignetteScale,
-                maxSceneryLights: Math.min(36, preset.maxLights || 36),
-                gearRingPoints: 24,
-                groundLootAnimatedRing: false,
-                remoteFullRender: false,
-                maxBeamLights: 4,
-                damageFxScale: 0.5,
-                voxelParticleCap: 64
-            });
-        }
-        if (tier === tiers.MEDIUM) {
-            return Object.assign({}, preset, {
-                vignetteScale: thresholds.mediumVignetteScale,
-                maxSceneryLights: Math.min(64, preset.maxLights || 64),
-                gearRingPoints: 32,
-                groundLootAnimatedRing: false,
-                remoteFullRender: true,
-                maxBeamLights: 4,
-                damageFxScale: 0.75,
-                voxelParticleCap: 192
-            });
-        }
-        return Object.assign({}, preset, this.getBaseRenderQuality());
+        return (typeof GameRenderQuality !== 'undefined')
+            ? GameRenderQuality.getRenderQualityForTier(tier, this)
+            : this.getBaseRenderQuality();
     },
 
     getFrameBudgetThresholds() {
-        return window.engine ? window.engine.getFrameBudgetThresholds() : {
-            mediumFrame: 30,
-            mediumRender: 22,
-            heavyFrame: 34,
-            heavyRender: 28,
-            restoreFrame: 24,
-            restoreRender: 17,
-            mediumVignetteScale: 0.4,
-            heavyVignetteScale: 0.33
-        };
+        return (typeof GameRenderQuality !== 'undefined')
+            ? GameRenderQuality.getFrameBudgetThresholds()
+            : (window.engine ? window.engine.getFrameBudgetThresholds() : { mediumFrame: 30, mediumRender: 22, heavyFrame: 34, heavyRender: 28, restoreFrame: 24, restoreRender: 17, mediumVignetteScale: 0.4, heavyVignetteScale: 0.33 });
     },
 
     // Approximate neon stroke glow without ctx.shadowBlur (Servo/Firefox).
@@ -7574,6 +6289,7 @@ const Game = {
 
         if (inMultiplayer) {
             // Multiplayer: Only show/hide pause menu, don't actually pause the game
+            this.paused = false;
             // First, convert any PAUSED state to proper multiplayer pause state
             if (this.state === 'PAUSED') {
                 // Convert single-player pause state to multiplayer pause menu
@@ -7596,6 +6312,9 @@ const Game = {
                     }
                     this.playPauseMusic();
                 }
+                if (typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.isHost && typeof multiplayerManager.sendHostStatus === 'function') {
+                    multiplayerManager.sendHostStatus();
+                }
                 return;
             }
 
@@ -7615,6 +6334,9 @@ const Game = {
                     audioMenuVisible = false;
                 }
                 this.playPauseMusic();
+            }
+            if (typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.isHost && typeof multiplayerManager.sendHostStatus === 'function') {
+                multiplayerManager.sendHostStatus();
             }
         } else {
             // Single player: Normal pause behavior
@@ -8147,151 +6869,31 @@ const Game = {
 
     // Calculate currency (credits) earned from run
     calculateCurrency() {
-        // Live mid-run banking (trash + elite + boss) is the source of truth
-        if ((this.currencyEarned || 0) > 0 || (this.currencyBankedThisRun || 0) > 0) {
-            return Math.floor(this.currencyEarned || this.currencyBankedThisRun || 0);
+        if (typeof GameRunRewards !== 'undefined') {
+            return GameRunRewards.calculateCurrency(this);
         }
-
-        if (!this.player) return 0;
-
-        const elitesKilled = this.elitesKilled || 0;
-        const bossesKilled = this.bossesKilled || 0;
-        const eliteBase = (typeof CombatEconomy !== 'undefined' && CombatEconomy.CREDIT_BASE)
-            ? CombatEconomy.CREDIT_BASE.OctagonEnemy
-            : (this.ELITE_CREDIT_REWARD || 15);
-        const bossBase = (typeof CombatEconomy !== 'undefined' && CombatEconomy.BOSS_CREDIT_BASE)
-            ? CombatEconomy.BOSS_CREDIT_BASE
-            : (this.BOSS_CREDIT_REWARD || 50);
-
-        let total = eliteBase * elitesKilled + bossBase * bossesKilled;
-
-        // Apply currency boost from room modifiers (Prism Tax)
-        if (this.nextRoomModifiers && typeof this.nextRoomModifiers.currencyBoost === 'number' && this.nextRoomModifiers.currencyBoost > 0) {
-            total *= (1 + this.nextRoomModifiers.currencyBoost);
-            console.log(`[Currency] Applied ${(this.nextRoomModifiers.currencyBoost * 100).toFixed(0)}% boost from Prism Tax`);
-        }
-
-        return Math.floor(total);
+        return 0;
     },
 
-    /**
-     * Bank persistent credits immediately (trash / elite / boss kills).
-     * Shards stay end-of-run meta via creditRewards().
-     */
     awardRunCredits(baseAmount, reason = 'combat') {
-        const isClient = this.isMultiplayerClient && this.isMultiplayerClient();
-        if (isClient) return 0;
-
-        let amount = Math.floor(Number(baseAmount) || 0);
-        if (amount <= 0) return 0;
-
-        if (this.nextRoomModifiers && typeof this.nextRoomModifiers.currencyBoost === 'number' && this.nextRoomModifiers.currencyBoost > 0) {
-            amount = Math.floor(amount * (1 + this.nextRoomModifiers.currencyBoost));
+        if (typeof GameRunRewards !== 'undefined') {
+            return GameRunRewards.awardRunCredits(this, baseAmount, reason);
         }
-        if (amount <= 0) return 0;
-
-        this.currencyEarned = (this.currencyEarned || 0) + amount;
-        this.currencyBankedThisRun = (this.currencyBankedThisRun || 0) + amount;
-
-        if (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.isHost) {
-            const players = multiplayerManager.players || [];
-            const localPlayerId = this.getLocalPlayerId ? this.getLocalPlayerId() : null;
-
-            players.forEach(player => {
-                if (!player || !player.id) return;
-                // Skip players already dead this run (no mid-run earn after death)
-                if (this.deadPlayers && this.deadPlayers.has(player.id)) return;
-
-                const currentCurrency = this.playerCurrencies.get(player.id)
-                    || (player.id === localPlayerId && typeof SaveSystem !== 'undefined' ? SaveSystem.getCurrency() : (player.currency || 0));
-                const newCurrency = Math.floor(currentCurrency + amount);
-                this.playerCurrencies.set(player.id, newCurrency);
-                player.currency = newCurrency;
-
-                if (player.id === localPlayerId) {
-                    this.currentCurrency = newCurrency;
-                    if (typeof SaveSystem !== 'undefined' && SaveSystem.setCurrency) {
-                        SaveSystem.setCurrency(newCurrency);
-                    }
-                }
-
-                if (multiplayerManager.send) {
-                    multiplayerManager.send({
-                        type: 'currency_update',
-                        data: {
-                            targetPlayerId: player.id,
-                            newCurrency,
-                            reason: reason || 'run_credit'
-                        }
-                    });
-                }
-            });
-        } else if (typeof SaveSystem !== 'undefined' && SaveSystem.addCurrency) {
-            const newBal = SaveSystem.addCurrency(amount);
-            this.currentCurrency = Math.floor(newBal);
-        } else {
-            this.currentCurrency = Math.floor((this.currentCurrency || 0) + amount);
-        }
-
-        console.log(`[Credits] +${amount} (${reason}) → banked this run ${this.currencyBankedThisRun}`);
-        return amount;
+        return 0;
     },
 
-    // Calculate shards for a specific player (multiplayer)
     calculateShardsForPlayer(playerId) {
-        const roomsCleared = Math.max(0, this.roomNumber - 1);
-        const enemiesKilled = this.enemiesKilled || 0;
-
-        // Get player level from stats or instance
-        let levelReached = 1;
-        if (playerId === this.getLocalPlayerId()) {
-            levelReached = this.player ? this.player.level || 1 : 1;
-        } else if (this.remotePlayerInstances && this.remotePlayerInstances.has(playerId)) {
-            const remotePlayer = this.remotePlayerInstances.get(playerId);
-            levelReached = remotePlayer.level || 1;
+        if (typeof GameRunRewards !== 'undefined') {
+            return GameRunRewards.calculateShardsForPlayer(this, playerId);
         }
-
-        // Boosted rewards in gear mode, standard in card mode
-        const roomScale = this.gameMode === 'gear' ? 12 : 9;
-        const killScale = this.gameMode === 'gear' ? 2.4 : 1.8;
-        const lvlScale = this.gameMode === 'gear' ? 1.2 : 0.9;
-
-        const base = roomScale * roomsCleared;
-        const bonus = killScale * enemiesKilled;
-        const levelBonus = lvlScale * levelReached;
-
-        let total = base + bonus + levelBonus;
-
-        // Apply currency boost from room modifiers (Prism Tax) - also affects shards
-        if (this.nextRoomModifiers && typeof this.nextRoomModifiers.currencyBoost === 'number' && this.nextRoomModifiers.currencyBoost > 0) {
-            total *= (1 + this.nextRoomModifiers.currencyBoost);
-        }
-
-        return Math.floor(total);
+        return 0;
     },
 
-    // Calculate currency (credits) for a specific player (multiplayer)
     calculateCurrencyForPlayer(playerId) {
-        // Shared pool: mid-run awards already banked equally; prefer live total
-        if ((this.currencyEarned || 0) > 0 || (this.currencyBankedThisRun || 0) > 0) {
-            return Math.floor(this.currencyEarned || this.currencyBankedThisRun || 0);
+        if (typeof GameRunRewards !== 'undefined') {
+            return GameRunRewards.calculateCurrencyForPlayer(this, playerId);
         }
-
-        const elitesKilled = this.elitesKilled || 0;
-        const bossesKilled = this.bossesKilled || 0;
-        const eliteBase = (typeof CombatEconomy !== 'undefined' && CombatEconomy.CREDIT_BASE)
-            ? CombatEconomy.CREDIT_BASE.OctagonEnemy
-            : 15;
-        const bossBase = (typeof CombatEconomy !== 'undefined' && CombatEconomy.BOSS_CREDIT_BASE)
-            ? CombatEconomy.BOSS_CREDIT_BASE
-            : 50;
-        let total = eliteBase * elitesKilled + bossBase * bossesKilled;
-
-        if (this.nextRoomModifiers && typeof this.nextRoomModifiers.currencyBoost === 'number' && this.nextRoomModifiers.currencyBoost > 0) {
-            total *= (1 + this.nextRoomModifiers.currencyBoost);
-        }
-
-        return Math.floor(total);
+        return 0;
     },
 
     // Start game after class selection
@@ -9714,315 +8316,8 @@ const Game = {
     },
 };
 
-/**
- * Vector fat PS2 easter egg (solo Save Run booth).
- * Ode to Lost: leave it on for days, keep the run, chase room 200.
- * Front-on fat PS2 - grooved face, MC/controller ports, tray, reset/eject, blue USB bay.
- */
-function drawLostPs2EasterEgg(ctx, x, y, options = {}) {
-    function roundRectPath(px, py, w, h, r) {
-        const radius = Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2);
-        ctx.beginPath();
-        ctx.moveTo(px + radius, py);
-        ctx.lineTo(px + w - radius, py);
-        ctx.quadraticCurveTo(px + w, py, px + w, py + radius);
-        ctx.lineTo(px + w, py + h - radius);
-        ctx.quadraticCurveTo(px + w, py + h, px + w - radius, py + h);
-        ctx.lineTo(px + radius, py + h);
-        ctx.quadraticCurveTo(px, py + h, px, py + h - radius);
-        ctx.lineTo(px, py + radius);
-        ctx.quadraticCurveTo(px, py, px + radius, py);
-        ctx.closePath();
-    }
-
-    const lit = options.lit !== false;
-    const near = !!options.near;
-    const scale = Number.isFinite(options.scale) ? options.scale : 1;
-    const groundShadow = options.groundShadow !== false;
-    const t = Date.now() * 0.0015;
-    const pulse = lit ? (0.6 + Math.sin(t) * 0.3) : 0.2;
-
-    // Front-view proportions (fat PS2 is a wide black slab)
-    const W = 108;
-    const H = 46;
-    const bx = -W / 2;
-    const by = -H / 2;
-    const grooveH = H * 0.58;
-    const flatH = H - grooveH;
-
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.scale(scale, scale);
-    ctx.shadowBlur = 0;
-    ctx.shadowColor = 'transparent';
-
-    // Floor shadow (skip when nested as a machine icon)
-    if (groundShadow) {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-        ctx.beginPath();
-        ctx.ellipse(0, by + H + 6, W * 0.48, 6, 0, 0, Math.PI * 2);
-        ctx.fill();
-    }
-
-    // Outer shell
-    const shell = ctx.createLinearGradient(0, by, 0, by + H);
-    shell.addColorStop(0, '#2a2a2e');
-    shell.addColorStop(0.55, '#1a1a1e');
-    shell.addColorStop(1, '#101014');
-    ctx.fillStyle = shell;
-    roundRectPath(bx, by, W, H, 3);
-    ctx.fill();
-
-    // === UPPER GROOVED FACE ===
-    ctx.fillStyle = '#16161a';
-    ctx.fillRect(bx + 2, by + 2, W - 4, grooveH - 2);
-
-    // Horizontal ribbing across the whole upper band
-    for (let i = 0; i < 7; i++) {
-        const gy = by + 4 + i * ((grooveH - 6) / 6);
-        ctx.strokeStyle = i % 2 === 0 ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.45)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(bx + 3, gy);
-        ctx.lineTo(bx + W - 3, gy);
-        ctx.stroke();
-    }
-
-    // Left bay: memory card flaps (top) + controller ports (bottom)
-    const portBayX = bx + 5;
-    const portBayY = by + 5;
-    const portBayW = 28;
-    const portBayH = grooveH - 8;
-    ctx.fillStyle = '#0c0c10';
-    roundRectPath(portBayX, portBayY, portBayW, portBayH, 1.5);
-    ctx.fill();
-
-    // MEMORY CARD slots
-    for (let i = 0; i < 2; i++) {
-        const sx = portBayX + 3 + i * 12;
-        const sy = portBayY + 3;
-        ctx.fillStyle = '#222228';
-        roundRectPath(sx, sy, 10, 7, 1);
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-        ctx.lineWidth = 0.8;
-        roundRectPath(sx, sy, 10, 7, 1);
-        ctx.stroke();
-        // flap hinge line
-        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-        ctx.beginPath();
-        ctx.moveTo(sx + 1, sy + 3.5);
-        ctx.lineTo(sx + 9, sy + 3.5);
-        ctx.stroke();
-        ctx.fillStyle = 'rgba(170,175,190,0.55)';
-        ctx.font = 'bold 4px monospace';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'bottom';
-        ctx.fillText(String(i + 1), sx + 5, sy - 0.5);
-    }
-
-    // Controller ports (circle + pin ring look)
-    for (let i = 0; i < 2; i++) {
-        const cx = portBayX + 8 + i * 12;
-        const cy = portBayY + portBayH - 8;
-        ctx.fillStyle = '#1c1c22';
-        ctx.beginPath();
-        ctx.arc(cx, cy, 5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-        ctx.lineWidth = 0.8;
-        ctx.stroke();
-        ctx.fillStyle = '#0a0a0e';
-        ctx.beginPath();
-        ctx.arc(cx, cy, 2.6, 0, Math.PI * 2);
-        ctx.fill();
-        // pin dots
-        ctx.fillStyle = 'rgba(200,200,210,0.35)';
-        for (let p = 0; p < 6; p++) {
-            const a = (p / 6) * Math.PI * 2 - Math.PI / 2;
-            ctx.beginPath();
-            ctx.arc(cx + Math.cos(a) * 1.5, cy + Math.sin(a) * 1.5, 0.45, 0, Math.PI * 2);
-            ctx.fill();
-        }
-    }
-
-    // Disc tray (center of upper face)
-    const trayX = bx + 36;
-    const trayY = by + 6;
-    const trayW = 48;
-    const trayH = grooveH - 10;
-    ctx.fillStyle = '#1e1e24';
-    roundRectPath(trayX, trayY, trayW, trayH, 1.5);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-    ctx.lineWidth = 1;
-    roundRectPath(trayX, trayY, trayW, trayH, 1.5);
-    ctx.stroke();
-    // tray face detail lines
-    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-    ctx.beginPath();
-    ctx.moveTo(trayX + 4, trayY + trayH * 0.35);
-    ctx.lineTo(trayX + trayW - 4, trayY + trayH * 0.35);
-    ctx.moveTo(trayX + 4, trayY + trayH * 0.65);
-    ctx.lineTo(trayX + trayW - 4, trayY + trayH * 0.65);
-    ctx.stroke();
-
-    // Right: RESET + EJECT buttons
-    const btnX = bx + W - 18;
-    // Reset (top) - green power glyph
-    ctx.fillStyle = '#2a2a30';
-    roundRectPath(btnX, by + 5, 12, 11, 1.5);
-    ctx.fill();
-    const resetGlow = lit ? `rgba(40, 220, 160, ${0.55 + pulse * 0.35})` : 'rgba(40, 120, 90, 0.45)';
-    if (lit) {
-        const preferSprites = typeof Game !== 'undefined' && Game.preferSpriteShadows && Game.preferSpriteShadows();
-        if (preferSprites) {
-            ctx.save();
-            ctx.globalCompositeOperation = 'lighter';
-            ctx.globalAlpha = near ? 0.45 : 0.28;
-            ctx.strokeStyle = resetGlow;
-            ctx.lineWidth = 2.4;
-            ctx.beginPath();
-            ctx.arc(btnX + 6, by + 9.5, 2.6, Math.PI * 0.2, Math.PI * 1.8);
-            ctx.stroke();
-            ctx.restore();
-        } else {
-            ctx.shadowColor = resetGlow;
-            ctx.shadowBlur = near ? 6 : 3;
-        }
-    }
-    ctx.strokeStyle = resetGlow;
-    ctx.lineWidth = 1.4;
-    ctx.beginPath();
-    ctx.arc(btnX + 6, by + 9.5, 2.6, Math.PI * 0.2, Math.PI * 1.8);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(btnX + 6, by + 7.2);
-    ctx.lineTo(btnX + 6, by + 10.2);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = lit ? 'rgba(80, 230, 180, 0.7)' : 'rgba(100, 140, 120, 0.45)';
-    ctx.font = 'bold 3.5px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillText('RESET', btnX + 6, by + 13.5);
-
-    // Eject (bottom) - blue triangle
-    ctx.fillStyle = '#2a2a30';
-    roundRectPath(btnX, by + 18, 12, 9, 1.5);
-    ctx.fill();
-    const ejectGlow = lit
-        ? `rgba(60, 140, 255, ${0.65 + pulse * 0.3})`
-        : 'rgba(40, 70, 120, 0.5)';
-    if (lit) {
-        const preferSprites = typeof Game !== 'undefined' && Game.preferSpriteShadows && Game.preferSpriteShadows();
-        if (preferSprites) {
-            ctx.save();
-            ctx.globalCompositeOperation = 'lighter';
-            ctx.globalAlpha = near ? 0.5 : 0.3;
-            ctx.fillStyle = ejectGlow;
-            ctx.beginPath();
-            ctx.moveTo(btnX + 4, by + 20.5);
-            ctx.lineTo(btnX + 8.5, by + 22.5);
-            ctx.lineTo(btnX + 4, by + 24.5);
-            ctx.closePath();
-            ctx.fill();
-            ctx.fillRect(btnX + 8.2, by + 20.5, 1.6, 4);
-            ctx.restore();
-        } else {
-            ctx.shadowColor = ejectGlow;
-            ctx.shadowBlur = near ? 7 : 4;
-        }
-    }
-    ctx.fillStyle = ejectGlow;
-    ctx.beginPath();
-    ctx.moveTo(btnX + 4, by + 20.5);
-    ctx.lineTo(btnX + 8.5, by + 22.5);
-    ctx.lineTo(btnX + 4, by + 24.5);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillRect(btnX + 8.2, by + 20.5, 1.6, 4);
-    ctx.shadowBlur = 0;
-
-    // === LOWER FLAT FACE ===
-    const flatY = by + grooveH;
-    ctx.fillStyle = '#141418';
-    ctx.fillRect(bx + 2, flatY, W - 4, flatH - 2);
-
-    // Blue USB / i.LINK bay (the famous tell)
-    const usbX = bx + 5;
-    const usbY = flatY + 3;
-    const usbW = 22;
-    const usbH = flatH - 7;
-    ctx.fillStyle = lit ? '#1a4fd0' : '#163a8a';
-    roundRectPath(usbX, usbY, usbW, usbH, 1.5);
-    ctx.fill();
-    // highlight on blue bay
-    ctx.fillStyle = 'rgba(120, 170, 255, 0.25)';
-    ctx.fillRect(usbX + 1, usbY + 1, usbW - 2, 2);
-
-    // Two stacked USB ports
-    for (let i = 0; i < 2; i++) {
-        const uy = usbY + 3 + i * 5;
-        ctx.fillStyle = '#0a0a12';
-        roundRectPath(usbX + 3, uy, 8, 3.5, 0.5);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(200, 210, 230, 0.35)';
-        ctx.fillRect(usbX + 4, uy + 1, 6, 1.5);
-    }
-    // i.LINK (small square + icon mark)
-    ctx.fillStyle = '#0a0a12';
-    roundRectPath(usbX + 13, usbY + 5, 6, 6, 0.5);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(220, 230, 255, 0.45)';
-    ctx.lineWidth = 0.8;
-    ctx.beginPath();
-    ctx.moveTo(usbX + 14.5, usbY + 8);
-    ctx.lineTo(usbX + 17.5, usbY + 8);
-    ctx.moveTo(usbX + 16, usbY + 6.5);
-    ctx.lineTo(usbX + 16, usbY + 9.5);
-    ctx.stroke();
-
-    // Ventilation grille (rest of lower face)
-    const ventX = usbX + usbW + 3;
-    const ventY = flatY + 4;
-    const ventW = bx + W - 5 - ventX;
-    const ventH = flatH - 9;
-    ctx.fillStyle = '#0c0c10';
-    roundRectPath(ventX, ventY, ventW, ventH, 1);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
-    ctx.lineWidth = 0.6;
-    const slits = 16;
-    for (let i = 0; i < slits; i++) {
-        const sy = ventY + 1.5 + (i / (slits - 1)) * (ventH - 3);
-        ctx.beginPath();
-        ctx.moveTo(ventX + 2, sy);
-        ctx.lineTo(ventX + ventW - 2, sy);
-        ctx.stroke();
-    }
-
-    // Feet
-    ctx.fillStyle = '#0a0a0c';
-    ctx.beginPath();
-    ctx.ellipse(bx + 10, by + H - 1, 4, 1.6, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(bx + W - 10, by + H - 1, 4, 1.6, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Outer rim
-    ctx.strokeStyle = near ? 'rgba(200, 210, 230, 0.28)' : 'rgba(255,255,255,0.12)';
-    ctx.lineWidth = 1;
-    roundRectPath(bx, by, W, H, 3);
-    ctx.stroke();
-
-    ctx.restore();
-}
-
 if (typeof window !== 'undefined') {
     window.Game = Game;
-    window.drawLostPs2EasterEgg = drawLostPs2EasterEgg;
 }
 
 // Start the game when page loads — only after Engine.Boot completes.
@@ -10069,7 +8364,7 @@ if (typeof window !== 'undefined' && window.addEventListener) {
             }
         };
         game.draw = function(ctx, alpha) {
-            this._renderAlpha = alpha;
+            this._renderAlpha = Number.isFinite(alpha) ? alpha : 0;
             this.currentFrameTimings = {
                 static: 0,
                 world: 0,

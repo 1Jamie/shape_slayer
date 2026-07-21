@@ -56,18 +56,19 @@ test('host saves snapshot on disconnect and restores on reconnect', () => {
 });
 
 test('door quorum excludes disconnected players', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'game', 'main.js'), 'utf-8');
-    assert.ok(source.includes('isPlayerConnectedForMp(playerId)'));
-    assert.ok(/checkDoorCollision[\s\S]*isPlayerConnectedForMp/.test(source));
+    const door = fs.readFileSync(path.join(__dirname, '..', 'src', 'game', 'simulation', 'door-controller.js'), 'utf-8');
+    assert.ok(door.includes('isPlayerConnectedForMp(playerId)'));
+    assert.ok(/checkDoorCollision[\s\S]*isPlayerConnectedForMp/.test(door));
 });
 
 test('exit door uses toggle ready instead of hold-to-advance', () => {
     const main = fs.readFileSync(path.join(__dirname, '..', 'src', 'game', 'main.js'), 'utf-8');
+    const door = fs.readFileSync(path.join(__dirname, '..', 'src', 'game', 'simulation', 'door-controller.js'), 'utf-8');
     const ui = fs.readFileSync(path.join(__dirname, '..', 'src', 'game', 'presentation', 'ui.js'), 'utf-8');
-    assert.ok(main.includes('toggleDoorReadyForPlayer'));
-    assert.ok(main.includes('didPlayerRequestDoorInteract'));
-    assert.ok(main.includes('tryAdvanceWhenAllDoorReady'));
-    assert.ok(!/checkDoorCollision[\s\S]*Input\.keys\['g'\]\)\s*\{\s*\n\s*this\.advanceToNextRoom/.test(main));
+    assert.ok(door.includes('toggleDoorReadyForPlayer'));
+    assert.ok(door.includes('didPlayerRequestDoorInteract'));
+    assert.ok(door.includes('tryAdvanceWhenAllDoorReady'));
+    assert.ok(!/checkDoorCollision[\s\S]*Input\.keys\['g'\]\)\s*\{\s*\n\s*this\.advanceToNextRoom/.test(door));
     assert.ok(ui.includes('toggleDoorReadyAtExit'));
 });
 

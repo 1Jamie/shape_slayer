@@ -525,8 +525,7 @@ class PlayerBase {
             // Check if this class uses joystick for heavy attack on mobile
             // Use INPUT PARAMETER not global Input (important for multiplayer remote players)
             const usesHeavyJoystick = input.isTouchMode && input.isTouchMode() &&
-                input.getAbilityInputType &&
-                input.getAbilityInputType(this.playerClass, 'heavyAttack') === 'joystick-press-release';
+                this.getAbilityInputType(input, 'heavyAttack') === 'joystick-press-release';
 
             if (usesHeavyJoystick) {
                 // Aim mode: hold to aim, fire on release (any class — family decides preview/charge).
@@ -549,9 +548,10 @@ class PlayerBase {
                     this.heavyChargeElapsed += deltaTime;
                 }
             } else {
-                // Other classes: wait for windup
+                // Other classes / Mobile Tap mode: wait for windup (2.5x hold duration for mobile touch)
+                const windupTime = (input.isTouchMode && input.isTouchMode()) ? this.heavyAttackWindup * 2.5 : this.heavyAttackWindup;
                 this.heavyChargeElapsed += deltaTime;
-                if (this.heavyChargeElapsed >= this.heavyAttackWindup) {
+                if (this.heavyChargeElapsed >= windupTime) {
                     // Spawn heavy attack hitbox
                     this.createHeavyAttack();
                     this.applyHeavyAttackCooldown(); // Apply cooldown after firing
@@ -650,6 +650,16 @@ class PlayerBase {
             this.sampleDashAnimation(this.x, this.y);
         }
         this.advanceDashAnimation(deltaTime, 'update');
+    }
+
+    getAbilityInputType(input, ability) {
+        if (input && typeof input.getAbilityInputType === 'function') {
+            return input.getAbilityInputType(this.playerClass, ability);
+        }
+        if (typeof GameInput !== 'undefined' && typeof GameInput.getAbilityInputType === 'function') {
+            return GameInput.getAbilityInputType(this.playerClass, ability);
+        }
+        return 'button';
     }
 
     // Check if player is in special movement state (override by subclass)
@@ -1476,9 +1486,7 @@ class PlayerBase {
 
         if (input.isTouchMode && input.isTouchMode()) {
             // Check if this class uses joystick for heavy attack
-            const usesHeavyJoystick = (typeof Engine !== 'undefined' && Engine.Input) &&
-                GameInput.getAbilityInputType &&
-                GameInput.getAbilityInputType(this.playerClass, 'heavyAttack') === 'joystick-press-release';
+            const usesHeavyJoystick = this.getAbilityInputType(input, 'heavyAttack') === 'joystick-press-release';
 
             if (usesHeavyJoystick) {
                 // Aim mode for any class: hold to aim facing, release to fire

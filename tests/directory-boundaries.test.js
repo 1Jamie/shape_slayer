@@ -260,8 +260,20 @@ test('four domain locations remain separate', () => {
         'src/game/entities/items/item-definitions.js',
         'src/game/content/biomes.js',
         'src/game/content/gear.js',
-        'src/game/content/save.js',
+        'src/game/simulation/player-stats.js',
+        'src/game/simulation/room-transition.js',
+        'src/game/simulation/run-rewards.js',
+        'src/game/simulation/split-session.js',
+        'src/game/simulation/door-controller.js',
+        'src/game/simulation/loot-interaction.js',
         'src/game/presentation/text-renderer.js',
+        'src/game/presentation/easter-egg-ps2.js',
+        'src/game/presentation/render-quality.js',
+        'src/game/presentation/display-manager.js',
+        'src/game/presentation/screen-effects.js',
+        'src/game/presentation/game-camera.js',
+        'src/game/presentation/title-transition.js',
+        'src/game/presentation/boss-intro.js',
         'src/game/presentation/render-adapters.js',
         'src/game/presentation/voxel-fracture.js',
         'src/game/networking/telemetry.js',
@@ -269,6 +281,7 @@ test('four domain locations remain separate', () => {
         'src/game/networking/mp-config.js',
         'src/game/ui/components/hud.js',
         'src/game/ui/core/modal-adapter.js',
+        'src/game/ui/core/modal-controller.js',
         'src/game/ui/core/controllerNavigation.js',
         'assets/audio/music-config.json',
         'multiplayer/mp-server.js',
@@ -572,8 +585,9 @@ test('game facades wire through engine Save/FX/Proc/UI APIs', () => {
     assert.doesNotMatch(adapters, /const\s+patternCache\s*=\s*new\s+Map/);
 
     const main = read('src/game/main.js');
+    const screenEffects = read('src/game/presentation/screen-effects.js');
     assert.match(main, /Engine\.Render\.configureCanvas/);
-    assert.match(main, /Engine\.FX\.Post\.chromaticAberration/);
+    assert.match(screenEffects, /Engine\.FX\.Post\.chromaticAberration/);
     assert.match(main, /Engine\.FX\.LightMask/);
     assert.match(main, /Engine\.Graphics\.GlowAtlas/);
     assert.match(main, /Engine\.Render\.Targets/);

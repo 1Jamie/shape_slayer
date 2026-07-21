@@ -41,7 +41,7 @@ const MAGE_CONFIG = {
     // Special Ability (Blink)
     specialCooldown: 5.0,          // Special ability cooldown (seconds)
     blinkRange: 250,               // Maximum blink distance (pixels)
-    blinkHoldMaxTime: 0.6,         // Mobile/controller hold time to reach max blink range (seconds)
+    blinkHoldMaxTime: 1.5,         // Mobile/controller hold time to reach max blink range (seconds) - 2.5x extended for mobile touch
     blinkMinRange: 60,             // Mobile/controller tap minimum blink distance (pixels)
     blinkDecoyDuration: 2.0,       // How long decoy lasts (seconds) - NOT USED, decoy uses health
     blinkDecoyMaxHealth: 30,       // Starting health for decoy

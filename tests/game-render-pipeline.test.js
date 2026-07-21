@@ -389,13 +389,16 @@ test('local co-op character sheet opens per seat instead of always showing P1', 
 
 test('local co-op gear and item claims are seat-aware with shared pylons', () => {
     const main = fs.readFileSync(path.join(ROOT, 'src/game/main.js'), 'utf8');
+    const lootInteraction = fs.readFileSync(path.join(ROOT, 'src/game/simulation/loot-interaction.js'), 'utf8');
+    const doorController = fs.readFileSync(path.join(ROOT, 'src/game/simulation/door-controller.js'), 'utf8');
     assert.match(main, /getLocalCoopActors\(/);
     assert.match(main, /pickupGear\(gear, player/);
-    assert.match(main, /checkItemPylonInteraction\(actor\.player, actor\.playerId\)/);
+    assert.match(lootInteraction, /checkItemPylonInteraction\(actor\.player, actor\.playerId\)/);
     assert.match(main, /keys: \{ g: interactPressed \}/);
-    assert.match(main, /_doorInteractPrevBySeat/);
-    assert.match(main, /seat\.isInteractPressed/);
-    assert.match(main, /convertGroundItemsToPylons/);
+    assert.match(doorController, /_doorInteractPrevBySeat/);
+    assert.match(doorController, /seat\.isInteractPressed/);
+    const splitSession = fs.readFileSync(path.join(ROOT, 'src/game/simulation/split-session.js'), 'utf8');
+    assert.match(splitSession, /convertGroundItemsToPylons/);
     assert.match(main, /shouldUseItemPylons\(\)/);
 
     const pylon = fs.readFileSync(
@@ -478,4 +481,26 @@ test('main.js registers TITLE, NEXUS, ENTERING_ROOM, PAUSED pipelines with Engin
     assert.match(main, /registerPipeline\('enteringRoom'/);
     assert.match(main, /registerPipeline\('paused'/);
 });
+
+test('state pipelines propagate and preserve engine alpha across frames', () => {
+    const GRP = loadGameRecipe();
+    const game = makeGame({ _renderAlpha: 0.42 });
+
+    const playingFrame = GRP.beginPlayingFrame(game);
+    assert.equal(playingFrame.alpha, 0.42, 'beginPlayingFrame defaults to game._renderAlpha');
+
+    const titleFrame = GRP.beginTitleFrame(game, { alpha: 0.75 });
+    assert.equal(titleFrame.alpha, 0.75, 'beginTitleFrame respects explicit options.alpha');
+
+    const nexusFrame = GRP.beginNexusFrame(game, { alpha: 0 });
+    assert.equal(nexusFrame.alpha, 0, 'beginNexusFrame preserves exact alpha = 0');
+
+    game._renderAlpha = 0;
+    const enteringFrame = GRP.beginEnteringRoomFrame(game);
+    assert.equal(enteringFrame.alpha, 0, 'beginEnteringRoomFrame preserves game._renderAlpha = 0');
+
+    const pausedFrame = GRP.beginPausedFrame(game, { alpha: 0.88 });
+    assert.equal(pausedFrame.alpha, 0.88, 'beginPausedFrame respects explicit options.alpha');
+});
+
 

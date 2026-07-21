@@ -1991,6 +1991,17 @@ Engine.Input = {
         }
     },
 
+    getAbilityInputType(classType, ability) {
+        if (typeof this._hooks.getAbilityInputType === 'function') {
+            return this._hooks.getAbilityInputType(classType, ability);
+        }
+        const gi = (typeof window !== 'undefined' && window['Game' + 'Input']) || (typeof globalThis !== 'undefined' && globalThis['Game' + 'Input']);
+        if (gi && typeof gi.getAbilityInputType === 'function') {
+            return gi.getAbilityInputType(classType, ability);
+        }
+        return 'button';
+    },
+
     /**
      * Check if a named ability slot is currently pressed.
      * Ability names are abstract slot names ('basicAttack', 'heavyAttack', 'specialAbility', 'dodge').

@@ -336,6 +336,10 @@
         // Keep a previously ensured world buffer across frames. Clear-on-ensure
         // prevents ghosting when reused; release via cleanupPlayingTargets().
 
+        const alpha = Number.isFinite(options.alpha)
+            ? options.alpha
+            : (Number.isFinite(game._renderAlpha) ? game._renderAlpha : 0);
+
         game._playingTargetFrame = Engine.Render.createFrame({
             targetFrame: options.targetFrame || game._playingTargetFrame || null,
             canvas: game.canvas,
@@ -343,7 +347,7 @@
             logicalW,
             logicalH,
             dpr,
-            alpha: options.alpha,
+            alpha,
             quality: game.renderQuality || null,
             viewport,
             camera: {
@@ -443,6 +447,10 @@
         const targets = options.targets || (game._titleRenderTargets || (game._titleRenderTargets = new Engine.Render.Targets()));
         targets.bindMain(game.canvas, game.ctx, { dpr, logicalW, logicalH });
 
+        const alpha = Number.isFinite(options.alpha)
+            ? options.alpha
+            : (Number.isFinite(game._renderAlpha) ? game._renderAlpha : 0);
+
         game._titleTargetFrame = Engine.Render.createFrame({
             targetFrame: options.targetFrame || game._titleTargetFrame || null,
             canvas: game.canvas,
@@ -450,7 +458,7 @@
             logicalW,
             logicalH,
             dpr,
-            alpha: options.alpha,
+            alpha,
             quality: game.renderQuality || null,
             targets,
             timings: options.timings || game.currentFrameTimings || Object.create(null),
@@ -536,6 +544,10 @@
         const targets = options.targets || (game._nexusRenderTargets || (game._nexusRenderTargets = new Engine.Render.Targets()));
         targets.bindMain(game.canvas, game.ctx, { dpr, logicalW, logicalH });
 
+        const alpha = Number.isFinite(options.alpha)
+            ? options.alpha
+            : (Number.isFinite(game._renderAlpha) ? game._renderAlpha : 0);
+
         game._nexusTargetFrame = Engine.Render.createFrame({
             targetFrame: options.targetFrame || game._nexusTargetFrame || null,
             canvas: game.canvas,
@@ -543,7 +555,7 @@
             logicalW,
             logicalH,
             dpr,
-            alpha: options.alpha,
+            alpha,
             quality: game.renderQuality || null,
             targets,
             timings: options.timings || game.currentFrameTimings || Object.create(null),
@@ -598,6 +610,10 @@
         const targets = options.targets || (game._enteringRoomRenderTargets || (game._enteringRoomRenderTargets = new Engine.Render.Targets()));
         targets.bindMain(game.canvas, game.ctx, { dpr, logicalW, logicalH });
 
+        const alpha = Number.isFinite(options.alpha)
+            ? options.alpha
+            : (Number.isFinite(game._renderAlpha) ? game._renderAlpha : 0);
+
         game._enteringRoomTargetFrame = Engine.Render.createFrame({
             targetFrame: options.targetFrame || game._enteringRoomTargetFrame || null,
             canvas: game.canvas,
@@ -605,7 +621,7 @@
             logicalW,
             logicalH,
             dpr,
-            alpha: options.alpha,
+            alpha,
             quality: game.renderQuality || null,
             targets,
             timings: options.timings || game.currentFrameTimings || Object.create(null),
@@ -686,6 +702,10 @@
         const targets = options.targets || (game._pausedRenderTargets || (game._pausedRenderTargets = new Engine.Render.Targets()));
         targets.bindMain(game.canvas, game.ctx, { dpr, logicalW, logicalH });
 
+        const alpha = Number.isFinite(options.alpha)
+            ? options.alpha
+            : (Number.isFinite(game._renderAlpha) ? game._renderAlpha : 0);
+
         game._pausedTargetFrame = Engine.Render.createFrame({
             targetFrame: options.targetFrame || game._pausedTargetFrame || null,
             canvas: game.canvas,
@@ -693,7 +713,7 @@
             logicalW,
             logicalH,
             dpr,
-            alpha: options.alpha,
+            alpha,
             quality: game.renderQuality || null,
             targets,
             timings: options.timings || game.currentFrameTimings || Object.create(null),

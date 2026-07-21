@@ -74,6 +74,11 @@ class MultiplayerManager {
 
         // Class is only selectable in Nexus - freeze for the whole run
         this.runClassLocks = new Map(); // playerId -> classKey
+
+        // Host pause / stall tracking
+        this.hostIsPaused = false;
+        this.hostIsHidden = false;
+        this.lastGameStateReceivedAt = 0;
     }
 
     createEmptyPredictionStats() {
@@ -303,6 +308,9 @@ class MultiplayerManager {
                     break;
                 case 'host_migrated':
                     this.handleHostMigrated(msg.data);
+                    break;
+                case 'host_status':
+                    this.handleHostStatus(msg.data);
                     break;
                 case 'game_state':
                     this.handleGameState(msg.data);
@@ -658,6 +666,38 @@ class MultiplayerManager {
             type: 'game_state',
             data: payload
         });
+    }
+    
+    // Broadcast host status (paused / tab hidden)
+    sendHostStatus() {
+        const wsOpen = this.ws && (this.ws.readyState === 1 || (typeof WebSocket !== 'undefined' && this.ws.readyState === WebSocket.OPEN));
+        if (!this.isHost || !this.connected || !wsOpen) return;
+        const isHidden = typeof document !== 'undefined' ? document.hidden : false;
+        const isPaused = typeof Game !== 'undefined' ? (Game.showPauseMenu || Game.state === 'PAUSED' || !!window.multiplayerMenuVisible) : false;
+        this.send({
+            type: 'host_status',
+            data: {
+                isPaused,
+                isHidden,
+                timestamp: Date.now()
+            }
+        });
+    }
+
+    handleHostStatus(data) {
+        if (!data || this.isHost) return;
+        this.hostIsPaused = !!data.isPaused;
+        this.hostIsHidden = !!data.isHidden;
+    }
+
+    isHostStalledOrPaused() {
+        if (this.isHost || !this.lobbyCode || !this.connected) return false;
+        if (this.hostIsPaused || this.hostIsHidden) return true;
+        const now = Date.now();
+        if (this.lastGameStateReceivedAt > 0 && (now - this.lastGameStateReceivedAt > 600)) {
+            return true;
+        }
+        return false;
     }
     
     // Send player state (clients only)
@@ -1238,6 +1278,25 @@ class MultiplayerManager {
             }
             this._lastTouchModeLog = Date.now();
         }
+
+        // Suppress inputs when pause menu or UI modals are visible
+        if (typeof Game !== 'undefined' && (Game.showPauseMenu || Game.state === 'PAUSED' || !!window.multiplayerMenuVisible)) {
+            return {
+                up: false,
+                down: false,
+                left: false,
+                right: false,
+                mouse: Engine.Input.getWorldMousePos ? Engine.Input.getWorldMousePos() : { x: 0, y: 0 },
+                mouseLeft: false,
+                mouseRight: false,
+                space: false,
+                shift: false,
+                isTouchMode: isTouchMode,
+                touchJoysticks: {},
+                touchButtons: {},
+                keys: {}
+            };
+        }
         
         return {
             // Movement keys
@@ -1680,6 +1739,9 @@ class MultiplayerManager {
     // Handle game state update from host
     handleGameState(data) {
         if (this.isHost) return; // Host doesn't need to receive their own state
+        
+        this.lastGameStateReceivedAt = Date.now();
+        this.hostIsHidden = false;
         
         // Initialize interpolation manager if needed
         if (typeof initInterpolation !== 'undefined' && !interpolationManager) {

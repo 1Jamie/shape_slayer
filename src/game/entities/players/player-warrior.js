@@ -785,6 +785,12 @@ class Warrior extends PlayerBase {
     // Override updateHeavyAttackPreview
     updateHeavyAttackPreview(input) {
         this.thrustPreviewActive = true;
+        if (input && input.touchJoysticks && input.touchJoysticks.heavyAttack) {
+            const joystick = input.touchJoysticks.heavyAttack;
+            if (joystick.active && joystick.getMagnitude() > 0.1) {
+                this.rotation = joystick.getAngle();
+            }
+        }
     }
 
     // Override clearHeavyAttackPreview
