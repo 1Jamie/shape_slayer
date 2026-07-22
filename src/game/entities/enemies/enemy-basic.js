@@ -1290,7 +1290,9 @@ class Enemy extends EnemyBase {
         );
 
         if (!bodyDrawn) {
-            ctx.fillStyle = drawColor;
+            ctx.fillStyle = typeof this.getCombatBodyDrawColor === 'function'
+                ? this.getCombatBodyDrawColor(drawColor)
+                : drawColor;
             ctx.beginPath();
             ctx.arc(this.x, this.y, drawSize, 0, Math.PI * 2);
             ctx.fill();

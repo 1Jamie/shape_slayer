@@ -114,7 +114,7 @@ function createMetricSet() {
     return {
         metrics,
         sceneCounts,
-        qualityTier: { normal: 0, medium: 0, heavy: 0, unknown: 0 },
+        qualityTier: { normal: 0, boost: 0, medium: 0, heavy: 0, unknown: 0 },
         catchupFrames: 0,
         accumulatorDrops: 0,
         spikes: 0,

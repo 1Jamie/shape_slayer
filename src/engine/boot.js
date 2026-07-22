@@ -117,6 +117,12 @@
          * @param {BootProbeOptions} [options]
          * @returns {BootProbeReport}
          */
+        createBackingBuffer(byteLength) {
+            const hasSAB = typeof root.SharedArrayBuffer === 'function'
+                && !!root.crossOriginIsolated;
+            return hasSAB ? new root.SharedArrayBuffer(byteLength) : new ArrayBuffer(byteLength);
+        },
+
         probe(options = {}) {
             const document = resolveDocument();
             const canvasId = options.canvasId || 'gameCanvas';

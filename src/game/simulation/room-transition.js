@@ -38,8 +38,17 @@ const GameRoomTransition = {
             if (game.frameBudgetSamples) {
                 game.frameBudgetSamples.length = 0;
             }
+            if (typeof window !== 'undefined' && window.engine
+                && typeof window.engine.resetFxBoost === 'function') {
+                window.engine.resetFxBoost();
+            }
             if (typeof game.getBaseRenderQuality === 'function') {
                 game.renderQuality = game.getBaseRenderQuality();
+            }
+            if (typeof Engine !== 'undefined' && Engine.FX && Engine.FX.ShardPool
+                && typeof Engine.FX.ShardPool.setSoftCap === 'function'
+                && game.renderQuality && game.renderQuality.shardParticleCap != null) {
+                Engine.FX.ShardPool.setSoftCap(game.renderQuality.shardParticleCap);
             }
             transition.phase = 1;
             return;

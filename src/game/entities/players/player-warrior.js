@@ -298,7 +298,7 @@ class Warrior extends PlayerBase {
                             // Get player ID for damage attribution
                             const attackerId = this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null);
 
-                            enemy.takeDamage(whirlwindDamage, attackerId);
+                            enemy.takeDamage(whirlwindDamage, attackerId, this.x, this.y, 'spin');
 
                             // Track stats (host/solo only)
                             const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();

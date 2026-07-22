@@ -1260,7 +1260,9 @@ class OctagonEnemy extends EnemyBase {
                 ctx.rotate(this.spinElapsed * 2); // Rotate when spinning
             }
 
-            ctx.fillStyle = drawColor;
+            ctx.fillStyle = typeof this.getCombatBodyDrawColor === 'function'
+                ? this.getCombatBodyDrawColor(drawColor)
+                : drawColor;
             ctx.beginPath();
             for (let i = 0; i < 8; i++) {
                 const angle = (Math.PI / 4) * i;

@@ -74,7 +74,8 @@ const Game = {
                 remoteFullRender: true,
                 maxBeamLights: 8,
                 damageFxScale: 1,
-                voxelParticleCap: 512
+                voxelParticleCap: 512,
+                shardParticleCap: 256
             };
     },
     renderSubTimings: { groundLoot: 0, gearRings: 0, remotePlayers: 0, worldGlow: 0, worldBodies: 0 },
@@ -3109,6 +3110,45 @@ const Game = {
         // Only update if in PLAYING state
         if (this.state !== 'PLAYING') return;
 
+        // Clear SpatialHash grid at the exact start of update
+        if (!this.spatialHash && typeof Engine !== 'undefined' && Engine.Physics && typeof Engine.Physics.SpatialHash === 'function') {
+            this.spatialHash = new Engine.Physics.SpatialHash(64);
+        }
+        if (this.spatialHash) {
+            this.spatialHash.clear();
+        }
+
+        // Snapshot prevX/prevY at exact start of fixed physics step before velocity integration
+        if (this.player) {
+            if (typeof this.player.savePreviousPosition === 'function') {
+                this.player.savePreviousPosition();
+            } else {
+                this.player.prevX = this.player.x;
+                this.player.prevY = this.player.y;
+            }
+            if (this.spatialHash && this.player.alive) {
+                this.spatialHash.insert(this.player);
+            }
+        }
+        if (this.remotePlayerInstances) {
+            this.remotePlayerInstances.forEach(p => {
+                if (p) {
+                    p.prevX = p.x;
+                    p.prevY = p.y;
+                    if (this.spatialHash && p.alive && !p.dead) this.spatialHash.insert(p);
+                }
+            });
+        }
+        if (this.enemies) {
+            this.enemies.forEach(e => {
+                if (e) {
+                    e.prevX = e.x;
+                    e.prevY = e.y;
+                    if (this.spatialHash && e.alive) this.spatialHash.insert(e);
+                }
+            });
+        }
+
         // Update boss intro if active (before normal updates)
         if (this.bossIntroActive) {
             this.updateBossIntro(deltaTime);
@@ -4860,12 +4900,15 @@ const Game = {
     getBaseRenderQuality() {
         return (typeof GameRenderQuality !== 'undefined')
             ? GameRenderQuality.getBaseRenderQuality(this)
-            : { vignetteScale: 0.5, maxSceneryLights: Infinity, gearRingPoints: 64, groundLootAnimatedRing: true, remoteFullRender: true, maxBeamLights: 8, damageFxScale: 1, voxelParticleCap: 512 };
+            : { vignetteScale: 0.5, maxSceneryLights: Infinity, gearRingPoints: 64, groundLootAnimatedRing: true, remoteFullRender: true, maxBeamLights: 8, damageFxScale: 1, voxelParticleCap: 512, shardParticleCap: 256 };
     },
 
-    getRenderQualityForTier(tier) {
+    getRenderQualityForTier(tier, fxBoost) {
+        const boost = fxBoost != null
+            ? fxBoost
+            : (window.engine && window.engine.fxBoost != null ? window.engine.fxBoost : 0);
         return (typeof GameRenderQuality !== 'undefined')
-            ? GameRenderQuality.getRenderQualityForTier(tier, this)
+            ? GameRenderQuality.getRenderQualityForTier(tier, this, boost)
             : this.getBaseRenderQuality();
     },
 
@@ -4924,6 +4967,10 @@ const Game = {
         const q = this.renderQuality || {};
         if (q.gearRingPoints === 24 && q.remoteFullRender === false) return 'heavy';
         if (q.gearRingPoints === 32 || q.groundLootAnimatedRing === false) return 'medium';
+        const boost = (typeof window !== 'undefined' && window.engine && window.engine.fxBoost != null)
+            ? window.engine.fxBoost
+            : 0;
+        if (boost > 0.12 || (q.voxelParticleCap != null && q.voxelParticleCap > 512)) return 'boost';
         return 'normal';
     },
 
@@ -5886,6 +5933,9 @@ const Game = {
 
         // Draw player (Player is drawn normally)
         if (this.player && this.player.alive) {
+            if (typeof drawCombatClarityBoost === 'function') {
+                drawCombatClarityBoost(ctx, this.player, { rimColor: 'rgba(180, 230, 255, 0.65)' });
+            }
             this.player.render(ctx);
         }
 
@@ -5895,8 +5945,11 @@ const Game = {
             this.renderRemotePlayers(ctx);
         }
 
-        // Draw enemies (Solid bodies on top of glows)
+        // Draw enemies (Solid bodies on top of glows / spray)
         frameLists.enemies.forEach(enemy => {
+            if (typeof drawCombatClarityBoost === 'function') {
+                drawCombatClarityBoost(ctx, enemy);
+            }
             enemy.render(ctx);
         });
         if (typeof BiomeEnemyMods !== 'undefined' && BiomeEnemyMods.renderEchoes) {
@@ -8439,8 +8492,14 @@ if (typeof window !== 'undefined' && window.addEventListener) {
                     multiplayerManager.lobbyCode
                 ),
                 onQualityChange: (tier, frameBudget) => {
-                    game.renderQuality = game.getRenderQualityForTier(tier);
+                    const boost = frameBudget && frameBudget.fxBoost != null ? frameBudget.fxBoost : 0;
+                    game.renderQuality = game.getRenderQualityForTier(tier, boost);
                     game.debugFrameBudget = frameBudget;
+                    if (typeof Engine !== 'undefined' && Engine.FX && Engine.FX.ShardPool
+                        && typeof Engine.FX.ShardPool.setSoftCap === 'function'
+                        && game.renderQuality && game.renderQuality.shardParticleCap != null) {
+                        Engine.FX.ShardPool.setSoftCap(game.renderQuality.shardParticleCap);
+                    }
                 },
                 onHitPauseTick: (dt) => {
                     if (typeof updateVoxelParticles === 'function') {

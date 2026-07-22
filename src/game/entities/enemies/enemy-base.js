@@ -2080,8 +2080,18 @@ class EnemyBase {
     }
 
     getFlashDrawColor(drawColor) {
+        // Flash only — clarity tint must NOT feed the voxel composite cache
+        // (per-frame rgb() changes forced rebuilds + hot-seam strokeRect flicker).
         if (typeof applyEnemyDamageFlash === 'function') {
             return applyEnemyDamageFlash(null, this, drawColor);
+        }
+        return drawColor;
+    }
+
+    getCombatBodyDrawColor(drawColor) {
+        // Clarity only — caller already applied flash via getFlashDrawColor.
+        if (typeof resolveCombatClarityDrawColor === 'function') {
+            return resolveCombatClarityDrawColor(this, drawColor);
         }
         return drawColor;
     }

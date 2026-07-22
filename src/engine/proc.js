@@ -946,6 +946,755 @@
         return false;
     };
 
+    const Voronoi = {
+        _clipInputBuf: new Float32Array(128),
+        _clipOutputBuf: new Float32Array(128),
+
+        resolveDamageCategory(archetype) {
+            const arch = String(archetype || 'slash').toLowerCase();
+            if (arch === 'pierce' || arch === 'knife' || arch === 'arrow' || arch === 'dagger' || arch === 'shot' || arch === 'bullet') return 'LINE_PIERCE';
+            if (arch === 'blast' || arch === 'explosion' || arch === 'shout' || arch === 'crit' || arch === 'aoe' || arch === 'bomb') return 'RADIAL_BLAST';
+            if (arch === 'magic' || arch === 'beam' || arch === 'laser' || arch === 'burn' || arch === 'fire' || arch === 'lightning' || arch === 'plasma') return 'THERMAL_BEAM';
+            if (arch === 'crush' || arch === 'hammer' || arch === 'smash' || arch === 'blunt' || arch === 'shield_crush' || arch === 'heavy') return 'HEAVY_CRUSH';
+            if (arch === 'bleed' || arch === 'poison' || arch === 'dot' || arch === 'acid' || arch === 'erosion' || arch === 'tick') return 'SURFACE_ERODE';
+            return 'ARC_SLASH';
+        },
+
+        generateSites(hitLx, hitLy, width, height, numSites, seed, category = 'ARC_SLASH', dirX = 1, dirY = 0) {
+            const rng = Rng.fromSeed(seed || 12345);
+            const sites = [];
+            sites.push({ x: hitLx, y: hitLy });
+
+            const maxRadius = Math.hypot(width, height) * 0.75;
+            const len = Math.hypot(dirX, dirY) || 1;
+            const dx = dirX / len;
+            const dy = dirY / len;
+
+            if (category === 'ARC_SLASH') {
+                const nx = -dy;
+                const ny = dx;
+                for (let i = 1; i < numSites; i++) {
+                    const along = (rng.next() - 0.5) * maxRadius * 1.6;
+                    const perp = (rng.next() - 0.5) * maxRadius * 0.22;
+                    sites.push({
+                        x: hitLx + dx * along + nx * perp,
+                        y: hitLy + dy * along + ny * perp
+                    });
+                }
+            } else if (category === 'LINE_PIERCE') {
+                const nx = -dy;
+                const ny = dx;
+                for (let i = 1; i < numSites; i++) {
+                    const depth = rng.next() * maxRadius * 1.8;
+                    const scatter = (rng.next() - 0.5) * maxRadius * 0.18;
+                    sites.push({
+                        x: hitLx + dx * depth + nx * scatter,
+                        y: hitLy + dy * depth + ny * scatter
+                    });
+                }
+            } else if (category === 'HEAVY_CRUSH') {
+                const step = maxRadius * 0.45;
+                for (let i = 1; i < numSites; i++) {
+                    const rx = (rng.next() - 0.5) * maxRadius * 1.5;
+                    const ry = (rng.next() - 0.5) * maxRadius * 1.5;
+                    sites.push({
+                        x: hitLx + Math.round(rx / step) * step + (rng.next() - 0.5) * 4,
+                        y: hitLy + Math.round(ry / step) * step + (rng.next() - 0.5) * 4
+                    });
+                }
+            } else {
+                for (let i = 1; i < numSites; i++) {
+                    const dist = Math.pow(rng.next(), 1.5) * maxRadius;
+                    const angle = rng.next() * Math.PI * 2;
+                    sites.push({
+                        x: hitLx + Math.cos(angle) * dist,
+                        y: hitLy + Math.sin(angle) * dist
+                    });
+                }
+            }
+            return sites;
+        },
+
+        clipPolygonAgainstHalfPlane(inBuf, inCount, px, py, nx, ny, outBuf) {
+            let outCount = 0;
+            if (inCount === 0) return 0;
+
+            let prevX = inBuf[(inCount - 1) * 2];
+            let prevY = inBuf[(inCount - 1) * 2 + 1];
+            let prevDot = (prevX - px) * nx + (prevY - py) * ny;
+
+            for (let i = 0; i < inCount; i++) {
+                const currX = inBuf[i * 2];
+                const currY = inBuf[i * 2 + 1];
+                const currDot = (currX - px) * nx + (currY - py) * ny;
+
+                if (currDot <= 0) {
+                    if (prevDot > 0) {
+                        const t = prevDot / (prevDot - currDot || 1e-6);
+                        outBuf[outCount * 2] = prevX + (currX - prevX) * t;
+                        outBuf[outCount * 2 + 1] = prevY + (currY - prevY) * t;
+                        outCount++;
+                    }
+                    outBuf[outCount * 2] = currX;
+                    outBuf[outCount * 2 + 1] = currY;
+                    outCount++;
+                } else if (prevDot <= 0) {
+                    const t = prevDot / (prevDot - currDot || 1e-6);
+                    outBuf[outCount * 2] = prevX + (currX - prevX) * t;
+                    outBuf[outCount * 2 + 1] = prevY + (currY - prevY) * t;
+                    outCount++;
+                }
+                prevX = currX;
+                prevY = currY;
+                prevDot = currDot;
+            }
+            return outCount;
+        },
+
+        clipCellToShapeDef(inBuf, inCount, shapeDef, outBuf) {
+            const shape = shapeDef.shape || 'circle';
+            const size = shapeDef.size || 20;
+            const w = (shapeDef.width !== undefined ? shapeDef.width : size) * 0.8;
+            const h = (shapeDef.height !== undefined ? shapeDef.height : size) * 0.8;
+
+            if (shape === 'rectangle') {
+                let c = this.clipPolygonAgainstHalfPlane(inBuf, inCount, -w, 0, -1, 0, outBuf);
+                if (c < 3) return 0;
+                for (let k = 0; k < c * 2; k++) inBuf[k] = outBuf[k];
+
+                c = this.clipPolygonAgainstHalfPlane(inBuf, c, w, 0, 1, 0, outBuf);
+                if (c < 3) return 0;
+                for (let k = 0; k < c * 2; k++) inBuf[k] = outBuf[k];
+
+                c = this.clipPolygonAgainstHalfPlane(inBuf, c, 0, -h, 0, -1, outBuf);
+                if (c < 3) return 0;
+                for (let k = 0; k < c * 2; k++) inBuf[k] = outBuf[k];
+
+                return this.clipPolygonAgainstHalfPlane(inBuf, c, 0, h, 0, 1, outBuf);
+            } else if (shape === 'diamond') {
+                const d = size * 1.13;
+                const n = 0.7071;
+                let c = this.clipPolygonAgainstHalfPlane(inBuf, inCount, d * n, 0, n, n, outBuf);
+                if (c < 3) return 0;
+                for (let k = 0; k < c * 2; k++) inBuf[k] = outBuf[k];
+
+                c = this.clipPolygonAgainstHalfPlane(inBuf, c, d * n, 0, n, -n, outBuf);
+                if (c < 3) return 0;
+                for (let k = 0; k < c * 2; k++) inBuf[k] = outBuf[k];
+
+                c = this.clipPolygonAgainstHalfPlane(inBuf, c, -d * n, 0, -n, n, outBuf);
+                if (c < 3) return 0;
+                for (let k = 0; k < c * 2; k++) inBuf[k] = outBuf[k];
+
+                return this.clipPolygonAgainstHalfPlane(inBuf, c, -d * n, 0, -n, -n, outBuf);
+            } else {
+                const r = size * 0.98;
+                let c = inCount;
+                for (let i = 0; i < 8; i++) {
+                    const a = (Math.PI / 4) * i;
+                    const nx = Math.cos(a), ny = Math.sin(a);
+                    c = this.clipPolygonAgainstHalfPlane(inBuf, c, nx * r, ny * r, nx, ny, outBuf);
+                    if (c < 3) return 0;
+                    for (let k = 0; k < c * 2; k++) inBuf[k] = outBuf[k];
+                }
+                return c;
+            }
+        },
+
+        computeShatterWeb(hitLx, hitLy, shapeDef, options = {}) {
+            const numSites = options.numSites || 24;
+            const seed = options.seed || Math.floor(Math.random() * 100000);
+            const archetype = options.archetype || 'slash';
+            const category = this.resolveDamageCategory(archetype);
+            const dirX = options.dirX !== undefined ? options.dirX : 1;
+            const dirY = options.dirY !== undefined ? options.dirY : 0;
+
+            const w = shapeDef.width || shapeDef.size || 30;
+            const h = shapeDef.height || shapeDef.size || 30;
+            const sites = this.generateSites(hitLx, hitLy, w, h, numSites, seed, category, dirX, dirY);
+
+            const shards = [];
+            const boundR = Math.max(w, h) * 1.5;
+
+            for (let i = 0; i < sites.length; i++) {
+                const s1 = sites[i];
+                let count = 4;
+                const inBuf = this._clipInputBuf;
+                const outBuf = this._clipOutputBuf;
+
+                inBuf[0] = -boundR; inBuf[1] = -boundR;
+                inBuf[2] =  boundR; inBuf[3] = -boundR;
+                inBuf[4] =  boundR; inBuf[5] =  boundR;
+                inBuf[6] = -boundR; inBuf[7] =  boundR;
+
+                for (let j = 0; j < sites.length; j++) {
+                    if (i === j) continue;
+                    const s2 = sites[j];
+                    const mx = (s1.x + s2.x) * 0.5;
+                    const my = (s1.y + s2.y) * 0.5;
+                    const nx = s2.x - s1.x;
+                    const ny = s2.y - s1.y;
+                    const len = Math.hypot(nx, ny);
+                    if (len < 0.001) continue;
+
+                    count = this.clipPolygonAgainstHalfPlane(inBuf, count, mx, my, nx / len, ny / len, outBuf);
+                    if (count < 3) break;
+
+                    for (let k = 0; k < count * 2; k++) inBuf[k] = outBuf[k];
+                }
+
+                if (count < 3) continue;
+
+                count = this.clipCellToShapeDef(inBuf, count, shapeDef, outBuf);
+                if (count < 3) continue;
+
+                let area = 0, cx = 0, cy = 0;
+                for (let k = 0; k < count; k++) {
+                    const x0 = outBuf[k * 2], y0 = outBuf[k * 2 + 1];
+                    const x1 = outBuf[((k + 1) % count) * 2], y1 = outBuf[((k + 1) % count) * 2 + 1];
+                    const cross = (x0 * y1 - x1 * y0);
+                    area += cross;
+                    cx += (x0 + x1) * cross;
+                    cy += (y0 + y1) * cross;
+                }
+                area = Math.abs(area * 0.5);
+                if (area < 0.5) continue;
+
+                cx /= (6 * (area * (cx < 0 ? -1 : 1) || 1));
+                const pts = new Float32Array(count * 2);
+                for (let k = 0; k < count * 2; k++) pts[k] = outBuf[k];
+
+                shards.push({
+                    centroidX: s1.x,
+                    centroidY: s1.y,
+                    area,
+                    points: pts,
+                    vertCount: count
+                });
+            }
+            return shards;
+        }
+    };
+
+    const VoxelIslands = {
+        _bfsQueue: new Int32Array(2304),
+        _visited: new Uint8Array(2304),
+
+        extractConnectedIslands(destroyedMask, cols, rows, newlyDestroyedList) {
+            const total = cols * rows;
+            if (this._visited.length < total) {
+                this._visited = new Uint8Array(total);
+                this._bfsQueue = new Int32Array(total);
+            }
+            this._visited.fill(0);
+
+            const islands = [];
+
+            for (let k = 0; k < newlyDestroyedList.length; k++) {
+                const startIdx = newlyDestroyedList[k];
+                if (startIdx < 0 || startIdx >= total) continue;
+                if (destroyedMask[startIdx] !== 1 || this._visited[startIdx] === 1) continue;
+
+                let head = 0, tail = 0;
+                this._bfsQueue[tail++] = startIdx;
+                this._visited[startIdx] = 1;
+
+                const cells = [];
+
+                while (head < tail) {
+                    const idx = this._bfsQueue[head++];
+                    cells.push(idx);
+
+                    const r = Math.floor(idx / cols);
+                    const c = idx % cols;
+
+                    const neighbors = [
+                        r > 0 ? (r - 1) * cols + c : -1,
+                        r < rows - 1 ? (r + 1) * cols + c : -1,
+                        c > 0 ? r * cols + (c - 1) : -1,
+                        c < cols - 1 ? r * cols + (c + 1) : -1
+                    ];
+
+                    for (let n = 0; n < 4; n++) {
+                        const nIdx = neighbors[n];
+                        if (nIdx !== -1 && destroyedMask[nIdx] === 1 && this._visited[nIdx] === 0) {
+                            this._visited[nIdx] = 1;
+                            this._bfsQueue[tail++] = nIdx;
+                        }
+                    }
+                }
+
+                if (cells.length > 0) {
+                    islands.push(cells);
+                }
+            }
+            return islands;
+        },
+
+        traceIslandBoundary(cells, cols, rows, voxelW, voxelH, originX, originY) {
+            if (!cells || cells.length === 0) return null;
+
+            let sumC = 0, sumR = 0;
+            const set = new Set(cells);
+
+            for (let i = 0; i < cells.length; i++) {
+                const idx = cells[i];
+                sumC += idx % cols;
+                sumR += Math.floor(idx / cols);
+            }
+
+            const avgC = sumC / cells.length;
+            const avgR = sumR / cells.length;
+
+            const centroidX = originX + (avgC + 0.5) * voxelW;
+            const centroidY = originY + (avgR + 0.5) * voxelH;
+
+            const edges = [];
+            for (let i = 0; i < cells.length; i++) {
+                const idx = cells[i];
+                const r = Math.floor(idx / cols);
+                const c = idx % cols;
+
+                const lx = (c - avgC) * voxelW;
+                const rx = (c + 1 - avgC) * voxelW;
+                const ty = (r - avgR) * voxelH;
+                const by = (r + 1 - avgR) * voxelH;
+
+                if (r === 0 || !set.has((r - 1) * cols + c)) edges.push(lx, ty, rx, ty);
+                if (c === cols - 1 || !set.has(r * cols + (c + 1))) edges.push(rx, ty, rx, by);
+                if (r === rows - 1 || !set.has((r + 1) * cols + c)) edges.push(rx, by, lx, by);
+                if (c === 0 || !set.has(r * cols + (c - 1))) edges.push(lx, by, lx, ty);
+            }
+
+            if (edges.length === 0) return null;
+
+            const rawVerts = [];
+            let currX = edges[0], currY = edges[1];
+            rawVerts.push(currX, currY);
+
+            const used = new Uint8Array(edges.length / 4);
+            used[0] = 1;
+            currX = edges[2];
+            currY = edges[3];
+
+            for (let iter = 1; iter < edges.length / 4; iter++) {
+                rawVerts.push(currX, currY);
+                let found = false;
+                for (let e = 0; e < edges.length / 4; e++) {
+                    if (used[e]) continue;
+                    const x1 = edges[e * 4], y1 = edges[e * 4 + 1];
+                    const x2 = edges[e * 4 + 2], y2 = edges[e * 4 + 3];
+                    if (Math.hypot(x1 - currX, y1 - currY) < 1e-3) {
+                        used[e] = 1;
+                        currX = x2;
+                        currY = y2;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) break;
+            }
+
+            const poly = [];
+            const count = rawVerts.length / 2;
+            if (count < 3) return null;
+
+            for (let i = 0; i < count; i++) {
+                const px = rawVerts[i * 2];
+                const py = rawVerts[i * 2 + 1];
+                const prevI = (i - 1 + count) % count;
+                const nextI = (i + 1) % count;
+
+                const pX = rawVerts[prevI * 2], pY = rawVerts[prevI * 2 + 1];
+                const nX = rawVerts[nextI * 2], nY = rawVerts[nextI * 2 + 1];
+
+                const cross = (px - pX) * (nY - py) - (py - pY) * (nX - px);
+                if (Math.abs(cross) > 1e-4) {
+                    poly.push(px, py);
+                }
+            }
+
+            if (poly.length < 6) return null;
+
+            return {
+                centroidX,
+                centroidY,
+                cellCount: cells.length,
+                points: new Float32Array(poly),
+                vertCount: poly.length / 2
+            };
+        }
+    };
+
+    // God-Tier Multi-Variable Voxel Disintegration Engine
+    let _bfsQueue = null;
+    let _bfsVisited = null;
+    let _partitionRng = null;
+
+    const VoxelDisintegration = {
+        buildShapeMaskWithCore(g, enemy) {
+            const shape = (enemy.shape || 'circle').toLowerCase();
+            const cols = g.cols;
+            const rows = g.rows;
+            const total = cols * rows;
+            const mask = new Uint8Array(total);
+
+            const size = enemy.size || 20;
+            const halfW = g.cols * g.voxelW * 0.5;
+            const halfH = g.rows * g.voxelH * 0.5;
+            const mult = enemy.sizeMultiplier || 1.0;
+            const effSize = size * mult;
+
+            const w = (enemy.width !== undefined ? enemy.width : size) * mult * 0.8;
+            const h = (enemy.height !== undefined ? enemy.height : size) * mult * 0.8;
+
+            const coreRatio = 0.40;
+
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    const idx = r * cols + c;
+                    const lx = -halfW + c * g.voxelW + g.voxelW * 0.5;
+                    const ly = -halfH + r * g.voxelH + g.voxelH * 0.5;
+
+                    let inside = false;
+                    let isCore = false;
+
+                    if (shape === 'rectangle') {
+                        inside = Math.abs(lx) <= w && Math.abs(ly) <= h;
+                        isCore = inside && (Math.abs(lx) <= w * coreRatio && Math.abs(ly) <= h * coreRatio);
+                    } else if (shape === 'diamond') {
+                        const d = effSize * 1.13;
+                        inside = (Math.abs(lx) + Math.abs(ly)) <= d;
+                        isCore = inside && ((Math.abs(lx) + Math.abs(ly)) <= d * coreRatio);
+                    } else if (shape === 'star') {
+                        const rOuter = effSize * 1.15;
+                        const dist = Math.hypot(lx, ly);
+                        const angle = Math.atan2(ly, lx);
+                        const starR = rOuter * (0.65 + 0.35 * Math.cos(angle * 5));
+                        inside = dist <= starR;
+                        isCore = inside && (dist <= starR * coreRatio);
+                    } else if (shape === 'octagon') {
+                        const rOct = effSize * 1.05;
+                        const dist = Math.hypot(lx, ly);
+                        inside = dist <= rOct && (Math.abs(lx) <= rOct * 0.92) && (Math.abs(ly) <= rOct * 0.92);
+                        isCore = inside && (dist <= rOct * coreRatio);
+                    } else {
+                        const dist = Math.hypot(lx, ly);
+                        const rCircle = effSize * 0.98;
+                        inside = dist <= rCircle;
+                        isCore = inside && (dist <= rCircle * coreRatio);
+                    }
+
+                    if (inside) {
+                        mask[idx] = isCore ? 2 : 1;
+                    } else {
+                        mask[idx] = 0;
+                    }
+                }
+            }
+            return mask;
+        },
+
+        isSurfaceExposedCell(g, mask, destroyedArray, r, c) {
+            const cols = g.cols;
+            const rows = g.rows;
+
+            if (r === 0 || r === rows - 1 || c === 0 || c === cols - 1) return true;
+
+            const up    = (r - 1) * cols + c;
+            const down  = (r + 1) * cols + c;
+            const left  = r * cols + (c - 1);
+            const right = r * cols + (c + 1);
+
+            return (mask[up] === 0 || destroyedArray[up] === 1) ||
+                   (mask[down] === 0 || destroyedArray[down] === 1) ||
+                   (mask[left] === 0 || destroyedArray[left] === 1) ||
+                   (mask[right] === 0 || destroyedArray[right] === 1);
+        },
+
+        computeStressScore(hitPos, enemy, damage, archetype) {
+            const arch = String(archetype || 'slash').toLowerCase();
+            let baseCategoryScore = 0.65;
+            if (arch === 'blast' || arch === 'explosion' || arch === 'shout' || arch === 'crit' || arch === 'magic' || arch === 'beam') baseCategoryScore = 0.85;
+            else if (arch === 'crush' || arch === 'hammer' || arch === 'smash') baseCategoryScore = 0.35;
+            else if (arch === 'bleed' || arch === 'poison' || arch === 'dot' || arch === 'acid') baseCategoryScore = 0.45;
+
+            const maxHp = Math.max(1, (enemy && enemy.maxHp) || 100);
+            const dmgRatio = Math.min(2.0, (damage || 20) / maxHp);
+            const severityMult = 0.5 + dmgRatio;
+
+            let locationFactor = 0.70;
+            if (enemy && hitPos) {
+                const hx = hitPos.x !== undefined ? hitPos.x : (hitPos.hitX || enemy.x);
+                const hy = hitPos.y !== undefined ? hitPos.y : (hitPos.hitY || enemy.y);
+                const distToCenter = Math.hypot(hx - enemy.x, hy - enemy.y);
+                const enemySize = enemy.size || 30;
+                if (distToCenter / enemySize < 0.35) {
+                    locationFactor = 1.35;
+                }
+            }
+
+            const shape = (enemy && enemy.shape) || 'circle';
+            let materialModifier = 1.0;
+            if (shape === 'rectangle') materialModifier = 0.60;
+            else if (shape === 'diamond') materialModifier = 1.25;
+            else if (shape === 'star' || shape === 'octagon' || (enemy && enemy.isBoss)) materialModifier = 0.85;
+
+            return baseCategoryScore * severityMult * locationFactor * materialModifier;
+        },
+
+        partitionVoxelMass(destroyedCells, g, stressScore, archetype, options) {
+            if (!destroyedCells || destroyedCells.length === 0) return [];
+            options = options || {};
+            const deathShatter = !!options.deathShatter;
+            if (!_partitionRng) {
+                _partitionRng = Rng.fromSeed(`voxel-partition:${Date.now() & 0xfffffff}`);
+            }
+            const rng = options.rng || _partitionRng;
+            const rand = () => readRandom(rng);
+            const particles = [];
+            const cols = g.cols;
+            const rows = g.rows;
+            const vw = g.voxelW;
+            const vh = g.voxelH;
+            const totalCells = cols * rows;
+            const originX = -vw * cols * 0.5;
+            const originY = -vh * rows * 0.5;
+
+            if (!_bfsQueue || _bfsQueue.length < totalCells) {
+                _bfsQueue = new Int32Array(Math.max(512, totalCells));
+                _bfsVisited = new Uint8Array(Math.max(512, totalCells));
+            } else {
+                _bfsVisited.fill(0, 0, totalCells);
+            }
+
+            const inSet = new Uint8Array(totalCells);
+            let setCount = 0;
+            for (let i = 0; i < destroyedCells.length; i++) {
+                const cell = destroyedCells[i];
+                const idx = typeof cell === 'number' ? cell : cell.idx;
+                if (idx >= 0 && idx < totalCells && !inSet[idx]) {
+                    inSet[idx] = 1;
+                    setCount++;
+                }
+            }
+
+            // Stress drives breakup ladder: rare slab → large → medium → small → crumbs.
+            // Bias toward fewer, larger plates (not sand) so rigid sim stays accurate.
+            // maxChunkSize caps ordinary plates; slabs use maxSlabSize and a hard rarity cap.
+            let maxChunkSize = 9;
+            let maxSlabSize = 15;
+            let preferSingle = 0.08;
+            let preferSmall = 0.18;
+            let maxSlabs = 1;
+            let preferSlab = 0.07;
+            if (deathShatter) {
+                maxChunkSize = Math.min(11, Math.max(8, Math.floor(Math.sqrt(setCount) * 1.6)));
+                maxSlabSize = Math.min(16, Math.max(13, Math.floor(Math.sqrt(setCount) * 2.4)));
+                preferSingle = 0.06;
+                preferSmall = 0.12;
+                maxSlabs = 2;
+                preferSlab = 0.11;
+            } else if (stressScore > 1.1) {
+                maxChunkSize = 5;
+                preferSingle = 0.22;
+                preferSmall = 0.26;
+                maxSlabs = 0;
+                preferSlab = 0;
+            } else if (stressScore > 0.75) {
+                maxChunkSize = 7;
+                preferSingle = 0.14;
+                preferSmall = 0.22;
+                maxSlabs = 0;
+                preferSlab = 0;
+            } else if (stressScore < 0.5) {
+                maxChunkSize = 11;
+                preferSingle = 0.04;
+                preferSmall = 0.12;
+                maxSlabs = 1;
+                preferSlab = 0.09;
+            }
+
+            const archetypeKey = String(archetype || 'slash').toLowerCase();
+            if (!deathShatter) {
+                if (archetypeKey === 'blast' || archetypeKey === 'magic') {
+                    preferSingle = Math.min(0.35, preferSingle + 0.06);
+                    maxChunkSize = Math.max(4, maxChunkSize - 1);
+                    preferSlab *= 0.5;
+                } else if (archetypeKey === 'crush' || archetypeKey === 'slash') {
+                    maxChunkSize = Math.min(11, maxChunkSize + 1);
+                    preferSingle = Math.max(0.03, preferSingle - 0.03);
+                    preferSlab = Math.min(0.14, preferSlab + 0.03);
+                }
+            }
+
+            function classifyTier(cellCount) {
+                if (cellCount >= 12) return 'slab';
+                if (cellCount >= 7) return 'large';
+                if (cellCount >= 4) return 'medium';
+                if (cellCount >= 2) return 'small';
+                return 'voxel';
+            }
+
+            let slabsSpawned = 0;
+
+            function pushCluster(clusterCells) {
+                if (!clusterCells || clusterCells.length === 0) return;
+                const tier = classifyTier(clusterCells.length);
+                if (tier === 'slab') slabsSpawned++;
+                const traced = VoxelIslands.traceIslandBoundary(
+                    clusterCells, cols, rows, vw, vh, originX, originY
+                );
+                if (traced && traced.vertCount >= 3) {
+                    // Clamp to ShardPool vert budget (16 verts / 32 floats).
+                    let points = traced.points;
+                    let vertCount = traced.vertCount;
+                    if (vertCount > 16) {
+                        const stepped = new Float32Array(32);
+                        for (let k = 0; k < 16; k++) {
+                            const src = Math.floor(k * vertCount / 16) * 2;
+                            stepped[k * 2] = points[src];
+                            stepped[k * 2 + 1] = points[src + 1];
+                        }
+                        points = stepped;
+                        vertCount = 16;
+                    }
+                    particles.push({
+                        centroidX: traced.centroidX,
+                        centroidY: traced.centroidY,
+                        cellCount: clusterCells.length,
+                        tier,
+                        points,
+                        vertCount
+                    });
+                    return;
+                }
+
+                // Fallback: build a simple rect from cell bounds (still size-accurate).
+                let minC = cols, maxC = -1, minR = rows, maxR = -1;
+                let sumC = 0, sumR = 0;
+                for (let k = 0; k < clusterCells.length; k++) {
+                    const cIdx = clusterCells[k];
+                    const c = cIdx % cols;
+                    const r = Math.floor(cIdx / cols);
+                    minC = Math.min(minC, c); maxC = Math.max(maxC, c);
+                    minR = Math.min(minR, r); maxR = Math.max(maxR, r);
+                    sumC += c; sumR += r;
+                }
+                const avgC = sumC / clusterCells.length;
+                const avgR = sumR / clusterCells.length;
+                const cx = (avgC + 0.5) * vw + originX;
+                const cy = (avgR + 0.5) * vh + originY;
+                const halfW = (maxC - minC + 1) * vw * 0.5;
+                const halfH = (maxR - minR + 1) * vh * 0.5;
+                particles.push({
+                    centroidX: cx,
+                    centroidY: cy,
+                    cellCount: clusterCells.length,
+                    tier,
+                    points: new Float32Array([
+                        -halfW, -halfH, halfW, -halfH, halfW, halfH, -halfW, halfH
+                    ]),
+                    vertCount: 4
+                });
+            }
+
+            function pickDeathTargetSize(remaining) {
+                // Rare oversized slabs, then plating; crumbs are seasoning.
+                const roll = rand();
+                if (remaining >= 12 && slabsSpawned < maxSlabs && roll < preferSlab) {
+                    return Math.min(maxSlabSize, 12 + Math.floor(rand() * 4)); // slab
+                }
+                if (remaining >= 7 && roll < 0.48) {
+                    return Math.min(maxChunkSize, 7 + Math.floor(rand() * 4)); // large
+                }
+                if (remaining >= 4 && roll < 0.82) {
+                    return Math.min(maxChunkSize, 4 + Math.floor(rand() * 3)); // medium
+                }
+                if (remaining >= 2 && roll < 0.94) {
+                    return 2; // small
+                }
+                return 1; // voxel
+            }
+
+            let remaining = setCount;
+            for (let i = 0; i < destroyedCells.length; i++) {
+                const cell = destroyedCells[i];
+                const startIdx = typeof cell === 'number' ? cell : cell.idx;
+                if (startIdx < 0 || startIdx >= totalCells || _bfsVisited[startIdx] || !inSet[startIdx]) continue;
+
+                let targetSize;
+                if (deathShatter) {
+                    targetSize = pickDeathTargetSize(remaining);
+                } else {
+                    const roll = rand();
+                    if (roll < preferSingle) {
+                        _bfsVisited[startIdx] = 1;
+                        pushCluster([startIdx]);
+                        remaining -= 1;
+                        continue;
+                    }
+                    targetSize = maxChunkSize;
+                    if (roll < preferSingle + preferSmall) {
+                        targetSize = Math.min(maxChunkSize, 2 + (rand() < 0.45 ? 0 : 1));
+                    } else if (
+                        remaining >= 12
+                        && slabsSpawned < maxSlabs
+                        && rand() < preferSlab
+                    ) {
+                        targetSize = Math.min(maxSlabSize, 12 + Math.floor(rand() * 4));
+                    } else if (rand() < 0.42) {
+                        // Medium plates; otherwise take full maxChunkSize plating.
+                        targetSize = Math.min(maxChunkSize, 4 + Math.floor(rand() * 3));
+                    }
+                }
+
+                let head = 0;
+                let tail = 0;
+                _bfsQueue[tail++] = startIdx;
+                _bfsVisited[startIdx] = 1;
+                const cluster = [];
+
+                while (head < tail && cluster.length < targetSize) {
+                    const curr = _bfsQueue[head++];
+                    cluster.push(curr);
+                    const r = Math.floor(curr / cols);
+                    const c = curr % cols;
+                    const nbrs = [
+                        c + 1 < cols ? r * cols + (c + 1) : -1,
+                        r + 1 < rows ? (r + 1) * cols + c : -1,
+                        c > 0 ? r * cols + (c - 1) : -1,
+                        r > 0 ? (r - 1) * cols + c : -1
+                    ];
+                    for (let n = 0; n < 4; n++) {
+                        const nIdx = nbrs[n];
+                        if (nIdx >= 0 && inSet[nIdx] && !_bfsVisited[nIdx]) {
+                            _bfsVisited[nIdx] = 1;
+                            _bfsQueue[tail++] = nIdx;
+                            if (cluster.length + (tail - head) >= targetSize) break;
+                        }
+                    }
+                }
+                while (head < tail && cluster.length < targetSize) {
+                    cluster.push(_bfsQueue[head++]);
+                }
+                while (head < tail) {
+                    const extra = _bfsQueue[head++];
+                    _bfsVisited[extra] = 0;
+                }
+
+                remaining -= cluster.length;
+                pushCluster(cluster);
+            }
+
+            return particles;
+        }
+    };
+
+    Proc.Voronoi = Voronoi;
+    Proc.VoxelIslands = VoxelIslands;
+    Proc.VoxelDisintegration = VoxelDisintegration;
+
     Proc.Rng = Rng;
     Proc.Noise = Noise;
     Proc.Cell = Cell;

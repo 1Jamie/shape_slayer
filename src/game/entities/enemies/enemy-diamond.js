@@ -839,7 +839,9 @@ class DiamondEnemy extends EnemyBase {
             ctx.save();
             ctx.translate(this.x, this.y);
             ctx.rotate(Math.PI / 4);
-            ctx.fillStyle = drawColor;
+            ctx.fillStyle = typeof this.getCombatBodyDrawColor === 'function'
+                ? this.getCombatBodyDrawColor(drawColor)
+                : drawColor;
             ctx.beginPath();
             ctx.rect(-drawSize * 0.8, -drawSize * 0.8, drawSize * 1.6, drawSize * 1.6);
             ctx.fill();

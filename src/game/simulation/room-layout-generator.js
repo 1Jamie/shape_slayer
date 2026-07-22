@@ -2940,10 +2940,31 @@
     }
 
     function findPathAsync(layout, start, end, radius, options = {}) {
+        if (!layout || !start || !end) return Promise.resolve(null);
         if (typeof Engine !== 'undefined' && Engine.Proc && typeof Engine.Proc.findPathAsync === 'function') {
-            const procGrid = getProcGrid(layout);
-            if (procGrid) {
-                return Engine.Proc.findPathAsync(procGrid, start, end, radius, options);
+            const opts = options || {};
+            const radiusPadding = opts.radiusPadding != null
+                ? opts.radiusPadding
+                : Math.max(2, (layout.cellSize || 40) * 0.04);
+            const entityRadius = (radius || 0) + radiusPadding;
+            const startCell = findNearestPathableCell(layout, start, entityRadius);
+            const goalCell = findNearestPathableCell(layout, end, entityRadius);
+            if (!startCell || !goalCell) return Promise.resolve(null);
+            const radiusGrid = getRadiusProcGrid(layout, entityRadius);
+            if (radiusGrid && typeof radiusGrid.findPathAsync === 'function') {
+                return radiusGrid.findPathAsync(
+                    { x: startCell.col, y: startCell.row },
+                    { x: goalCell.col, y: goalCell.row },
+                    Object.assign({}, opts, { diagonal: true })
+                ).then(cellPath => {
+                    if (cellPath && cellPath.length) {
+                        return cellPath.map(cell => {
+                            const center = cellCenter(layout, cell.x, cell.y);
+                            return { x: center.x, y: center.y, col: cell.x, row: cell.y };
+                        });
+                    }
+                    return findPath(layout, start, end, radius, options);
+                });
             }
         }
         return Promise.resolve(findPath(layout, start, end, radius, options));

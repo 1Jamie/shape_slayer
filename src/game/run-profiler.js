@@ -275,7 +275,7 @@
                 });
             }
             if (s.qualityTierShare) {
-                lines.push(`Quality time: normal ${(s.qualityTierShare.normal * 100 || 0).toFixed(0)}%, medium ${(s.qualityTierShare.medium * 100 || 0).toFixed(0)}%, heavy ${(s.qualityTierShare.heavy * 100 || 0).toFixed(0)}%`);
+                lines.push(`Quality time: normal ${(s.qualityTierShare.normal * 100 || 0).toFixed(0)}%, boost ${(s.qualityTierShare.boost * 100 || 0).toFixed(0)}%, medium ${(s.qualityTierShare.medium * 100 || 0).toFixed(0)}%, heavy ${(s.qualityTierShare.heavy * 100 || 0).toFixed(0)}%`);
             }
             return lines.join('\n');
         },

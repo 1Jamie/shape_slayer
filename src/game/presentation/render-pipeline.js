@@ -127,17 +127,8 @@
                     });
                 }
             },
-            {
-                id: 'worldVoxelDecay',
-                target: worldTargetName,
-                draw(frame, ctx) {
-                    withWorldContext(frame, ctx, () => {
-                        if (typeof renderVoxelActiveParticles === 'function') {
-                            renderVoxelActiveParticles(ctx);
-                        }
-                    });
-                }
-            },
+            // NOTE: live voxel/fluid particles are already drawn inside renderWorldBodies
+            // (under players/enemies). Do not redraw them afterward or combat clarity dies.
             {
                 id: 'worldParticles',
                 target: worldTargetName,

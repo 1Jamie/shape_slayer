@@ -128,6 +128,10 @@ class RectangleEnemy extends EnemyBase {
         // Roar ability (rooms 21+)
         this.roarTimer = 0;
         this.roarCooldown = 0;
+
+        if (typeof refreshEntityVoxelGrid === 'function') {
+            refreshEntityVoxelGrid(this);
+        }
     }
 
     update(deltaTime) {
@@ -591,7 +595,9 @@ class RectangleEnemy extends EnemyBase {
         if (!bodyDrawn) {
             ctx.save();
             ctx.translate(this.x, this.y);
-            ctx.fillStyle = drawColor;
+            ctx.fillStyle = typeof this.getCombatBodyDrawColor === 'function'
+                ? this.getCombatBodyDrawColor(drawColor)
+                : drawColor;
             ctx.beginPath();
             ctx.rect(-this.width * multiplier * 0.8, -this.height * multiplier * 0.8,
                 this.width * multiplier * 1.6, this.height * multiplier * 1.6);

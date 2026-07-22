@@ -1073,6 +1073,10 @@
             renderVoxelStaticLayer(ctx);
         }
 
+        if (typeof renderVoxelActiveParticles === 'function') {
+            renderVoxelActiveParticles(ctx);
+        }
+
         if (typeof Game !== 'undefined' && Game.enemies) {
             for (let i = 0; i < Game.enemies.length; i++) {
                 const enemy = Game.enemies[i];
@@ -1082,6 +1086,9 @@
                         ? isEnemyDeathJuiceVisible(enemy)
                         : true;
                     if (!juiceVisible) continue;
+                }
+                if (typeof drawCombatClarityBoost === 'function') {
+                    drawCombatClarityBoost(ctx, enemy);
                 }
                 if (typeof enemy.render === 'function') {
                     enemy.render(ctx);
@@ -1106,14 +1113,14 @@
                 ctx.fill();
                 ctx.restore();
             }
+            if (typeof drawCombatClarityBoost === 'function') {
+                drawCombatClarityBoost(ctx, hero, { rimColor: 'rgba(180, 230, 255, 0.65)' });
+            }
             hero.render(ctx);
         }
 
         drawProjectiles(ctx);
 
-        if (typeof renderVoxelActiveParticles === 'function') {
-            renderVoxelActiveParticles(ctx);
-        }
         if (typeof renderParticles === 'function') {
             renderParticles(ctx);
         }

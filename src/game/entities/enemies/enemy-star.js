@@ -1044,7 +1044,9 @@ class StarEnemy extends EnemyBase {
             ctx.save();
             ctx.translate(this.x, this.y);
             ctx.rotate(this.rotation);
-            ctx.fillStyle = drawColor;
+            ctx.fillStyle = typeof this.getCombatBodyDrawColor === 'function'
+                ? this.getCombatBodyDrawColor(drawColor)
+                : drawColor;
             ctx.beginPath();
             const height = this.size * 1.5 * scaleMultiplier;
             const base   = this.size * 1.3 * scaleMultiplier;

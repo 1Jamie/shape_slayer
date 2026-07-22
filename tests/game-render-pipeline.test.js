@@ -124,16 +124,16 @@ function makeGame(overrides = {}) {
     return game;
 }
 
-test('PLAYING recipe stage order is clear → static → visibility → glow → bodies → voxelDecay → particles → tutorial → post', () => {
+test('PLAYING recipe stage order is clear → static → visibility → glow → bodies → particles → tutorial → post', () => {
     const GRP = loadGameRecipe();
     const game = makeGame();
     const ids = [...GRP.createPlayingRecipe(game).map(s => s.id)];
-    assert.deepEqual(ids.slice(0, 8), [
+    assert.deepEqual(ids.slice(0, 7), [
         'worldClear', 'worldStatic', 'worldVisibility',
-        'worldGlow', 'worldBodies', 'worldVoxelDecay', 'worldParticles', 'worldTutorial'
+        'worldGlow', 'worldBodies', 'worldParticles', 'worldTutorial'
     ]);
-    assert.equal(ids[8], 'damagePostFx');
-    assert.equal(ids[9], 'vignetteLighting');
+    assert.equal(ids[7], 'damagePostFx');
+    assert.equal(ids[8], 'vignetteLighting');
 });
 
 test('normal frames route world stages to main; chromatic routes to world then main post', () => {
@@ -146,7 +146,7 @@ test('normal frames route world stages to main; chromatic routes to world then m
     const recipe = GRP.createPlayingRecipe(game);
     const worldIds = new Set([
         'worldClear', 'worldStatic', 'worldVisibility',
-        'worldGlow', 'worldBodies', 'worldVoxelDecay', 'worldParticles', 'worldTutorial'
+        'worldGlow', 'worldBodies', 'worldParticles', 'worldTutorial'
     ]);
     for (const stage of recipe) {
         if (!worldIds.has(stage.id)) continue;

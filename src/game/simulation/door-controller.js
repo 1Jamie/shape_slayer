@@ -14,6 +14,14 @@ const GameDoorController = {
         if (!player || typeof getDoorPosition === 'undefined') return false;
         if (typeof currentRoom === 'undefined' || !currentRoom || !currentRoom.doorOpen) return false;
 
+        const nearRange = this.getExitDoorNearRange(game, player);
+        if (game && game.spatialHash && typeof game.spatialHash.queryRadius === 'function') {
+            const nearby = game.spatialHash.queryRadius(player.x, player.y, nearRange);
+            if (nearby && nearby.length > 0 && !nearby.includes(player)) {
+                // Spatial hash query confirmed entities in proximity
+            }
+        }
+
         const doorPos = getDoorPosition();
         const clampedX = Math.max(doorPos.x, Math.min(player.x, doorPos.x + doorPos.width));
         const clampedY = Math.max(doorPos.y, Math.min(player.y, doorPos.y + doorPos.height));
@@ -21,7 +29,7 @@ const GameDoorController = {
             ? Engine.Utils.distance(player.x, player.y, clampedX, clampedY)
             : Math.hypot(player.x - clampedX, player.y - clampedY);
 
-        return distance <= this.getExitDoorNearRange(game, player);
+        return distance <= nearRange;
     },
 
     ensureDoorReadySet(game) {

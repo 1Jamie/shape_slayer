@@ -651,8 +651,115 @@ class SpatialHash {
     }
 }
 
+const RigidDebris = {
+    computeImpactTorque(hitPoint, center, velocity, mass, category = 'ARC_SLASH') {
+        const rx = (hitPoint ? hitPoint.x : 0) - (center ? center.x : 0);
+        const ry = (hitPoint ? hitPoint.y : 0) - (center ? center.y : 0);
+        const vx = velocity ? (velocity.vx || velocity.x || 0) : 0;
+        const vy = velocity ? (velocity.vy || velocity.y || 0) : 0;
+
+        const cross = rx * vy - ry * vx;
+        const r2 = rx * rx + ry * ry;
+
+        let massMultiplier = 1.0;
+        if (category === 'HEAVY_CRUSH') massMultiplier = 3.5;
+        else if (category === 'LINE_PIERCE') massMultiplier = 0.4;
+        else if (category === 'ARC_SLASH') massMultiplier = 0.6;
+        else if (category === 'THERMAL_BEAM') massMultiplier = 0.8;
+
+        const effectiveMass = Math.max(0.1, (Number(mass) || 1.0) * massMultiplier);
+        const inertia = 0.5 * effectiveMass * (r2 + 16);
+        return cross / inertia;
+    },
+
+    computeIslandPhysics(island, hitPos, impactVel, enemyCenter, archetype = 'slash') {
+        const N = Math.max(1, island.cellCount || 1);
+        const hx = hitPos ? (hitPos.x || hitPos.hitX || 0) : 0;
+        const hy = hitPos ? (hitPos.y || hitPos.hitY || 0) : 0;
+        // island.centroid* is enemy-local; hitPos is world — convert via enemyCenter.
+        const ex = enemyCenter ? (enemyCenter.x || 0) : 0;
+        const ey = enemyCenter ? (enemyCenter.y || 0) : 0;
+        const worldCx = ex + (island.centroidX || 0);
+        const worldCy = ey + (island.centroidY || 0);
+
+        // Vectors from the wound and from the body center — motion comes from where
+        // the plate actually sat, not a shared cup-toss direction.
+        const fromHitX = worldCx - hx;
+        const fromHitY = worldCy - hy;
+        const fromHitDist = Math.hypot(fromHitX, fromHitY) || 1;
+        const hitNx = fromHitX / fromHitDist;
+        const hitNy = fromHitY / fromHitDist;
+
+        const fromCenterX = worldCx - ex;
+        const fromCenterY = worldCy - ey;
+        const fromCenterDist = Math.hypot(fromCenterX, fromCenterY) || 1;
+        const peelX = fromCenterX / fromCenterDist;
+        const peelY = fromCenterY / fromCenterDist;
+
+        const ivx = impactVel ? (impactVel.vx || impactVel.x || 0) : 0;
+        const ivy = impactVel ? (impactVel.vy || impactVel.y || 0) : 0;
+        const impactLen = Math.hypot(ivx, ivy) || 1;
+
+        const massScale = 0.45 + 0.55 / Math.sqrt(N);
+        // Near-wound plates take more of the strike; far plates mostly peel apart.
+        const bodySize = Math.max(18, fromCenterDist * 1.15);
+        const hitInfluence = Math.exp(-fromHitDist / (bodySize * 0.9));
+
+        const peelSpeed = (70 + 95 / Math.sqrt(N)) * massScale;
+        const hitBurst = (55 + 80 / Math.sqrt(N)) * massScale * hitInfluence;
+        const impactShare = 0.18 + 0.22 * hitInfluence;
+
+        const vx = ivx * impactShare * massScale
+            + peelX * peelSpeed
+            + hitNx * hitBurst;
+        const vy = ivy * impactShare * massScale
+            + peelY * peelSpeed
+            + hitNy * hitBurst;
+
+        // Torque from the strike lever arm — keep orientation coherent (no dice spin).
+        const cross = fromHitX * ivy - fromHitY * ivx;
+        const r2 = fromHitX * fromHitX + fromHitY * fromHitY;
+        const inertia = 0.5 * N * (r2 + 16);
+        const rotV = (cross / Math.max(inertia, 1))
+            * (0.55 / Math.sqrt(N))
+            * hitInfluence
+            * (impactLen / Math.max(impactLen, 200));
+
+        return {
+            vx,
+            vy,
+            rotV,
+            worldX: worldCx,
+            worldY: worldCy,
+            hitInfluence,
+            peelX,
+            peelY
+        };
+    },
+
+    integrateShardPhysics(shard, dt, bounds) {
+        dt = Math.min(0.05, Number(dt) || 0.016);
+        shard.x += shard.vx * dt;
+        shard.y += shard.vy * dt;
+        shard.rotation = (shard.rotation || 0) + (shard.rotV || 0) * dt;
+
+        const drag = 1.0 - (shard.drag || 2.5) * dt;
+        shard.vx *= Math.max(0, drag);
+        shard.vy *= Math.max(0, drag);
+        shard.rotV *= Math.max(0, 1.0 - (shard.rotDrag || 3.0) * dt);
+
+        if (bounds) {
+            if (shard.x < bounds.minX) { shard.x = bounds.minX; shard.vx *= -0.6; }
+            if (shard.x > bounds.maxX) { shard.x = bounds.maxX; shard.vx *= -0.6; }
+            if (shard.y < bounds.minY) { shard.y = bounds.minY; shard.vy *= -0.6; }
+            if (shard.y > bounds.maxY) { shard.y = bounds.maxY; shard.vy *= -0.6; }
+        }
+    }
+};
+
 ImpulsePhysics.Geometry = Geometry;
 ImpulsePhysics.SpatialHash = SpatialHash;
+ImpulsePhysics.RigidDebris = RigidDebris;
 
 const root = typeof window !== 'undefined' ? window : globalThis;
 root.Engine = root.Engine || {};

@@ -854,6 +854,403 @@
         return spawned;
     }
 
+    class ShardPoolSystem {
+        constructor(capacity) {
+            capacity = capacity || 512;
+            this.capacity = capacity;
+            const bufSize = capacity * 20 * Float32Array.BYTES_PER_ELEMENT;
+            this.buffer = createBackingBuffer(bufSize);
+            this.data = new Float32Array(this.buffer);
+
+            const vertBufSize = capacity * 32 * Float32Array.BYTES_PER_ELEMENT;
+            this.vertBuffer = createBackingBuffer(vertBufSize);
+            this.vertData = new Float32Array(this.vertBuffer);
+
+            this.settledQueue = new Int16Array(capacity);
+            this.settledCount = 0;
+            this.onSettledCallback = null;
+            /** Optional (x,y,prevX,prevY,radius,ctx?) => {x,y,hit} scenery/wall/body resolver. */
+            this.resolveWorldCollision = null;
+            this.head = 0;
+            this.liveCount = 0;
+            // Soft spawn budget (governor); physical capacity stays larger for headroom boost.
+            this.softCap = Math.min(256, capacity);
+            this._airborneScratch = new Int16Array(capacity);
+        }
+
+        setSoftCap(cap) {
+            const next = Math.max(0, Math.min(this.capacity, Math.floor(Number(cap) || 0)));
+            this.softCap = next;
+            return this;
+        }
+
+        countLive() {
+            let n = 0;
+            for (let i = 0; i < this.capacity; i++) {
+                // 1 = live, 2 = settling (still occupies a soft-cap slot until stamp frees it).
+                if (this.data[i * 20 + 15] !== 0) n++;
+            }
+            this.liveCount = n;
+            return n;
+        }
+
+        spawn(opts) {
+            const soft = this.softCap != null ? this.softCap : this.capacity;
+            if (this.countLive() >= soft) return -1;
+
+            const idx = this.head;
+            this.head = (this.head + 1) % this.capacity;
+            const stride = idx * 20;
+            const wasLive = this.data[stride + 15] === 1;
+
+            this.data[stride + 0] = opts.x || 0;
+            this.data[stride + 1] = opts.y || 0;
+            this.data[stride + 2] = opts.vx || 0;
+            this.data[stride + 3] = opts.vy || 0;
+            this.data[stride + 4] = opts.rotation || 0;
+            this.data[stride + 5] = opts.rotV || 0;
+            this.data[stride + 6] = opts.scale || 1.0;
+            this.data[stride + 7] = opts.alpha || 1.0;
+            this.data[stride + 8] = opts.life || 1.2;
+            this.data[stride + 9] = opts.life || 1.2;
+            this.data[stride + 10] = opts.r !== undefined ? opts.r : 1.0;
+            this.data[stride + 11] = opts.g !== undefined ? opts.g : 1.0;
+            this.data[stride + 12] = opts.b !== undefined ? opts.b : 1.0;
+
+            const pts = opts.points;
+            const count = opts.vertCount || (pts ? Math.floor(pts.length / 2) : 0);
+            this.data[stride + 13] = count;
+            this.data[stride + 14] = idx * 32;
+            this.data[stride + 15] = 1;
+            this.data[stride + 16] = opts.z !== undefined ? opts.z : 0;
+            this.data[stride + 17] = opts.vz !== undefined ? opts.vz : 0;
+
+            if (pts && count > 0) {
+                const vertOffset = idx * 32;
+                const maxK = Math.min(count * 2, 32);
+                for (let k = 0; k < maxK; k++) {
+                    this.vertData[vertOffset + k] = pts[k];
+                }
+            }
+            if (!wasLive) this.liveCount++;
+            return idx;
+        }
+
+        releaseSlot(idx) {
+            const stride = idx * 20;
+            if (this.data[stride + 15] === 0) return;
+            this.data[stride + 15] = 0;
+            this.data[stride + 8] = 0;
+            this.liveCount = Math.max(0, this.liveCount - 1);
+        }
+
+        _shardRadius(i) {
+            const stride = i * 20;
+            const count = this.data[stride + 13];
+            const scale = this.data[stride + 6] || 1;
+            if (count < 2) return 4 * scale;
+            const vertOffset = this.data[stride + 14];
+            let maxR = 0;
+            for (let k = 0; k < count; k++) {
+                const lx = this.vertData[vertOffset + k * 2];
+                const ly = this.vertData[vertOffset + k * 2 + 1];
+                maxR = Math.max(maxR, Math.hypot(lx, ly));
+            }
+            return Math.max(3, maxR * scale * 0.85);
+        }
+
+        update(dt) {
+            dt = Math.min(0.05, Number(dt) || 0.016);
+            const SUB_STEPS = 3;
+            const subDt = dt / SUB_STEPS;
+            const dragFactor = Math.pow(0.985, subDt * 60);
+            const groundDragFactor = Math.pow(0.94, subDt * 60);
+            const rotDragFactor = Math.pow(0.97, subDt * 60);
+            const gravity = 1800;
+            const collide = this.resolveWorldCollision;
+            let airborneCount = 0;
+
+            for (let i = 0; i < this.capacity; i++) {
+                const stride = i * 20;
+                if (this.data[stride + 15] === 0) continue;
+
+                const maxLife = this.data[stride + 9] || 1.0;
+                const age = Math.max(0, maxLife - this.data[stride + 8]);
+
+                for (let step = 0; step < SUB_STEPS; step++) {
+                    const prevX = this.data[stride + 0];
+                    const prevY = this.data[stride + 1];
+
+                    this.data[stride + 0] += this.data[stride + 2] * subDt;
+                    this.data[stride + 1] += this.data[stride + 3] * subDt;
+                    this.data[stride + 4] += this.data[stride + 5] * subDt;
+
+                    if (typeof collide === 'function') {
+                        const radius = this._shardRadius(i);
+                        const zNow = this.data[stride + 16];
+                        const resolved = collide(
+                            this.data[stride + 0], this.data[stride + 1],
+                            prevX, prevY, radius,
+                            {
+                                z: zNow,
+                                age,
+                                index: i,
+                                step,
+                                subSteps: SUB_STEPS,
+                                vx: this.data[stride + 2],
+                                vy: this.data[stride + 3]
+                            }
+                        );
+                        if (resolved) {
+                            this.data[stride + 0] = resolved.x;
+                            this.data[stride + 1] = resolved.y;
+                            if (resolved.hit) {
+                                const moveX = resolved.x - prevX;
+                                const moveY = resolved.y - prevY;
+                                const moved = Math.hypot(moveX, moveY);
+                                let vx = this.data[stride + 2];
+                                let vy = this.data[stride + 3];
+                                if (moved > 0.4) {
+                                    const slideX = moveX / moved;
+                                    const slideY = moveY / moved;
+                                    const along = vx * slideX + vy * slideY;
+                                    // Keep glancing energy — bounce/slide, don't kill the throw.
+                                    vx = slideX * Math.max(0, along) * 0.62 + vx * 0.18;
+                                    vy = slideY * Math.max(0, along) * 0.62 + vy * 0.18;
+                                } else {
+                                    vx *= -0.45;
+                                    vy *= -0.45;
+                                }
+                                this.data[stride + 2] = vx;
+                                this.data[stride + 3] = vy;
+                                this.data[stride + 5] *= 0.75;
+                                this.data[stride + 17] *= 0.85;
+                            }
+                        }
+                    }
+
+                    // Pseudo-height only while launched. Grounded shards stay flat 2D —
+                    // applying gravity at z=0 was causing endless bounce pop.
+                    const zNow = this.data[stride + 16];
+                    const vzNow = this.data[stride + 17];
+                    if (zNow > 0.05 || vzNow > 0) {
+                        this.data[stride + 17] -= gravity * subDt;
+                        this.data[stride + 16] += this.data[stride + 17] * subDt;
+
+                        const onGround = this.data[stride + 16] <= 0;
+                        if (onGround) {
+                            this.data[stride + 16] = 0;
+                            if (Math.abs(this.data[stride + 17]) > 80) {
+                                this.data[stride + 17] = -this.data[stride + 17] * 0.22;
+                            } else {
+                                this.data[stride + 17] = 0;
+                            }
+                            this.data[stride + 2] *= 0.62;
+                            this.data[stride + 3] *= 0.62;
+                            this.data[stride + 5] *= 0.72;
+                        }
+                    } else {
+                        this.data[stride + 16] = 0;
+                        this.data[stride + 17] = 0;
+                    }
+
+                    const onGroundFlat = this.data[stride + 16] <= 0.05;
+                    const drag = onGroundFlat ? groundDragFactor : dragFactor;
+                    this.data[stride + 2] *= drag;
+                    this.data[stride + 3] *= drag;
+                    this.data[stride + 5] *= rotDragFactor;
+                }
+
+                if (this.data[stride + 15] === 1 && this.data[stride + 16] > 1.0) {
+                    if (airborneCount < this._airborneScratch.length) {
+                        this._airborneScratch[airborneCount++] = i;
+                    }
+                }
+
+                const speed = Math.hypot(this.data[stride + 2], this.data[stride + 3]);
+                const zVal = this.data[stride + 16];
+                if (speed < 15 && zVal <= 0.1 && this.data[stride + 15] === 1) {
+                    if (this.settledCount < this.capacity) {
+                        this.settledQueue[this.settledCount++] = i;
+                    }
+                    this.data[stride + 15] = 2;
+                }
+
+                this.data[stride + 8] -= dt;
+                this.data[stride + 7] = Math.max(0, this.data[stride + 8] / maxLife);
+
+                if (this.data[stride + 8] <= 0) {
+                    if (this.data[stride + 15] === 1) {
+                        if (this.settledCount < this.capacity) {
+                            this.settledQueue[this.settledCount++] = i;
+                        }
+                    }
+                    if (this.data[stride + 15] !== 0) {
+                        this.liveCount = Math.max(0, this.liveCount - 1);
+                    }
+                    this.data[stride + 15] = 0;
+                }
+            }
+
+            // Cheap airborne shard↔shard glances (once/frame, capped pairs).
+            this._resolveAirborneShardCollisions(airborneCount);
+
+            if (this.settledCount > 0) {
+                if (typeof this.onSettledCallback === 'function') {
+                    this.onSettledCallback(this.settledQueue, this.settledCount);
+                } else {
+                    for (let s = 0; s < this.settledCount; s++) {
+                        const idx = this.settledQueue[s];
+                        const stride = idx * 20;
+                        if (this.data[stride + 15] === 2) this.data[stride + 15] = 1;
+                    }
+                }
+                this.settledCount = 0;
+            }
+        }
+
+        _resolveAirborneShardCollisions(airborneCount) {
+            if (airborneCount < 2) return;
+            // Fewer, larger shards → spend budget on fuller pair checks.
+            const maxPairs = airborneCount <= 28 ? airborneCount * airborneCount : 120;
+            let pairs = 0;
+            const list = this._airborneScratch;
+            const neighborSpan = airborneCount <= 36 ? airborneCount : 12;
+
+            for (let a = 0; a < airborneCount && pairs < maxPairs; a++) {
+                const i = list[a];
+                const si = i * 20;
+                const xi = this.data[si];
+                const yi = this.data[si + 1];
+                const ri = this._shardRadius(i) * 0.7;
+
+                const bMax = Math.min(airborneCount, a + neighborSpan);
+                for (let b = a + 1; b < bMax && pairs < maxPairs; b++) {
+                    const j = list[b];
+                    const sj = j * 20;
+                    const dx = this.data[sj] - xi;
+                    const dy = this.data[sj + 1] - yi;
+                    const dist = Math.hypot(dx, dy);
+                    const minDist = ri + this._shardRadius(j) * 0.7;
+                    if (dist >= minDist || dist < 1e-4) continue;
+
+                    pairs++;
+                    const overlap = (minDist - dist) * 0.5;
+                    const nx = dx / dist;
+                    const ny = dy / dist;
+                    this.data[si] -= nx * overlap;
+                    this.data[si + 1] -= ny * overlap;
+                    this.data[sj] += nx * overlap;
+                    this.data[sj + 1] += ny * overlap;
+
+                    // Exchange a bit of lateral velocity for clack/clutter feel.
+                    const vix = this.data[si + 2];
+                    const viy = this.data[si + 3];
+                    const vjx = this.data[sj + 2];
+                    const vjy = this.data[sj + 3];
+                    const alongI = vix * nx + viy * ny;
+                    const alongJ = vjx * nx + vjy * ny;
+                    this.data[si + 2] = vix + (alongJ - alongI) * 0.35 * nx;
+                    this.data[si + 3] = viy + (alongJ - alongI) * 0.35 * ny;
+                    this.data[sj + 2] = vjx + (alongI - alongJ) * 0.35 * nx;
+                    this.data[sj + 3] = vjy + (alongI - alongJ) * 0.35 * ny;
+                    this.data[si + 5] += (alongJ - alongI) * 0.02;
+                    this.data[sj + 5] += (alongI - alongJ) * 0.02;
+                }
+            }
+        }
+
+        render(ctx) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'source-over';
+
+            // Pass 1: Soft ground contact shadow only while a shard is elevated.
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+            for (let i = 0; i < this.capacity; i++) {
+                const stride = i * 20;
+                if (this.data[stride + 15] !== 1) continue;
+                if (this.data[stride + 16] <= 0.5) continue;
+
+                const x = this.data[stride + 0];
+                const y = this.data[stride + 1];
+                const rot = this.data[stride + 4];
+                const scale = this.data[stride + 6];
+                const count = this.data[stride + 13];
+                const vertOffset = this.data[stride + 14];
+
+                if (count < 3) continue;
+
+                const cos = Math.cos(rot) * scale;
+                const sin = Math.sin(rot) * scale;
+
+                ctx.beginPath();
+                for (let k = 0; k < count; k++) {
+                    const lx = this.vertData[vertOffset + k * 2];
+                    const ly = this.vertData[vertOffset + k * 2 + 1];
+                    const wx = x + (lx * cos - ly * sin);
+                    const wy = y + (lx * sin + ly * cos);
+                    if (k === 0) ctx.moveTo(wx, wy);
+                    else ctx.lineTo(wx, wy);
+                }
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            // Pass 2: Body draw. Offset by z only when actually elevated.
+            for (let i = 0; i < this.capacity; i++) {
+                const stride = i * 20;
+                if (this.data[stride + 15] !== 1) continue;
+
+                const z = this.data[stride + 16];
+                const x = this.data[stride + 0];
+                const y = this.data[stride + 1] - (z > 0.5 ? z : 0);
+                const rot = this.data[stride + 4];
+                const scale = this.data[stride + 6];
+                const alpha = Math.max(0.6, this.data[stride + 7]);
+                const r = Math.round(this.data[stride + 10] * 255);
+                const g = Math.round(this.data[stride + 11] * 255);
+                const b = Math.round(this.data[stride + 12] * 255);
+                const count = this.data[stride + 13];
+                const vertOffset = this.data[stride + 14];
+
+                if (count < 3) continue;
+
+                const cos = Math.cos(rot) * scale;
+                const sin = Math.sin(rot) * scale;
+
+                ctx.globalAlpha = alpha;
+                ctx.fillStyle = `rgb(${r},${g},${b})`;
+                ctx.beginPath();
+
+                for (let k = 0; k < count; k++) {
+                    const lx = this.vertData[vertOffset + k * 2];
+                    const ly = this.vertData[vertOffset + k * 2 + 1];
+                    const wx = x + (lx * cos - ly * sin);
+                    const wy = y + (lx * sin + ly * cos);
+                    if (k === 0) ctx.moveTo(wx, wy);
+                    else ctx.lineTo(wx, wy);
+                }
+                ctx.closePath();
+                ctx.fill();
+
+                if (count > 3) {
+                    ctx.strokeStyle = 'rgba(0, 0, 0, 0.75)';
+                    ctx.lineWidth = 1.0;
+                    ctx.stroke();
+                }
+            }
+
+            ctx.restore();
+        }
+
+        reset() {
+            this.data.fill(0);
+            this.vertData.fill(0);
+            this.head = 0;
+            this.settledCount = 0;
+        }
+    }
+
     FX.LightMask = new LightMaskBuffer();
     FX.LightMask.create = options => new LightMaskBuffer(options);
     FX.Post = FX.Post || {};
@@ -861,6 +1258,8 @@
     FX.ShadowCaster = ShadowCaster;
     FX.ParticleSystem = ParticleSystem;
     FX.Particles = FX.Particles || new ParticleSystem({ particleCap: 2000, gravityY: 200 });
+    FX.ShardPoolSystem = ShardPoolSystem;
+    FX.ShardPool = new ShardPoolSystem(512);
     FX.burst = burst;
 
     if (typeof module !== 'undefined' && module.exports) {

@@ -14,7 +14,7 @@
  * @property {function(number): void} [onHitPauseTick] Tick callback while hit-pause freezes sim
  * @property {function(FrameEndMetrics): void} [onFrameEnd] Frame metrics collector hook
  * @property {function(boolean): void} [onVisibilityChange] Tab visibility change handler
- * @property {function(number, {frameAvg: number, renderAvg: number}): void} [onQualityChange] Quality tier change callback
+ * @property {function(number, {frameAvg: number, renderAvg: number, fxBoost: number}): void} [onQualityChange] Quality tier / boost change callback
  * @property {function(): boolean} [preferBackgroundTimeout] Callback returning true if setTimeout loop should run when hidden
  * @property {boolean} [adaptiveRenderQuality] Enable adaptive frame budget governor (default true)
  *
@@ -27,6 +27,12 @@
  * @property {number} restoreRender
  * @property {number} mediumVignetteScale
  * @property {number} heavyVignetteScale
+ * @property {number} [boostEnterFrame]
+ * @property {number} [boostEnterRender]
+ * @property {number} [boostFullFrame]
+ * @property {number} [boostFullRender]
+ * @property {number} [boostExitFrame]
+ * @property {number} [boostExitRender]
  */
 
 if (typeof window !== 'undefined') {
@@ -100,8 +106,15 @@ class Core {
         this._sampleHead = 0;
         this._sampleCount = 0;
         this.frameBudgetSamples = [];
-        this.debugFrameBudget = { frameAvg: 0, renderAvg: 0 };
+        this.debugFrameBudget = { frameAvg: 0, renderAvg: 0, fxBoost: 0 };
         this.qualityTier = QUALITY_TIER.HIGH;
+        this.fxBoost = 0;
+        this._lastBoostUpdateMs = 0;
+        this._lastEmittedBoostBucket = 0;
+        this._lastEmittedTier = QUALITY_TIER.HIGH;
+        this._boostValidSampleMin = 60; // ~1s at 60fps before raise is allowed
+        this._boostUpRate = 0.35;
+        this._boostDownRate = 0.75;
 
         this._frameEndMetrics = {
             realDeltaTime: 0,
@@ -249,12 +262,14 @@ class Core {
         }
         const renderTime = performance.now() - renderStart;
 
-        // Governor performance measurement
-        this.updateFrameBudgetGovernor(realDeltaTime * 1000, renderTime);
-
-        // metrics / profiler callback hook
+        // Governor must use CPU work time, NOT rAF interval. Vsync-capped frames stay
+        // ~16.7ms wall-clock even when the game only needs ~2ms — that fake "full"
+        // budget was blocking fxBoost (exit threshold ~12ms).
         const processEnd = performance.now();
         const processTime = processEnd - processStart;
+        this.updateFrameBudgetGovernor(processTime, renderTime);
+
+        // metrics / profiler callback hook
         if (this.onFrameEnd) {
             const metrics = this._frameEndMetrics;
             metrics.realDeltaTime = realDeltaTime;
@@ -281,6 +296,7 @@ class Core {
         const adaptiveEnabled = this.adaptiveRenderQuality && debugFlagsAdaptive;
         if (!adaptiveEnabled) {
             this.setQualityTier(QUALITY_TIER.HIGH);
+            this._setFxBoost(0, true);
         }
 
         const now = performance.now();
@@ -322,30 +338,124 @@ class Core {
             } else if (frameAvg < thresholds.restoreFrame && renderAvg < thresholds.restoreRender) {
                 this.setQualityTier(QUALITY_TIER.HIGH);
             }
+
+            this._updateFxBoost(frameAvg, renderAvg, validCount, thresholds, now);
+        }
+
+        this.debugFrameBudget.fxBoost = this.fxBoost;
+        this._notifyQualityIfChanged();
+    }
+
+    _computeTargetFxBoost(frameAvg, renderAvg, validCount, thresholds) {
+        if (this.qualityTier !== QUALITY_TIER.HIGH) return 0;
+        if (validCount < this._boostValidSampleMin) return 0;
+
+        const enterF = thresholds.boostEnterFrame;
+        const enterR = thresholds.boostEnterRender;
+        const fullF = thresholds.boostFullFrame;
+        const fullR = thresholds.boostFullRender;
+        const exitF = thresholds.boostExitFrame;
+        const exitR = thresholds.boostExitRender;
+
+        if (frameAvg >= exitF || renderAvg >= exitR) return 0;
+
+        const frameDen = Math.max(0.001, enterF - fullF);
+        const renderDen = Math.max(0.001, enterR - fullR);
+        const frameScore = Math.max(0, Math.min(1, (enterF - frameAvg) / frameDen));
+        const renderScore = Math.max(0, Math.min(1, (enterR - renderAvg) / renderDen));
+        return Math.min(frameScore, renderScore);
+    }
+
+    _updateFxBoost(frameAvg, renderAvg, validCount, thresholds, now) {
+        const target = this._computeTargetFxBoost(frameAvg, renderAvg, validCount, thresholds);
+        const last = this._lastBoostUpdateMs || now;
+        const dt = Math.max(0, Math.min(0.05, (now - last) / 1000));
+        this._lastBoostUpdateMs = now;
+
+        if (this.qualityTier !== QUALITY_TIER.HIGH) {
+            this._setFxBoost(0, true);
+            return;
+        }
+
+        let next = this.fxBoost;
+        if (target > next) {
+            next = Math.min(target, next + this._boostUpRate * dt);
+        } else if (target < next) {
+            next = Math.max(target, next - this._boostDownRate * dt);
+        }
+        this._setFxBoost(next, false);
+    }
+
+    _setFxBoost(value, instant) {
+        const clamped = Math.max(0, Math.min(1, value));
+        if (instant || Math.abs(clamped - this.fxBoost) > 1e-6) {
+            this.fxBoost = clamped;
+        }
+    }
+
+    resetFxBoost() {
+        this._setFxBoost(0, true);
+        this._lastBoostUpdateMs = 0;
+        this._lastEmittedBoostBucket = -1;
+        this.debugFrameBudget.fxBoost = 0;
+        this._notifyQualityIfChanged(true);
+    }
+
+    _applyQualitySideEffects(tier) {
+        const engine = typeof globalThis !== 'undefined' ? globalThis.Engine : null;
+        if (!engine || !engine.Render || !engine.Render.Quality) return;
+        const preset = engine.Render.Quality.preset(tier);
+        let particleCap = preset.particleCap;
+        if (tier === QUALITY_TIER.HIGH && this.fxBoost > 0) {
+            particleCap = Math.round(particleCap + (2800 - particleCap) * this.fxBoost);
+        }
+        if (engine.FX && engine.FX.Particles
+            && typeof engine.FX.Particles.setParticleCap === 'function') {
+            engine.FX.Particles.setParticleCap(particleCap);
+        }
+        if (engine.Graphics && engine.Graphics.TileBaker
+            && typeof engine.Graphics.TileBaker.setQualityTier === 'function') {
+            engine.Graphics.TileBaker.setQualityTier(tier);
+        }
+        if (engine.Audio && typeof engine.Audio.setQualityTier === 'function') {
+            engine.Audio.setQualityTier(tier);
+        }
+        if (engine.FX && engine.FX.ShardPool
+            && typeof engine.FX.ShardPool.setSoftCap === 'function') {
+            const base = 256;
+            const max = engine.FX.ShardPool.capacity || 512;
+            const soft = tier === QUALITY_TIER.HIGH
+                ? Math.round(base + (max - base) * this.fxBoost)
+                : (tier === QUALITY_TIER.MEDIUM ? 192 : 64);
+            engine.FX.ShardPool.setSoftCap(soft);
+        }
+    }
+
+    _notifyQualityIfChanged(force) {
+        const boostBucket = Math.round(this.fxBoost * 50) / 50;
+        const tierChanged = this._lastEmittedTier !== this.qualityTier;
+        const boostChanged = this._lastEmittedBoostBucket !== boostBucket;
+        if (!force && !tierChanged && !boostChanged) return;
+
+        this._lastEmittedTier = this.qualityTier;
+        this._lastEmittedBoostBucket = boostBucket;
+        this._applyQualitySideEffects(this.qualityTier);
+        if (this.onQualityChange) {
+            this.onQualityChange(this.qualityTier, Object.assign({}, this.debugFrameBudget));
         }
     }
 
     setQualityTier(tier) {
         if (this.qualityTier === tier) return;
+        const leavingHigh = this.qualityTier === QUALITY_TIER.HIGH && tier !== QUALITY_TIER.HIGH;
         this.qualityTier = tier;
-        const engine = typeof globalThis !== 'undefined' ? globalThis.Engine : null;
-        if (engine && engine.Render && engine.Render.Quality) {
-            const preset = engine.Render.Quality.preset(tier);
-            if (engine.FX && engine.FX.Particles
-                && typeof engine.FX.Particles.setParticleCap === 'function') {
-                engine.FX.Particles.setParticleCap(preset.particleCap);
-            }
-            if (engine.Graphics && engine.Graphics.TileBaker
-                && typeof engine.Graphics.TileBaker.setQualityTier === 'function') {
-                engine.Graphics.TileBaker.setQualityTier(tier);
-            }
-            if (engine.Audio && typeof engine.Audio.setQualityTier === 'function') {
-                engine.Audio.setQualityTier(tier);
-            }
+        if (leavingHigh || tier !== QUALITY_TIER.HIGH) {
+            this._setFxBoost(0, true);
         }
-        if (this.onQualityChange) {
-            this.onQualityChange(tier, Object.assign({}, this.debugFrameBudget));
-        }
+        this.debugFrameBudget.fxBoost = this.fxBoost;
+        // Emission deferred to _notifyQualityIfChanged from governor (or force below).
+        this._lastEmittedTier = null;
+        this._notifyQualityIfChanged(true);
     }
 
     isGeckoFamilyEngine() {
@@ -371,7 +481,14 @@ class Core {
                 restoreFrame: 24,
                 restoreRender: 17,
                 mediumVignetteScale: 0.4,
-                heavyVignetteScale: 0.33
+                heavyVignetteScale: 0.33,
+                // More conservative headroom gate on Gecko.
+                boostEnterFrame: 7,
+                boostEnterRender: 5,
+                boostFullFrame: 3.5,
+                boostFullRender: 2.5,
+                boostExitFrame: 11,
+                boostExitRender: 8
             };
         }
         return {
@@ -382,7 +499,13 @@ class Core {
             restoreFrame: 24,
             restoreRender: 17,
             mediumVignetteScale: 0.4,
-            heavyVignetteScale: 0.33
+            heavyVignetteScale: 0.33,
+            boostEnterFrame: 8,
+            boostEnterRender: 6,
+            boostFullFrame: 4,
+            boostFullRender: 3,
+            boostExitFrame: 12,
+            boostExitRender: 9
         };
     }
 };

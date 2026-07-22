@@ -69,4 +69,16 @@ test('DOM & Script Loading Order Sanity Checks', async (t) => {
             );
         });
     });
+
+    await t.test('every script tag declared in index.html parses as valid JavaScript without syntax errors', () => {
+        const vm = require('node:vm');
+        scripts.forEach(scriptPath => {
+            const fullPath = path.join(root, scriptPath);
+            assert.ok(fs.existsSync(fullPath), `Script file must exist on disk: ${scriptPath}`);
+            const code = fs.readFileSync(fullPath, 'utf8');
+            assert.doesNotThrow(() => {
+                new vm.Script(code, { filename: scriptPath });
+            }, `SyntaxError in script: ${scriptPath}`);
+        });
+    });
 });

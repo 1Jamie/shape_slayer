@@ -30,6 +30,8 @@ class PlayerBase {
         // Position
         this.x = x;
         this.y = y;
+        this.prevX = x;
+        this.prevY = y;
         this.lastSafeX = x;
         this.lastSafeY = y;
         this.vx = 0;
@@ -306,6 +308,23 @@ class PlayerBase {
         this.defenseMultiplier = 1.0;
         this.healthMultiplier = 1.0;
         this.updateEffectiveStats();
+    }
+
+    savePreviousPosition() {
+        this.prevX = Number.isFinite(this.x) ? this.x : 0;
+        this.prevY = Number.isFinite(this.y) ? this.y : 0;
+    }
+
+    getRenderX(alpha = 1) {
+        const prev = Number.isFinite(this.prevX) ? this.prevX : this.x;
+        const a = Math.max(0, Math.min(1, alpha));
+        return prev + (this.x - prev) * a;
+    }
+
+    getRenderY(alpha = 1) {
+        const prev = Number.isFinite(this.prevY) ? this.prevY : this.y;
+        const a = Math.max(0, Math.min(1, alpha));
+        return prev + (this.y - prev) * a;
     }
 
     resolveWorldCollision(previousX = this.lastSafeX, previousY = this.lastSafeY) {
@@ -4068,7 +4087,11 @@ class PlayerBase {
             else ctx.lineTo(v.x, v.y);
         });
         ctx.closePath();
-        ctx.fillStyle = this.color;
+        let bodyColor = this.color;
+        if (typeof resolveCombatClarityDrawColor === 'function') {
+            bodyColor = resolveCombatClarityDrawColor(this, bodyColor);
+        }
+        ctx.fillStyle = bodyColor;
         ctx.fill();
 
         const indicatorRadius = Math.min(5, Math.max(2, deformedSpan * 0.08));
