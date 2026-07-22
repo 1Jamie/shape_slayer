@@ -10,9 +10,14 @@
 	let pauseBtnHidden = false;
 
 	function isInstalledPwa() {
+		if (typeof Engine !== 'undefined' && Engine.System &&
+			typeof Engine.System.isInstalledDisplayMode === 'function') {
+			return Engine.System.isInstalledDisplayMode();
+		}
 		return (window.matchMedia && (
 			window.matchMedia('(display-mode: standalone)').matches ||
-			window.matchMedia('(display-mode: fullscreen)').matches
+			window.matchMedia('(display-mode: fullscreen)').matches ||
+			window.matchMedia('(display-mode: minimal-ui)').matches
 		)) || window.navigator.standalone === true;
 	}
 
@@ -23,26 +28,89 @@
 		return ios && !isInstalledPwa();
 	}
 
+	function isInstallableContext() {
+		return !!(window.isSecureContext && navigator.serviceWorker);
+	}
+
+	// Show whenever we are NOT running as an installed PWA. Do not gate on a
+	// live beforeinstallprompt event — Chrome often withholds that after
+	// uninstall or after a dismissed prompt, which previously hid the button.
+	function shouldShowInstallButton() {
+		if (isInstalledPwa()) {
+			return false;
+		}
+		if (installPromptEvent || isIosInstallCandidate()) {
+			return true;
+		}
+		return isInstallableContext();
+	}
+
+	function syncInstallButton() {
+		if (!installBtn) {
+			return;
+		}
+		installBtn.hidden = !shouldShowInstallButton();
+	}
+
 	async function promptInstall(e) {
 		e.preventDefault();
 		e.stopPropagation();
 		if (installPromptEvent) {
-			installPromptEvent.prompt();
-			await installPromptEvent.userChoice;
+			const deferred = installPromptEvent;
+			// One-shot API: cannot call prompt() twice on the same event.
 			installPromptEvent = null;
-		} else if (isIosInstallCandidate() && window.showToast) {
+			try {
+				deferred.prompt();
+				const choice = await deferred.userChoice;
+				if (choice && choice.outcome === 'accepted') {
+					syncInstallButton();
+					return;
+				}
+			} catch (err) {
+				// Fall through to manual instructions.
+			}
+			syncInstallButton();
+			if (window.showToast) {
+				window.showToast('You can install anytime from the browser menu.', 3500);
+			}
+			return;
+		}
+		if (isIosInstallCandidate() && window.showToast) {
 			window.showToast('In Safari, tap Share, then Add to Home Screen.', 4500);
+			return;
+		}
+		if (window.showToast) {
+			window.showToast('Use your browser menu to Install app / Add to Home Screen.', 4500);
 		}
 	}
 
 	window.addEventListener('beforeinstallprompt', (event) => {
 		event.preventDefault();
 		installPromptEvent = event;
+		syncInstallButton();
 	});
 
 	window.addEventListener('appinstalled', () => {
 		installPromptEvent = null;
+		syncInstallButton();
 	});
+
+	// Uninstall / open-in-browser can flip display-mode without a reload.
+	try {
+		if (window.matchMedia) {
+			['fullscreen', 'standalone', 'minimal-ui'].forEach((mode) => {
+				const mq = window.matchMedia('(display-mode: ' + mode + ')');
+				const onChange = () => syncInstallButton();
+				if (typeof mq.addEventListener === 'function') {
+					mq.addEventListener('change', onChange);
+				} else if (typeof mq.addListener === 'function') {
+					mq.addListener(onChange);
+				}
+			});
+		}
+	} catch (err) {
+		// ignore
+	}
 
 	function isTitleVisible() {
 		return typeof Game !== 'undefined' && Game.state === 'TITLE';
@@ -195,10 +263,16 @@
 		renderStartPrompt();
 
 		layer.addEventListener('click', function (e) {
+			if (e.target && e.target.closest && e.target.closest('#title-screen-install')) {
+				return;
+			}
 			e.preventDefault();
 			dismiss();
 		});
 		layer.addEventListener('touchend', function (e) {
+			if (e.target && e.target.closest && e.target.closest('#title-screen-install')) {
+				return;
+			}
 			e.preventDefault();
 			dismiss();
 		}, { passive: false });
@@ -231,8 +305,7 @@
 		}
 
 		if (installBtn) {
-			installBtn.hidden = isInstalledPwa() ||
-				(!installPromptEvent && !isIosInstallCandidate());
+			syncInstallButton();
 		}
 
 		if (!wasVisible) {
