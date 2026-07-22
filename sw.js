@@ -1,11 +1,11 @@
 /* Shape Slayer service worker
- * Bump CACHE_VERSION when releasing (keep in sync with GameVersion.VERSION in src/game/content/version.js).
- * A trailing ".N" suffix (e.g. 0.8.2.1) forces a cache refresh without changing the
- * user-facing game version.
+ * CACHE_VERSION base (0.8.2) should match GameVersion.VERSION for feature/gameplay releases.
+ * Trailing ".N" (e.g. 0.8.2.46) busts shell/runtime caches for background/PWA-only updates
+ * without changing the user-facing game version or patch-notes modal.
  * Shell is precached on install. Audio warms in the background so playback can start ASAP
  * while the library fills for full offline use.
  */
-const CACHE_VERSION = '0.8.2.45';
+const CACHE_VERSION = '0.8.2.47';
 const SHELL_CACHE = `shape-slayer-shell-v${CACHE_VERSION}`;
 const RUNTIME_CACHE = `shape-slayer-runtime-v${CACHE_VERSION}`;
 const AUDIO_WARM_CONCURRENCY = 2;
@@ -37,6 +37,7 @@ const PRECACHE_URLS = [
   './src/game/ui/components/indexMachine.js',
   './src/game/ui/components/shardDisplay.js',
   './src/game/ui/components/titleScreen.js',
+  './src/game/pwa-update.js',
   './src/game/ui/components/hud.js',
   './src/game/ui/components/gearUpgradeMenu.js',
   './src/game/ui/components/safeRoomMenu.js',
@@ -169,6 +170,8 @@ const PRECACHE_HREFS = new Set(
 );
 
 self.addEventListener('install', (event) => {
+  // Stay in waiting until the page sends SKIP_WAITING so mid-run clients are
+  // not yanked onto a new shell. Title/advertise (and user opt-in) activate it.
   event.waitUntil(
     caches.open(SHELL_CACHE).then((cache) => cache.addAll(PRECACHE_URLS))
   );
@@ -184,7 +187,12 @@ self.addEventListener('activate', (event) => {
           .filter((key) => key !== SHELL_CACHE && key !== RUNTIME_CACHE)
           .map((key) => caches.delete(key))
       )
-    ).then(() => {
+    ).then(() => self.clients.claim())
+    .then(() => self.clients.matchAll({ type: 'window', includeUncontrolled: true }))
+    .then((clients) => {
+      for (const client of clients) {
+        client.postMessage({ type: 'SW_UPDATED', version: CACHE_VERSION });
+      }
       // Fire-and-forget: do not block activation on the audio library.
       warmAudioLibraryFromConfig();
     })
@@ -327,6 +335,11 @@ async function warmAudioLibraryFromConfig() {
 self.addEventListener('message', (event) => {
   const data = event.data;
   if (!data || typeof data !== 'object') {
+    return;
+  }
+
+  if (data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
     return;
   }
 

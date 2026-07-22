@@ -590,6 +590,25 @@ test('service worker and package test list include engine boot files', () => {
     assert.match(sw, /engine\/ui\/boot-screen\.js/);
     assert.match(sw, /engine\/boot\.js/);
     assert.match(sw, /CACHE_VERSION = '0\.8\.2\.\d+'/);
+    assert.match(sw, /SKIP_WAITING/);
+    assert.match(sw, /clients\.claim\s*\(/);
+    assert.match(sw, /SW_UPDATED/);
+    assert.match(sw, /pwa-update\.js/);
+    const installHandler = sw.match(/addEventListener\(\s*['"]install['"]\s*,\s*\(event\)\s*=>\s*\{([\s\S]*?)\n\}\);/);
+    assert.ok(installHandler, 'install handler should be present');
+    assert.doesNotMatch(installHandler[1], /skipWaiting\s*\(/);
+
+    const index = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+    assert.match(index, /pwa-update\.js/);
+    assert.match(index, /registration\.update\s*\(/);
+    assert.match(index, /__shapeSlayerSwUpdateAccepted/);
+    assert.match(index, /PwaUpdate\.notifyAvailable/);
+
+    const pwaUpdate = fs.readFileSync(path.join(ROOT, 'src/game/pwa-update.js'), 'utf8');
+    assert.match(pwaUpdate, /TITLE/);
+    assert.match(pwaUpdate, /NEXUS/);
+    assert.match(pwaUpdate, /SKIP_WAITING/);
+    assert.match(pwaUpdate, /Update now/);
 
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
     assert.match(pkg.scripts.test, /engine-boot\.test\.js/);

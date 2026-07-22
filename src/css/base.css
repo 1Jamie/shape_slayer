@@ -2418,4 +2418,47 @@ body {
   }
 }
 
+/* Soft PWA update prompt — shown in nexus / live runs, not forced */
+.pwa-update-banner {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 12000;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px 14px;
+  max-width: min(520px, calc(100vw - 24px));
+  padding: 12px 16px;
+  background: var(--ui-panel);
+  border: 2px solid rgba(120, 160, 255, 0.85);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55);
+  pointer-events: auto;
+  font-family: Orbitron, sans-serif;
+}
+
+.pwa-update-banner__text {
+  color: var(--ui-text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.pwa-update-banner__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.pwa-update-banner__btn {
+  min-height: 36px;
+  padding: 6px 14px;
+  font-size: 13px;
+}
+
 

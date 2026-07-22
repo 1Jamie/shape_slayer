@@ -2,7 +2,8 @@
 // Update this file when releasing new versions
 
 const GameVersion = {
-  // Keep sw.js CACHE_VERSION in sync when bumping this.
+  // Feature/gameplay releases: bump this and the sw.js CACHE_VERSION base together.
+  // Background/PWA-only cache busts: bump only the trailing .N on sw.js CACHE_VERSION.
   VERSION: '0.8.2',
 
   UPDATE_MESSAGES: {

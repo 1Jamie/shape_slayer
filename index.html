@@ -168,10 +168,81 @@
     <script src="src/game/simulation/nexus.js"></script>
     <script src="src/game/simulation/title-attract.js"></script>
     <script src="src/game/main.js"></script>
+    <script src="src/game/pwa-update.js"></script>
     <script>
         if ('serviceWorker' in navigator) {
+            // Reload only after an intentional SKIP_WAITING (title auto-apply or
+            // the player accepting the update prompt). Never yank a live run.
+            function reloadForAcceptedServiceWorkerUpdate() {
+                if (!window.__shapeSlayerSwUpdateAccepted) {
+                    return;
+                }
+                if (window.__shapeSlayerSwRefreshing) {
+                    return;
+                }
+                window.__shapeSlayerSwRefreshing = true;
+                window.location.reload();
+            }
+
+            navigator.serviceWorker.addEventListener('controllerchange', reloadForAcceptedServiceWorkerUpdate);
+            navigator.serviceWorker.addEventListener('message', function (event) {
+                var data = event.data;
+                if (data && data.type === 'SW_UPDATED') {
+                    reloadForAcceptedServiceWorkerUpdate();
+                }
+            });
+
             window.addEventListener('load', function () {
-                navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(function (err) {
+                navigator.serviceWorker.register('./sw.js', { scope: './' }).then(function (registration) {
+                    function onWaitingWorker() {
+                        if (!registration.waiting) {
+                            return;
+                        }
+                        // First-ever SW: activate quietly. No reload — this page
+                        // already loaded from the network.
+                        if (!navigator.serviceWorker.controller) {
+                            registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+                            return;
+                        }
+                        if (window.PwaUpdate && typeof window.PwaUpdate.notifyAvailable === 'function') {
+                            window.PwaUpdate.notifyAvailable(registration);
+                        }
+                    }
+
+                    if (window.PwaUpdate && typeof window.PwaUpdate.bindRegistration === 'function') {
+                        window.PwaUpdate.bindRegistration(registration);
+                    }
+
+                    onWaitingWorker();
+
+                    registration.addEventListener('updatefound', function () {
+                        var installing = registration.installing;
+                        if (!installing) {
+                            return;
+                        }
+                        installing.addEventListener('statechange', function () {
+                            if (installing.state === 'installed') {
+                                onWaitingWorker();
+                            }
+                        });
+                    });
+
+                    function checkForServiceWorkerUpdate() {
+                        registration.update().catch(function () {});
+                    }
+
+                    // Fresh open / focus: discover updates. Title auto-applies;
+                    // nexus/run only prompts via PwaUpdate.
+                    checkForServiceWorkerUpdate();
+
+                    document.addEventListener('visibilitychange', function () {
+                        if (document.visibilityState === 'visible') {
+                            checkForServiceWorkerUpdate();
+                        }
+                    });
+                    window.addEventListener('focus', checkForServiceWorkerUpdate);
+                    setInterval(checkForServiceWorkerUpdate, 30 * 60 * 1000);
+                }).catch(function (err) {
                     console.warn('Service worker registration failed:', err);
                 });
             });
