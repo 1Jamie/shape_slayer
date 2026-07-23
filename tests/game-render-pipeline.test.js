@@ -423,8 +423,14 @@ test('local co-op gear and item claims are seat-aware with shared pylons', () =>
         path.join(ROOT, 'src/game/entities/enemies/enemy-base.js'),
         'utf8'
     );
-    assert.match(enemy, /spawnItemDrop/);
+    assert.match(enemy, /GameKillRewards\.emitEnemyKilled/, 'kills emit; modes grant drops');
     assert.doesNotMatch(enemy, /Game\.groundItems\.push/);
+
+    const killRewards = fs.readFileSync(
+        path.join(ROOT, 'src/game/simulation/kill-rewards.js'),
+        'utf8'
+    );
+    assert.match(killRewards, /spawnItemDrop/, 'item drops live in kill-reward verbs');
 
     const ground = fs.readFileSync(
         path.join(ROOT, 'src/game/entities/items/item-ground.js'),

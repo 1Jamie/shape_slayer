@@ -6,19 +6,31 @@
 const GameRunRewards = {
     ELITE_CREDIT_REWARD: 15,
     BOSS_CREDIT_REWARD: 50,
+    ARENA_CREDIT_SCALE: 0.35,
+
+    isArenaMode(game) {
+        if (!game) return false;
+        return !!(game.gameMode === 'arena'
+            || game.activeSessionId === 'surge-arena'
+            || (game.modeProfile && game.modeProfile.id === 'surge-arena')
+            || (game.currentRoom && game.currentRoom.archetype === 'surgeArena'));
+    },
 
     calculateShards(game) {
         if (!game || !game.player) return 0;
 
-        const roomsCleared = Math.max(0, game.roomNumber - 1);
+        const isArena = this.isArenaMode(game);
+        const waveOrRoomCount = isArena
+            ? Math.max(0, (game.waveNumber || game.roomNumber || 1) - 1)
+            : Math.max(0, (game.roomNumber || 1) - 1);
         const enemiesKilled = game.enemiesKilled || 0;
         const levelReached = game.player.level || 1;
 
-        const roomScale = game.gameMode === 'gear' ? 12 : 9;
-        const killScale = game.gameMode === 'gear' ? 2.4 : 1.8;
-        const lvlScale = game.gameMode === 'gear' ? 1.2 : 0.9;
+        const roomScale = isArena ? 15 : 12;
+        const killScale = isArena ? 0.35 : 2.4;
+        const lvlScale = isArena ? 1.0 : 1.2;
 
-        const base = roomScale * roomsCleared;
+        const base = roomScale * waveOrRoomCount;
         const bonus = killScale * enemiesKilled;
         const levelBonus = lvlScale * levelReached;
 
@@ -50,6 +62,10 @@ const GameRunRewards = {
             : (this.BOSS_CREDIT_REWARD || 50);
 
         let total = eliteBase * elitesKilled + bossBase * bossesKilled;
+
+        if (this.isArenaMode(game)) {
+            total *= this.ARENA_CREDIT_SCALE;
+        }
 
         if (game.nextRoomModifiers && typeof game.nextRoomModifiers.currencyBoost === 'number' && game.nextRoomModifiers.currencyBoost > 0) {
             total *= (1 + game.nextRoomModifiers.currencyBoost);
@@ -122,7 +138,10 @@ const GameRunRewards = {
 
     calculateShardsForPlayer(game, playerId) {
         if (!game) return 0;
-        const roomsCleared = Math.max(0, game.roomNumber - 1);
+        const isArena = this.isArenaMode(game);
+        const waveOrRoomCount = isArena
+            ? Math.max(0, (game.waveNumber || game.roomNumber || 1) - 1)
+            : Math.max(0, (game.roomNumber || 1) - 1);
         const enemiesKilled = game.enemiesKilled || 0;
 
         let levelReached = 1;
@@ -134,11 +153,11 @@ const GameRunRewards = {
             levelReached = remotePlayer.level || 1;
         }
 
-        const roomScale = game.gameMode === 'gear' ? 12 : 9;
-        const killScale = game.gameMode === 'gear' ? 2.4 : 1.8;
-        const lvlScale = game.gameMode === 'gear' ? 1.2 : 0.9;
+        const roomScale = isArena ? 15 : 12;
+        const killScale = isArena ? 0.35 : 2.4;
+        const lvlScale = isArena ? 1.0 : 1.2;
 
-        const base = roomScale * roomsCleared;
+        const base = roomScale * waveOrRoomCount;
         const bonus = killScale * enemiesKilled;
         const levelBonus = lvlScale * levelReached;
 
@@ -167,6 +186,10 @@ const GameRunRewards = {
             : (this.BOSS_CREDIT_REWARD || 50);
 
         let total = eliteBase * elitesKilled + bossBase * bossesKilled;
+
+        if (this.isArenaMode(game)) {
+            total *= this.ARENA_CREDIT_SCALE;
+        }
 
         if (game.nextRoomModifiers && typeof game.nextRoomModifiers.currencyBoost === 'number' && game.nextRoomModifiers.currencyBoost > 0) {
             total *= (1 + game.nextRoomModifiers.currencyBoost);

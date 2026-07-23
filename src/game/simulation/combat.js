@@ -1,8 +1,17 @@
 // Combat system - damage calculation and combat checks
 
+function combatWorld(explicit) {
+    if (typeof GameWorld !== 'undefined' && typeof GameWorld.resolveWorld === 'function') {
+        return GameWorld.resolveWorld(explicit);
+    }
+    if (explicit) return explicit;
+    return typeof Game !== 'undefined' ? Game : null;
+}
+
 // Host → clients: floating damage numbers (display-only on clients)
 function hostBroadcastDamageNumber(x, y, damage, options = {}) {
-    if (typeof Game === 'undefined' || !Game.multiplayerEnabled) return;
+    const world = combatWorld();
+    if (!world || !world.multiplayerEnabled) return;
     if (typeof multiplayerManager === 'undefined' || !multiplayerManager || !multiplayerManager.isHost) return;
     multiplayerManager.sendDamageNumber({
         enemyId: options.enemyId || null,
@@ -16,7 +25,8 @@ function hostBroadcastDamageNumber(x, y, damage, options = {}) {
 
 // Host → clients: particles / lightning / explosions (display-only on clients)
 function hostBroadcastCombatFx(fx) {
-    if (typeof Game === 'undefined' || !Game.multiplayerEnabled) return;
+    const world = combatWorld();
+    if (!world || !world.multiplayerEnabled) return;
     if (typeof multiplayerManager === 'undefined' || !multiplayerManager || !multiplayerManager.isHost) return;
     multiplayerManager.sendCombatFx(fx);
 }
@@ -26,6 +36,51 @@ function getPlayerWeaponTypeDef(player) {
     if (!player || !player.weapon || !player.weapon.weaponType) return null;
     if (typeof WEAPON_TYPES === 'undefined') return null;
     return WEAPON_TYPES[player.weapon.weaponType] || null;
+}
+
+/**
+ * Style Engine attack tag for combo variety.
+ * Prefer explicit styleTag on the hit source; otherwise infer from hitbox/player state.
+ * Untagged sources should stay null so variety stays neutral (no false MONOTONE).
+ */
+function resolvePlayerStyleTag(player, hitSource) {
+    const src = hitSource || {};
+    if (src.styleTag) return src.styleTag;
+    if (src.isDashAttack || src.dashAttack) return 'dashAttack';
+    if (player && player.isDodging) return 'dashAttack';
+    if (src.isHeavy || src.type === 'thrust' || src.type === 'hammer') return 'heavy';
+    if (src.isSpecial || src.fromSpecial || src.specialAbility) return 'special';
+    if (player && player.styleActionTag) return player.styleActionTag;
+    if (player && (player.specialActive || player.isUsingSpecial || player.isChannelingSpecial
+        || player.beamActive || player.shoutActive || player.isChargingHeavy)) {
+        if (player.isChargingHeavy) return 'heavy';
+        return 'special';
+    }
+    // Default player hitboxes / projectiles are primary unless marked otherwise.
+    if (src.fromPlayer || src.isPlayerProjectile || src.ownerIsPlayer || src._isPlayerHitbox) {
+        return 'primary';
+    }
+    if (player) return 'primary';
+    return null;
+}
+
+function stampEnemyStyleTag(enemy, styleTag) {
+    if (!enemy || !styleTag) return;
+    enemy.lastStyleTag = styleTag;
+}
+
+function applyStyleLifeSteal(player, damageDealt) {
+    if (!player || !(damageDealt > 0)) return;
+    const rate = player.styleLifeSteal
+        || (typeof Game !== 'undefined' ? Game.styleLifeSteal : 0)
+        || 0;
+    if (!(rate > 0)) return;
+    const heal = damageDealt * rate;
+    // Soft per-hit cap so AoE can't fully refill in one swing.
+    const cap = Math.max(4, (player.maxHp || 100) * 0.04);
+    const amount = Math.min(heal, cap);
+    if (amount <= 0) return;
+    player.hp = Math.min(player.maxHp || player.hp, (player.hp || 0) + amount);
 }
 
 function getWeaponOnHitPolicy(player) {
@@ -910,7 +965,9 @@ function processMeleeHitOnEnemy(player, enemies, hitbox, enemy, playerId, bodyHi
                 // Apply crit multiplier if applicable
                 let critMultiplier = 1.0;
                 let isCrit = false;
-                if (hitbox.crit || interrupt.forcedCrit || (shouldRollWeaponProcOnHit(player, hitbox) && player.critChance && Math.random() < player.critChance)) {
+                const styleCrit = player.styleCritBonus || 0;
+                const effectiveCrit = (player.critChance || 0) + styleCrit;
+                if (hitbox.crit || interrupt.forcedCrit || (shouldRollWeaponProcOnHit(player, hitbox) && effectiveCrit && Math.random() < effectiveCrit)) {
                     critMultiplier = 2.0 * (player.critDamageMultiplier || 1.0); // Use affix crit damage
                     hitbox.displayCrit = true;
                     isCrit = true;
@@ -1013,11 +1070,20 @@ function processMeleeHitOnEnemy(player, enemies, hitbox, enemy, playerId, bodyHi
                     else if (hitbox.displayCrit) vArchetype = 'blast';
                     enemy._lastHitIsCrit = !!hitbox.displayCrit;
 
+                    // Ensure hitboxes are tagged for Style variety (lingering / delayed hits keep origin tag).
+                    if (!hitbox.styleTag) {
+                        hitbox.styleTag = resolvePlayerStyleTag(player, hitbox);
+                        hitbox._isPlayerHitbox = true;
+                    }
+                    stampEnemyStyleTag(enemy, hitbox.styleTag);
+
                     if (enemy.isBoss && typeof enemy.takeDamage === 'function') {
                         enemy.takeDamage(finalDamage, hitbox.x, hitbox.y, hitbox.radius, attackerId, vArchetype);
                     } else {
                         enemy.takeDamage(finalDamage, attackerId, hitbox.x, hitbox.y, vArchetype);
                     }
+
+                    applyStyleLifeSteal(player, finalDamage);
                     
                     // Bleeding Edge: Apply bleed debuff on hit
                     if (shouldApplyWeaponStatusOnHit(player, hitbox) && player.itemBleedDamagePercent > 0 && enemy && typeof enemy.applyDebuff === 'function') {

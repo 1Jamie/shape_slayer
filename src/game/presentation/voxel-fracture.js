@@ -182,6 +182,14 @@
         if (collider.kind === 'circle') {
             return _pushCircleFromCircle(px, py, particleRadius, collider.x, collider.y, collider.radius);
         }
+        if (collider.kind === 'ellipse') {
+            return _pushCircleFromEllipse(
+                px, py, particleRadius,
+                collider.x, collider.y,
+                collider.radiusX, collider.radiusY,
+                collider.rotation || 0
+            );
+        }
         if (collider.kind === 'segment') {
             return _pushCircleFromSegment(
                 px, py, particleRadius,
@@ -192,6 +200,64 @@
             return _pushCircleFromTriangle(px, py, particleRadius, collider.v0, collider.v1, collider.v2);
         }
         return { x: px, y: py, hit: false };
+    }
+
+    function _pushCircleFromEllipse(px, py, particleRadius, ex, ey, radiusX, radiusY, rotation) {
+        const rx = Math.max(1e-6, radiusX || 0);
+        const ry = Math.max(1e-6, radiusY || 0);
+        const cos = Math.cos(rotation || 0);
+        const sin = Math.sin(rotation || 0);
+        const dx = px - ex;
+        const dy = py - ey;
+        // Local ellipse space (un-rotate).
+        const lx = dx * cos + dy * sin;
+        const ly = -dx * sin + dy * cos;
+        const nx = lx / rx;
+        const ny = ly / ry;
+        const nDist = Math.hypot(nx, ny);
+        // Inflate by particle radius in local unit space.
+        const inflate = particleRadius / Math.max(rx, ry);
+        const minDist = 1 + inflate;
+        if (nDist >= minDist || nDist < 1e-6) {
+            // Still treat deep interior as a hit and push outward.
+            if (nDist < 1 && nDist >= 1e-6) {
+                const push = (minDist - nDist) / nDist;
+                const olx = lx + nx * rx * push;
+                const oly = ly + ny * ry * push;
+                return {
+                    x: ex + olx * cos - oly * sin,
+                    y: ey + olx * sin + oly * cos,
+                    hit: true
+                };
+            }
+            return { x: px, y: py, hit: false };
+        }
+        const push = (minDist - nDist) / nDist;
+        const olx = lx + nx * rx * push;
+        const oly = ly + ny * ry * push;
+        return {
+            x: ex + olx * cos - oly * sin,
+            y: ey + olx * sin + oly * cos,
+            hit: true
+        };
+    }
+
+    function _buildSolidFixtureCollider(fixture) {
+        const size = fixture.size || 20;
+        const tight = Math.max(5, size * 0.42);
+        // Vortex props are painted as ellipses — match that silhouette for spray.
+        if (fixture.type === 'gravityAnchor' || fixture.type === 'vortexGate' || fixture.type === 'fieldGenerator') {
+            return [{
+                kind: 'ellipse',
+                x: fixture.x,
+                y: fixture.y,
+                radiusX: Math.max(6, size * 0.55),
+                radiusY: Math.max(4, size * 0.34),
+                rotation: fixture.rotation || ((fixture.x + fixture.y) * 0.002)
+            }];
+        }
+        // Keep solid probes tight so spray can still pass near props without fat circular halos.
+        return [{ kind: 'circle', x: fixture.x, y: fixture.y, radius: tight }];
     }
 
     function _resolveSceneryDebrisCollision(px, py, particleRadius) {
@@ -248,12 +314,6 @@
             { kind: 'circle', x: head.x, y: head.y, radius: size * 0.72 },
             { kind: 'segment', x1: base.x, y1: base.y, x2: head.x, y2: head.y, radius: poleR }
         ];
-    }
-
-    function _buildSolidFixtureCollider(fixture) {
-        const size = fixture.size || 20;
-        // Keep solid probes tight so spray can still pass near props without fat circular halos.
-        return [{ kind: 'circle', x: fixture.x, y: fixture.y, radius: Math.max(5, size * 0.42) }];
     }
 
     globalThis.buildDebrisSceneryColliders = function(layout) {
@@ -869,12 +929,19 @@
         return `rgb(${r}, ${g}, ${b})`;
     }
 
-    // Bright wound ichor (old cloud read) — debris dulling made spray look like grit, not fluid.
+    // Soft ichor wash: keep enemy hue, nudge toward milky opaque so floor mess
+    // reads liquid/halo instead of neon grit competing with living shapes.
     function fluidWoundRgb(rgb) {
+        const lum = rgb.r * 0.299 + rgb.g * 0.587 + rgb.b * 0.114;
+        const desat = 0.16;
+        const wash = 0.20; // mix toward white — mild, still clearly the source color
+        const softR = rgb.r * (1 - desat) + lum * desat;
+        const softG = rgb.g * (1 - desat) + lum * desat;
+        const softB = rgb.b * (1 - desat) + lum * desat;
         return {
-            r: _clampRgb(Math.min(1, rgb.r * 1.18 + 0.06)),
-            g: _clampRgb(Math.min(1, rgb.g * 1.12 + 0.04)),
-            b: _clampRgb(Math.min(1, rgb.b * 1.12 + 0.04))
+            r: _clampRgb(softR * (1 - wash) + wash),
+            g: _clampRgb(softG * (1 - wash) + wash),
+            b: _clampRgb(softB * (1 - wash) + wash)
         };
     }
 
@@ -1688,6 +1755,42 @@
         }));
     }
 
+    function _biomeFluidStampProfile(px, py) {
+        const layout = _getActiveRoomLayout();
+        if (!layout) return { rotation: null, stretchX: 1, stretchY: 1, diamond: false };
+        const biomeId = layout.biomeId;
+        const cellSize = layout.cellSize || 60;
+        const col = Math.max(0, Math.min((layout.cols || 1) - 1, Math.floor(px / cellSize)));
+        const row = Math.max(0, Math.min((layout.rows || 1) - 1, Math.floor(py / cellSize)));
+
+        if (biomeId === 'vortex') {
+            return {
+                rotation: (col + row) * 0.34,
+                stretchX: 1.4,
+                stretchY: 0.52,
+                diamond: false
+            };
+        }
+        if (biomeId === 'prism') {
+            return { rotation: 0, stretchX: 1.12, stretchY: 0.78, diamond: true };
+        }
+        if (biomeId === 'fractal') {
+            return { rotation: Math.PI / 4, stretchX: 1.18, stretchY: 1.18, diamond: true };
+        }
+        if (biomeId === 'swarm') {
+            return { rotation: Math.PI / 6, stretchX: 1.08, stretchY: 0.9, diamond: false };
+        }
+        if (biomeId === 'endless') {
+            return {
+                rotation: -Math.PI / 2 + (col % 2) * 0.22,
+                stretchX: 1.1,
+                stretchY: ((col + row) % 3 === 0) ? 0.82 : 1,
+                diamond: false
+            };
+        }
+        return { rotation: null, stretchX: 1, stretchY: 1, diamond: false };
+    }
+
     function _stampToStaticCanvas(i) {
         if (!VoxelStaticCanvas.ctx) return;
         const sCtx = VoxelStaticCanvas.ctx;
@@ -1721,30 +1824,50 @@
             sCtx.lineWidth = Math.max(1, 1.15 * scale);
             sCtx.strokeRect(-sw * 0.5, -sh * 0.5, sw, sh);
         } else if (isFluid) {
-            // Main stamp recipe: soft wash + hot core (source-over puddle).
-            const splatW = VoxelParticlePool.w[i] * (1.0 + _fxRandom() * 0.3) * scale;
-            const splatH = VoxelParticlePool.h[i] * (0.6 + _fxRandom() * 0.3) * scale;
+            // Soft wash + mild core — skewed to the local biome silhouette so puddles
+            // read as interacting with diamonds/ellipses instead of generic ovals.
+            const biome = _biomeFluidStampProfile(VoxelParticlePool.px[i], VoxelParticlePool.py[i]);
+            const splatW = VoxelParticlePool.w[i] * (1.0 + _fxRandom() * 0.3) * scale * biome.stretchX;
+            const splatH = VoxelParticlePool.h[i] * (0.6 + _fxRandom() * 0.3) * scale * biome.stretchY;
+            const stampRot = biome.rotation != null
+                ? biome.rotation + (_fxRandom() - 0.5) * 0.35
+                : VoxelParticlePool.rot[i];
 
-            sCtx.fillStyle = `rgba(${r},${g},${b}, 0.28)`;
-            sCtx.beginPath();
-            sCtx.ellipse(
-                px, py,
-                splatW * 2.0, splatH * 2.0,
-                VoxelParticlePool.rot[i], 0, Math.PI * 2
-            );
+            const drawStampShape = (rw, rh) => {
+                sCtx.beginPath();
+                if (biome.diamond) {
+                    const cos = Math.cos(stampRot);
+                    const sin = Math.sin(stampRot);
+                    const corners = [
+                        [0, -rh],
+                        [rw * 0.72, 0],
+                        [0, rh],
+                        [-rw * 0.72, 0]
+                    ];
+                    for (let c = 0; c < corners.length; c++) {
+                        const lx = corners[c][0];
+                        const ly = corners[c][1];
+                        const wx = px + lx * cos - ly * sin;
+                        const wy = py + lx * sin + ly * cos;
+                        if (c === 0) sCtx.moveTo(wx, wy);
+                        else sCtx.lineTo(wx, wy);
+                    }
+                    sCtx.closePath();
+                } else {
+                    sCtx.ellipse(px, py, rw, rh, stampRot, 0, Math.PI * 2);
+                }
+            };
+
+            sCtx.fillStyle = `rgba(${r},${g},${b}, 0.34)`;
+            drawStampShape(splatW * 2.15, splatH * 2.15);
             sCtx.fill();
 
             sCtx.fillStyle = `rgb(
-                ${Math.min(255, Math.round(r * 1.3))},
-                ${Math.min(255, Math.round(g * 1.3))},
-                ${Math.min(255, Math.round(b * 1.3))}
+                ${Math.min(255, Math.round(r * 1.12 + 18))},
+                ${Math.min(255, Math.round(g * 1.12 + 18))},
+                ${Math.min(255, Math.round(b * 1.12 + 18))}
             )`;
-            sCtx.beginPath();
-            sCtx.ellipse(
-                px, py,
-                splatW, splatH,
-                VoxelParticlePool.rot[i], 0, Math.PI * 2
-            );
+            drawStampShape(splatW, splatH);
             sCtx.fill();
         } else {
             sCtx.globalAlpha = 0.95;
@@ -2730,8 +2853,8 @@
                     isFluid, isSprite, isChip, dt: subDt
                 });
                 if (terrain.splatter) {
-                    if (!skipStamp) _stampToStaticCanvas(i);
-                    deactivateSlot(i);
+                    // Group stamp — fluid satellites must free with their leader.
+                    _stampAndDeactivateGroup(i, skipStamp);
                     splattered = true;
                     break;
                 }
@@ -2809,19 +2932,24 @@
             const fluidSettled = isFluid && VoxelParticlePool.settleT[i] > 0.12 && speed < 28;
             const fluidExpired = isFluid && VoxelParticlePool.life[i] <= 0;
             const chipExpired = isChip && VoxelParticlePool.life[i] <= 0;
-            if (fluidSettled || fluidExpired) {
-                if (!skipStamp) _stampToStaticCanvas(i);
-                deactivateSlot(i);
-            } else if (chipExpired || settleReady) {
+            // Always group-release: slab/large fluid leaders carry satellite droplets.
+            // Solo deactivate orphans them as permanent alive slots (arena pool starvation).
+            if (fluidSettled || fluidExpired || chipExpired || settleReady) {
                 _stampAndDeactivateGroup(i, skipStamp);
             }
         }
 
-        for (let n = 0; n < indices.length; n++) {
+        // Sync linked followers; stamp+free any orphan whose leader already left the pool.
+        for (let n = VoxelParticlePool._activeCount - 1; n >= 0; n--) {
             const i = indices[n];
             if (!VoxelParticlePool.alive[i]) continue;
             const leader = VoxelParticlePool.linkLeader[i];
-            if (leader < 0 || !VoxelParticlePool.alive[leader]) continue;
+            if (leader < 0) continue;
+            if (!VoxelParticlePool.alive[leader]) {
+                if (!skipStamp) _stampToStaticCanvas(i);
+                deactivateSlot(i);
+                continue;
+            }
 
             const cosR = Math.cos(VoxelParticlePool.rot[leader]);
             const sinR = Math.sin(VoxelParticlePool.rot[leader]);
@@ -3107,7 +3235,7 @@
             }
             ctx.restore();
 
-            // Airborne fluid: main neon recipe (lighter halo + hot core) on ribbon geometry.
+            // Airborne fluid: lighter milky halo + soft core on ribbon geometry.
             ctx.save();
             ctx.globalCompositeOperation = 'lighter';
             for (let n = 0; n < activeCount; n++) {
@@ -3133,7 +3261,7 @@
                     ctx.save();
                     ctx.translate(px, py);
                     ctx.rotate(Math.atan2(VoxelParticlePool.vy[i], VoxelParticlePool.vx[i]));
-                    ctx.fillStyle = `rgba(${r},${g},${b},0.45)`;
+                    ctx.fillStyle = `rgba(${r},${g},${b},0.40)`;
                     ctx.beginPath();
                     ctx.ellipse(0, 0, baseW * 1.35, baseH * 0.42, 0, 0, Math.PI * 2);
                     ctx.fill();
@@ -3141,20 +3269,20 @@
                 }
 
                 if (drawHalo) {
-                    ctx.fillStyle = `rgba(${r},${g},${b},0.28)`;
+                    ctx.fillStyle = `rgba(${r},${g},${b},0.36)`;
                     ctx.beginPath();
                     ctx.ellipse(
                         px, py,
-                        baseW * 2.2, baseH * 2.2 * 0.55,
+                        baseW * 2.45, baseH * 2.45 * 0.55,
                         ang, 0, Math.PI * 2
                     );
                     ctx.fill();
                 }
 
                 ctx.fillStyle = `rgb(
-                    ${Math.round(Math.min(1, VoxelParticlePool.cr[i] * 1.35) * 255)},
-                    ${Math.round(Math.min(1, VoxelParticlePool.cg[i] * 1.35) * 255)},
-                    ${Math.round(Math.min(1, VoxelParticlePool.cb[i] * 1.35) * 255)}
+                    ${Math.round(Math.min(1, VoxelParticlePool.cr[i] * 1.12 + 0.07) * 255)},
+                    ${Math.round(Math.min(1, VoxelParticlePool.cg[i] * 1.12 + 0.07) * 255)},
+                    ${Math.round(Math.min(1, VoxelParticlePool.cb[i] * 1.12 + 0.07) * 255)}
                 )`;
                 ctx.beginPath();
                 ctx.ellipse(

@@ -48,6 +48,10 @@ const EngineMusic = {
     currentTrackIndex: 0,
     pausedTrackInfo: null,
     shuffleMemory: new Map(), // setId -> last index
+    /** Style Engine audio targets (Surge Arena). */
+    styleIntensity: 0,
+    stylePlaybackRate: 1,
+    styleFilterCutoff: 20000,
     duckingActive: false,
     pendingFadeTimeout: null,
     scheduledNextTimeout: null,
@@ -352,19 +356,113 @@ const EngineMusic = {
 
             const targetGain = Math.max(0.0, Math.min(1.0, attenuatedGain));
             this.musicBus.filter.frequency.cancelScheduledValues(now);
-            this.musicBus.filter.frequency.setTargetAtTime(lowpassFrequency, now, Math.max(0.01, attackSeconds));
+            this.musicBus.filter.frequency.linearRampToValueAtTime(
+                this.musicBus.filter.frequency.value,
+                now
+            );
+            this.musicBus.filter.frequency.linearRampToValueAtTime(
+                lowpassFrequency,
+                now + Math.max(0.05, attackSeconds)
+            );
 
             this.musicBus.duckGain.gain.cancelScheduledValues(now);
-            this.musicBus.duckGain.gain.setTargetAtTime(targetGain, now, Math.max(0.01, attackSeconds));
+            this.musicBus.duckGain.gain.linearRampToValueAtTime(
+                this.musicBus.duckGain.gain.value,
+                now
+            );
+            this.musicBus.duckGain.gain.linearRampToValueAtTime(
+                targetGain,
+                now + Math.max(0.05, attackSeconds)
+            );
         } else {
             if (!this.duckingActive) return;
             this.duckingActive = false;
 
+            const releaseCutoff = this.styleFilterCutoff || 20000;
             this.musicBus.filter.frequency.cancelScheduledValues(now);
-            this.musicBus.filter.frequency.setTargetAtTime(20000, now, Math.max(0.01, releaseSeconds));
+            this.musicBus.filter.frequency.linearRampToValueAtTime(
+                this.musicBus.filter.frequency.value,
+                now
+            );
+            this.musicBus.filter.frequency.linearRampToValueAtTime(
+                releaseCutoff,
+                now + Math.max(0.05, releaseSeconds)
+            );
 
             this.musicBus.duckGain.gain.cancelScheduledValues(now);
-            this.musicBus.duckGain.gain.setTargetAtTime(1.0, now, Math.max(0.01, releaseSeconds));
+            this.musicBus.duckGain.gain.linearRampToValueAtTime(
+                this.musicBus.duckGain.gain.value,
+                now
+            );
+            this.musicBus.duckGain.gain.linearRampToValueAtTime(
+                1.0,
+                now + Math.max(0.05, releaseSeconds)
+            );
+        }
+    },
+
+    /**
+     * Style Engine — open/muffle BGM, nudge tempo, punch bass/gain.
+     * Always ramps AudioParams to avoid clicks/pops.
+     * @param {number} tier 0–4
+     */
+    applyStyleIntensity(tier) {
+        const t = Math.max(0, Math.min(4, tier | 0));
+        this.styleIntensity = t;
+
+        const cutoff = t <= 1 ? 3500 : 20000;
+        const rate = t >= 3 ? 1.03 : 1.0;
+        const styleGain = t >= 3 ? Math.pow(10, 1.5 / 20) : 1.0; // +1.5dB
+        const bassDb = t >= 3 ? 2.0 : 0;
+
+        this.styleFilterCutoff = cutoff;
+        this.stylePlaybackRate = rate;
+
+        if (!this.context || !this.musicBus) return;
+        const now = this.context.currentTime;
+        const ramp = 0.35;
+
+        if (!this.duckingActive && this.musicBus.filter) {
+            const freq = this.musicBus.filter.frequency;
+            freq.cancelScheduledValues(now);
+            freq.linearRampToValueAtTime(freq.value, now);
+            freq.linearRampToValueAtTime(cutoff, now + ramp);
+        }
+
+        if (this.musicBus.styleGain) {
+            const g = this.musicBus.styleGain.gain;
+            g.cancelScheduledValues(now);
+            g.linearRampToValueAtTime(g.value, now);
+            g.linearRampToValueAtTime(styleGain, now + ramp);
+        }
+
+        if (this.musicBus.bassShelf) {
+            const bg = this.musicBus.bassShelf.gain;
+            bg.cancelScheduledValues(now);
+            bg.linearRampToValueAtTime(bg.value, now);
+            bg.linearRampToValueAtTime(bassDb, now + ramp);
+        }
+
+        this.setPlaybackRate(rate, ramp);
+    },
+
+    /**
+     * @param {number} rate
+     * @param {number} [rampSeconds=0.35]
+     */
+    setPlaybackRate(rate, rampSeconds) {
+        const target = Math.max(0.5, Math.min(2, rate || 1));
+        this.stylePlaybackRate = target;
+        if (!this.currentSource || !this.context) return;
+        const now = this.context.currentTime;
+        const ramp = Math.max(0.05, rampSeconds == null ? 0.35 : rampSeconds);
+        const param = this.currentSource.playbackRate;
+        try {
+            param.cancelScheduledValues(now);
+            param.linearRampToValueAtTime(param.value, now);
+            param.linearRampToValueAtTime(target, now + ramp);
+        } catch (e) {
+            param.value = target;
         }
     },
 
@@ -498,6 +596,13 @@ const EngineMusic = {
             selection: setConfig.selection ? { ...setConfig.selection } : { mode: 'loop' },
             loop
         };
+
+        // Re-apply Style tempo after track swaps (BufferSource is fresh each play).
+        if (this.stylePlaybackRate && this.stylePlaybackRate !== 1) {
+            try {
+                source.playbackRate.value = this.stylePlaybackRate;
+            } catch (e) { /* ignore */ }
+        }
 
         source.onended = () => {
             if (this.currentSource === source && !loop) {

@@ -9,6 +9,8 @@
  * @property {number} [seed=12345] PRNG seed integer
  * @property {number} [iterations=4] Cellular automata smoothing passes
  */
+importScripts('proc.js');
+
 self.onmessage = function(e) {
     const data = e.data || {};
     const type = data.type;
@@ -69,5 +71,14 @@ self.onmessage = function(e) {
             height,
             data: gridData.buffer
         }, [gridData.buffer]);
+    } else if (type === 'FIND_PATH') {
+        const { width, height, data: buffer, start, goal, options } = data;
+        const grid = new self.Engine.Proc.Grid(width, height);
+        grid.data = new Uint8Array(buffer);
+        const path = grid.findPath(start, goal, options);
+        self.postMessage({
+            type: 'PATH_FOUND',
+            path: path
+        });
     }
 };

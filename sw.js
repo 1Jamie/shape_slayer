@@ -1,11 +1,11 @@
 /* Shape Slayer service worker
- * CACHE_VERSION base (0.8.2) should match GameVersion.VERSION for feature/gameplay releases.
- * Trailing ".N" (e.g. 0.8.2.46) busts shell/runtime caches for background/PWA-only updates
+ * CACHE_VERSION base (0.9.0) should match GameVersion.VERSION for feature/gameplay releases.
+ * Trailing ".N" (e.g. 0.9.0.1) busts shell/runtime caches for background/PWA-only updates
  * without changing the user-facing game version or patch-notes modal.
  * Shell is precached on install. Audio warms in the background so playback can start ASAP
  * while the library fills for full offline use.
  */
-const CACHE_VERSION = '0.8.2.47';
+const CACHE_VERSION = '0.9.0.0';
 const SHELL_CACHE = `shape-slayer-shell-v${CACHE_VERSION}`;
 const RUNTIME_CACHE = `shape-slayer-runtime-v${CACHE_VERSION}`;
 const AUDIO_WARM_CONCURRENCY = 2;
@@ -45,6 +45,7 @@ const PRECACHE_URLS = [
   './src/game/ui/components/audioMenu.js',
   './src/game/ui/components/deathOverlay.js',
   './src/game/ui/components/roomInfo.js',
+  './src/game/ui/components/comboMeter.js',
   './src/game/ui/components/roomAndLevel.js',
   './src/game/ui/components/otherPlayersHealth.js',
   './src/game/ui/components/mobileCooldowns.js',
@@ -75,8 +76,10 @@ const PRECACHE_URLS = [
   './src/engine/utils.js',
   './src/engine/save.js',
   './src/engine/physics.js',
+  './src/engine/director.js',
   './src/engine/proc.js',
   './src/engine/proc-worker.js',
+  './src/engine/particle-worker.js',
   './src/engine/graphics.js',
   './src/engine/fx.js',
   './src/engine/ui/bus.js',
@@ -137,6 +140,7 @@ const PRECACHE_URLS = [
   './src/game/entities/bosses/boss-base.js',
   './src/game/simulation/combat-scaling.js',
   './src/game/simulation/combat-economy.js',
+  './src/game/simulation/kill-rewards.js',
   './src/game/entities/bosses/boss-scaling.js',
   './src/game/entities/bosses/pheromone-polyline.js',
   './src/game/entities/bosses/boss-swarmking.js',
@@ -145,7 +149,13 @@ const PRECACHE_URLS = [
   './src/game/entities/bosses/boss-fractalcore.js',
   './src/game/entities/bosses/boss-vortex.js',
   './src/game/simulation/level.js',
+  './src/game/simulation/room-clear-effects.js',
+  './src/game/simulation/barriers.js',
+  './src/game/simulation/surge-arena-generator.js',
+  './src/game/simulation/wave-director.js',
+  './src/game/simulation/arena-mode.js',
   './src/game/simulation/combat.js',
+  './src/game/simulation/combat-projectiles.js',
   './src/game/presentation/ui.js',
   './src/game/run-profiler.js',
   './src/game/simulation/debug.js',
@@ -161,9 +171,26 @@ const PRECACHE_URLS = [
   './src/game/networking/mp-config.js',
   './src/game/networking/telemetry.js',
   './src/game/networking/interpolation.js',
+  './src/game/networking/multiplayer.js',
   './src/game/simulation/nexus.js',
   './src/game/simulation/title-attract.js',
+  './src/game/packages.js',
+  './src/game/world-context.js',
+  './src/game/game-bus.js',
+  './src/game/mode-profile.js',
+  './src/game/playing-host.js',
+  './src/game/mode-catalog.js',
+  './src/game/mode-takeover.js',
   './src/game/main.js',
+  './src/modes/modes.js',
+  './src/modes/roguelike/rules.js',
+  './src/modes/roguelike/run.js',
+  './src/modes/roguelike/mode.js',
+  './src/modes/sandbox/rules.js',
+  './src/modes/sandbox/mode.js',
+  './src/modes/surge-arena/rules.js',
+  './src/modes/surge-arena/mode.js',
+  './src/app/host.js',
 ];
 const PRECACHE_HREFS = new Set(
   PRECACHE_URLS.map((url) => new URL(url, self.registration.scope).href)
@@ -172,8 +199,26 @@ const PRECACHE_HREFS = new Set(
 self.addEventListener('install', (event) => {
   // Stay in waiting until the page sends SKIP_WAITING so mid-run clients are
   // not yanked onto a new shell. Title/advertise (and user opt-in) activate it.
+  // Cache each URL individually so one miss does not reject the whole install
+  // (Cache.addAll fails the entire batch on a single bad Request).
   event.waitUntil(
-    caches.open(SHELL_CACHE).then((cache) => cache.addAll(PRECACHE_URLS))
+    caches.open(SHELL_CACHE).then(async (cache) => {
+      const results = await Promise.all(
+        PRECACHE_URLS.map((url) =>
+          cache.add(url).then(
+            () => ({ url, ok: true }),
+            (err) => {
+              console.warn('[SW] precache failed:', url, err && err.message ? err.message : err);
+              return { url, ok: false };
+            }
+          )
+        )
+      );
+      const failed = results.filter((r) => !r.ok);
+      if (failed.length) {
+        console.warn('[SW] precache incomplete:', failed.length, 'of', PRECACHE_URLS.length);
+      }
+    })
   );
 });
 

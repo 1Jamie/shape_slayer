@@ -426,7 +426,7 @@
             const startedAt = nowIso();
             const {
                 mode = (typeof Game !== 'undefined' && Game.multiplayerEnabled ? 'multiplayer' : 'singleplayer'),
-                gameMode = (typeof Game !== 'undefined' && Game.gameMode ? Game.gameMode : 'cards'),
+                gameMode = (typeof Game !== 'undefined' && Game.gameMode ? Game.gameMode : 'gear'),
                 hostPlayerId = (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local'),
                 difficulty = 'default',
                 seed = null,

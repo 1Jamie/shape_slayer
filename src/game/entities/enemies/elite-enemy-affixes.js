@@ -98,15 +98,29 @@
         const chance = getEliteChance(roomNumber || 1);
         if (Math.random() > chance) return null;
 
-        const type = pickEliteAffix(biomeId || 'endless');
-        const values = Object.assign({}, ELITE_AFFIX_VALUES[type] || {});
-        enemy.eliteAffix = { type, value: values };
-        enemy.isElite = true;
-
+        const affix = forceEliteAffix(enemy, biomeId, { styleTemp: false });
         // Mild elite HP bump so affix isn't free power without durability
-        if (enemy.maxHp) {
+        if (affix && enemy.maxHp) {
             enemy.maxHp = Math.round(enemy.maxHp * 1.2);
             enemy.hp = enemy.maxHp;
+        }
+        return affix;
+    }
+
+    /** Always stamp an elite affix (Style A+ temporary pressure). Skips if already elite. */
+    function forceEliteAffix(enemy, biomeId, options) {
+        if (!enemy || enemy.isBoss) return null;
+        if (enemy.eliteAffix) return enemy.eliteAffix;
+
+        const opts = options || {};
+        const type = pickEliteAffix(biomeId || 'endless');
+        const values = Object.assign({}, ELITE_AFFIX_VALUES[type] || {});
+        enemy.eliteAffix = { type, value: values, styleTemp: !!opts.styleTemp };
+        enemy.isElite = true;
+
+        if (opts.styleTemp && enemy.maxHp) {
+            enemy.maxHp = Math.round(enemy.maxHp * 1.15);
+            enemy.hp = Math.min(enemy.hp || enemy.maxHp, enemy.maxHp);
         }
         return enemy.eliteAffix;
     }
@@ -392,9 +406,7 @@
     }
 
     function createEliteAffixPreviewCanvas(affixType, width, height) {
-        const canvas = document.createElement('canvas');
-        canvas.width = width || 72;
-        canvas.height = height || 72;
+        const canvas = Engine.Graphics.createCanvas(width || 72, height || 72);
         canvas.style.display = 'block';
         canvas.style.borderRadius = '8px';
         canvas.style.background = '#141418';
@@ -408,6 +420,7 @@
         indexOrder: ELITE_AFFIX_ORDER,
         getBiomesForEliteAffix,
         applyEliteAffix,
+        forceEliteAffix,
         onEliteAttackCommit,
         updateEliteAffix,
         getEliteDamageTakenMultiplier,

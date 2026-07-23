@@ -384,6 +384,9 @@ class MultiplayerManager {
                 case 'item_pylon_interact_request':
                     this.handleItemPylonInteractRequest(msg.data);
                     break;
+                case 'arena_next_wave_request':
+                    this.handleArenaNextWaveRequest(msg.data);
+                    break;
                 case 'player_leveled_up':
                     this.handlePlayerLeveledUp(msg.data);
                     break;
@@ -626,7 +629,7 @@ class MultiplayerManager {
     }
     
     // Start game (host only)
-    startGame() {
+    startGame(modeId = 'roguelike') {
         if (!this.isHost) {
             console.warn('[Multiplayer] Only host can start game');
             return;
@@ -636,7 +639,9 @@ class MultiplayerManager {
             type: 'game_start',
             data: {
                 roomNumber: 1,
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                modeId: modeId,
+                runSeed: Game.runSeed
             }
         });
     }
@@ -893,7 +898,12 @@ class MultiplayerManager {
             // Each player gets a random item of the pylon's rarity
             itemPylons: (Game.state === 'PLAYING' && Game.itemPylons && Array.isArray(Game.itemPylons))
                 ? Game.itemPylons.map(pylon => serializeItemPylonForNetwork(pylon))
-                : []
+                : [],
+
+            // Surge Arena specific state serialization
+            playerCombos: (Game.state === 'PLAYING' && Game.activeSessionId === 'surge-arena') ? Game.playerCombos : null,
+            styleCrashPickups: (Game.state === 'PLAYING' && Game.activeSessionId === 'surge-arena') ? Game.styleCrashPickups : null,
+            styleHealOrbs: (Game.state === 'PLAYING' && Game.activeSessionId === 'surge-arena') ? Game.styleHealOrbs : null
         };
         
         return this.roundDeep(state, 2);
@@ -1338,15 +1348,16 @@ class MultiplayerManager {
             Game.multiplayerEnabled = true;
         }
         
-        // Force gear mode in multiplayer (multiplayer only supports gear mode)
+        // Force roguelike mode in multiplayer (multiplayer only supports roguelike mode)
         if (typeof nexusRoom !== 'undefined' && nexusRoom) {
-            nexusRoom.portalMode = 'gear';
-            console.log('[Multiplayer] Switched to gear mode (required for multiplayer)');
+            nexusRoom.portalMode = 'roguelike';
+            console.log('[Multiplayer] Switched to roguelike mode (required for multiplayer)');
         }
         
         // Set game mode to gear (multiplayer only supports gear mode)
         if (typeof Game !== 'undefined') {
             Game.gameMode = 'gear';
+            Game.selectedModeId = 'roguelike';
             console.log('[Multiplayer] Set game mode to gear (required for multiplayer)');
         }
         
@@ -1437,15 +1448,16 @@ class MultiplayerManager {
             Game.multiplayerEnabled = true;
         }
         
-        // Force gear mode in multiplayer (multiplayer only supports gear mode)
+        // Force roguelike mode in multiplayer (multiplayer only supports roguelike mode)
         if (typeof nexusRoom !== 'undefined' && nexusRoom) {
-            nexusRoom.portalMode = 'gear';
-            console.log('[Multiplayer] Switched to gear mode (required for multiplayer)');
+            nexusRoom.portalMode = 'roguelike';
+            console.log('[Multiplayer] Switched to roguelike mode (required for multiplayer)');
         }
         
         // Set game mode to gear (multiplayer only supports gear mode)
         if (typeof Game !== 'undefined') {
             Game.gameMode = 'gear';
+            Game.selectedModeId = 'roguelike';
             console.log('[Multiplayer] Set game mode to gear (required for multiplayer)');
         }
         
@@ -2519,11 +2531,16 @@ class MultiplayerManager {
         // Freeze classes for the run (Nexus is the only place they can change)
         this.lockRunClasses();
         
-        // Ensure game mode is set to gear (multiplayer only supports gear mode)
+        // Ensure game mode is set correctly
         if (typeof Game !== 'undefined') {
-            Game.gameMode = 'gear';
+            const modeId = data && data.modeId ? data.modeId : 'roguelike';
+            Game.gameMode = modeId === 'surge-arena' ? 'surge-arena' : 'gear';
+            Game.selectedModeId = modeId;
             if (typeof nexusRoom !== 'undefined' && nexusRoom) {
-                nexusRoom.portalMode = 'gear';
+                nexusRoom.portalMode = modeId;
+            }
+            if (data && data.runSeed) {
+                Game.runSeed = data.runSeed;
             }
             
             // Initialize item pylons array if it doesn't exist (for both host and clients)
@@ -3160,6 +3177,27 @@ class MultiplayerManager {
             console.log(`[Host] Player ${playerId} interacted with pylon ${pylonId} and received ${randomItemDef.name} (${randomItemDef.rarity})`);
         }
     }
+
+    handleArenaNextWaveRequest(data) {
+        if (!this.isHost) return;
+        console.log('[Multiplayer] Client requested next wave start');
+        
+        if (typeof Game !== 'undefined' && Game.state === 'PLAYING') {
+            if (Game.arenaPhase === 'waiting') {
+                const room = (typeof currentRoom !== 'undefined' && currentRoom) || Game.currentRoom;
+                const pylon = room && room.wavePylon;
+                if (pylon && pylon.active) {
+                    if (typeof GameBus !== 'undefined' && GameBus.emit) {
+                        GameBus.emit('arena:startNextWave', {
+                            world: Game
+                        });
+                    } else if (typeof GameArena !== 'undefined' && GameArena.triggerNextWave) {
+                        GameArena.triggerNextWave(Game);
+                    }
+                }
+            }
+        }
+    }
     
     spawnDroppedGear(oldGear, playerInstance, playerId) {
         if (typeof groundLoot === 'undefined' || !oldGear) return;
@@ -3190,10 +3228,15 @@ class MultiplayerManager {
         let dropX = baseX + offsetX;
         let dropY = baseY + offsetY;
         const margin = 50;
-        const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : 2400;
-        const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : 1350;
+        const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : 3000;
+        const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : 1700;
         dropX = Math.max(margin, Math.min(roomWidth - margin, dropX));
         dropY = Math.max(margin, Math.min(roomHeight - margin, dropY));
+        if (typeof GameArena !== 'undefined' && GameArena.displaceLootFromWavePad) {
+            const moved = GameArena.displaceLootFromWavePad(dropX, dropY);
+            dropX = moved.x;
+            dropY = moved.y;
+        }
         if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.layout && typeof RoomLayoutGenerator !== 'undefined' &&
             !RoomLayoutGenerator.isPointWalkable(currentRoom.layout, dropX, dropY, drop.size || 15)) {
             const safePoint = RoomLayoutGenerator.findSafeSpawnPoint(currentRoom.layout, {
@@ -4400,6 +4443,22 @@ class MultiplayerManager {
                         existingPylon.disappearProgress = pylonData.disappearProgress || 0;
                     }
                 });
+            }
+
+            // Sync Surge Arena specific pickups, orbs, and combos
+            if (state.playerCombos && !this.isHost) {
+                Game.playerCombos = state.playerCombos;
+                if (typeof SurgeArenaRules !== 'undefined' && SurgeArenaRules.syncComboFromNetwork) {
+                    Object.keys(state.playerCombos).forEach(playerId => {
+                        SurgeArenaRules.syncComboFromNetwork(playerId, state.playerCombos[playerId]);
+                    });
+                }
+            }
+            if (state.styleCrashPickups !== undefined && !this.isHost) {
+                Game.styleCrashPickups = state.styleCrashPickups;
+            }
+            if (state.styleHealOrbs !== undefined && !this.isHost) {
+                Game.styleHealOrbs = state.styleHealOrbs;
             }
         }
 

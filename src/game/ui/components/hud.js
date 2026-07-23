@@ -241,11 +241,22 @@
 			if (container) container.style.display = 'none';
 			return;
 		}
-		if (typeof Game !== 'undefined' && Game.state === 'TITLE') {
-			container.style.display = 'none';
-			return;
-		}
 		const player = (typeof Game !== 'undefined') ? Game.player : null;
+		if (typeof GameModeTakeover !== 'undefined' && GameModeTakeover.isGameplayHudVisible) {
+			if (!GameModeTakeover.isGameplayHudVisible(typeof Game !== 'undefined' ? Game : null)) {
+				container.style.display = 'none';
+				return;
+			}
+		} else {
+			if (typeof Game !== 'undefined' && (Game.state === 'TITLE' || Game.state === 'SESSION')) {
+				container.style.display = 'none';
+				return;
+			}
+			if (!player || player.dead) {
+				container.style.display = 'none';
+				return;
+			}
+		}
 		if (!player || player.dead) {
 			container.style.display = 'none';
 			return;

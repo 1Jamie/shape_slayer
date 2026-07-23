@@ -87,6 +87,12 @@
 		infoContainer.style.flex = '1';
 		infoContainer.style.minWidth = '0';
 
+		// Player name container
+		const nameContainer = document.createElement('div');
+		nameContainer.style.display = 'flex';
+		nameContainer.style.alignItems = 'center';
+		nameContainer.style.gap = '6px';
+
 		// Player name
 		const name = document.createElement('div');
 		name.textContent = playerName || `Player ${playerId || ''}`;
@@ -97,6 +103,17 @@
 		name.style.whiteSpace = 'nowrap';
 		name.style.overflow = 'hidden';
 		name.style.textOverflow = 'ellipsis';
+		nameContainer.appendChild(name);
+
+		// Style rank badge
+		const styleBadge = document.createElement('span');
+		styleBadge.style.fontSize = '10px';
+		styleBadge.style.fontWeight = 'bold';
+		styleBadge.style.padding = '1px 4px';
+		styleBadge.style.borderRadius = '3px';
+		styleBadge.style.display = 'none'; // Hidden by default
+		styleBadge.style.textShadow = '0 0 2px rgba(0,0,0,0.8)';
+		nameContainer.appendChild(styleBadge);
 
 		// Shield bar (if they have shields)
 		const shieldBar = document.createElement('div');
@@ -154,7 +171,7 @@
 		hpText.style.zIndex = '1';
 		hpBar.appendChild(hpText);
 
-		infoContainer.appendChild(name);
+		infoContainer.appendChild(nameContainer);
 		infoContainer.appendChild(shieldBar);
 		infoContainer.appendChild(hpBar);
 
@@ -168,6 +185,7 @@
 		wrap._shieldBar = shieldBar;
 		wrap._shieldBarFill = shieldBarFill;
 		wrap._shieldBarText = shieldBarText;
+		wrap._styleBadge = styleBadge;
 
 		return wrap;
 	}
@@ -234,6 +252,26 @@
 				if (shieldBarText) {
 					shieldBarText.textContent = '';
 				}
+			}
+		}
+
+		// Update Style Rank Badge
+		const styleBadge = barElement._styleBadge;
+		if (styleBadge) {
+			const activeSessionId = typeof Game !== 'undefined' && Game && Game.activeSessionId;
+			const isSurge = activeSessionId === 'surge-arena';
+			if (isSurge && Game.playerCombos && Game.playerCombos[barElement._playerId]) {
+				const pCombo = Game.playerCombos[barElement._playerId];
+				const tier = pCombo.comboTier || 0;
+				const rankLetters = ['D', 'C', 'B', 'A', 'S'];
+				const rankColors = ['#aaaaaa', '#55ff55', '#33aaff', '#e67e22', '#e74c3c']; // Grey, Green, Blue, Orange, Red
+				const letter = rankLetters[tier] || 'D';
+				const color = rankColors[tier] || '#aaaaaa';
+				styleBadge.textContent = `[${letter}]`;
+				styleBadge.style.color = color;
+				styleBadge.style.display = 'inline-block';
+			} else {
+				styleBadge.style.display = 'none';
 			}
 		}
 

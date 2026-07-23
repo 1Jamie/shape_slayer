@@ -681,9 +681,7 @@ class BossVortex extends BossBase {
         if (!label) return null;
         if (this.spectacle.bannerCanvases[label]) return this.spectacle.bannerCanvases[label];
 
-        const canvas = document.createElement('canvas');
-        canvas.width = 420;
-        canvas.height = 72;
+        const canvas = Engine.Graphics.createCanvas(420, 72);
         const ctx = canvas.getContext('2d');
         if (!ctx) return null;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -2752,9 +2750,7 @@ class BossVortex extends BossBase {
     getBirthFlashSprite() {
         if (this.spectacle && this.spectacle.birthFlashSprite) return this.spectacle.birthFlashSprite;
         if (typeof document === 'undefined' || !this.spectacle) return null;
-        const canvas = document.createElement('canvas');
-        canvas.width = 64;
-        canvas.height = 64;
+        const canvas = Engine.Graphics.createCanvas(64, 64);
         const ctx = canvas.getContext('2d');
         if (!ctx) return null;
         const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
@@ -2986,9 +2982,10 @@ class BossVortex extends BossBase {
     createHarvestBlockSprite(block, layout, colors) {
         if (typeof document === 'undefined' || !block) return null;
         const padding = block.spritePadding || 18;
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.ceil(block.width + padding * 2));
-        canvas.height = Math.max(1, Math.ceil(block.height + padding * 2));
+        const canvas = Engine.Graphics.createCanvas(
+            Math.max(1, Math.ceil(block.width + padding * 2)),
+            Math.max(1, Math.ceil(block.height + padding * 2))
+        );
         const ctx = canvas.getContext('2d');
         if (!ctx) return null;
 
@@ -3168,9 +3165,7 @@ class BossVortex extends BossBase {
         this.lensAssets = [];
         for (let layer = 0; layer < 4; layer++) {
             const size = 180 + layer * 34;
-            const canvas = document.createElement('canvas');
-            canvas.width = size;
-            canvas.height = size;
+            const canvas = Engine.Graphics.createCanvas(size, size);
             const lctx = canvas.getContext('2d');
             const center = size / 2;
             lctx.globalCompositeOperation = 'screen';
@@ -3358,9 +3353,7 @@ class BossVortex extends BossBase {
         const size = 512;
         const layers = [];
         for (let layer = 0; layer < 3; layer++) {
-            const canvas = document.createElement('canvas');
-            canvas.width = size;
-            canvas.height = size;
+            const canvas = Engine.Graphics.createCanvas(size, size);
             const dctx = canvas.getContext('2d');
             dctx.translate(size / 2, size / 2);
 

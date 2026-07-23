@@ -7,6 +7,7 @@ class PlayerStats {
         this.kills = 0;
         this.damageTaken = 0;
         this.roomsCleared = 0;
+        this.highestCombo = 0;
 
         // Time tracking - only counts time while alive (NOT total run time)
         this.timeAlive = 0; // Accumulated alive time in seconds
@@ -85,6 +86,7 @@ class PlayerStats {
         this.kills = 0;
         this.damageTaken = 0;
         this.roomsCleared = 0;
+        this.highestCombo = 0;
         this.timeAlive = 0;
         this.lastAliveTimestamp = null;
         this.isAlive = true;

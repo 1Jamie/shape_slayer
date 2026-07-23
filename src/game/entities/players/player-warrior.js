@@ -78,9 +78,7 @@ const WARRIOR_CONFIG = {
 };
 
 const warriorBlockBubbleCache = (() => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 128;
-    canvas.height = 128;
+    const canvas = Engine.Graphics.createCanvas(128, 128);
     const ctx = canvas.getContext('2d');
     const grad = ctx.createRadialGradient(64, 64, 40, 64, 64, 64);
     grad.addColorStop(0, 'rgba(100, 150, 255, 1)');

@@ -104,8 +104,20 @@ const CombatEconomy = {
         const killScale = 2.4;
         const lvlScale = 1.2;
         return Math.floor(
-            roomScale * roomsCleared
-            + killScale * enemiesKilled
+            roomScale * Math.max(0, roomsCleared)
+            + killScale * (enemiesKilled || 0)
+            + lvlScale * (playerLevel || 1)
+        );
+    },
+
+    /** Arena-mode shard estimate for a run ending at waveNumber. */
+    estimateShardsArena(wavesCleared, enemiesKilled, playerLevel) {
+        const waveScale = 15;
+        const killScale = 0.35;
+        const lvlScale = 1.0;
+        return Math.floor(
+            waveScale * Math.max(0, wavesCleared)
+            + killScale * (enemiesKilled || 0)
             + lvlScale * (playerLevel || 1)
         );
     },

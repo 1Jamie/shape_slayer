@@ -304,8 +304,8 @@ function loadBootEnvironment(options = {}) {
 test('Engine.VERSION and Boot probe/verify/initialize publish a frozen ready runtime', () => {
     const { sandbox } = loadBootEnvironment();
     const Boot = sandbox.Engine.Boot;
-    assert.equal(sandbox.Engine.VERSION, '0.1a');
-    assert.equal(Boot.VERSION, '0.1a');
+    assert.equal(sandbox.Engine.VERSION, '0.2a');
+    assert.equal(Boot.VERSION, '0.2a');
 
     const report = Boot.probe({ canvasId: 'gameCanvas', logicalW: 1280, logicalH: 720 });
     assert.equal(report.checks.canvas2d, true);
@@ -315,7 +315,7 @@ test('Engine.VERSION and Boot probe/verify/initialize publish a frozen ready run
     const runtime = Boot.initialize({ canvasId: 'gameCanvas', logicalW: 1280, logicalH: 720 });
     assert.equal(runtime.ok, true);
     assert.equal(runtime.status, 'ready');
-    assert.equal(runtime.version, '0.1a');
+    assert.equal(runtime.version, '0.2a');
     assert.ok(runtime.canvas);
     assert.ok(runtime.ctx);
     assert.equal(runtime.poolWarmed, true);
@@ -429,10 +429,10 @@ test('Boot-screen phases, reduced motion, fatal controls, and cleanup', async ()
         context: { state: 'running' },
         playChime() { readyChimes++; }
     };
-    screen.show({ version: '0.1a' });
+    screen.show({ version: '0.2a' });
     assert.ok(screen.layer.className.includes('engine-boot-screen--reduced'));
-    screen.showBrand('0.1a');
-    assert.equal(screen.versionEl.textContent, 'v0.1a');
+    screen.showBrand('0.2a');
+    assert.equal(screen.versionEl.textContent, 'v0.2a');
     screen.setStatus('Initializing…');
     assert.equal(screen.statusEl.textContent, 'Initializing…');
     screen.showReady({ status: 'ready' });
@@ -466,7 +466,7 @@ test('Boot-screen phases, reduced motion, fatal controls, and cleanup', async ()
 test('scan sweep finishes its current pass before stopping on ready', () => {
     const { sandbox } = loadBootEnvironment();
     const screen = sandbox.Engine.UI.BootScreen;
-    screen.show({ version: '0.1a' });
+    screen.show({ version: '0.2a' });
     assert.ok(screen.scanlineEl, 'scanline element must be tracked');
 
     screen.showReady({ status: 'ready' });
@@ -483,7 +483,7 @@ test('scan sweep finishes its current pass before stopping on ready', () => {
     assert.equal((screen.scanlineEl.listeners.animationiteration || []).length, 0);
 
     // A retry pass restarts the sweep from a clean state.
-    screen.showBrand('0.1a');
+    screen.showBrand('0.2a');
     assert.equal(screen.layer.classList.contains('engine-boot-screen--scan-done'), false);
 
     // Fatal states stop the line immediately for the error panel.
@@ -520,7 +520,7 @@ test('Boot cinematic drives engine primitives through all four beats', () => {
         getContext: (type) => (type === '2d' ? ctx : null)
     };
 
-    const controller = cinema.start({ canvas: stage, version: '0.1a' });
+    const controller = cinema.start({ canvas: stage, version: '0.2a' });
     assert.ok(controller, 'cinematic controller must start');
     tick(0); // establish t=0
 
@@ -570,7 +570,7 @@ test('Boot cinematic drives engine primitives through all four beats', () => {
         'ready signal must snap the READY line in'
     );
     assert.ok(
-        calls.some(call => call.method === 'fillText' && call.args[0] === 'v0.1a'),
+        calls.some(call => call.method === 'fillText' && call.args[0] === 'v0.2a'),
         'version line must render during lock-in'
     );
     assert.ok(
@@ -589,7 +589,7 @@ test('service worker and package test list include engine boot files', () => {
     assert.match(sw, /engine\/ui\/boot-cinematic\.js/);
     assert.match(sw, /engine\/ui\/boot-screen\.js/);
     assert.match(sw, /engine\/boot\.js/);
-    assert.match(sw, /CACHE_VERSION = '0\.8\.2\.\d+'/);
+    assert.match(sw, /CACHE_VERSION = '\d+\.\d+\.\d+\.\d+'/);
     assert.match(sw, /SKIP_WAITING/);
     assert.match(sw, /clients\.claim\s*\(/);
     assert.match(sw, /SW_UPDATED/);

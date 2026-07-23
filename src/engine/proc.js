@@ -473,76 +473,150 @@
                     [-1, 1, Math.SQRT2], [-1, -1, Math.SQRT2]]
                 : [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1]];
             const size = this.data.length;
-            const costs = new Float64Array(size);
-            costs.fill(Infinity);
-            const parents = new Int32Array(size);
-            parents.fill(-1);
-            const closed = new Uint8Array(size);
+
+            if (!this._pathClosed || this._pathClosed.length !== size) {
+                this._pathClosed = new Uint32Array(size);
+                this._pathCosts = new Float64Array(size);
+                this._pathCostSearchIds = new Uint32Array(size);
+                this._pathParents = new Int32Array(size);
+                this._pathParentSearchIds = new Uint32Array(size);
+                this._pathHeap = new MinHeap();
+                this._pathSearchId = 0;
+            }
+            this._pathSearchId++;
+            if (this._pathSearchId === 0xFFFFFFFF) {
+                this._pathClosed.fill(0);
+                this._pathCostSearchIds.fill(0);
+                this._pathParentSearchIds.fill(0);
+                this._pathSearchId = 1;
+            }
+
+            const closed = this._pathClosed;
+            const costs = this._pathCosts;
+            const costSearchIds = this._pathCostSearchIds;
+            const parents = this._pathParents;
+            const parentSearchIds = this._pathParentSearchIds;
+            const heap = this._pathHeap;
+            const searchId = this._pathSearchId;
+
+            heap.clear();
+
             const startIndex = this.index(startX, startY);
             const goalIndex = this.index(goalX, goalY);
-            const heap = new MinHeap();
-            costs[startIndex] = 0;
-            heap.push({ index: startIndex, x: startX, y: startY, score: 0 });
 
-            while (heap.items.length) {
-                const current = heap.pop();
-                if (closed[current.index]) continue;
-                if (current.index === goalIndex) break;
-                closed[current.index] = 1;
-                for (const [offsetX, offsetY, baseCost] of directions) {
-                    const nextX = current.x + offsetX;
-                    const nextY = current.y + offsetY;
+            costs[startIndex] = 0;
+            costSearchIds[startIndex] = searchId;
+            heap.push(0, startIndex, startX, startY);
+
+            const scratchPop = heap._popScratch;
+
+            while (heap.length > 0) {
+                heap.pop(scratchPop);
+                const currentIdx = (scratchPop.index) | 0;
+                const currentX = (scratchPop.x) | 0;
+                const currentY = (scratchPop.y) | 0;
+
+                if (closed[currentIdx] === searchId) continue;
+                if (currentIdx === goalIndex) break;
+                closed[currentIdx] = searchId;
+
+                for (let d = 0; d < directions.length; d++) {
+                    const dir = directions[d];
+                    const offsetX = dir[0];
+                    const offsetY = dir[1];
+                    const baseCost = dir[2];
+                    const nextX = currentX + offsetX;
+                    const nextY = currentY + offsetY;
+
                     if (!this.inBounds(nextX, nextY)) continue;
                     if (!passable(this.get(nextX, nextY), nextX, nextY)) continue;
                     if (diagonal && offsetX !== 0 && offsetY !== 0 && options.cutCorners !== true) {
-                        if (!passable(this.get(current.x + offsetX, current.y), current.x + offsetX, current.y)
-                            || !passable(this.get(current.x, current.y + offsetY), current.x, current.y + offsetY)) {
+                        if (!passable(this.get(currentX + offsetX, currentY), currentX + offsetX, currentY)
+                            || !passable(this.get(currentX, currentY + offsetY), currentX, currentY + offsetY)) {
                             continue;
                         }
                     }
                     const nextIndex = this.index(nextX, nextY);
-                    if (closed[nextIndex]) continue;
+                    if (closed[nextIndex] === searchId) continue;
+
                     const extraCost = typeof options.cost === 'function'
                         ? Number(options.cost(nextX, nextY, this.get(nextX, nextY))) || 1
                         : 1;
-                    const nextCost = costs[current.index] + baseCost * Math.max(0, extraCost);
-                    if (nextCost >= costs[nextIndex]) continue;
+                    const currentCost = costSearchIds[currentIdx] === searchId ? costs[currentIdx] : Infinity;
+                    const nextCost = currentCost + baseCost * Math.max(0, extraCost);
+
+                    const existingNextCost = costSearchIds[nextIndex] === searchId ? costs[nextIndex] : Infinity;
+                    if (nextCost >= existingNextCost) continue;
+
                     costs[nextIndex] = nextCost;
-                    parents[nextIndex] = current.index;
+                    costSearchIds[nextIndex] = searchId;
+                    parents[nextIndex] = currentIdx;
+                    parentSearchIds[nextIndex] = searchId;
+
                     const dx = Math.abs(goalX - nextX);
                     const dy = Math.abs(goalY - nextY);
                     const heuristic = diagonal ? Math.max(dx, dy) : dx + dy;
-                    heap.push({ index: nextIndex, x: nextX, y: nextY, score: nextCost + heuristic });
+                    heap.push(nextCost + heuristic, nextIndex, nextX, nextY);
                 }
             }
 
-            if (startIndex !== goalIndex && parents[goalIndex] === -1) return [];
+            if (startIndex !== goalIndex && (parentSearchIds[goalIndex] !== searchId || parents[goalIndex] === -1)) return [];
             const path = [];
             let cursor = goalIndex;
             while (cursor !== -1) {
-                path.push({ x: cursor % this.width, y: Math.floor(cursor / this.width) });
+                const cy = (cursor / this.width) | 0;
+                const cx = cursor - cy * this.width;
+                path.push({ x: cx, y: cy });
                 if (cursor === startIndex) break;
-                cursor = parents[cursor];
+                cursor = parentSearchIds[cursor] === searchId ? parents[cursor] : -1;
             }
             path.reverse();
             return path;
         }
 
-        resolveCircle(circleOrX, yOrOptions, radiusValue, maybeOptions = {}) {
+        findPathAsync(start, goal, options = {}) {
+            const self = this;
+            return new Promise((resolve) => {
+                const payload = {
+                    width: self.width,
+                    height: self.height,
+                    data: self.data.slice().buffer,
+                    start: start,
+                    goal: goal,
+                    options: {
+                        diagonal: options.diagonal === true,
+                        blocked: options.blocked ?? Cell.BLOCKED,
+                        cutCorners: options.cutCorners === true
+                    }
+                };
+
+                const dispatched = Proc.dispatchWorkerTask('FIND_PATH', payload, (res) => {
+                    resolve(res && res.path ? res.path : []);
+                });
+
+                if (!dispatched) {
+                    resolve(self.findPath(start, goal, options));
+                }
+            });
+        }
+
+        resolveCircle(circleOrX, yOrOptions, radiusValue, maybeOptions = {}, outObj = null) {
             let x;
             let y;
             let radius;
             let options;
-            if (typeof circleOrX === 'object') {
+            let targetOut = outObj;
+            if (circleOrX && typeof circleOrX === 'object') {
                 x = Number(circleOrX.x) || 0;
                 y = Number(circleOrX.y) || 0;
                 radius = Math.max(0, Number(circleOrX.radius) || 0);
                 options = yOrOptions || {};
+                targetOut = radiusValue;
             } else {
                 x = Number(circleOrX) || 0;
                 y = Number(yOrOptions) || 0;
                 radius = Math.max(0, Number(radiusValue) || 0);
-                options = maybeOptions;
+                options = maybeOptions || {};
             }
             const blocked = options.blocked ?? Cell.BLOCKED;
             const iterations = Math.max(1, Math.floor(options.iterations || 4));
@@ -592,7 +666,11 @@
                 }
                 if (!moved) break;
             }
-            return { x, y, collided };
+            const res = targetOut && typeof targetOut === 'object' ? targetOut : { x: 0, y: 0, collided: false };
+            res.x = x;
+            res.y = y;
+            res.collided = collided;
+            return res;
         }
     }
 
@@ -942,6 +1020,15 @@
             if (typeof callback === 'function') {
                 callback({ type: 'GRID_GENERATED', width: grid.width, height: grid.height, data: grid.data.buffer, grid });
             }
+            return true;
+        } else if (taskType === 'FIND_PATH') {
+            const grid = new Grid(payload.width, payload.height);
+            grid.data = new Uint8Array(payload.data);
+            const path = grid.findPath(payload.start, payload.goal, payload.options);
+            if (typeof callback === 'function') {
+                callback({ type: 'PATH_FOUND', path });
+            }
+            return true;
         }
         return false;
     };

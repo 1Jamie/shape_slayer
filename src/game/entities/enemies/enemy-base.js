@@ -71,6 +71,22 @@ class GroupRetreatCoordinator {
     }
 }
 
+const ENEMY_INTEGRATE_MOVE_OPTS = { detail: true, skipImpulseDamp: true };
+const ENEMY_INTEGRATE_MOVE_FN = (dx, dy, entity, out) => {
+    return entity.tryMoveBy(dx, dy, ENEMY_INTEGRATE_MOVE_OPTS, out);
+};
+const ENEMY_INTEGRATE_ON_WALL_SLAM = (slam, entity) => {
+    if (!slam || !(slam.damage > 0)) return;
+    if (typeof entity.takeDamage !== 'function') return;
+    const attackerId = slam.sourceId || entity.lastImpulseSourceId || entity.lastAttacker || null;
+    if (entity.isBoss) {
+        entity.takeDamage(slam.damage, entity.x, entity.y, entity.size || 20, attackerId, 'wall_slam');
+    } else {
+        entity.takeDamage(slam.damage, attackerId, entity.x, entity.y, 'wall_slam');
+    }
+    entity.playWallSlamJuice(slam);
+};
+
 class EnemyBase {
     constructor(x, y, inheritedTarget = null) {
         // Position
@@ -163,6 +179,7 @@ class EnemyBase {
         this.maxHp = 30;
         this.hp = 30;
         this.damage = 5;
+        this.defense = 0;
         this.moveSpeed = 100;
         this.color = '#ff6b6b';
         this.xpValue = 10;
@@ -621,12 +638,26 @@ class EnemyBase {
         return null;
     }
 
-    tryMoveBy(deltaX, deltaY, options = {}) {
+    tryMoveBy(deltaX, deltaY, options = {}, outObj = null) {
         if (!Number.isFinite(deltaX) || !Number.isFinite(deltaY)) {
-            return options.detail ? { ok: false, blocked: false, actualMoved: 0, intendedMoved: 0 } : false;
+            const res = outObj && typeof outObj === 'object' ? outObj : { ok: false, blocked: false, actualMoved: 0, intendedMoved: 0, actualDx: 0, actualDy: 0 };
+            res.ok = false;
+            res.blocked = false;
+            res.actualMoved = 0;
+            res.intendedMoved = 0;
+            res.actualDx = 0;
+            res.actualDy = 0;
+            return options.detail ? res : false;
         }
         if (deltaX === 0 && deltaY === 0) {
-            return options.detail ? { ok: false, blocked: false, actualMoved: 0, intendedMoved: 0 } : false;
+            const res = outObj && typeof outObj === 'object' ? outObj : { ok: false, blocked: false, actualMoved: 0, intendedMoved: 0, actualDx: 0, actualDy: 0 };
+            res.ok = false;
+            res.blocked = false;
+            res.actualMoved = 0;
+            res.intendedMoved = 0;
+            res.actualDx = 0;
+            res.actualDy = 0;
+            return options.detail ? res : false;
         }
 
         // Scale non-impulse movement while under strong knockback so AI cannot cancel it same frame
@@ -642,21 +673,23 @@ class EnemyBase {
         const previousY = this.y;
         const nextX = this.x + deltaX;
         const nextY = this.y + deltaY;
-        const intendedMoved = Math.hypot(deltaX, deltaY);
+        const intendedMoved = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
         const finish = (ok, blocked) => {
             const actualDx = this.x - previousX;
             const actualDy = this.y - previousY;
-            const actualMoved = Math.hypot(actualDx, actualDy);
+            const actualMoved = Math.sqrt(actualDx * actualDx + actualDy * actualDy);
             if (options.detail) {
-                return {
-                    ok,
-                    blocked: !!blocked,
-                    actualMoved,
-                    intendedMoved,
-                    actualDx,
-                    actualDy
-                };
+                const res = outObj && typeof outObj === 'object' ? outObj : { ok: true, blocked: false, actualMoved: 0, intendedMoved: 0, actualDx: 0, actualDy: 0 };
+                res.ok = ok;
+                res.blocked = !!blocked;
+                res.actualMoved = actualMoved;
+                res.intendedMoved = intendedMoved;
+                res.actualDx = actualDx;
+                res.actualDy = actualDy;
+                res.normalX = null;
+                res.normalY = null;
+                return res;
             }
             return ok;
         };
@@ -1340,14 +1373,12 @@ class EnemyBase {
         });
 
         const index = allies.findIndex(({ enemy }) => enemy === this);
-        const roleWeights = {
-            vanguard: 0.4,
-            flanker: 0.3,
-            support: 0.3
-        };
         const aggression = this.getCoordinationAggression();
         let role;
-        if (this === highestThreatEnemy || Math.random() < aggression) {
+        const styleFlank = typeof Game !== 'undefined' && Game.styleFlankBias;
+        if (styleFlank && Math.random() < 0.55) {
+            role = 'flanker';
+        } else if (this === highestThreatEnemy || Math.random() < aggression) {
             role = 'vanguard';
         } else if (index % 2 === 0) {
             role = 'flanker';
@@ -1396,18 +1427,8 @@ class EnemyBase {
             cutoff: this.impulseCutoff,
             maxDuration: this.impulseMaxDuration,
             enableWallSlam: !this.ignoreSceneryCollision && !this.phasingActive,
-            moveFn: (dx, dy) => this.tryMoveBy(dx, dy, { detail: true, skipImpulseDamp: true }),
-            onWallSlam: (slam) => {
-                if (!slam || !(slam.damage > 0)) return;
-                if (typeof this.takeDamage !== 'function') return;
-                const attackerId = slam.sourceId || this.lastImpulseSourceId || this.lastAttacker || null;
-                if (this.isBoss) {
-                    this.takeDamage(slam.damage, this.x, this.y, this.size || 20, attackerId, 'wall_slam');
-                } else {
-                    this.takeDamage(slam.damage, attackerId, this.x, this.y, 'wall_slam');
-                }
-                this.playWallSlamJuice(slam);
-            }
+            moveFn: ENEMY_INTEGRATE_MOVE_FN,
+            onWallSlam: ENEMY_INTEGRATE_ON_WALL_SLAM
         });
         this._impulseIntegrating = false;
     }
@@ -1667,7 +1688,9 @@ class EnemyBase {
                 const damageDealt = Math.min(tickDamage, this.hp);
 
                 // Apply damage
+                this._damageCause = 'status';
                 this.takeDamage(tickDamage, this.bleedAttackerId);
+                this._damageCause = null;
 
                 // Track stats (host/solo only)
                 const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
@@ -1735,7 +1758,9 @@ class EnemyBase {
                 const damageDealt = Math.min(tickDamage, this.hp);
 
                 // Apply damage
+                this._damageCause = 'status';
                 this.takeDamage(tickDamage, this.burnAttackerId);
+                this._damageCause = null;
 
                 // Track stats (host/solo only)
                 const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
@@ -1777,6 +1802,59 @@ class EnemyBase {
         }
     }
 
+    getTargetedPlayer() {
+        if (this.targetLock && this.targetLock.playerRef) {
+            return this.targetLock.playerRef;
+        }
+        if (typeof Game !== 'undefined') {
+            if (Game.multiplayerEnabled) {
+                if (this.currentTarget && typeof this.getPlayerById === 'function') {
+                    const p = this.getPlayerById(this.currentTarget);
+                    if (p && p.alive) return p;
+                }
+                if (typeof this.getNearestPlayer === 'function') {
+                    const nearest = this.getNearestPlayer();
+                    if (nearest && nearest.alive) return nearest;
+                }
+            } else {
+                return Game.player;
+            }
+        }
+        return null;
+    }
+
+    getStyleMultipliers() {
+        const result = { enemyMoveMult: 1, telegraphMult: 1, noHesitate: false };
+        if (typeof Game === 'undefined' || Game.activeSessionId !== 'surge-arena') return result;
+
+        const targetPlayer = this.getTargetedPlayer();
+        if (!targetPlayer) return result;
+
+        const playerId = targetPlayer.id || targetPlayer.playerId || (Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local');
+        const combo = Game.playerCombos && Game.playerCombos[playerId];
+        if (!combo) return result;
+
+        const t = combo.comboTier || 0;
+        
+        if (t >= 1) {
+            result.enemyMoveMult = 1.05;
+        }
+        if (t >= 2) {
+            result.telegraphMult = 0.85;
+            result.enemyMoveMult = 1.05;
+        }
+        if (t >= 3) {
+            result.enemyMoveMult = 1.20;
+            result.telegraphMult = 0.75;
+            result.noHesitate = true;
+        }
+        if (t >= 4) {
+            result.enemyMoveMult = 1.25;
+            result.telegraphMult = 0.70;
+        }
+        return result;
+    }
+
     // Get effective movement speed considering stun and slow
     getEffectiveMoveSpeed() {
         let speed = this.baseMoveSpeed;
@@ -1790,7 +1868,35 @@ class EnemyBase {
             speed *= (1 - this.slowAmount);
         }
 
+        // Surge Arena style aggression — live mults, never baked into baseMoveSpeed
+        if (typeof Game !== 'undefined' && Game.activeSessionId === 'surge-arena') {
+            const style = this.getStyleMultipliers();
+            if (style && style.enemyMoveMult > 0) {
+                speed *= style.enemyMoveMult;
+            }
+        }
+
         return speed;
+    }
+
+    /**
+     * Cooldown tick delta. Style aggression accelerates ticks via live world mults
+     * so mid-windup timers are never rewritten when the flag clears.
+     */
+    getCooldownDelta(deltaTime) {
+        let dt = this.stunned ? deltaTime * this.stunSlowFactor : deltaTime;
+        if (typeof Game !== 'undefined' && Game.activeSessionId === 'surge-arena') {
+            const style = this.getStyleMultipliers();
+            if (style) {
+                if (style.noHesitate) {
+                    dt *= 1 / 0.70;
+                } else if (style.telegraphMult > 0 && style.telegraphMult < 1) {
+                    // Milder CD push at B when telegraphs are already sped
+                    dt *= 1 / Math.max(0.75, style.telegraphMult + 0.1);
+                }
+            }
+        }
+        return dt;
     }
 
     // Update target lock timer (should be called in update)
@@ -2106,6 +2212,11 @@ class EnemyBase {
             damage *= EliteEnemyAffixes.getEliteDamageTakenMultiplier(this);
         }
 
+        if (this.defense && this.defense > 0) {
+            const defCap = Math.min(0.80, this.defense);
+            damage *= (1 - defCap);
+        }
+
         // Check if enemy has shield (Shielded Brood modifier)
         if (this.hasShield && this.shieldHealth > 0) {
             // Shield blocks damage
@@ -2136,6 +2247,9 @@ class EnemyBase {
                 // Don't apply damage to HP if shield absorbed it
                 // Record damage for combo detection (even if blocked)
                 this.recordDamage(damage);
+                if (typeof GameKillRewards !== 'undefined' && GameKillRewards.emitEnemyDamaged) {
+                    GameKillRewards.emitEnemyDamaged(this, damage);
+                }
                 return; // Shield blocked all damage
             }
         }
@@ -2175,6 +2289,10 @@ class EnemyBase {
             Room0Tutorial.onDummyDamaged(this);
         }
 
+        if (typeof GameKillRewards !== 'undefined' && GameKillRewards.emitEnemyDamaged) {
+            GameKillRewards.emitEnemyDamaged(this, damage);
+        }
+
         if (this.hp <= 0) {
             this.die();
         }
@@ -2186,6 +2304,9 @@ class EnemyBase {
         }
         if (typeof orchestrateKillJuice === 'function' && this.lastKillContext) {
             orchestrateKillJuice(this, this.lastKillContext);
+            if (typeof Game !== 'undefined' && Game.styleKillShatter && typeof createParticleBurst === 'function') {
+                createParticleBurst(this.x, this.y, this.color || '#ffffff', 22);
+            }
         } else if (typeof createParticleBurst !== 'undefined') {
             createParticleBurst(this.x, this.y, this.color, 12);
         }
@@ -2272,22 +2393,13 @@ class EnemyBase {
             }
         }
 
-        // Trash + elite credits (persistent). Boss credits are in BossBase.die().
-        this.awardDeathCredits();
-
         const killContext = this.lastKillContext;
         this.triggerDeathVisuals();
 
-        // Give XP to all alive players (multiplayer: host distributes; solo: local player)
-        if (!this.isTutorialDummy && typeof Game !== 'undefined' && Game.distributeXPToAllPlayers && this.xpValue) {
-            Game.distributeXPToAllPlayers(this.xpValue);
-        }
-
-        // Chain Reaction: AoE damage on kill
+        // Chain Reaction: AoE damage on kill (item HOW — stays in package)
         if (this.lastAttacker && typeof Game !== 'undefined' && Game.player) {
             const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
             if (!isClient) {
-                // Find the player who killed this enemy
                 let killerPlayer = null;
                 if (Game.player && (Game.player.playerId === this.lastAttacker ||
                     (typeof Game.getLocalPlayerId === 'function' && Game.getLocalPlayerId() === this.lastAttacker))) {
@@ -2300,7 +2412,6 @@ class EnemyBase {
                     const aoeDamage = (this.maxHp || this.hp) * (killerPlayer.itemChainReactionDamage / 100);
                     const aoeRadius = killerPlayer.itemChainReactionRadius;
 
-                    // Find nearby enemies and damage them
                     if (Game.enemies && Array.isArray(Game.enemies)) {
                         Game.enemies.forEach(nearbyEnemy => {
                             if (!nearbyEnemy || !nearbyEnemy.alive || nearbyEnemy === this) return;
@@ -2312,7 +2423,6 @@ class EnemyBase {
                             if (distance <= aoeRadius) {
                                 nearbyEnemy.takeDamage(aoeDamage, this.lastAttacker);
 
-                                // Visual feedback
                                 if (typeof createDamageNumber !== 'undefined') {
                                     createDamageNumber(nearbyEnemy.x, nearbyEnemy.y, Math.floor(aoeDamage), false, false);
                                 }
@@ -2320,10 +2430,8 @@ class EnemyBase {
                         });
                     }
 
-                    // Visual feedback for chain reaction
                     if (typeof createParticleBurst !== 'undefined') {
                         createParticleBurst(this.x, this.y, '#ffaa00', 20);
-                        // Create expanding ring effect
                         for (let i = 0; i < 8; i++) {
                             const angle = (i / 8) * Math.PI * 2;
                             const offsetX = Math.cos(angle) * aoeRadius * 0.7;
@@ -2335,76 +2443,12 @@ class EnemyBase {
             }
         }
 
-        // Item drop system
-        if (!this.isTutorialDummy
-            && typeof Game !== 'undefined'
-            && typeof ITEM_DEFINITIONS !== 'undefined'
-            && typeof getRandomItem === 'function') {
-            // Get drop chance based on enemy type
-            const dropChances = {
-                'Enemy': 0.040,           // 4.0% - Basic circle (lowest)
-                'StarEnemy': 0.050,       // 5.0% - Star
-                'DiamondEnemy': 0.060,    // 6.0% - Diamond
-                'RectangleEnemy': 0.070,  // 7.0% - Rectangle
-                'OctagonEnemy': 0.200     // 20.0% - Octagon (elite, higher)
-            };
-
-            const enemyType = this.constructor.name;
-            let baseDropChance = dropChances[enemyType] || 0.040;
-
-            // Apply scaling to prevent item overflow in later rooms
-            // 1. Room-based scaling: Reduce drop rate as room number increases
-            const roomNumber = (typeof Game !== 'undefined' && Game.roomNumber) ? Game.roomNumber : 1;
-            // Scale from 100% at room 1 to ~40% at room 50 (smooth curve)
-            const roomScale = Math.max(0.4, 1.0 - (roomNumber - 1) * 0.012); // ~1.2% reduction per room
-
-            // 2. Per-room item cap with diminishing returns
-            const itemsDropped = (typeof Game !== 'undefined' && Game.itemsDroppedThisRoom) ? Game.itemsDroppedThisRoom : 0;
-            // After 2 items, start reducing drop chance (diminishing returns)
-            // At 2 items: 100%, at 4 items: ~50%, at 6 items: ~25%, at 8+ items: ~10%
-            let itemCountScale = 1.0;
-            if (itemsDropped >= 2) {
-                const excessItems = itemsDropped - 1; // Items beyond the first
-                itemCountScale = Math.max(0.1, 1.0 / (1.0 + excessItems * 0.5)); // Diminishing returns
-            }
-
-            // 3. Enemy count-based scaling: Reduce drop rate when there are many enemies
-            let enemyCountScale = 1.0;
-            if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.enemies) {
-                const initialEnemyCount = currentRoom.enemies.length;
-                // If room has 30+ enemies, start scaling down (more enemies = lower per-enemy drop rate)
-                if (initialEnemyCount >= 30) {
-                    // Scale from 100% at 30 enemies to ~60% at 60 enemies
-                    const excessEnemies = initialEnemyCount - 30;
-                    enemyCountScale = Math.max(0.6, 1.0 - (excessEnemies / 30) * 0.4);
-                }
-            }
-
-            // Apply all scaling factors
-            const finalDropChance = baseDropChance * roomScale * itemCountScale * enemyCountScale;
-
-            // Roll for item drop
-            if (Math.random() < finalDropChance) {
-                const itemDef = getRandomItem();
-                // Local co-op / online MP use shared pylons; solo uses ground pickups.
-                if (typeof spawnItemDrop === 'function') {
-                    spawnItemDrop(this.x, this.y, itemDef);
-                    console.log(`[Item Drop] ${itemDef.name} (${itemDef.rarity}) from ${enemyType} (Room ${roomNumber}, Total: ${Game.itemsDroppedThisRoom || 0})`);
-                }
-            }
-        }
-
-        // Drop loot based on lootChance (loot syncs via game_state in multiplayer)
-        if (typeof generateGear !== 'undefined' && typeof groundLoot !== 'undefined') {
-            if (Math.random() < this.lootChance) {
-                const roomNum = typeof Game !== 'undefined' ? (Game.roomNumber || 1) : 1;
-                // Default to 'basic' difficulty for base class (can be overridden in subclasses)
-                const gear = generateGear(this.x, this.y, roomNum, 'basic');
-                if (gear) {
-                    groundLoot.push(gear);
-                    console.log(`Dropped loot at (${Math.floor(this.x)}, ${Math.floor(this.y)})`);
-                }
-            }
+        // Island rules decide XP / credits / loot (GameKillRewards verbs).
+        if (typeof GameKillRewards !== 'undefined' && GameKillRewards.emitEnemyKilled) {
+            GameKillRewards.emitEnemyKilled(this, {
+                lootDifficulty: this.lootDifficulty || 'basic',
+                killContext
+            });
         }
     }
 
@@ -4273,9 +4317,7 @@ class EnemyBase {
 
         const padding = 12;
         const canvasRadius = keyRadius + padding;
-        const canvas = document.createElement('canvas');
-        canvas.width = canvasRadius * 2;
-        canvas.height = canvasRadius * 2;
+        const canvas = Engine.Graphics.createCanvas(canvasRadius * 2, canvasRadius * 2);
         const gCtx = canvas.getContext('2d');
         const center = canvasRadius;
         const gradient = gCtx.createRadialGradient(center, center, Math.max(0, keyRadius - 5), center, center, keyRadius + 10);
@@ -4336,6 +4378,30 @@ class EnemyBase {
         if (typeof EliteEnemyAffixes !== 'undefined' && EliteEnemyAffixes.drawEliteThreatRing) {
             EliteEnemyAffixes.drawEliteThreatRing(ctx, this, Date.now() / 1000);
         }
+        // Style B+: subtle red aggression aura
+        if (typeof Game !== 'undefined' && Game.styleRageAura) {
+            ctx.save();
+            const pulse = 0.35 + Math.sin(Date.now() / 180) * 0.12;
+            ctx.globalAlpha = pulse;
+            ctx.strokeStyle = '#ff3355';
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, (this.size || 20) + 8, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        }
+        // Style A+: short motion trail ghost
+        if (typeof Game !== 'undefined' && Game.styleMotionTrails && this._lastX != null) {
+            ctx.save();
+            ctx.globalAlpha = 0.25;
+            ctx.fillStyle = this.color || '#ff6688';
+            ctx.beginPath();
+            ctx.arc(this._lastX, this._lastY, (this.size || 20) * 0.7, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+        this._lastX = this.x;
+        this._lastY = this.y;
         // Phasing: undeniable wireframe ring
         if (this.phasingActive) {
             ctx.save();

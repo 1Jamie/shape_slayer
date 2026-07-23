@@ -299,6 +299,7 @@ test('four domain locations remain separate', () => {
         'src/engine/music.js',
         'src/engine/net.js',
         'src/engine/physics.js',
+        'src/engine/director.js',
         'src/engine/proc.js',
         'src/engine/proc-worker.js',
         'src/engine/profiler.js',
@@ -322,7 +323,24 @@ test('four domain locations remain separate', () => {
         'src/game/audio/game-audio.js',
         'src/game/audio/game-music.js',
         'src/game/input-map.js',
-        'src/game/presentation/render-pipeline.js'
+        'src/game/presentation/render-pipeline.js',
+        'src/game/packages.js',
+        'src/game/world-context.js',
+        'src/game/game-bus.js',
+        'src/game/mode-profile.js',
+        'src/game/playing-host.js',
+        'src/game/mode-catalog.js',
+        'src/game/mode-takeover.js',
+        'src/modes/modes.js',
+        'src/modes/roguelike/rules.js',
+        'src/modes/roguelike/run.js',
+        'src/modes/roguelike/mode.js',
+        'src/modes/sandbox/rules.js',
+        'src/modes/sandbox/mode.js',
+        'src/modes/surge-arena/rules.js',
+        'src/modes/surge-arena/mode.js',
+        'src/app/host.js',
+        'sandbox.html'
     ];
     for (const relativePath of required) {
         assert.ok(exists(relativePath), `required boundary file missing: ${relativePath}`);
@@ -519,21 +537,115 @@ test('index.html script tags order: engine scripts must precede game scripts', (
     }
 });
 
-test('main.js gates Engine.Core start on Engine.Boot.start', () => {
-    const main = read('src/game/main.js');
-    assert.match(main, /Engine\.Boot\.start\s*\(/);
-    assert.match(main, /Engine\.Boot\.runtime/);
-    assert.match(main, /new Engine\.Core\s*\(/);
+test('roguelike mode gates Engine.Core start on Engine.Boot.start', () => {
+    const mode = read('src/modes/roguelike/mode.js');
+    assert.match(mode, /Engine\.Boot\.start\s*\(/);
+    assert.match(mode, /new Engine\.Core\s*\(/);
     assert.match(
-        main,
+        mode,
         /Engine\.Boot\.start[\s\S]*?\.then\s*\([\s\S]*?startCore\s*\(/,
         'Core start must run only after Boot.start resolves'
     );
     assert.match(
-        main,
+        mode,
         /startCore\s*\(\)[\s\S]*?Engine\.Boot\.handoff\s*\(/,
         'App must report ready via Engine.Boot.handoff after Core starts'
     );
+    const main = read('src/game/main.js');
+    assert.doesNotMatch(
+        main,
+        /window\.addEventListener\(\s*['"]load['"]/,
+        'Game world piece must not own page load boot (modes/host own it)'
+    );
+});
+
+test('three-layer dependency: game must not reference modes; modes may reference game', () => {
+    const modePathPatterns = [
+        /src\/modes\//,
+        /src\\modes\\/,
+        /require\s*\(\s*['"][^'"]*[/\\]modes[/\\]/,
+        /from\s+['"][^'"]*[/\\]modes[/\\]/,
+        /import\s*\(\s*['"][^'"]*[/\\]modes[/\\]/
+    ];
+
+    for (const file of listSrcFiles()) {
+        if (!file.startsWith('src/game/')) continue;
+        const content = read(file);
+        for (const pattern of modePathPatterns) {
+            assert.doesNotMatch(
+                content,
+                pattern,
+                `${file} must not path-reference modes (${pattern})`
+            );
+        }
+    }
+
+    for (const file of listEngineFiles()) {
+        const content = read(file);
+        for (const pattern of modePathPatterns) {
+            assert.doesNotMatch(
+                content,
+                pattern,
+                `${file} must not path-reference modes (${pattern})`
+            );
+        }
+    }
+
+    const roguelike = read('src/modes/roguelike/mode.js');
+    assert.match(roguelike, /GamePackages/, 'roguelike mode must attach game packages');
+    assert.match(roguelike, /packages:\s*ROGUELIKE_PACKAGES/);
+
+    const sandbox = read('src/modes/sandbox/mode.js');
+    assert.match(sandbox, /SANDBOX_PACKAGES/, 'sandbox declares SANDBOX_PACKAGES');
+    assert.match(sandbox, /'entities'|entities/, 'sandbox consumes entities');
+    assert.match(sandbox, /createSession/, 'sandbox exposes createSession Island entry');
+    assert.match(sandbox, /usesPlayingPipeline/, 'sandbox uses shared playing pipeline');
+    // Island model: sandbox reuses rooms + world like Gear; differences live in Rules.
+    assert.match(sandbox, /rooms/, 'sandbox Island includes rooms package');
+
+    const surge = read('src/modes/surge-arena/mode.js');
+    assert.match(surge, /SURGE_PACKAGES|ModeProfile\.SurgeArena/, 'surge-arena declares packages');
+    assert.match(surge, /createSession/, 'surge-arena exposes createSession');
+    assert.match(surge, /surge-arena/, 'surge-arena uses dedicated id');
+    assert.match(read('src/modes/surge-arena/rules.js'), /computeWavePlan/, 'surge rules own budget math');
+});
+
+test('GamePackages registry exposes opt-in package ids', () => {
+    const packages = read('src/game/packages.js');
+    for (const id of ['combat', 'entities', 'rooms', 'telegraph', 'content', 'presentation', 'audio', 'net', 'world']) {
+        assert.match(packages, new RegExp(`\\b${id}\\s*:`), `missing package id ${id}`);
+    }
+    assert.match(packages, /function attach\s*\(/);
+    assert.match(packages, /resolveScripts/);
+});
+
+test('index.html loads engine → game → modes → host', () => {
+    const indexHtml = read('index.html');
+    const scriptRegex = /<script\s+[^>]*src=["']([^"']+)["'][^>]*>/g;
+    const scripts = [];
+    let match;
+    while ((match = scriptRegex.exec(indexHtml)) !== null) {
+        scripts.push(match[1]);
+    }
+
+    const bootIndex = scripts.indexOf('src/engine/boot.js');
+    const packagesIndex = scripts.indexOf('src/game/packages.js');
+    const catalogIndex = scripts.indexOf('src/game/mode-catalog.js');
+    const mainIndex = scripts.indexOf('src/game/main.js');
+    const modesIndex = scripts.indexOf('src/modes/modes.js');
+    const roguelikeIndex = scripts.indexOf('src/modes/roguelike/mode.js');
+    const hostIndex = scripts.indexOf('src/app/host.js');
+
+    assert.ok(bootIndex !== -1 && packagesIndex !== -1 && mainIndex !== -1);
+    assert.ok(catalogIndex !== -1 && modesIndex !== -1 && roguelikeIndex !== -1 && hostIndex !== -1);
+    assert.ok(bootIndex < packagesIndex, 'packages after engine boot');
+    assert.ok(packagesIndex < catalogIndex, 'mode catalog after package registry');
+    assert.ok(catalogIndex < mainIndex, 'catalog before Game world');
+    assert.ok(mainIndex < modesIndex, 'modes after game world');
+    assert.ok(modesIndex < roguelikeIndex, 'mode registry before roguelike');
+    const runIndex = scripts.indexOf('src/modes/roguelike/run.js');
+    assert.ok(runIndex !== -1 && modesIndex < runIndex && runIndex < roguelikeIndex, 'run orchestration before roguelike mode');
+    assert.ok(roguelikeIndex < hostIndex, 'host last among mode boot scripts');
 });
 
 test('boot manifests must not reference retired src/js or src/ui paths', () => {
@@ -732,6 +844,7 @@ test('Assert expected engine namespaces defined on the window object', () => {
         { file: 'src/engine/save.js', ns: 'Engine.Save' },
         { file: 'src/engine/shell.js', ns: 'Engine.Shell' },
         { file: 'src/engine/physics.js', ns: 'Engine.Physics' },
+        { file: 'src/engine/director.js', ns: 'Engine.Director' },
         { file: 'src/engine/proc.js', ns: 'Engine.Proc' },
         { file: 'src/engine/audio.js', ns: 'Engine.Audio' },
         { file: 'src/engine/music.js', ns: 'Engine.Music' },

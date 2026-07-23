@@ -41,8 +41,17 @@ function syncCurrentRoomToWindow() {
     window.currentRoom = currentRoom;
 }
 
+function setCurrentRoom(room) {
+    currentRoom = room || null;
+    syncCurrentRoomToWindow();
+    return currentRoom;
+}
+
 // Expose globally for DOM components
 syncCurrentRoomToWindow();
+if (typeof window !== 'undefined') {
+    window.setCurrentRoom = setCurrentRoom;
+}
 
 // Initialize current room
 function initializeRoom(roomNumber = 1) {
@@ -51,17 +60,39 @@ function initializeRoom(roomNumber = 1) {
     return currentRoom;
 }
 
-function applyGeneratedLayoutToRoom(room, roomType) {
+function applyGeneratedLayoutToRoom(room, roomType, options) {
     if (!room || typeof RoomLayoutGenerator === 'undefined' || !RoomLayoutGenerator) {
         return room;
     }
+    const opts = options || {};
 
     const gameMode = (typeof Game !== 'undefined' && Game.gameMode) ? Game.gameMode : 'gear';
     const plan = RoomLayoutGenerator.buildRoomPlan(room.number, gameMode, roomType || room.type, {});
-    const seed = `${gameMode}:${room.number}:${plan.roomType}:${plan.biomeId}:v${plan.layoutVersion}`;
+    const profile = (typeof Game !== 'undefined' && Game.modeProfile) ? Game.modeProfile : null;
+    const forceArchetype = opts.forceArchetype
+        || (profile && profile.room && profile.room.forceArchetype)
+        || null;
+    if (forceArchetype) {
+        plan.archetype = forceArchetype;
+        if (typeof RoomLayoutGenerator.getRoomDimensions === 'function') {
+            const dims = RoomLayoutGenerator.getRoomDimensions(
+                room.number, gameMode, roomType || room.type, forceArchetype
+            );
+            if (dims) {
+                plan.width = dims.width;
+                plan.height = dims.height;
+                plan.routeTravelLength = dims.routeTravelLength;
+            }
+        }
+    }
+    const runSeed = (typeof Game !== 'undefined' && Game.runSeed) ? String(Game.runSeed) : '';
+    const seed = runSeed
+        ? `${runSeed}:${gameMode}:${room.number}:${plan.roomType}:${plan.biomeId}:${forceArchetype || plan.archetype || 'road'}:v${plan.layoutVersion}`
+        : `${gameMode}:${room.number}:${plan.roomType}:${plan.biomeId}:v${plan.layoutVersion}`;
     const layout = RoomLayoutGenerator.generateRoomLayout(plan, seed);
 
     room.seed = layout.seed;
+    room.runSeed = runSeed || null;
     room.biomeId = layout.biomeId;
     room.bossTheme = layout.bossTheme;
     room.layoutVersion = layout.layoutVersion;
@@ -79,7 +110,7 @@ function applyGeneratedLayoutToRoom(room, roomType) {
     room.encounterZones = layout.encounterZones || [];
     room.decorationSeed = layout.decorationSeed || null;
     room.decorationProfile = layout.decorationProfile || null;
-    room.archetype = layout.archetype || null;
+    room.archetype = layout.archetype || forceArchetype || null;
     room.entranceVariant = layout.entranceVariant || null;
 
     return room;
@@ -92,63 +123,101 @@ function getMultiplayerScaling() {
 }
 
 // Generate room with enemies
-function generateRoom(roomNumber) {
-    const room = new Room(roomNumber);
+// options.forceCombat — skip boss/safe (arena waves)
+// options.forceArchetype — override layout archetype
+// options.reuseRoom + options.enemiesOnly — repopulate enemies only
+function generateRoom(roomNumber, options) {
+    const opts = options || {};
+    const profile = (typeof Game !== 'undefined' && Game.modeProfile) ? Game.modeProfile : null;
+    const forceCombat = !!(opts.forceCombat
+        || (profile && profile.room && profile.room.forceCombat));
+    const forceArchetype = opts.forceArchetype
+        || (profile && profile.room && profile.room.forceArchetype)
+        || null;
+    const enemiesOnly = !!(opts.enemiesOnly && opts.reuseRoom);
 
-    // Room 0: purpose-built empty tutorial arena (not a standard generated room)
-    if (roomNumber === 0) {
-        room.type = 'tutorial';
-        if (typeof Room0Tutorial !== 'undefined' && Room0Tutorial.setupRoom) {
-            Room0Tutorial.setupRoom(room);
-        } else {
-            room.width = 1280;
-            room.height = 720;
-            room.enemies = [];
-            room.cleared = false;
-            room.doorOpen = false;
+    const game = typeof Game !== 'undefined' ? Game : null;
+    const isSurgeArena = (profile && profile.id === 'surge-arena')
+        || (game && (game.activeSessionId === 'surge-arena' || game.modeId === 'surge-arena' || game.gameMode === 'surge-arena'));
+
+    const arenaFn = typeof GameArena !== 'undefined' && (GameArena.buildArena || GameArena.initArenaRoom);
+    if (isSurgeArena && typeof arenaFn === 'function' && !enemiesOnly) {
+        if (typeof releaseRoomRenderCaches === 'function' && typeof currentRoom !== 'undefined' && currentRoom) {
+            releaseRoomRenderCaches(currentRoom);
         }
-        return room;
+        return arenaFn(game, roomNumber, opts);
     }
 
-    // Gear mode room type: Safe Room transition, else boss every 10 rooms
-    let roomType = 'normal';
-    if (typeof Game !== 'undefined' && Game.enteringSafeRoom) {
-        roomType = 'safe';
-    } else if (roomNumber >= 10 && roomNumber % 10 === 0) {
-        roomType = 'boss';
-    }
-
-    room.type = roomType;
-    applyGeneratedLayoutToRoom(room, roomType);
-
-    // Spawn pre-boss healer near the exit in rooms preceding a boss (9, 19, 29…).
-    // Hidden/unusable until the room is cleared and the boss door opens (see doorOpen gates).
-    if ((roomNumber + 1) % 10 === 0 && roomType !== 'safe' && roomType !== 'boss') {
-        const door = getRoomDoorPosition(room);
-        room.preBossHealer = {
-            x: door.x - 90,
-            y: door.y - 45,
-            range: 60,
-            used: false,
-            name: "Pre-Boss Healer",
-            icon: "💚"
-        };
-    }
-
-    // Handle boss room generation
-    if (roomType === 'boss') {
-        const boss = generateBoss(roomNumber);
-        room.enemies.push(boss);
-        return room;
-    }
-
-    // Safe rooms have no enemies - mark as cleared immediately
-    if (roomType === 'safe') {
-        room.cleared = true;
-        room.doorOpen = true;
+    const room = enemiesOnly ? opts.reuseRoom : new Room(roomNumber);
+    if (enemiesOnly) {
+        room.number = roomNumber;
+        room.enemies = [];
+        room.type = 'normal';
+        room.cleared = false;
+        room.doorOpen = false;
         room.rewardsGranted = false;
-        return room;
+        room._clearEventEmitted = false;
+    } else {
+        // Room 0: purpose-built empty tutorial arena (not a standard generated room)
+        if (roomNumber === 0 && !forceCombat) {
+            room.type = 'tutorial';
+            if (typeof Room0Tutorial !== 'undefined' && Room0Tutorial.setupRoom) {
+                Room0Tutorial.setupRoom(room);
+            } else {
+                room.width = 1280;
+                room.height = 720;
+                room.enemies = [];
+                room.cleared = false;
+                room.doorOpen = false;
+            }
+            return room;
+        }
+
+        // Gear mode room type: Safe Room transition, else boss every 10 rooms.
+        // Arena/wave Islands force normal combat so room# drives difficulty only.
+        let roomType = 'normal';
+        if (!forceCombat) {
+            if (typeof Game !== 'undefined' && Game.enteringSafeRoom) {
+                roomType = 'safe';
+            } else if (roomNumber >= 10 && roomNumber % 10 === 0) {
+                roomType = 'boss';
+            }
+        }
+
+        room.type = roomType;
+        applyGeneratedLayoutToRoom(room, roomType, { forceArchetype });
+
+        // Spawn pre-boss healer near the exit in rooms preceding a boss (9, 19, 29…).
+        // Hidden/unusable until the room is cleared and the boss door opens (see doorOpen gates).
+        if ((roomNumber + 1) % 10 === 0 && roomType !== 'safe' && roomType !== 'boss') {
+            const door = getRoomDoorPosition(room);
+            room.preBossHealer = {
+                x: door.x - 90,
+                y: door.y - 45,
+                range: 60,
+                used: false,
+                name: "Pre-Boss Healer",
+                icon: "💚"
+            };
+        }
+
+        // Handle boss room generation
+        if (roomType === 'boss') {
+            const boss = generateBoss(roomNumber);
+            room.enemies.push(boss);
+            return room;
+        }
+
+        // Safe rooms have no enemies - mark as cleared immediately
+        if (roomType === 'safe') {
+            room.cleared = true;
+            room.doorOpen = true;
+            room.rewardsGranted = false;
+            return room;
+        }
     }
+
+    const roomType = room.type || 'normal';
 
     const enemyHpMod = 1.0;
     const enemySpeedMod = 1.0;
@@ -543,121 +612,31 @@ function generateRoom(roomNumber) {
     return room;
 }
 
-// Check if room is cleared
+// Check if room is cleared — emits rooms:cleared once; Island rules own doors/meta/advance.
 function checkRoomCleared() {
     if (!currentRoom) return false;
 
-    // For safe rooms (no enemies), check if already cleared but rewards not granted yet
-    const isSafeRoom = currentRoom.type === 'safe';
+    // Surge Arena horde phase: WaveDirector owns clear (budget spent + 0 alive).
+    // Ambient empty-room clear would fire mid-budget between spawn clusters.
+    if (typeof Game !== 'undefined' && Game && Game.arenaPhase === 'combat'
+        && Game.arenaWavePhase === 'horde'
+        && Game.waveDirector && !Game.waveDirector.complete) {
+        return false;
+    }
+
     const aliveEnemies = currentRoom.enemies.filter(e => e.alive).length;
     const hasNoEnemies = aliveEnemies === 0;
 
-    // Check if room should be marked as cleared (no enemies)
-    if (hasNoEnemies && !currentRoom.cleared) {
-        // Normal room with no enemies (or rest/treasure room that was just cleared)
+    if (hasNoEnemies) {
         currentRoom.cleared = true;
-        // Play door open sound
-        if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
-            GameAudio.sounds.doorOpen();
-        }
-
-        currentRoom.doorOpen = true;
-    }
-
-    // Process rewards and special effects if room is cleared and rewards haven't been granted yet
-    // This handles both safe rooms (pre-marked as cleared) and normal rooms (just cleared)
-    if (currentRoom.cleared && !currentRoom.rewardsGranted) {
-        // Tutorial room: open door only - no credits/shards/XP/loot/milestones
-        if (currentRoom.type === 'tutorial' || currentRoom.number === 0) {
-            currentRoom.rewardsGranted = true;
-            return true;
-        }
-
-        // Safe room soft landing before machine interactions
-        // Resume from checkpoint skips this so snapshot HP wins.
-        if (currentRoom.type === 'safe') {
-            if (typeof Game !== 'undefined' && Game.resumeSkipSafeSoftHeal) {
-                Game.resumeSkipSafeSoftHeal = false;
-            } else if (typeof Game !== 'undefined' && Game.player) {
-                const maxHp = Game.player.maxHp || 100;
-                const healAmount = Math.floor(maxHp * 0.5);
-                Game.player.hp = Math.min(Game.player.maxHp, Game.player.hp + healAmount);
-                console.log(`[Room Clear] safe room: Restored 50% HP (${healAmount})`);
-            }
-        }
-
-        if (currentRoom.type === 'boss' && typeof Engine !== 'undefined' && Engine.Music && Engine.Music.currentCategory === 'encounter') {
-            Engine.Music.fadeOutCurrent().catch(err => {
-                console.error('[Music] Failed to fade out boss music after room clear:', err);
-            });
-        }
-
-        if (typeof Telemetry !== 'undefined') {
-            Telemetry.recordEvent('roomClearedSummary', {
-                roomNumber: currentRoom.number,
-                metadata: {
-                    roomType: currentRoom.type,
-                    gameMode: typeof Game !== 'undefined' && Game.gameMode ? Game.gameMode : 'gear',
-                    enemiesKilled: typeof Game !== 'undefined' ? Game.enemiesKilled || 0 : 0,
-                    bossesKilled: typeof Game !== 'undefined' ? Game.bossesKilled || 0 : 0,
-                    itemsDroppedThisRoom: typeof Game !== 'undefined' ? Game.itemsDroppedThisRoom || 0 : 0,
-                    currencyEarned: typeof Game !== 'undefined' ? Game.currencyEarned || 0 : 0,
-                    shardsEarned: typeof Game !== 'undefined' ? Game.shardsEarned || 0 : 0
-                }
-            });
-            const participants = typeof Game !== 'undefined' && Game && Game.collectTelemetryParticipants
-                ? Game.collectTelemetryParticipants(true)
-                : [];
-            Telemetry.recordRoomCleared(currentRoom.number, participants);
-        }
-
-        // Persist highest room cleared for nexus machine gates
-        const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
-        if (!isClient && typeof SaveSystem !== 'undefined' && SaveSystem.recordRoomCleared) {
-            const roomNum = currentRoom.number || (typeof Game !== 'undefined' ? Game.roomNumber : 0);
-            SaveSystem.recordRoomCleared(roomNum);
-        }
-
-        if (typeof window.updateLifetimeStats === 'function') {
-            window.updateLifetimeStats({ totalRoomsCleared: 1 });
-        }
-
-        if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent && typeof Game !== 'undefined' && Game.player) {
-            const hpPct = Game.player.maxHp > 0 ? Game.player.hp / Game.player.maxHp : 1;
-            let biomeName = 'None';
-            if (currentRoom.biomeId) {
-                biomeName = currentRoom.biomeId;
-                if (typeof BiomeConfig !== 'undefined' && BiomeConfig.getBiomeDefinition) {
-                    const def = BiomeConfig.getBiomeDefinition(currentRoom.biomeId);
-                    if (def && def.bossTheme) biomeName = def.bossTheme;
-                    else if (def && def.id) biomeName = def.id;
-                }
-            }
-            const isCombat = currentRoom.type === 'combat' || currentRoom.type === 'boss' || currentRoom.type === 'elite';
-            LedgerManager.recordEvent('roomCleared', {
-                roomNumber: currentRoom.number || Game.roomNumber || 0,
-                hpPct,
-                biomeName,
-                isCombat,
-                player: Game.player
-            });
-        }
-
-        currentRoom.rewardsGranted = true;
-
-        if (typeof Game !== 'undefined' &&
-            Game &&
-            typeof Game.reviveDeadPlayers === 'function' &&
-            typeof Game.isHost === 'function' &&
-            Game.multiplayerEnabled &&
-            Game.isHost()) {
-            if (Game.lastRoomClearReviveRoomNumber !== currentRoom.number) {
-                Game.reviveDeadPlayers({
-                    reason: 'room_clear',
-                    broadcast: true,
-                    respawnStrategy: 'safe'
+        // Emit once per clear cycle (safe rooms spawn already cleared).
+        if (!currentRoom._clearEventEmitted) {
+            currentRoom._clearEventEmitted = true;
+            if (typeof GameBus !== 'undefined' && GameBus.emit) {
+                GameBus.emit('rooms:cleared', {
+                    room: currentRoom,
+                    world: typeof Game !== 'undefined' ? Game : null
                 });
-                Game.lastRoomClearReviveRoomNumber = currentRoom.number;
             }
         }
     }
@@ -749,7 +728,7 @@ function generateBoss(roomNumber) {
     }
 
     // Determine which boss to spawn based on room number and game mode
-    const gameMode = (typeof Game !== 'undefined' && Game.gameMode) ? Game.gameMode : 'cards';
+    const gameMode = (typeof Game !== 'undefined' && Game.gameMode) ? Game.gameMode : 'gear';
 
     // Note: Random boss selection for elite enemies is handled by spawnBossAsElite()
     // This function still uses normal boss selection logic for boss rooms
@@ -857,7 +836,7 @@ function spawnBossAsElite(x, y, roomNumber) {
     boss.introComplete = true;
     
     if (typeof BossScaling !== 'undefined' && BossScaling.applyBossScaling) {
-        const gameMode = (typeof Game !== 'undefined' && Game.gameMode) ? Game.gameMode : 'cards';
+        const gameMode = (typeof Game !== 'undefined' && Game.gameMode) ? Game.gameMode : 'gear';
         BossScaling.applyBossScaling(boss, roomNumber, {
             gameMode,
             mpScaling,
@@ -957,9 +936,21 @@ function getRoomDoorPosition(room) {
     };
 }
 
-// Retrieve or initialize Safe Room machines (Save Run booth is solo-only)
+// Retrieve or initialize Safe Room / arena upgrade machines
 function getSafeRoomMachines(room) {
-    if (!room || room.type !== 'safe') return [];
+    if (!room) return [];
+    const allow = room.type === 'safe'
+        || room.allowSafeRoomMachines
+        || room.machinesAccessible
+        || room.isArenaComplex;
+    if (!allow) return [];
+
+    // Arena: only expose machines while the bay gate is open (downtime).
+    if (room.isArenaComplex || room.allowSafeRoomMachines) {
+        if (!room.machinesAccessible) return [];
+        return room.safeRoomMachines || [];
+    }
+
     const roomWidth = room.width || 1600;
     const roomHeight = room.height || 900;
     const isSolo = typeof Game === 'undefined' || !Game.multiplayerEnabled;

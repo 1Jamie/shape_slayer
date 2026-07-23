@@ -102,6 +102,25 @@
         }
 
         /**
+         * Hard-reset position, target, and lookahead so a mode takeover does not
+         * lerp violently from the previous camera (e.g. Nexus) to the new spawn.
+         * @param {number} [x]
+         * @param {number} [y]
+         * @returns {Camera}
+         */
+        resetSmoothing(x, y) {
+            const hasPos = Number.isFinite(x) && Number.isFinite(y);
+            if (hasPos) {
+                return this.snapTo(x, y);
+            }
+            this.targetX = this.x;
+            this.targetY = this.y;
+            this.offsetX = 0;
+            this.offsetY = 0;
+            return this;
+        }
+
+        /**
          * Set target focus coordinates for smooth lerping.
          * @param {number} x
          * @param {number} y

@@ -175,16 +175,14 @@ class StarEnemy extends EnemyBase {
         // Update target lock timer
         this.updateTargetLock(deltaTime);
 
-        // Apply stun slow factor to movement speed
-        if (this.stunned) {
-            this.moveSpeed = this.baseMoveSpeed * this.stunSlowFactor;
-        } else {
-            this.moveSpeed = this.baseMoveSpeed;
-        }
+        // Apply stun / slow / Surge Overdrive via shared effective speed
+        this.moveSpeed = this.getEffectiveMoveSpeed();
 
-        // Update attack cooldown (slower when stunned)
+        // Update attack cooldown (slower when stunned; faster under Overdrive)
         if (this.attackCooldown > 0) {
-            const cooldownDelta = this.stunned ? deltaTime * this.stunSlowFactor : deltaTime;
+            const cooldownDelta = typeof this.getCooldownDelta === 'function'
+                ? this.getCooldownDelta(deltaTime)
+                : (this.stunned ? deltaTime * this.stunSlowFactor : deltaTime);
             this.attackCooldown -= cooldownDelta;
         }
 
@@ -607,110 +605,10 @@ class StarEnemy extends EnemyBase {
         this.attackCooldown = nextCooldown;
     }
 
-    // Override die() to use star difficulty for loot
-    // NOTE: Only called on host or in solo mode. Clients receive death via game_state sync.
+    // Star loot tier; Island rules grant via GameKillRewards after combat:enemyKilled.
     die() {
-        this.alive = false;
-
-        // Track kill for the last attacker
-        if (this.lastAttacker) {
-            // Track lifetime kills stat
-            const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
-            if (!isClient && typeof window.trackLifetimeStat === 'function') {
-                window.trackLifetimeStat('totalKills', 1);
-            }
-
-            if (typeof Game !== 'undefined' && Game.getPlayerStats) {
-                const stats = Game.getPlayerStats(this.lastAttacker);
-                if (stats) {
-                    stats.addStat('kills', 1);
-                }
-            }
-        }
-
-        if (typeof this.awardDeathCredits === 'function') {
-            this.awardDeathCredits();
-        }
-
-        // Emit particles on death
-        if (typeof this.triggerDeathVisuals === 'function') {
-            this.triggerDeathVisuals();
-        } else if (typeof createParticleBurst !== 'undefined') {
-            createParticleBurst(this.x, this.y, this.color, 12);
-        }
-
-        // Give XP to all alive players (multiplayer: host distributes; solo: local player)
-        if (typeof Game !== 'undefined' && Game.distributeXPToAllPlayers && this.xpValue) {
-            Game.distributeXPToAllPlayers(this.xpValue);
-        }
-
-        // Item drop system
-        if (typeof Game !== 'undefined' && typeof ITEM_DEFINITIONS !== 'undefined' && typeof getRandomItem === 'function') {
-            // Get drop chance based on enemy type
-            const dropChances = {
-                'Enemy': 0.040,           // 4.0% - Basic circle (lowest)
-                'StarEnemy': 0.050,       // 5.0% - Star
-                'DiamondEnemy': 0.060,    // 6.0% - Diamond
-                'RectangleEnemy': 0.070,  // 7.0% - Rectangle
-                'OctagonEnemy': 0.200     // 20.0% - Octagon (elite, higher)
-            };
-
-            const enemyType = this.constructor.name;
-            let baseDropChance = dropChances[enemyType] || 0.040;
-
-            // Apply scaling to prevent item overflow in later rooms
-            // 1. Room-based scaling: Reduce drop rate as room number increases
-            const roomNumber = (typeof Game !== 'undefined' && Game.roomNumber) ? Game.roomNumber : 1;
-            // Scale from 100% at room 1 to ~40% at room 50 (smooth curve)
-            const roomScale = Math.max(0.4, 1.0 - (roomNumber - 1) * 0.012); // ~1.2% reduction per room
-
-            // 2. Per-room item cap with diminishing returns
-            const itemsDropped = (typeof Game !== 'undefined' && Game.itemsDroppedThisRoom) ? Game.itemsDroppedThisRoom : 0;
-            // After 2 items, start reducing drop chance (diminishing returns)
-            // At 2 items: 100%, at 4 items: ~50%, at 6 items: ~25%, at 8+ items: ~10%
-            let itemCountScale = 1.0;
-            if (itemsDropped >= 2) {
-                const excessItems = itemsDropped - 1; // Items beyond the first
-                itemCountScale = Math.max(0.1, 1.0 / (1.0 + excessItems * 0.5)); // Diminishing returns
-            }
-
-            // 3. Enemy count-based scaling: Reduce drop rate when there are many enemies
-            let enemyCountScale = 1.0;
-            if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.enemies) {
-                const initialEnemyCount = currentRoom.enemies.length;
-                // If room has 30+ enemies, start scaling down (more enemies = lower per-enemy drop rate)
-                if (initialEnemyCount >= 30) {
-                    // Scale from 100% at 30 enemies to ~60% at 60 enemies
-                    const excessEnemies = initialEnemyCount - 30;
-                    enemyCountScale = Math.max(0.6, 1.0 - (excessEnemies / 30) * 0.4);
-                }
-            }
-
-            // Apply all scaling factors
-            const finalDropChance = baseDropChance * roomScale * itemCountScale * enemyCountScale;
-
-            // Roll for item drop
-            if (Math.random() < finalDropChance) {
-                const itemDef = getRandomItem();
-                // Local co-op / online MP use shared pylons; solo uses ground pickups.
-                if (typeof spawnItemDrop === 'function') {
-                    spawnItemDrop(this.x, this.y, itemDef);
-                    console.log(`[Item Drop] ${itemDef.name} (${itemDef.rarity}) from ${enemyType} (Room ${roomNumber}, Total: ${Game.itemsDroppedThisRoom || 0})`);
-                }
-            }
-        }
-
-        // Drop loot based on lootChance (loot syncs via game_state in multiplayer)
-        if (typeof generateGear !== 'undefined' && typeof groundLoot !== 'undefined') {
-            if (Math.random() < this.lootChance) {
-                const roomNum = typeof Game !== 'undefined' ? (Game.roomNumber || 1) : 1;
-                const gear = generateGear(this.x, this.y, roomNum, 'star');
-                if (gear) {
-                    groundLoot.push(gear);
-                    console.log(`Dropped star loot at (${Math.floor(this.x)}, ${Math.floor(this.y)})`);
-                }
-            }
-        }
+        this.lootDifficulty = 'star';
+        super.die();
     }
 
     queueShot(type, targetX, targetY, options = {}) {

@@ -91,8 +91,8 @@ class NexusRoom {
             radius: 60
         };
 
-        // Portal mode state - Gear only (Card Mode removed)
-        this.portalMode = 'gear';
+        // Portal mode state — GameModeCatalog id (legacy 'gear' maps to roguelike)
+        this.portalMode = 'roguelike';
 
         // Class selection area - left side of portal
         this.classArea = {
@@ -748,30 +748,54 @@ function updateNexus(ctx, deltaTime) {
             && nexusActorDistance(actor, nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y) < 60) {
             if (inMultiplayerLobby) {
                 console.log('[Nexus] Cannot switch modes in multiplayer lobby');
+            } else if (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.cycleNext) {
+                const next = GameModeCatalog.cycleNext(nexusRoom, { inMultiplayer: false });
+                if (next) {
+                    console.log('[Nexus] Mode switcher →', next.id, '(' + next.title + ')');
+                    if (typeof GameAudio !== 'undefined' && GameAudio.sounds && GameAudio.sounds.uiClick) {
+                        try { GameAudio.sounds.uiClick(); } catch (_) { /* optional */ }
+                    }
+                }
+                interactionHandled = true;
             } else {
-                console.log('[Nexus] Portal switcher is locked to Gear Mode (Card Mode has been deprecated)');
+                nexusRoom.portalMode = 'roguelike';
                 interactionHandled = true;
             }
         }
 
-        const hasResumeCheckpoint = typeof SaveSystem !== 'undefined' && SaveSystem.hasActiveRunCheckpoint
-            && SaveSystem.hasActiveRunCheckpoint();
-        const portalReady = !!(Game.selectedClass || Game.localSplitSelectedClass || hasResumeCheckpoint);
+        const selectedMode = (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.getSelected)
+            ? GameModeCatalog.getSelected(nexusRoom)
+            : null;
+        const hasResumeCheckpoint = !!(selectedMode && selectedMode.supportsResume
+            && typeof SaveSystem !== 'undefined' && SaveSystem.hasActiveRunCheckpoint
+            && SaveSystem.hasActiveRunCheckpoint());
+        const needsClass = !selectedMode || selectedMode.requiresClass !== false;
+        const portalReady = !!(hasResumeCheckpoint
+            || !needsClass
+            || Game.selectedClass
+            || Game.localSplitSelectedClass);
         if (!interactionHandled && nexusAllows('portal') && portalReady
             && nexusActorDistance(actor, nexusRoom.portalPos.x, nexusRoom.portalPos.y) < 60) {
-            console.log(hasResumeCheckpoint ? '[Nexus] Resuming run from checkpoint' : '[Nexus] Entering Gear Mode portal');
-            nexusRoom.portalMode = 'gear';
-            Game.gameMode = 'gear';
-            const inLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
-            if (inLobby) {
-                if (multiplayerManager.isHost) {
-                    multiplayerManager.startGame();
+            if (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.enterFromPortal) {
+                GameModeCatalog.enterFromPortal({
+                    nexusRoom,
+                    hasResumeCheckpoint
+                });
+            } else {
+                console.log(hasResumeCheckpoint ? '[Nexus] Resuming run from checkpoint' : '[Nexus] Entering Gear Mode portal');
+                nexusRoom.portalMode = 'roguelike';
+                Game.gameMode = 'gear';
+                const inLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+                if (inLobby) {
+                    if (multiplayerManager.isHost) {
+                        multiplayerManager.startGame();
+                        Game.startGame();
+                    }
+                } else if (typeof Game.tryResumeOrStartFromPortal === 'function') {
+                    Game.tryResumeOrStartFromPortal();
+                } else {
                     Game.startGame();
                 }
-            } else if (typeof Game.tryResumeOrStartFromPortal === 'function') {
-                Game.tryResumeOrStartFromPortal();
-            } else {
-                Game.startGame();
             }
             interactionHandled = true;
         }
@@ -1462,6 +1486,14 @@ function renderNexus(ctx) {
     // Check if in multiplayer lobby
     const inMultiplayerLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
     const isDisabled = inMultiplayerLobby || resumeLocked;
+    const selectedMode = (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.getSelected)
+        ? GameModeCatalog.getSelected(nexusRoom)
+        : null;
+    const selectableModes = (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.listNexusSelectable)
+        ? GameModeCatalog.listNexusSelectable({ inMultiplayer: !!inMultiplayerLobby })
+        : [];
+    const switcherLabel = (selectedMode && selectedMode.shortLabel) || 'GEAR';
+    const switcherLight = (selectedMode && selectedMode.theme && selectedMode.theme.light) || '#ff8844';
 
     // Round coordinates to avoid sub-pixel rendering artifacts
     const switcherX = Math.round(nexusRoom.modeSwitcherPos.x - nexusRoom.modeSwitcherPos.width / 2);
@@ -1487,9 +1519,8 @@ function renderNexus(ctx) {
     );
 
     // Mode indicator light (dimmed if disabled)
-    const lightColor = '#ff8844';
     const lightPulse = isDisabled ? 0.3 : (0.7 + Math.sin(Date.now() * 0.003) * 0.3);
-    ctx.fillStyle = isDisabled ? '#555555' : lightColor;
+    ctx.fillStyle = isDisabled ? '#555555' : switcherLight;
     ctx.globalAlpha = lightPulse;
     ctx.beginPath();
     ctx.arc(nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y - 15, 12, 0, Math.PI * 2);
@@ -1501,7 +1532,7 @@ function renderNexus(ctx) {
     ctx.fillStyle = isDisabled ? '#666666' : '#ffffff';
     ctx.font = 'bold 14px Orbitron';
     ctx.textAlign = 'center';
-    ctx.fillText('GEAR', nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y + 15);
+    ctx.fillText(switcherLabel, nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y + 15);
 
     // Switcher interaction prompt
     if (isNearSwitcher && (typeof Engine !== 'undefined' && Engine.Input) && (!Engine.Input.shouldShowWorldInteractionHints || Engine.Input.shouldShowWorldInteractionHints())) {
@@ -1516,19 +1547,31 @@ function renderNexus(ctx) {
             ctx.font = 'bold 12px Orbitron';
             ctx.textAlign = 'center';
             ctx.fillText('Cannot swap modes in multiplayer', nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y + 60);
-        } else {
+        } else if (selectableModes.length <= 1) {
             ctx.fillStyle = '#aaaaaa';
             ctx.font = 'bold 12px Orbitron';
             ctx.textAlign = 'center';
-            ctx.fillText('Gear Mode only', nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y + 60);
+            ctx.fillText((selectedMode && selectedMode.title ? selectedMode.title : 'Mode') + ' only', nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y + 60);
+        } else {
+            ctx.fillStyle = '#ffff00';
+            ctx.font = 'bold 12px Orbitron';
+            ctx.textAlign = 'center';
+            drawNexusInteractionPrompt(ctx, 'switch mode', nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y + 60, nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y, 70);
         }
     }
 
     // Render portal (color and label change based on current mode)
     const isNearPortal = nexusAnyNear(nexusRoom.portalPos.x, nexusRoom.portalPos.y, 60);
-    const portalActive = Game.selectedClass !== null || !!Game.localSplitSelectedClass;
+    const needsClassForPortal = !selectedMode || selectedMode.requiresClass !== false;
+    const portalActive = !needsClassForPortal
+        || Game.selectedClass !== null
+        || !!Game.localSplitSelectedClass;
 
-    const portalColor = { glow: 'rgba(255, 150, 100, ', core: 'rgba(255, 180, 120, 0.8)', border: '#ff8844' };
+    const portalColor = (selectedMode && selectedMode.theme) || {
+        glow: 'rgba(255, 150, 100, ',
+        core: 'rgba(255, 180, 120, 0.8)',
+        border: '#ff8844'
+    };
 
     // Portal pulsing animation
     const pulseTime = Date.now() * 0.002;
@@ -1565,12 +1608,16 @@ function renderNexus(ctx) {
     ctx.globalCompositeOperation = 'source-over';
 
     // Portal label (changes based on mode / resume)
-    const hasResumeCheckpointLabel = typeof SaveSystem !== 'undefined' && SaveSystem.hasActiveRunCheckpoint
-        && SaveSystem.hasActiveRunCheckpoint();
+    const hasResumeCheckpointLabel = !!(selectedMode && selectedMode.supportsResume
+        && typeof SaveSystem !== 'undefined' && SaveSystem.hasActiveRunCheckpoint
+        && SaveSystem.hasActiveRunCheckpoint());
+    const portalLabel = hasResumeCheckpointLabel
+        ? 'RESUME RUN'
+        : ((selectedMode && selectedMode.portalLabel) || 'GEAR MODE');
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 16px Orbitron';
     ctx.textAlign = 'center';
-    ctx.fillText(hasResumeCheckpointLabel ? 'RESUME RUN' : 'GEAR MODE', nexusRoom.portalPos.x, nexusRoom.portalPos.y - 95);
+    ctx.fillText(portalLabel, nexusRoom.portalPos.x, nexusRoom.portalPos.y - 95);
 
     // Resume state: Lost's PS2 sits on the portal as the resume affordance
     if (hasResumeCheckpointLabel && typeof drawLostPs2EasterEgg === 'function') {
@@ -1608,7 +1655,11 @@ function renderNexus(ctx) {
             ctx.fillStyle = '#ff6666';
             ctx.font = 'bold 12px Orbitron';
             ctx.textAlign = 'center';
-            ctx.fillText('Select a class first', nexusRoom.portalPos.x, nexusRoom.portalPos.y + 70);
+            ctx.fillText(
+                needsClassForPortal ? 'Select a class first' : 'Portal locked',
+                nexusRoom.portalPos.x,
+                nexusRoom.portalPos.y + 70
+            );
         }
     }
 

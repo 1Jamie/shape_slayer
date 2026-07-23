@@ -132,8 +132,18 @@
         }
 
         update(deltaTime) {
+            let dt = deltaTime;
+            if (this.owner && typeof this.owner.getStyleMultipliers === 'function') {
+                const style = this.owner.getStyleMultipliers();
+                if (style && typeof style.telegraphMult === 'number' && style.telegraphMult > 0 && style.telegraphMult !== 1) {
+                    dt = deltaTime / style.telegraphMult;
+                }
+            } else if (typeof Game !== 'undefined' && typeof Game.styleTelegraphMult === 'number'
+                && Game.styleTelegraphMult > 0 && Game.styleTelegraphMult !== 1) {
+                dt = deltaTime / Game.styleTelegraphMult;
+            }
             if (this.activeTelegraph) {
-                const completed = this.activeTelegraph.update(deltaTime);
+                const completed = this.activeTelegraph.update(dt);
                 if (completed) {
                     this.end();
                     if (this.queue.length > 0) {

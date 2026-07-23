@@ -33,6 +33,12 @@ const ENEMY_HP_GROWTH_PER_ROOM = 0.058;
 const ENEMY_HP_GROWTH_PER_ROOM_POST = 0.045;
 const ENEMY_DAMAGE_GROWTH_PER_ROOM = 0.085;
 const ENEMY_DAMAGE_GROWTH_PER_ROOM_POST = 0.055;
+const ARENA_ENEMY_HP_GROWTH_PER_WAVE = 0.115;
+const ARENA_ENEMY_HP_GROWTH_PER_WAVE_POST = 0.085;
+const ARENA_ENEMY_DAMAGE_GROWTH_PER_WAVE = 0.125;
+const ARENA_ENEMY_DAMAGE_GROWTH_PER_WAVE_POST = 0.095;
+const ENEMY_DEFENSE_GROWTH_PER_ROOM = 0.005;
+const ARENA_ENEMY_DEFENSE_GROWTH_PER_WAVE = 0.012;
 const BOSS_HP_GROWTH_PER_ROOM = 0.052;
 const BOSS_HP_GROWTH_PER_ROOM_POST = 0.040;
 const BOSS_DAMAGE_GROWTH_PER_ROOM = 0.080;
@@ -85,6 +91,12 @@ const MULTIPLAYER_SCALING = {
         2: { enemyCount: 1.6, enemyHP: 1.20, enemyDamage: 1.04, bossHP: 1.35, bossDamage: 1.10 },
         3: { enemyCount: 2.1, enemyHP: 1.25, enemyDamage: 1.04, bossHP: 1.70, bossDamage: 1.15 },
         4: { enemyCount: 2.6, enemyHP: 1.30, enemyDamage: 1.04, bossHP: 2.00, bossDamage: 1.18 }
+    },
+    'surge-arena': {
+        1: { enemyCount: 1.0, enemyHP: 1.0, enemyDamage: 1.0, bossHP: 1.0, bossDamage: 1.0 },
+        2: { enemyCount: 1.5, enemyHP: 1.35, enemyDamage: 1.04, bossHP: 1.40, bossDamage: 1.10 },
+        3: { enemyCount: 2.0, enemyHP: 1.40, enemyDamage: 1.04, bossHP: 1.80, bossDamage: 1.15 },
+        4: { enemyCount: 2.5, enemyHP: 1.50, enemyDamage: 1.04, bossHP: 2.20, bossDamage: 1.18 }
     }
 };
 
@@ -229,16 +241,19 @@ const CONFIG_FIELD_TAGS = {
 const ENTITY_PROFILES = {
     enemy_basic: {
         tier: 'trash',
+        baseDefense: 0.00,
         configGlobal: 'BASIC_ENEMY_CONFIG',
         groups: ['durability', 'offense', 'mobility', 'tempo', 'cognition', 'xp']
     },
     enemy_star: {
         tier: 'trash',
+        baseDefense: 0.02,
         configGlobal: 'STAR_CONFIG',
         groups: ['durability', 'offense', 'mobility', 'tempo', 'cognition', 'xp']
     },
     enemy_diamond: {
         tier: 'trash',
+        baseDefense: 0.04,
         configGlobal: 'DIAMOND_CONFIG',
         groups: ['durability', 'offense', 'mobility', 'tempo', 'cognition', 'xp'],
         damageTrimField: 'damageScalingMultiplier',
@@ -251,11 +266,13 @@ const ENTITY_PROFILES = {
     },
     enemy_rectangle: {
         tier: 'trash',
+        baseDefense: 0.08,
         configGlobal: 'RECTANGLE_CONFIG',
         groups: ['durability', 'offense', 'mobility', 'tempo', 'cognition', 'xp']
     },
     enemy_octagon: {
         tier: 'elite',
+        baseDefense: 0.15,
         configGlobal: 'OCTAGON_CONFIG',
         groups: ['durability', 'offense', 'mobility', 'tempo', 'cognition', 'xp']
     },
@@ -304,15 +321,21 @@ function resolveDifficulty(difficulty) {
 }
 
 function getGameMode() {
-    if (typeof Game !== 'undefined' && Game.gameMode) {
-        return Game.gameMode;
+    const world = (typeof GameWorld !== 'undefined' && GameWorld.resolveWorld)
+        ? GameWorld.resolveWorld()
+        : (typeof Game !== 'undefined' ? Game : null);
+    if (world && world.gameMode) {
+        return world.gameMode;
     }
     return 'gear';
 }
 
 function getRunDifficulty() {
-    if (typeof Game !== 'undefined' && Game.difficulty) {
-        return Game.difficulty;
+    const world = (typeof GameWorld !== 'undefined' && GameWorld.resolveWorld)
+        ? GameWorld.resolveWorld()
+        : (typeof Game !== 'undefined' ? Game : null);
+    if (world && world.difficulty) {
+        return world.difficulty;
     }
     return 'normal';
 }
@@ -320,8 +343,11 @@ function getRunDifficulty() {
 function setRunDifficulty(difficulty) {
     const preset = resolveDifficulty(difficulty);
     if (!preset) return false;
-    if (typeof Game !== 'undefined') {
-        Game.difficulty = difficulty in DIFFICULTY_PRESETS ? difficulty : 'normal';
+    const world = (typeof GameWorld !== 'undefined' && GameWorld.resolveWorld)
+        ? GameWorld.resolveWorld()
+        : (typeof Game !== 'undefined' ? Game : null);
+    if (world) {
+        world.difficulty = difficulty in DIFFICULTY_PRESETS ? difficulty : 'normal';
     }
     return true;
 }
@@ -500,16 +526,25 @@ function computeScalingFactors(ctx) {
     const roomNumber = ctx.roomNumber || 1;
     const roomIndex = Math.max(0, roomNumber - 1);
     const roomType = ctx.roomType || 'normal';
+    const gameMode = ctx.gameMode || getGameMode();
+    const isArena = gameMode === 'surge-arena' || gameMode === 'arena';
     const difficulty = resolveDifficulty(ctx.difficulty);
     const mp = getMultiplayerScaling(ctx);
     const roomMod = ROOM_TYPE_MODIFIERS[roomType] || ROOM_TYPE_MODIFIERS.normal;
 
+    const hpGrowthPre = isArena ? ARENA_ENEMY_HP_GROWTH_PER_WAVE : ENEMY_HP_GROWTH_PER_ROOM;
+    const hpGrowthPost = isArena ? ARENA_ENEMY_HP_GROWTH_PER_WAVE_POST : ENEMY_HP_GROWTH_PER_ROOM_POST;
+    const dmgGrowthPre = isArena ? ARENA_ENEMY_DAMAGE_GROWTH_PER_WAVE : ENEMY_DAMAGE_GROWTH_PER_ROOM;
+    const dmgGrowthPost = isArena ? ARENA_ENEMY_DAMAGE_GROWTH_PER_WAVE_POST : ENEMY_DAMAGE_GROWTH_PER_ROOM_POST;
+    const defenseAddPerStep = isArena ? ARENA_ENEMY_DEFENSE_GROWTH_PER_WAVE : ENEMY_DEFENSE_GROWTH_PER_ROOM;
+
     const roomHpGrowth = piecewiseRoomGrowth(
-        ENEMY_HP_GROWTH_PER_ROOM, ENEMY_HP_GROWTH_PER_ROOM_POST, roomIndex
+        hpGrowthPre, hpGrowthPost, roomIndex
     );
     const roomDamageGrowth = piecewiseRoomGrowth(
-        ENEMY_DAMAGE_GROWTH_PER_ROOM, ENEMY_DAMAGE_GROWTH_PER_ROOM_POST, roomIndex
+        dmgGrowthPre, dmgGrowthPost, roomIndex
     );
+    const roomDefenseAdd = roomIndex * defenseAddPerStep;
     const roomHp = roomHpGrowth * roomMod.hp * difficulty.hp;
     const roomDamage = roomDamageGrowth * roomMod.damage * difficulty.damage;
     const roomMobility = computeRoomMobility(roomNumber);
@@ -555,6 +590,7 @@ function computeScalingFactors(ctx) {
         enemyHpMod,
         enemySpeedMod,
         enemyCount,
+        roomDefenseAdd,
         bossHpGrowth: BOSS_HP_GROWTH_PER_ROOM,
         bossDamageGrowth: BOSS_DAMAGE_GROWTH_PER_ROOM
     };
@@ -647,9 +683,15 @@ function resolveEnemyStats(profileId, baseConfig, ctx, factors, options = {}) {
         xpMult *= EARLY_RUN_XP_BONUS;
     }
 
+    const baseDef = (config.defense != null) ? config.defense : (profile.baseDefense || 0);
+    let defense = baseDef + (f.roomDefenseAdd || 0);
+    const maxDefCap = profile.tier === 'elite' ? 0.60 : 0.45;
+    defense = Math.min(maxDefCap, Math.max(0, defense));
+
     const stats = {
         maxHp: Math.floor((config.maxHp || 0) * hpMult),
         damage,
+        defense,
         xpValue: Math.floor((config.xpValue || 0) * xpMult),
         moveSpeed: clampMobilityField(
             'moveSpeed',
@@ -702,6 +744,9 @@ function applyEnemyScaling(enemy, profileId, ctx, options = {}) {
     enemy.maxHp = stats.maxHp;
     enemy.hp = stats.maxHp;
     enemy.damage = stats.damage;
+    if (stats.defense != null) {
+        enemy.defense = stats.defense;
+    }
     enemy.xpValue = stats.xpValue;
     enemy.intelligenceLevel = stats.intelligenceLevel;
     enemy.scaledStats = stats;

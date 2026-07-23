@@ -32,7 +32,8 @@ const ALLOWED_MESSAGE_TYPES = new Set([
     'shards_update',
     'heartbeat',
     'kick_player',
-    'update_player_name'
+    'update_player_name',
+    'arena_next_wave_request'
 ]);
 
 if (process.env.ALLOW_TEST_MIGRATION === 'true') {
@@ -248,6 +249,9 @@ class WorkerProcess {
                 break;
             case 'combat_fx':
                 this.handleCombatFx(ws, data);
+                break;
+            case 'arena_next_wave_request':
+                this.handleArenaNextWaveRequest(ws, data);
                 break;
             case 'resync_request':
                 this.handleResyncRequest(ws, data);
@@ -1038,6 +1042,22 @@ class WorkerProcess {
                     }
                 }));
             }
+        }
+    }
+
+    handleArenaNextWaveRequest(ws, data) {
+        const code = this.playerToLobby.get(ws);
+        if (!code) return;
+        
+        const lobby = this.lobbies.get(code);
+        if (!lobby) return;
+        
+        // Forward next wave request to host
+        if (lobby.host && lobby.host !== ws && lobby.host.readyState === WebSocket.OPEN) {
+            lobby.host.send(JSON.stringify({
+                type: 'arena_next_wave_request',
+                data: data
+            }));
         }
     }
     

@@ -886,55 +886,166 @@ function generateGear(x, y, roomNumberOrTier = 1, enemyDifficulty = 'basic') {
     };
 }
 
-// Affix visual configuration (matching player-base.js)
+// Affix ring visuals — shared by equipped slot rings and ground loot.
+// Higher-tier affixes bias waveform/color more strongly via AFFIX_RING_TIER_BIAS.
+const AFFIX_RING_TIER_BIAS = {
+    basic: 1,
+    advanced: 2.5,
+    rare: 4
+};
+
 const AFFIX_VISUAL_MAP = {
     // Basic tier
-    movementSpeed: { shape: 'wave', color: { r: 0, g: 255, b: 255 } },
-    attackSpeed: { shape: 'zigzag', color: { r: 255, g: 255, b: 0 } },
-    projectileSpeed: { shape: 'chevron', color: { r: 100, g: 255, b: 100 } },
-    maxHealth: { shape: 'plus', color: { r: 0, g: 255, b: 0 } },
-    knockbackPower: { shape: 'burst', color: { r: 200, g: 0, b: 255 } },
-    
+    movementSpeed: { shape: 'wave', waveType: 'triangle', freq: 5.5, color: { r: 0, g: 255, b: 255 } },
+    attackSpeed: { shape: 'zigzag', waveType: 'digital', freq: 6.0, color: { r: 255, g: 255, b: 0 } },
+    projectileSpeed: { shape: 'chevron', waveType: 'linear', freq: 7.0, color: { r: 100, g: 255, b: 100 } },
+    maxHealth: { shape: 'plus', waveType: 'pulse', freq: 1.8, color: { r: 0, g: 255, b: 0 } },
+    knockbackPower: { shape: 'burst', waveType: 'shockwave', freq: 3.0, color: { r: 200, g: 0, b: 255 } },
+
     // Advanced tier
-    critChance: { shape: 'triangle', color: { r: 255, g: 50, b: 50 } },
-    critDamage: { shape: 'star', color: { r: 255, g: 0, b: 100 } },
-    lifesteal: { shape: 'cross', color: { r: 200, g: 0, b: 0 } },
-    cooldownReduction: { shape: 'hexagon', color: { r: 100, g: 100, b: 255 } },
-    areaOfEffect: { shape: 'circle', color: { r: 255, g: 150, b: 0 } },
-    
+    critChance: { shape: 'triangle', waveType: 'square', freq: 5.0, color: { r: 255, g: 50, b: 50 } },
+    critDamage: { shape: 'star', waveType: 'sawtooth', freq: 4.0, color: { r: 255, g: 0, b: 100 } },
+    lifesteal: { shape: 'cross', waveType: 'pulse', freq: 2.5, color: { r: 200, g: 0, b: 0 } },
+    cooldownReduction: { shape: 'hexagon', waveType: 'stepped', freq: 3.5, color: { r: 100, g: 100, b: 255 } },
+    areaOfEffect: { shape: 'circle', waveType: 'radial', freq: 2.0, color: { r: 255, g: 150, b: 0 } },
+
     // Rare tier
-    dodgeCharges: { shape: 'diamond', color: { r: 255, g: 255, b: 255 } },
-    pierce: { shape: 'arrow', color: { r: 100, g: 255, b: 255 } },
-    chainLightning: { shape: 'fork', color: { r: 150, g: 200, b: 255 } },
-    execute: { shape: 'skull', color: { r: 255, g: 50, b: 50 } },
-    rampage: { shape: 'stairs', color: { r: 255, g: 100, b: 0 } },
-    multishot: { shape: 'splitarrow', color: { r: 200, g: 255, b: 100 } },
-    phasing: { shape: 'ghost', color: { r: 200, g: 200, b: 255 } },
-    explosiveAttacks: { shape: 'explosion', color: { r: 255, g: 200, b: 0 } },
-    fortify: { shape: 'shield', color: { r: 150, g: 150, b: 255 } },
-    overcharge: { shape: 'lightning', color: { r: 255, g: 255, b: 150 } },
-    
+    dodgeCharges: { shape: 'diamond', waveType: 'phase', freq: 4.0, color: { r: 255, g: 255, b: 255 } },
+    pierce: { shape: 'arrow', waveType: 'linear', freq: 3.0, color: { r: 100, g: 255, b: 255 } },
+    chainLightning: { shape: 'fork', waveType: 'digital', freq: 4.0, color: { r: 150, g: 200, b: 255 } },
+    execute: { shape: 'skull', waveType: 'pulse', freq: 2.0, color: { r: 255, g: 50, b: 50 } },
+    rampage: { shape: 'stairs', waveType: 'sawtooth', freq: 3.0, color: { r: 255, g: 100, b: 0 } },
+    multishot: { shape: 'splitarrow', waveType: 'triangle', freq: 3.0, color: { r: 200, g: 255, b: 100 } },
+    phasing: { shape: 'ghost', waveType: 'phase', freq: 4.0, color: { r: 200, g: 200, b: 255 } },
+    explosiveAttacks: { shape: 'explosion', waveType: 'radial', freq: 2.0, color: { r: 255, g: 200, b: 0 } },
+    fortify: { shape: 'shield', waveType: 'stepped', freq: 2.0, color: { r: 150, g: 150, b: 255 } },
+    overcharge: { shape: 'lightning', waveType: 'digital', freq: 4.0, color: { r: 255, g: 255, b: 150 } },
+
     // Mage beam affixes
-    beamCharges: { shape: 'charge', color: { r: 150, g: 100, b: 255 } },
-    beamTickRate: { shape: 'pulse', color: { r: 255, g: 150, b: 200 } },
-    beamDuration: { shape: 'extend', color: { r: 200, g: 100, b: 255 } },
-    beamPenetration: { shape: 'penetrate', color: { r: 100, g: 200, b: 255 } },
-    
+    beamCharges: { shape: 'charge', waveType: 'pulse', freq: 3.5, color: { r: 150, g: 100, b: 255 } },
+    beamTickRate: { shape: 'pulse', waveType: 'digital', freq: 6.0, color: { r: 255, g: 150, b: 200 } },
+    beamDuration: { shape: 'extend', waveType: 'linear', freq: 2.5, color: { r: 200, g: 100, b: 255 } },
+    beamPenetration: { shape: 'penetrate', waveType: 'linear', freq: 3.0, color: { r: 100, g: 200, b: 255 } },
+
     // Warrior affixes
-    whirlwindRadius: { shape: 'spiral', color: { r: 255, g: 150, b: 50 } },
-    thrustSpeed: { shape: 'arrow', color: { r: 255, g: 100, b: 50 } },
-    cleaveArea: { shape: 'arc', color: { r: 255, g: 80, b: 0 } },
-    
+    whirlwindRadius: { shape: 'spiral', waveType: 'radial', freq: 2.5, color: { r: 255, g: 150, b: 50 } },
+    thrustSpeed: { shape: 'arrow', waveType: 'linear', freq: 4.0, color: { r: 255, g: 100, b: 50 } },
+    cleaveArea: { shape: 'arc', waveType: 'shockwave', freq: 2.0, color: { r: 255, g: 80, b: 0 } },
+
     // Rogue affixes
-    cloneDuration: { shape: 'ghost', color: { r: 255, g: 50, b: 150 } },
-    dashCooldown: { shape: 'flash', color: { r: 255, g: 100, b: 200 } },
-    fanCount: { shape: 'fan', color: { r: 200, g: 0, b: 100 } },
-    
+    cloneDuration: { shape: 'ghost', waveType: 'phase', freq: 3.0, color: { r: 255, g: 50, b: 150 } },
+    dashCooldown: { shape: 'flash', waveType: 'digital', freq: 5.0, color: { r: 255, g: 100, b: 200 } },
+    fanCount: { shape: 'fan', waveType: 'triangle', freq: 3.5, color: { r: 200, g: 0, b: 100 } },
+
     // Tank affixes
-    shieldWidth: { shape: 'wall', color: { r: 100, g: 150, b: 255 } },
-    shoutStun: { shape: 'ring', color: { r: 200, g: 50, b: 50 } },
-    hammerHeal: { shape: 'heart', color: { r: 50, g: 255, b: 100 } }
+    shieldWidth: { shape: 'wall', waveType: 'stepped', freq: 2.0, color: { r: 100, g: 150, b: 255 } },
+    shoutStun: { shape: 'ring', waveType: 'pulse', freq: 2.5, color: { r: 200, g: 50, b: 50 } },
+    hammerHeal: { shape: 'heart', waveType: 'pulse', freq: 2.0, color: { r: 50, g: 255, b: 100 } }
 };
+
+function resolveAffixRingTier(affix) {
+    if (affix && affix.tier) return affix.tier;
+    if (affix && affix.type && AFFIX_POOL[affix.type] && AFFIX_POOL[affix.type].tier) {
+        return AFFIX_POOL[affix.type].tier;
+    }
+    return 'basic';
+}
+
+function normalizeAffixRingValue(affix) {
+    const value = affix && typeof affix.value === 'number' ? affix.value : 0;
+    let denom = 0.5;
+    if (affix && affix.type && AFFIX_POOL[affix.type]) {
+        denom = Math.max(AFFIX_POOL[affix.type].max || 0.5, 0.0001);
+    }
+    return Math.min(1, Math.max(0, value / denom));
+}
+
+function getAffixRingWeight(affix) {
+    const tier = resolveAffixRingTier(affix);
+    const bias = AFFIX_RING_TIER_BIAS[tier] || 1;
+    const normalized = normalizeAffixRingValue(affix);
+    return bias * (0.35 + 0.65 * normalized);
+}
+
+function buildWeightedAffixRingEntries(affixes) {
+    const entries = [];
+    if (!affixes || affixes.length === 0) return entries;
+    for (let i = 0; i < affixes.length; i++) {
+        const affix = affixes[i];
+        const config = AFFIX_VISUAL_MAP[affix.type];
+        if (!config) continue;
+        const normalizedValue = normalizeAffixRingValue(affix);
+        const weight = getAffixRingWeight(affix);
+        const safeFreq = Math.max(1, Math.min(4, Math.round(config.freq || 2)));
+        const waveType = config.waveType || 'sine';
+        entries.push({
+            type: affix.type,
+            shape: config.shape || 'circle',
+            waveType,
+            color: { r: config.color.r, g: config.color.g, b: config.color.b },
+            value: normalizedValue,
+            weight,
+            tier: resolveAffixRingTier(affix),
+            wave: {
+                frequency: safeFreq,
+                phase: normalizedValue * Math.PI * 2,
+                amplitude: 0.25 + normalizedValue * 0.25,
+                waveType,
+                affixType: affix.type
+            }
+        });
+    }
+    return entries;
+}
+
+function blendWeightedAffixRingColor(entries, fallback) {
+    const fb = fallback || { r: 150, g: 150, b: 150 };
+    let totalW = 0;
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    for (let i = 0; i < entries.length; i++) {
+        const e = entries[i];
+        const w = e.weight || 1;
+        totalW += w;
+        r += e.color.r * w;
+        g += e.color.g * w;
+        b += e.color.b * w;
+    }
+    if (totalW <= 0) return { r: fb.r, g: fb.g, b: fb.b };
+    return {
+        r: Math.floor(r / totalW),
+        g: Math.floor(g / totalW),
+        b: Math.floor(b / totalW)
+    };
+}
+
+function sampleWeightedAffixRingOffset(angle, entries, time, slotPhaseBias, getWaveValue) {
+    if (!entries || entries.length === 0) return 0;
+    const waveFn = typeof getWaveValue === 'function'
+        ? getWaveValue
+        : function fallbackWave(waveType, a, freq, phase) {
+            // Triangle fallback when PlayerBase waves are unavailable
+            const t = (freq * a + phase) / (Math.PI * 2);
+            const cycle = t - Math.floor(t);
+            return cycle < 0.5 ? (cycle * 4 - 1) : (3 - cycle * 4);
+        };
+    let weightedSum = 0;
+    let totalWeight = 0;
+    const phaseBias = typeof slotPhaseBias === 'number' ? slotPhaseBias : 0;
+    const animTime = typeof time === 'number' ? time : 0;
+    for (let i = 0; i < entries.length; i++) {
+        const e = entries[i];
+        const wave = e.wave;
+        const smoothPhase = wave.phase + (animTime * (0.5 + phaseBias));
+        const waveValue = waveFn(wave.waveType, angle, wave.frequency, smoothPhase);
+        const w = e.weight || 1;
+        weightedSum += waveValue * wave.amplitude * w;
+        totalWeight += w;
+    }
+    if (totalWeight <= 0) return 0;
+    return (weightedSum / totalWeight) * 6;
+}
 
 // Tier opacity settings
 const TIER_OPACITY = {
@@ -993,13 +1104,16 @@ function ensureGearDropMetadata(gear) {
 }
 
 function buildGearSpriteCacheKey(gear) {
-    const affixTypes = (gear.affixes || []).map(a => a.type);
+    const affixKey = (gear.affixes || [])
+        .map(a => `${a.type}:${a.tier || ''}:${typeof a.value === 'number' ? a.value.toFixed(3) : ''}`)
+        .sort()
+        .join(',');
     return [
         gear.tier || 'gray',
         gear.slot || '',
         gear.weaponType || '',
         gear.armorType || '',
-        [...affixTypes].sort().join(','),
+        affixKey,
         gear.legendaryEffect ? 'L' : '',
         gear.classModifier ? 'C' : ''
     ].join('_');
@@ -1019,43 +1133,20 @@ function touchGearSpriteCacheKey(key) {
 }
 
 function drawGroundAffixRingPath(ctx, centerX, centerY, ringRadius, affixes, tierOpacity, numPoints, time) {
-    let baseR = 0, baseG = 0, baseB = 0;
-    let colorCount = 0;
-    affixes.forEach(affix => {
-        const affixConfig = AFFIX_VISUAL_MAP[affix.type];
-        if (affixConfig) {
-            baseR += affixConfig.color.r;
-            baseG += affixConfig.color.g;
-            baseB += affixConfig.color.b;
-            colorCount++;
-        }
-    });
-    if (colorCount > 0) {
-        baseR = Math.floor(baseR / colorCount);
-        baseG = Math.floor(baseG / colorCount);
-        baseB = Math.floor(baseB / colorCount);
-    } else {
-        baseR = 150; baseG = 150; baseB = 150;
-    }
-
+    const entries = buildWeightedAffixRingEntries(affixes || []);
+    const blended = blendWeightedAffixRingColor(entries);
+    const baseR = blended.r;
+    const baseG = blended.g;
+    const baseB = blended.b;
     const animTime = typeof time === 'number' ? time : 0;
+    const getWaveValue = (typeof PlayerBase !== 'undefined' && typeof PlayerBase.getWaveValue === 'function')
+        ? PlayerBase.getWaveValue.bind(PlayerBase)
+        : null;
 
     ctx.beginPath();
     for (let i = 0; i <= numPoints; i++) {
         const angle = (i / numPoints) * Math.PI * 2;
-        let waveOffset = 0;
-        const affixesToShow = Math.min(2, affixes.length);
-        for (let a = 0; a < affixesToShow; a++) {
-            const affix = affixes[a];
-            const affixConfig = AFFIX_VISUAL_MAP[affix.type];
-            if (affixConfig) {
-                const freq = 2 + a;
-                const smoothPhase = animTime * (0.5 + a * 0.2);
-                const normalizedAngle = ((angle * freq + smoothPhase) % (Math.PI * 2)) / (Math.PI * 2);
-                const waveValue = normalizedAngle < 0.5 ? (normalizedAngle * 4 - 1) : (3 - normalizedAngle * 4);
-                waveOffset += waveValue * 4;
-            }
-        }
+        const waveOffset = sampleWeightedAffixRingOffset(angle, entries, animTime, 0, getWaveValue);
         const radius = ringRadius + waveOffset;
         const px = centerX + Math.cos(angle) * radius;
         const py = centerY + Math.sin(angle) * radius;
@@ -1817,6 +1908,14 @@ if (typeof window !== 'undefined') {
     window.getRarityUpgradeBaseCost = getRarityUpgradeBaseCost;
     window.clearAllGearRarityVisitFlags = clearAllGearRarityVisitFlags;
     window.GEAR_TIER_ORDER = GEAR_TIER_ORDER;
+    window.AFFIX_VISUAL_MAP = AFFIX_VISUAL_MAP;
+    window.AFFIX_RING_TIER_BIAS = AFFIX_RING_TIER_BIAS;
+    window.getAffixRingWeight = getAffixRingWeight;
+    window.buildWeightedAffixRingEntries = buildWeightedAffixRingEntries;
+    window.blendWeightedAffixRingColor = blendWeightedAffixRingColor;
+    window.sampleWeightedAffixRingOffset = sampleWeightedAffixRingOffset;
+    window.normalizeAffixRingValue = normalizeAffixRingValue;
+    window.resolveAffixRingTier = resolveAffixRingTier;
 }
 
 if (typeof module !== 'undefined' && module.exports) {
@@ -1831,7 +1930,16 @@ if (typeof module !== 'undefined' && module.exports) {
         RARITY_UPGRADE_BASE_COSTS,
         FLAT_STAT_RANGES,
         TIER_BONUSES,
-        GEAR_TIERS
+        GEAR_TIERS,
+        AFFIX_VISUAL_MAP,
+        AFFIX_RING_TIER_BIAS,
+        AFFIX_POOL,
+        getAffixRingWeight,
+        buildWeightedAffixRingEntries,
+        blendWeightedAffixRingColor,
+        sampleWeightedAffixRingOffset,
+        normalizeAffixRingValue,
+        resolveAffixRingTier
     };
 }
 

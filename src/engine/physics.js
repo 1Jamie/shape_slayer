@@ -94,7 +94,7 @@ const ImpulsePhysics = {
     getSpeed(entity) {
         const vx = entity && entity.impulseVx ? entity.impulseVx : 0;
         const vy = entity && entity.impulseVy ? entity.impulseVy : 0;
-        return Math.hypot(vx, vy);
+        return Math.sqrt(vx * vx + vy * vy);
     },
 
     /**
@@ -212,14 +212,14 @@ const ImpulsePhysics = {
         const intendedDy = info.intendedDy || 0;
         const intendedMoved = info.intendedMoved != null
             ? info.intendedMoved
-            : Math.hypot(intendedDx, intendedDy);
+            : Math.sqrt(intendedDx * intendedDx + intendedDy * intendedDy);
         if (intendedMoved < 0.0001) return false;
 
         const actualDx = info.actualDx != null ? info.actualDx : 0;
         const actualDy = info.actualDy != null ? info.actualDy : 0;
         const actualMoved = info.actualMoved != null
             ? info.actualMoved
-            : Math.hypot(actualDx, actualDy);
+            : Math.sqrt(actualDx * actualDx + actualDy * actualDy);
 
         const lostFraction = options.wallContactLostFraction != null
             ? options.wallContactLostFraction
@@ -232,7 +232,7 @@ const ImpulsePhysics = {
         if (nx == null || ny == null || !Number.isFinite(nx) || !Number.isFinite(ny)) {
             const lostDx = intendedDx - actualDx;
             const lostDy = intendedDy - actualDy;
-            const lost = Math.hypot(lostDx, lostDy);
+            const lost = Math.sqrt(lostDx * lostDx + lostDy * lostDy);
             if (lost > 0.0001) {
                 // Outward normal opposes the displacement that was prevented
                 nx = -lostDx / lost;
@@ -243,7 +243,7 @@ const ImpulsePhysics = {
             }
         }
 
-        const nLen = Math.hypot(nx, ny);
+        const nLen = Math.sqrt(nx * nx + ny * ny);
         if (nLen < 0.0001) return false;
         nx /= nLen;
         ny /= nLen;
@@ -280,6 +280,16 @@ const ImpulsePhysics = {
      *   { ok, blocked, actualMoved, intendedMoved, actualDx, actualDy, normalX, normalY }
     /** Non-reentrant scratch objects for zero-allocation integration. */
     _scratchMoveResult: {
+        ok: true,
+        blocked: false,
+        actualMoved: 0,
+        intendedMoved: 0,
+        actualDx: 0,
+        actualDy: 0,
+        normalX: null,
+        normalY: null
+    },
+    _scratchMoveFnResult: {
         ok: true,
         blocked: false,
         actualMoved: 0,
@@ -371,8 +381,8 @@ const ImpulsePhysics = {
 
         const intendedDx = vx * deltaTime;
         const intendedDy = vy * deltaTime;
-        const intendedMoved = Math.hypot(intendedDx, intendedDy);
-        const speedBefore = Math.hypot(vx, vy);
+        const intendedMoved = Math.sqrt(intendedDx * intendedDx + intendedDy * intendedDy);
+        const speedBefore = Math.sqrt(vx * vx + vy * vy);
 
         const moveResult = this._scratchMoveResult;
         moveResult.ok = true;
@@ -385,7 +395,7 @@ const ImpulsePhysics = {
         moveResult.normalY = null;
 
         if (typeof options.moveFn === 'function') {
-            const raw = options.moveFn(intendedDx, intendedDy);
+            const raw = options.moveFn(intendedDx, intendedDy, entity, this._scratchMoveFnResult);
             if (typeof raw === 'boolean') {
                 const blocked = !raw;
                 moveResult.ok = raw;
@@ -398,7 +408,7 @@ const ImpulsePhysics = {
                 const actualDy = raw.actualDy != null ? raw.actualDy : (raw.ok === false ? 0 : intendedDy);
                 moveResult.ok = raw.ok !== false;
                 moveResult.blocked = !!raw.blocked;
-                moveResult.actualMoved = raw.actualMoved != null ? raw.actualMoved : Math.hypot(actualDx, actualDy);
+                moveResult.actualMoved = raw.actualMoved != null ? raw.actualMoved : Math.sqrt(actualDx * actualDx + actualDy * actualDy);
                 moveResult.intendedMoved = raw.intendedMoved != null ? raw.intendedMoved : intendedMoved;
                 moveResult.actualDx = actualDx;
                 moveResult.actualDy = actualDy;
@@ -434,7 +444,7 @@ const ImpulsePhysics = {
                     entity.wallSlamCooldown = options.slamCooldown != null
                         ? options.slamCooldown
                         : this.DEFAULTS.wallSlamCooldown;
-                    options.onWallSlam(wallSlam);
+                    options.onWallSlam(wallSlam, entity);
                 }
             }
         }
@@ -542,11 +552,12 @@ const Geometry = {
         const lengthSq = dx * dx + dy * dy;
         const res = out && typeof out === 'object' ? out : { x: 0, y: 0, t: 0, distSq: 0 };
         if (lengthSq <= 0) {
-            const dist = Math.hypot(px - ax, py - ay);
+            const dx_pt = px - ax;
+            const dy_pt = py - ay;
             res.x = ax;
             res.y = ay;
             res.t = 0;
-            res.distSq = dist * dist;
+            res.distSq = dx_pt * dx_pt + dy_pt * dy_pt;
             return res;
         }
         const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lengthSq));
@@ -581,23 +592,97 @@ const Geometry = {
         const dx = x - closestX;
         const dy = y - closestY;
         return (dx * dx + dy * dy) <= r * r;
-    }
-};
+    },
 
+    /**
+     * Circle vs axis-aligned or rotated ellipse. Expands the ellipse by the
+     * circle radius in local space (good enough for debris/actor probes).
+     */
+    circleEllipseOverlap(cx, cy, cr, ex, ey, radiusX, radiusY, rotation) {
+        const r = cr || 0;
+        const rx = Math.max(1e-6, (radiusX || 0) + r);
+        const ry = Math.max(1e-6, (radiusY || 0) + r);
+        const dx = cx - ex;
+        const dy = cy - ey;
+        const cos = Math.cos(-(rotation || 0));
+        const sin = Math.sin(-(rotation || 0));
+        const lx = dx * cos - dy * sin;
+        const ly = dx * sin + dy * cos;
+        const nx = lx / rx;
+        const ny = ly / ry;
+        return (nx * nx + ny * ny) <= 1;
+    },
+
+    /** Closest point on a segment to (px, py). */
+    closestPointOnSegment(px, py, ax, ay, bx, by) {
+        return this.projectPointOnSegment(px, py, ax, ay, bx, by);
+    },
+
+    pointInPolygon(px, py, points) {
+        if (!points || points.length < 3) return false;
+        let inside = false;
+        for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+            const xi = points[i].x;
+            const yi = points[i].y;
+            const xj = points[j].x;
+            const yj = points[j].y;
+            const intersect = ((yi > py) !== (yj > py))
+                && (px < ((xj - xi) * (py - yi)) / ((yj - yi) || 1e-12) + xi);
+            if (intersect) inside = !inside;
+        }
+        return inside;
+    },
+
+    circlePolygonOverlap(cx, cy, cr, points) {
+        if (!points || points.length < 3) return false;
+        const r = cr || 0;
+        if (r <= 0) return this.pointInPolygon(cx, cy, points);
+        if (this.pointInPolygon(cx, cy, points)) return true;
+        const r2 = r * r;
+        for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+            const hit = this.projectPointOnSegment(
+                cx, cy,
+                points[j].x, points[j].y,
+                points[i].x, points[i].y
+            );
+            if (hit.distSq <= r2) return true;
+        }
+        return false;
+    }
+};/**
+ * Grid-based spatial partitioning for accelerated radius and collision queries.
+ */
 class SpatialHash {
+    /**
+     * @param {number} [cellSize=64] Size of each grid cell in world units
+     */
     constructor(cellSize = 64) {
         this.cellSize = Math.max(8, Number(cellSize) || 64);
         this.grid = new Map();
     }
 
+    /**
+     * Hash 2D integer cell coordinates into a single integer key.
+     * @param {number} cx
+     * @param {number} cy
+     * @returns {number}
+     * @private
+     */
     _key(cx, cy) {
         return (cx & 0xFFFF) | ((cy & 0xFFFF) << 16);
     }
 
+    /**
+     * Clear all registered entities from the spatial hash grid.
+     */
     clear() {
         this.grid.clear();
     }
 
+    /**
+     * Insert an entity into the grid cells overlapping its bounding radius.
+     * @param {{x: number, y: number, radius?: number, size?: number}} entity
+     */
     insert(entity) {
         if (!entity || typeof entity.x !== 'number' || typeof entity.y !== 'number') return;
         const rad = Math.max(0, Number(entity.radius || entity.size || 0));
@@ -619,6 +704,14 @@ class SpatialHash {
         }
     }
 
+    /**
+     * Query all entities within a given radius around (x, y).
+     * @param {number} x Query center X
+     * @param {number} y Query center Y
+     * @param {number} radius Query search radius
+     * @param {Array<any>|null} [outResults=null] Optional pre-allocated array to collect results without GC allocations
+     * @returns {Array<any>} Array containing matching entities
+     */
     queryRadius(x, y, radius, outResults = null) {
         const results = outResults || [];
         results.length = 0;
@@ -626,7 +719,8 @@ class SpatialHash {
         const maxX = Math.floor((x + radius) / this.cellSize);
         const minY = Math.floor((y - radius) / this.cellSize);
         const maxY = Math.floor((y + radius) / this.cellSize);
-        const seen = new Set();
+
+        const queryId = ++SpatialHash._queryId;
 
         for (let cx = minX; cx <= maxX; cx++) {
             for (let cy = minY; cy <= maxY; cy++) {
@@ -635,8 +729,8 @@ class SpatialHash {
                 if (!cell) continue;
                 for (let i = 0; i < cell.length; i++) {
                     const item = cell[i];
-                    if (seen.has(item)) continue;
-                    seen.add(item);
+                    if (item._spatialQueryId === queryId) continue;
+                    item._spatialQueryId = queryId;
                     const dx = item.x - x;
                     const dy = item.y - y;
                     const itemRad = Math.max(0, Number(item.radius || item.size || 0));
@@ -650,8 +744,21 @@ class SpatialHash {
         return results;
     }
 }
+SpatialHash._queryId = 0;
 
+/**
+ * Lever-arm physics and rigid fragment dynamics calculator.
+ */
 const RigidDebris = {
+    /**
+     * Compute rotational torque resulting from off-center impact forces.
+     * @param {{x: number, y: number}} hitPoint World coordinates of the hit impact
+     * @param {{x: number, y: number}} center Center of mass of the target body
+     * @param {{vx?: number, vy?: number, x?: number, y?: number}} velocity Impact velocity vector
+     * @param {number} mass Mass of the fragment/body
+     * @param {'HEAVY_CRUSH'|'LINE_PIERCE'|'ARC_SLASH'|'THERMAL_BEAM'} [category='ARC_SLASH'] Archetype category modifier
+     * @returns {number} Rotational acceleration / torque impulse
+     */
     computeImpactTorque(hitPoint, center, velocity, mass, category = 'ARC_SLASH') {
         const rx = (hitPoint ? hitPoint.x : 0) - (center ? center.x : 0);
         const ry = (hitPoint ? hitPoint.y : 0) - (center ? center.y : 0);
@@ -686,19 +793,19 @@ const RigidDebris = {
         // the plate actually sat, not a shared cup-toss direction.
         const fromHitX = worldCx - hx;
         const fromHitY = worldCy - hy;
-        const fromHitDist = Math.hypot(fromHitX, fromHitY) || 1;
+        const fromHitDist = Math.sqrt(fromHitX * fromHitX + fromHitY * fromHitY) || 1;
         const hitNx = fromHitX / fromHitDist;
         const hitNy = fromHitY / fromHitDist;
 
         const fromCenterX = worldCx - ex;
         const fromCenterY = worldCy - ey;
-        const fromCenterDist = Math.hypot(fromCenterX, fromCenterY) || 1;
+        const fromCenterDist = Math.sqrt(fromCenterX * fromCenterX + fromCenterY * fromCenterY) || 1;
         const peelX = fromCenterX / fromCenterDist;
         const peelY = fromCenterY / fromCenterDist;
 
         const ivx = impactVel ? (impactVel.vx || impactVel.x || 0) : 0;
         const ivy = impactVel ? (impactVel.vy || impactVel.y || 0) : 0;
-        const impactLen = Math.hypot(ivx, ivy) || 1;
+        const impactLen = Math.sqrt(ivx * ivx + ivy * ivy) || 1;
 
         const massScale = 0.45 + 0.55 / Math.sqrt(N);
         // Near-wound plates take more of the strike; far plates mostly peel apart.

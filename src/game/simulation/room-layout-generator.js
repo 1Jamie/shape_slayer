@@ -396,16 +396,84 @@
         return Math.max(CELL_COLLISION_INSET, cellSize * 0.067);
     }
 
+    function buildRegularPolygonPoints(cx, cy, radius, sides, scaleY, rotation) {
+        const points = [];
+        const sy = scaleY == null ? 1 : scaleY;
+        const rot = rotation || 0;
+        for (let i = 0; i < sides; i++) {
+            const angle = rot + (Math.PI * 2 * i) / sides;
+            points.push({
+                x: cx + Math.cos(angle) * radius,
+                y: cy + Math.sin(angle) * radius * sy
+            });
+        }
+        return points;
+    }
+
+    /**
+     * Collision silhouette for a blocked cell — mirrors drawThemedGridCell /
+     * swarm hive cells so debris spray and movement hug the painted shapes.
+     */
     function getCellCollisionShape(layout, col, row) {
         const cellSize = layout.cellSize || DEFAULT_CELL_SIZE;
         const center = cellCenter(layout, col, row);
-        const radiusScale = CELL_COLLISION_RADIUS_SCALE[layout.biomeId];
+        const biomeId = layout.biomeId;
+        const radiusScale = CELL_COLLISION_RADIUS_SCALE[biomeId];
+        const radius = cellSize * (radiusScale || 0.48);
+
+        if (biomeId === 'vortex') {
+            return {
+                type: 'ellipse',
+                x: center.x,
+                y: center.y,
+                radiusX: radius,
+                radiusY: radius * 0.64,
+                rotation: (col + row) * 0.34
+            };
+        }
+        if (biomeId === 'prism') {
+            return {
+                type: 'polygon',
+                points: [
+                    { x: center.x, y: center.y - radius },
+                    { x: center.x + radius * 0.72, y: center.y },
+                    { x: center.x, y: center.y + radius },
+                    { x: center.x - radius * 0.72, y: center.y }
+                ]
+            };
+        }
+        if (biomeId === 'fractal') {
+            return {
+                type: 'polygon',
+                points: buildRegularPolygonPoints(center.x, center.y, radius, 4, 1, Math.PI / 4)
+            };
+        }
+        if (biomeId === 'swarm') {
+            return {
+                type: 'polygon',
+                points: buildRegularPolygonPoints(center.x, center.y, radius, 6, 1, Math.PI / 6)
+            };
+        }
+        if (biomeId === 'endless') {
+            const sides = (col + row) % 3 === 0 ? 5 : 4;
+            return {
+                type: 'polygon',
+                points: buildRegularPolygonPoints(
+                    center.x,
+                    center.y,
+                    radius,
+                    sides,
+                    sides === 5 ? 0.82 : 1,
+                    -Math.PI / 2 + (col % 2) * 0.22
+                )
+            };
+        }
         if (radiusScale) {
             return {
                 type: 'circle',
                 x: center.x,
                 y: center.y,
-                radius: cellSize * radiusScale
+                radius
             };
         }
 
@@ -425,6 +493,17 @@
         const Geometry = Engine.Physics && Engine.Physics.Geometry;
         if (shape.type === 'circle') {
             return Geometry.circlesOverlap(x, y, r, shape.x, shape.y, shape.radius, { inclusive: true });
+        }
+        if (shape.type === 'ellipse') {
+            return Geometry.circleEllipseOverlap(
+                x, y, r,
+                shape.x, shape.y,
+                shape.radiusX, shape.radiusY,
+                shape.rotation || 0
+            );
+        }
+        if (shape.type === 'polygon') {
+            return Geometry.circlePolygonOverlap(x, y, r, shape.points);
         }
         return Geometry.circleAabbOverlap(x, y, r, shape.x, shape.y, shape.width, shape.height);
     }
@@ -3156,6 +3235,9 @@
         findUnstuckPosition,
         canTraverseBetweenCells,
         isPointWalkable,
+        getCellCollisionShape,
+        worldToCell,
+        cellCenter,
         getProcGrid,
         hasPathBetween,
         findPath,
@@ -3169,6 +3251,9 @@
         generateSceneryFixtures,
         createRng,
         clearRect,
+        clearCircle,
+        stampRect,
+        stampCircle,
         getPlayerSpawnProtectionDistance,
         isInsidePlayerSpawnProtection,
         pointOnPolyline,

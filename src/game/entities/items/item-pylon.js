@@ -19,12 +19,20 @@ function shouldUseItemPylons() {
 function spawnItemDrop(x, y, itemDef) {
     if (!itemDef) return null;
 
+    let dropX = x;
+    let dropY = y;
+    if (typeof GameArena !== 'undefined' && GameArena.displaceLootFromWavePad) {
+        const moved = GameArena.displaceLootFromWavePad(dropX, dropY);
+        dropX = moved.x;
+        dropY = moved.y;
+    }
+
     if (shouldUseItemPylons()) {
         if (typeof createItemPylon !== 'function') {
             console.error('[Item Drop] createItemPylon unavailable; refusing competitive ground drop in co-op');
             return null;
         }
-        const pylon = createItemPylon(x, y, itemDef);
+        const pylon = createItemPylon(dropX, dropY, itemDef);
         if (typeof Game !== 'undefined') {
             if (!Game.itemsDroppedThisRoom) Game.itemsDroppedThisRoom = 0;
             Game.itemsDroppedThisRoom++;
@@ -36,8 +44,8 @@ function spawnItemDrop(x, y, itemDef) {
         id: 'item_' + Date.now() + '_' + Math.random(),
         itemId: itemDef.id,
         definition: itemDef,
-        x: x,
-        y: y,
+        x: dropX,
+        y: dropY,
         size: 12,
         pulse: 0,
         pickupRadius: 30

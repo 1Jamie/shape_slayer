@@ -226,9 +226,7 @@
     }
 
     function createEnemyPreviewCanvas(enemyId, width, height) {
-        const canvas = document.createElement('canvas');
-        canvas.width = width || 72;
-        canvas.height = height || 72;
+        const canvas = Engine.Graphics.createCanvas(width || 72, height || 72);
         canvas.style.display = 'block';
         canvas.style.borderRadius = '8px';
         canvas.style.background = '#141418';

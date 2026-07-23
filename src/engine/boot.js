@@ -37,7 +37,7 @@
  */
 (function(root) {
     const Engine = root.Engine = root.Engine || {};
-    Engine.VERSION = Engine.VERSION || '0.1a';
+    Engine.VERSION = Engine.VERSION || '0.2a';
 
     const REQUIRED_NAMESPACES = Object.freeze([
         'System', 'Save', 'Physics', 'Proc', 'Graphics', 'FX',

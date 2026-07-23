@@ -1,6 +1,17 @@
 (function () {
 	let layer, panel, header, titleEl, statsContainer, shardsEl, creditsEl, instructionsEl, btn, restartBtn;
 
+	function isArenaMode() {
+		if (typeof GameRunRewards !== 'undefined' && typeof GameRunRewards.isArenaMode === 'function') {
+			return GameRunRewards.isArenaMode(typeof Game !== 'undefined' ? Game : null);
+		}
+		if (typeof Game === 'undefined' || !Game) return false;
+		return Game.gameMode === 'arena'
+			|| Game.activeSessionId === 'surge-arena'
+			|| (Game.modeProfile && Game.modeProfile.id === 'surge-arena')
+			|| (Game.currentRoom && Game.currentRoom.archetype === 'surgeArena');
+	}
+
 	function create() {
 		const root = window.UIRoot && window.UIRoot.ensure ? window.UIRoot.ensure() : document.body;
 		layer = document.createElement('div');
@@ -330,11 +341,15 @@
 
 	function refreshSingleplayerStats() {
 		const player = Game.player;
+		const isArena = isArenaMode();
+		const waveReached = Math.max(1, Game.waveNumber || Game.roomNumber || 1);
+		const wavesCleared = Math.max(0, waveReached - 1);
 		const roomsCleared = Math.max(0, Game.roomNumber - 1);
 		const enemiesKilled = Game.enemiesKilled || 0;
 		const elitesKilled = Game.elitesKilled || 0;
 		const bossesKilled = Game.bossesKilled || 0;
 		const levelReached = player ? (player.level || 1) : 1;
+		const highestCombo = Game.highestCombo || 0;
 		
 		// Gated run timing (pause + safe-room excluded from active time)
 		let timing = Game.lastRunTimingResult || null;
@@ -356,7 +371,17 @@
 		const wallStr = timing ? fmt(timing.grossMs) : '0:00';
 
 		// Always show all stats
-		const stats = [
+		const stats = isArena ? [
+			{ label: 'Level Reached', value: levelReached },
+			{ label: 'Waves Survived', value: wavesCleared },
+			{ label: 'Highest Combo', value: highestCombo },
+			{ label: 'Enemies Killed', value: enemiesKilled },
+			{ label: 'Elites Killed', value: elitesKilled },
+			{ label: 'Bosses Killed', value: bossesKilled },
+			{ label: 'Active Time', value: activeStr },
+			{ label: 'Paused', value: pausedStr },
+			{ label: 'Wall Clock', value: wallStr }
+		] : [
 			{ label: 'Level Reached', value: levelReached },
 			{ label: 'Rooms Cleared', value: roomsCleared },
 			{ label: 'Enemies Killed', value: enemiesKilled },
@@ -385,11 +410,13 @@
 		}
 		const creditsEarned = Game.currencyEarned || 0;
 
-		// Match Game.calculateShards / CombatEconomy.estimateShardsGear
-		const roomScale = 12;
-		const killScale = 2.4;
-		const lvlScale = 1.2;
-		const shardBase = Math.floor(roomScale * roomsCleared);
+		// Match Game.calculateShards / CombatEconomy / GameRunRewards
+		const roomScale = isArena ? 15 : 12;
+		const killScale = isArena ? 0.35 : 2.4;
+		const lvlScale = isArena ? 1.0 : 1.2;
+		const progressCount = isArena ? wavesCleared : roomsCleared;
+		const progressLabel = isArena ? 'Waves' : 'Rooms';
+		const shardBase = Math.floor(roomScale * progressCount);
 		const shardBonus = Math.floor(killScale * enemiesKilled);
 		const shardLevelBonus = Math.floor(lvlScale * levelReached);
 
@@ -406,7 +433,7 @@
 				shardBreakdown.style.color = '#ffd700';
 				shardBreakdown.style.marginBottom = creditsEarned > 0 ? '8px' : '0';
 				shardBreakdown.innerHTML = `<strong>Shards Breakdown:</strong><br>` +
-					`&nbsp;&nbsp;Rooms (${roomsCleared} × ${roomScale}): ${shardBase}<br>` +
+					`&nbsp;&nbsp;${progressLabel} (${progressCount} × ${roomScale}): ${shardBase}<br>` +
 					`&nbsp;&nbsp;Enemies (${enemiesKilled} × ${killScale}): ${shardBonus}<br>` +
 					`&nbsp;&nbsp;Level (${levelReached} × ${lvlScale}): ${shardLevelBonus}<br>` +
 					`<strong>Total: ${shardsEarned}</strong>`;
@@ -479,7 +506,9 @@
 								kills: statsData.kills,
 								damageTaken: statsData.damageTaken,
 								timeAlive: statsData.timeAlive,
-								roomsCleared: statsData.roomsCleared
+								roomsCleared: statsData.roomsCleared,
+								wavesCleared: statsData.wavesCleared,
+								highestCombo: statsData.highestCombo
 							}
 						});
 					}
@@ -499,7 +528,9 @@
 								kills: stats.kills,
 								damageTaken: stats.damageTaken,
 								timeAlive: stats.getTimeAlive ? stats.getTimeAlive() : 0,
-								roomsCleared: Math.max(0, Game.roomNumber - 1)
+								roomsCleared: Math.max(0, Game.roomNumber - 1),
+								wavesCleared: Math.max(0, (Game.waveNumber || Game.roomNumber || 1) - 1),
+								highestCombo: stats.highestCombo || Game.highestCombo || 0
 							}
 						});
 					}
@@ -531,7 +562,10 @@
 		const thead = document.createElement('thead');
 		const headerRow = document.createElement('tr');
 		headerRow.style.background = 'rgba(68, 68, 68, 0.8)';
-		const headers = ['Player', 'Damage', 'Kills', 'Dmg Taken', 'Rooms', 'Time'];
+		const isArena = isArenaMode();
+		const headers = isArena
+			? ['Player', 'Damage', 'Kills', 'Dmg Taken', 'Waves', 'Highest Combo', 'Time']
+			: ['Player', 'Damage', 'Kills', 'Dmg Taken', 'Rooms', 'Time'];
 		headers.forEach(headerText => {
 			const th = document.createElement('th');
 			th.style.padding = '8px';
@@ -557,7 +591,15 @@
 			const seconds = (timeAlive % 60).toFixed(1);
 			const timeStr = `${minutes}:${seconds.padStart(4, '0')}`;
 
-			const cells = [
+			const cells = isArena ? [
+				`${entry.playerName}${isLocalPlayer ? ' (You)' : ''}`,
+				Math.floor(entry.stats.damageDealt || 0).toLocaleString(),
+				(entry.stats.kills || 0).toString(),
+				Math.floor(entry.stats.damageTaken || 0).toLocaleString(),
+				(entry.stats.wavesCleared || Math.max(0, (Game.waveNumber || 1) - 1)).toString(),
+				(entry.stats.highestCombo || Game.highestCombo || 0).toString(),
+				timeStr
+			] : [
 				`${entry.playerName}${isLocalPlayer ? ' (You)' : ''}`,
 				Math.floor(entry.stats.damageDealt || 0).toLocaleString(),
 				(entry.stats.kills || 0).toString(),

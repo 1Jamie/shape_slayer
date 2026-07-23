@@ -250,14 +250,15 @@ test('GameRenderPipeline.cleanupAllStateTargets releases target sets across all 
     assert.equal(game.offscreenCtx, null);
 });
 
-test('main.js integrates Engine.Profiler, target cleanup, and Engine.Input.onDeviceChange', () => {
+test('main.js integrates Engine.Profiler target cleanup; roguelike mode owns Core device hooks', () => {
     const main = fs.readFileSync(path.join(ROOT, 'src/game/main.js'), 'utf8');
-    assert.match(main, /Engine\.Profiler\.beginFrame/);
-    assert.match(main, /Engine\.Profiler\.markPhase\('render'\)/);
-    assert.match(main, /Engine\.Profiler\.markPhase\('update'\)/);
-    assert.match(main, /Engine\.Profiler\.endFrame/);
     assert.match(main, /cleanupAllStateTargets/);
-    assert.match(main, /Engine\.Input\.onDeviceChange/);
+    const mode = fs.readFileSync(path.join(ROOT, 'src/modes/roguelike/mode.js'), 'utf8');
+    assert.match(mode, /Engine\.Profiler\.beginFrame/);
+    assert.match(mode, /Engine\.Profiler\.markPhase\('render'\)/);
+    assert.match(mode, /Engine\.Profiler\.markPhase\('update'\)/);
+    assert.match(mode, /Engine\.Profiler\.endFrame/);
+    assert.match(mode, /Engine\.Input\.onDeviceChange/);
 });
 
 test('RoomLayoutGenerator.findPathAsync returns a promise resolving to a valid path', async () => {
@@ -283,12 +284,18 @@ test('game presentation, content, and entity scripts route offscreen canvases th
         'src/game/entities/items/item-visuals.js',
         'src/game/entities/items/item-pylon.js',
         'src/game/content/gear.js',
-        'src/game/main.js'
+        'src/game/main.js',
+        'src/game/entities/enemies/enemy-base.js',
+        'src/game/entities/enemies/enemy-index-catalog.js',
+        'src/game/entities/enemies/elite-enemy-affixes.js',
+        'src/game/entities/bosses/boss-vortex.js',
+        'src/game/entities/players/player-warrior.js'
     ];
     for (const rel of files) {
         const content = fs.readFileSync(path.join(ROOT, rel), 'utf8');
         assert.match(content, /Engine\.Graphics\.createCanvas/);
         assert.doesNotMatch(content, /typeof Engine\.Graphics\.createCanvas === 'function'/);
+        assert.doesNotMatch(content, /document\.createElement\(\s*['"]canvas['"]\s*\)/);
     }
 });
 

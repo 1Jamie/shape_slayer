@@ -93,15 +93,27 @@ const EngineAudio = {
             this.musicFilter.type = 'lowpass';
             this.musicFilter.frequency.value = 20000;
             this.musicFilter.Q.value = 0.7;
+
+            this.musicBassShelf = this.context.createBiquadFilter();
+            this.musicBassShelf.type = 'lowshelf';
+            this.musicBassShelf.frequency.value = 100;
+            this.musicBassShelf.gain.value = 0;
+
+            this.styleMusicGain = this.context.createGain();
+            this.styleMusicGain.gain.value = 1.0;
             
-            this.musicGain.connect(this.musicDuckGain);
+            this.musicGain.connect(this.styleMusicGain);
+            this.styleMusicGain.connect(this.musicDuckGain);
             this.musicDuckGain.connect(this.musicFilter);
-            this.musicFilter.connect(this.masterGain);
+            this.musicFilter.connect(this.musicBassShelf);
+            this.musicBassShelf.connect(this.masterGain);
             
             this.musicBus = {
                 input: this.musicGain,
                 duckGain: this.musicDuckGain,
-                filter: this.musicFilter
+                filter: this.musicFilter,
+                bassShelf: this.musicBassShelf,
+                styleGain: this.styleMusicGain
             };
             
             // Load saved volume settings

@@ -4,7 +4,7 @@
 const GameVersion = {
   // Feature/gameplay releases: bump this and the sw.js CACHE_VERSION base together.
   // Background/PWA-only cache busts: bump only the trailing .N on sw.js CACHE_VERSION.
-  VERSION: '0.8.2',
+  VERSION: '0.9.0',
 
   UPDATE_MESSAGES: {
     '0.2.1': 'Initial early access release! Please report any bugs you find at https://github.com/1jamie/shape_slayer/issues',
@@ -782,6 +782,93 @@ Room 200 is still gonna suck in the fun way i hope, but I'm not handing it to yo
 
 *TL;DR: weapons have weight you can read, timing has payoff, biomes remix geometry, elites telegraph their cheat codes, mage beam stopped being a sham, bosses finally drop loot that feels earned, and the Index finally tracks mastery. Check Ledger & Feats if you want receipts.*
 `,
+    '0.9.0': `**⚔️ UPDATE 0.9.0: THE "STYLE, SPLITS & ENGINE DIVORCE" UPDATE** (07/22/2026)
+*"We divorced the engine, split the screen, and now you can force your sibling to play local co-op with you to cope. Also includes endless wave mode, custom-skewed biome gore, and a combo meter that turns spicy. We optimized the heck out of the new debris physics too, so hopefully your framerate doesn't even flinch!"*
+
+---
+
+## **⚔️ PART 1: SURGE ARENA (HORDE SURVIVAL) & THE WAVE DIRECTOR**
+*"No rooms, no doors, no waiting around. Just an arena, a combo meter, and an endless wave of geometric aggressors. Also, upgrade machines now live in a locked cage."*
+
+• **Endless Wave Escalation:** A dedicated arena game mode set in a persistent, complex stadium layout generated from seeds with unique topologies (like Coliseum ellipses or Panopticon voids).
+• **Dynamic Wave Director:** No more preset rosters. The director parses a Modes-supplied spawn queue and trickle-feeds enemies using a strict threat cost budget (Basic: 10, Star: 14, Diamond: 18, Rectangle: 22, Octagon: 38).
+  *"If a wave is taking too long to spawn, the director dumps them in clusters of up to 4. No trickling one circle at a time."*
+• **Soft-Lock Breaker:** If a spawn point check fails repeatedly (6 failures in a row) or the queue stalls with 0 active units, the system auto-flushes pending spawns to keep the run moving.
+• **Hard Surges & Double Bosses:** Every 5th wave is a Hard Surge. Every 10th wave is a Double Boss encounter (Swarm King, Twin Prism, Fractal Core, and Vortex; Fortress got banned for being uncooperative in arenas).
+  *"Bosses scale with wave progression, but they have 45% HP (38% on double boss rounds) so you aren't fighting a raid boss on a budget."*
+• **Shop Bay & Gates:** Upgrade machines (Gear Level Up, Affix Reroll) unlock only during post-surge downtime. Conditional \`GameBarriers\` seal the bay, ejecting players and culling stray enemies so nothing gets trapped inside grid collision.
+• **Trigger Pylon & Loot Sweep:** Hit the central pylon to trigger waves. The game automatically displaces ground items off the pylon trigger zone so you don't pick up a gray circle when trying to start the next wave.
+• **Persistence Rules:** Pickable loot resets on wave starts, but static voxel gore canvases stay forever. Clean floors are overrated.
+
+---
+
+## **🔥 PART 2: SURGE ARENA STYLE & CO-OP COEXISTENCE**
+*"A special DMC-style combo system exclusive to Surge Arena Mode. Play with variety, build your rank, and unlock arena-only buffs — or watch the horde escalate in response. Now fully multiplayer compatible!"*
+
+• **Individual Combo Tracking:** In multiplayer, each player tracks their combo meter and tier individually. One player taking a hit does not ruin their teammate's active style streak.
+• **Style-Based Perks (Arena Only):** Getting high combo ranks in the arena adds real combat benefits:
+  - **Style Crit Bonus:** Adds extra crit probability to your character sheet.
+  - **Style Life Steal:** Heals you for a portion of damage dealt, capped at 4% of your max HP per hit to prevent infinite AOE healing loops.
+  - **Co-op Parity:** Solo style perks (Move speed, Cooldown reduction, Lifesteal, Crit rate) remain at 100% parity for each player in multiplayer.
+• **Target-Driven Aggro Scaling:** Enemy movement speed and telegraph acceleration are calculated dynamically based on the combo rank of their *specific target* (or decoy construct/clone) from their threat table, rather than a global average.
+• **Action Variety Tagging:** The engine checks whether you are spamming basic attacks or mixing it up (Primary, Heavy, Special, Dash Attack) to determine combo generation.
+• **Dynamic Elite Pressure:** If you reach A+ style rank in the arena, the wave director starts temporarily forcing elite affixes onto normal enemies with a +15% HP boost.
+  *"Oh, you're doing combos? Neat, have a glowing triangle that shoots laser walls."*
+• **Telegraph Acceleration:** At Style B+ or higher, enemy telegraph windups tick faster. Fast style makes fast fights.
+• **Host-Authoritative Netcode Sync:** Combo meters, healing orbs, and style crash shards are synchronized over the network. The host acts as the absolute authority on loot pickup validation and HP edits, while clients run predictive checks for zero-latency UI/SFX feedback.
+• **Teammate HUD Badges:** Teammate health bars now display compact, color-coded style rank badges ([D], [C], [B], [A], [S]) in the HUD.
+
+---
+
+## **💥 PART 3: MULTI-VARIABLE VOXEL DISINTEGRATION**
+*"I got tired of enemies just going poof. Then I got tired of them just having basic Swiss cheese holes. Now they undergo structural stress analysis."*
+
+• **Stress-Based Fracturing:** Damage computes a 4-variable stress score ($S$). High stress shatters geometry into tiny micro-cubes; low stress peels off large plating chunks.
+• **RigidDebris Island Physics:** Broken segments fly off using world-space centroids calculated from their original body parts, and peel velocities match which "seat" they occupied.
+• **Splatter Scenery Collisions:** Airborne fluid particles (gore spray) now collide with walls, pillars, lamps, and ellipse colliders, stamping permanent opaque puddles where they land.
+• **Biome-Specific Splatters:** Fluid stamp silhouettes stretch, rotate, and skew to match the local biome's pattern (e.g. diamonds in Biome 3, vortexes in Biome 4).
+• **Orphan Droplet Prevention:** Satellite fluid droplets are linked to their parent particles. If a leader slot is cleared, orphans auto-stamp and release so we don't starve the particle pool on long arena runs.
+• **Combat Clarity & Performance:** Added a soft cap that rejects new debris if the governor budget is exceeded. Wound colors now use the enemy's base color instead of their flash/telegraph draw tint.
+
+---
+
+## **📐 PART 4: UNIFIED IMPULSE PHYSICS & GEOMETRY**
+*"Knockback used to be a random suggestion. Now it is a strict physical vector."*
+
+• **Unified Impulse System:** Replaced the legacy knockback system with physical impulse handlers on players and enemies. Handles exponential decay, velocity limits, and pull forces.
+• **Rotated Ellipse vs Circle:** Added \`circleEllipseOverlap\` to resolve collisions with rotated elliptical scenery objects in local space.
+• **Polygon Colliders:** Added \`circlePolygonOverlap\` and \`pointInPolygon\` check support for complex layouts.
+
+---
+
+## **🛡️ PART 5: ENEMY DEFENSE SCALING**
+*"Turns out enemies should have armor too. I did math, you might not like it."*
+
+• **Intrinsic Base Defense:** Enemies now have default defense values (Trash: basic 0%, star 2%, diamond 4%, rectangle 8%; Elite: octagon 15%).
+• **Defense Growth Curves:** Enemy defense scales by +0.5% per room in campaign or +1.2% per wave in Arena.
+• **Mitigation Caps:** Defense is capped at 45% mitigation for trash and 60% for elites.
+• **New Damage Formula:** final damage mitigates linearly: \`mitigatedDamage = baseDamage * gearMultiplier * (1 - defense)\` (with crits applied after mitigation).
+
+---
+
+## **🏝️ PART 6: MODULAR MODE ARCHITECTURE (CREATIVE ISLANDS) & QOL**
+*"I divorced the game code from the rendering/save loop. The codebase is clean now, and I can sleep."*
+
+• **Creative Islands Separation:** The game loop now consumes reusable game packages and runs on engine APIs. \`sandbox\`, \`roguelike\`, and \`surge-arena\` are completely isolated rulebooks.
+• **Camera Reset Smoothing:** Snaps the camera position instantly on mode takeover (e.g. entering the portal) to prevent the screen from lerping violently from the Nexus coordinates.
+• **Multiplayer Host Paused Status:** If the host is in a menu or paused, client inputs are suppressed, and clients see a "Host Paused" indicator. No more getting killed while the host gets a snack.
+• **Dodge Cancel:** Dodge interrupts active attack recovery frames instantly and flushes queued inputs.
+
+---
+
+## **🎯 FINAL WORDS**
+
+*TL;DR: Endless Surge Arena mode shipped with wave director & combo meter, style engine rewards variety with life steal/crit, voxel fracture system got real physical stress & scenery-colliding biome viscera, unified impulse system replaced knockback, enemies have defense scaling, local couch co-op launched, and PWA auto-updates installed. I deleted a mountain of game-local spaghetti code to make room for it.*
+
+*P.S. - Try getting a 100+ combo in Surge Arena. Your combo meter will turn spicy, and the wave director will start spawning elites out of pure spite.*
+
+*P.P.S. - If your local co-op partner steals all the gear level ups: the machine is seat-aware, but the game is still a friendship test. Choose wisely.*
+`,
   },
 
   // Update type labels - can be: 'major', 'feature', 'minor', 'hotfix', 'bugfix', 'refactor', 'rebalance'
@@ -802,7 +889,8 @@ Room 200 is still gonna suck in the fun way i hope, but I'm not handing it to yo
     '0.7.0': ['major', 'feature', 'rebalance'],
     '0.8.0': ['major', 'feature', 'rebalance', 'visuals'],
     '0.8.1': ['minor', 'feature', 'hotfix'],
-    '0.8.2': ['minor', 'feature', 'rebalance', 'visuals']
+    '0.8.2': ['minor', 'feature', 'rebalance', 'visuals'],
+    '0.9.0': ['major', 'feature', 'refactor', 'performance']
   },
 
   // Short patch codenames for the title screen subtitle (VERSION + title)
@@ -812,7 +900,8 @@ Room 200 is still gonna suck in the fun way i hope, but I'm not handing it to yo
     '0.7.0': 'THE "TOUCH GRASS PROCEDURALLY" UPDATE',
     '0.8.0': 'THE "UNDECK YOURSELF" UPDATE',
     '0.8.1': 'THE "STOP TELEPORTING, PLEASE" UPDATE',
-    '0.8.2': 'WEIGHT, TIMING & BIOME GEOMETRY'
+    '0.8.2': 'WEIGHT, TIMING & BIOME GEOMETRY',
+    '0.9.0': 'THE "STYLE, SPLITS & ENGINE DIVORCE" UPDATE'
   }
 };
 

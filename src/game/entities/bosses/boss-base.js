@@ -662,7 +662,12 @@ class BossBase extends EnemyBase {
         
         // Apply weak point damage multiplier if weak point hit
         const weakPointMultiplier = this.weakPointDamageMultiplier || 3;
-        const finalDamage = weakPointHit ? damage * weakPointMultiplier : damage;
+        let finalDamage = weakPointHit ? damage * weakPointMultiplier : damage;
+
+        if (this.defense && this.defense > 0) {
+            const defCap = Math.min(0.80, this.defense);
+            finalDamage *= (1 - defCap);
+        }
 
         this._lastHitWeakPoint = !!weakPointHit;
         
@@ -699,6 +704,10 @@ class BossBase extends EnemyBase {
         }
         if (typeof flagVoxelDamage === 'function' && this._voxelGrid) {
             flagVoxelDamage(this, finalDamage, hitX, hitY, arch);
+        }
+
+        if (typeof GameKillRewards !== 'undefined' && GameKillRewards.emitEnemyDamaged) {
+            GameKillRewards.emitEnemyDamaged(this, finalDamage);
         }
 
         if (this.hp <= 0) {
@@ -749,7 +758,20 @@ class BossBase extends EnemyBase {
         } else if (typeof createParticleBurst !== 'undefined') {
             createParticleBurst(this.x, this.y, this.color, 30);
         }
-        // Track boss kill - bank persistent credits immediately (CombatEconomy tier)
+
+        // Island rules decide XP / credits / loot (see grantBossLootRewards).
+        if (typeof GameKillRewards !== 'undefined' && GameKillRewards.emitEnemyKilled) {
+            GameKillRewards.emitEnemyKilled(this, {
+                isBoss: true,
+                lootDifficulty: 'boss'
+            });
+        }
+    }
+
+    /**
+     * Boss reward package verb — invoked by Island rules after combat:enemyKilled.
+     */
+    grantBossLootRewards() {
         const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
         if (!isClient && typeof Game !== 'undefined') {
             if (typeof Game.bossesKilled === 'number') {
@@ -765,7 +787,6 @@ class BossBase extends EnemyBase {
                 Game.awardRunCredits(amount, 'boss');
             }
         }
-        // Persist unique boss defeat for nexus machine gates
         if (!isClient && typeof SaveSystem !== 'undefined' && SaveSystem.recordBossDefeated) {
             SaveSystem.recordBossDefeated(this.bossName || this.constructor.name);
         }
@@ -782,40 +803,35 @@ class BossBase extends EnemyBase {
             });
             Telemetry.completeBossEncounter(bossId);
         }
-        
-        // Give XP to all alive players (multiplayer: host distributes; solo: local player)
-        if (typeof Game !== 'undefined' && Game.distributeXPToAllPlayers && this.xpValue) {
-            Game.distributeXPToAllPlayers(this.xpValue);
-        }
-        
-        // Item drop system (bosses have high chance + rarity-biased consumables)
+
         if (typeof Game !== 'undefined' && typeof ITEM_DEFINITIONS !== 'undefined' && typeof getRandomItem === 'function') {
-            // Bosses: 75% item chance, exempt from room/count scaling
             const roomNumber = (typeof Game !== 'undefined' && Game.roomNumber) ? Game.roomNumber : 1;
             if (Math.random() < 0.75) {
                 const bossItemWeights = (typeof BOSS_ITEM_RARITY_WEIGHTS !== 'undefined')
                     ? BOSS_ITEM_RARITY_WEIGHTS
                     : null;
                 const itemDef = getRandomItem(bossItemWeights);
-                // Local co-op / online MP use shared pylons; solo uses ground pickups.
                 if (typeof spawnItemDrop === 'function') {
                     spawnItemDrop(this.x, this.y, itemDef);
                     console.log(`[Item Drop] ${itemDef.name} (${itemDef.rarity}) from Boss (Room ${roomNumber}, Total: ${Game.itemsDroppedThisRoom || 0})`);
                 }
             }
         }
-        
-        // Boss reward package: room-scaled trophy + 2-3 rare+ extras
-        // Syncs via game_state in multiplayer
-        if (typeof generateGear !== 'undefined' && typeof groundLoot !== 'undefined') {
-            const extraCount = 2 + Math.floor(Math.random() * 2); // 2 or 3 extras
-            const roomNum = typeof Game !== 'undefined' ? (Game.roomNumber || 1) : 1;
-            const dropOffset = () => ({
-                x: this.x + (Math.random() - 0.5) * 40,
-                y: this.y + (Math.random() - 0.5) * 40
-            });
 
-            // Trophy piece - always a highlight, but epic/legendary ramp with room
+        if (typeof generateGear !== 'undefined' && typeof groundLoot !== 'undefined') {
+            const extraCount = 2 + Math.floor(Math.random() * 2);
+            const roomNum = typeof Game !== 'undefined' ? (Game.roomNumber || 1) : 1;
+            const dropOffset = () => {
+                let x = this.x + (Math.random() - 0.5) * 40;
+                let y = this.y + (Math.random() - 0.5) * 40;
+                if (typeof GameArena !== 'undefined' && GameArena.displaceLootFromWavePad) {
+                    const moved = GameArena.displaceLootFromWavePad(x, y);
+                    x = moved.x;
+                    y = moved.y;
+                }
+                return { x, y };
+            };
+
             const trophyTier = (typeof rollBossTrophyTier === 'function')
                 ? rollBossTrophyTier(roomNum)
                 : 'blue';

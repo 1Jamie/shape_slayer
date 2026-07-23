@@ -110,9 +110,15 @@
 		
 		panel.style.display = 'block';
 		
-		// Update room number
-		if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'safe') {
+		// Update room / wave label from Island profile
+		const profile = (typeof Game !== 'undefined') ? Game.modeProfile : null;
+		const useWave = !!(profile && profile.room && profile.room.label === 'wave');
+		if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'safe' && !useWave) {
 			roomNumberEl.textContent = 'Safe Room';
+		} else if (useWave) {
+			const wave = Game.waveNumber || Game.roomNumber || 1;
+			const hard = wave % 5 === 0;
+			roomNumberEl.textContent = hard ? `Wave ${wave} — Surge` : `Wave ${wave}`;
 		} else {
 			roomNumberEl.textContent = `Room ${Game.roomNumber}`;
 		}
@@ -122,8 +128,25 @@
 		const roomCleared = isRoomCleared();
 		const doorOpen = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.doorOpen : false;
 		const inMultiplayer = typeof Game !== 'undefined' && Game.multiplayerEnabled;
+		const arenaWaiting = useWave && Game.arenaPhase === 'waiting';
 		
-		if (!roomCleared && enemyCount > 0) {
+		if (arenaWaiting) {
+			const machinesOpen = !!(typeof currentRoom !== 'undefined' && currentRoom && currentRoom.machinesAccessible);
+			enemyCountEl.textContent = machinesOpen
+				? 'Downtime — machines open · activate pylon'
+				: 'Waiting — step onto the trigger plaza';
+			enemyCountEl.style.color = machinesOpen ? '#88ffcc' : '#ffe08a';
+			enemyCountEl.style.display = 'block';
+			statusEl.style.display = 'none';
+		} else if (useWave && Game.arenaPhase === 'combat' && Game.waveDirector
+			&& !Game.waveDirector.complete && Game.arenaWavePhase !== 'boss') {
+			const left = (typeof WaveDirector !== 'undefined' && WaveDirector.getEnemiesRemaining)
+				? WaveDirector.getEnemiesRemaining(Game)
+				: enemyCount;
+			enemyCountEl.textContent = left > 0 ? `Enemies: ${left}` : 'Enemies: 0';
+			enemyCountEl.style.color = '#ffaaaa';
+			enemyCountEl.style.display = 'block';
+		} else if (!roomCleared && enemyCount > 0) {
 			// Show enemy count when there are enemies
 			enemyCountEl.textContent = `Enemies: ${enemyCount}`;
 			enemyCountEl.style.color = '#ffaaaa';

@@ -83,6 +83,38 @@ const GameLootInteraction = {
                 }
             }
 
+            // Arena upgrade bay (gated) — same machines API when accessible
+            if (typeof currentRoom !== 'undefined' && currentRoom
+                && currentRoom.machinesAccessible
+                && (currentRoom.allowSafeRoomMachines || currentRoom.isArenaComplex)) {
+                const machines = (typeof window.getSafeRoomMachines === 'function') ? window.getSafeRoomMachines(currentRoom) : [];
+                const nearMachine = machines.find(m => {
+                    const dist = Math.hypot(m.x - actor.player.x, m.y - actor.player.y);
+                    return dist < m.range;
+                });
+                if (nearMachine && typeof window.toggleSafeRoomMachine === 'function') {
+                    window.toggleSafeRoomMachine(true, nearMachine.id);
+                    continue;
+                }
+            }
+
+            // Arena wave trigger pylon
+            if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.wavePylon
+                && currentRoom.wavePylon.active) {
+                const pylon = currentRoom.wavePylon;
+                const dist = Math.hypot(pylon.x - actor.player.x, pylon.y - actor.player.y);
+                if (dist < pylon.range) {
+                    if (typeof GameBus !== 'undefined' && GameBus.emit) {
+                        GameBus.emit('arena:startNextWave', {
+                            world: typeof Game !== 'undefined' ? Game : null
+                        });
+                    } else if (typeof GameArena !== 'undefined' && GameArena.triggerNextWave) {
+                        GameArena.triggerNextWave(typeof Game !== 'undefined' ? Game : null);
+                    }
+                    continue;
+                }
+            }
+
             if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen && currentRoom.preBossHealer) {
                 const healer = currentRoom.preBossHealer;
                 if (!healer.usedBy) healer.usedBy = new Set();

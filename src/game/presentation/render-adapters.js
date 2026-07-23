@@ -3,21 +3,44 @@ function getParticleSystem() {
     return null;
 }
 
+const _particleBurstSpeed = Object.freeze([100, 200]);
+const _particleBurstSize = Object.freeze([3, 6]);
+const _particleBurstScratch = {
+    x: 0,
+    y: 0,
+    count: 10,
+    color: '#ffffff',
+    speed: _particleBurstSpeed,
+    size: _particleBurstSize,
+    life: 0.5,
+    spread: Math.PI * 2
+};
+
 // Create burst of particles at position
 function createParticleBurst(x, y, color, count = 10) {
     const particles = getParticleSystem();
     if (!particles || !Engine.FX || typeof Engine.FX.burst !== 'function') return;
-    Engine.FX.burst(particles, {
-        x,
-        y,
-        count,
-        color,
-        speed: [100, 200],
-        size: [3, 6],
-        life: 0.5,
-        spread: Math.PI * 2
-    });
+    _particleBurstScratch.x = x;
+    _particleBurstScratch.y = y;
+    _particleBurstScratch.count = count;
+    _particleBurstScratch.color = color;
+    Engine.FX.burst(particles, _particleBurstScratch);
 }
+
+const _directionalBurstSpeed = [0, 0];
+const _directionalBurstSize = [0, 0];
+const _directionalBurstLife = [0, 0];
+const _directionalBurstScratch = {
+    x: 0,
+    y: 0,
+    count: 12,
+    color: '#ffffff',
+    angle: 0,
+    spread: 0,
+    speed: _directionalBurstSpeed,
+    size: _directionalBurstSize,
+    life: _directionalBurstLife
+};
 
 function createDirectionalParticleBurst(x, y, dirX, dirY, color, options = {}) {
     const particles = getParticleSystem();
@@ -35,17 +58,21 @@ function createDirectionalParticleBurst(x, y, dirX, dirY, color, options = {}) {
     const baseAngle = Math.atan2(normY, normX);
     const safeColor = color || '#ffffff';
 
-    Engine.FX.burst(particles, {
-        x,
-        y,
-        count,
-        color: safeColor,
-        angle: baseAngle,
-        spread: spread * 2,
-        speed: [baseSpeed * 0.6, baseSpeed * 1.2],
-        size: [baseSize, baseSize + (options.sizeVariance || 2)],
-        life: [life * 0.8, life * 1.2]
-    });
+    _directionalBurstSpeed[0] = baseSpeed * 0.6;
+    _directionalBurstSpeed[1] = baseSpeed * 1.2;
+    _directionalBurstSize[0] = baseSize;
+    _directionalBurstSize[1] = baseSize + (options.sizeVariance || 2);
+    _directionalBurstLife[0] = life * 0.8;
+    _directionalBurstLife[1] = life * 1.2;
+
+    _directionalBurstScratch.x = x;
+    _directionalBurstScratch.y = y;
+    _directionalBurstScratch.count = count;
+    _directionalBurstScratch.color = safeColor;
+    _directionalBurstScratch.angle = baseAngle;
+    _directionalBurstScratch.spread = spread * 2;
+
+    Engine.FX.burst(particles, _directionalBurstScratch);
 }
 
 // Create lightning arc visual effect between two points
@@ -346,7 +373,7 @@ const RENDER_FALLBACK_BIOMES = {
 
 // Get biome for a room number
 function getBiomeForRoom(roomNumber) {
-    const gameMode = (typeof Game !== 'undefined' && Game.gameMode) ? Game.gameMode : 'cards';
+    const gameMode = (typeof Game !== 'undefined' && Game.gameMode) ? Game.gameMode : 'gear';
     if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.biomeId && typeof BiomeConfig !== 'undefined') {
         return BiomeConfig.getBiomeDefinition(currentRoom.biomeId);
     }
@@ -437,20 +464,17 @@ function buildBiomeGridPatternTile(biome, isMask, isParallax) {
     };
 
     if (biome.pattern === 'grid') {
-        // Draw Glow (Vertical & Horizontal)
-        // We draw at 0 and tileSize to ensure wrapping?
-        // Actually for a pattern, drawing at x=0.5 or similar helps crispness, 
-        // but for glow we want soft.
-        // Draw lines along top and left edges. 
-        // Since it repeats, top edge of one is bottom of another.
-
-        // Vertical
+        // Vertical (left and right edges for seamless tile wrapping)
         drawLine(0, 0, 0, tileSize, glowWidth, glowColor);
+        drawLine(tileSize, 0, tileSize, tileSize, glowWidth, glowColor);
         drawLine(0, 0, 0, tileSize, coreWidth, coreColor);
+        drawLine(tileSize, 0, tileSize, tileSize, coreWidth, coreColor);
 
-        // Horizontal
+        // Horizontal (top and bottom edges for seamless tile wrapping)
         drawLine(0, 0, tileSize, 0, glowWidth, glowColor);
+        drawLine(0, tileSize, tileSize, tileSize, glowWidth, glowColor);
         drawLine(0, 0, tileSize, 0, coreWidth, coreColor);
+        drawLine(0, tileSize, tileSize, tileSize, coreWidth, coreColor);
 
     } else if (biome.pattern === 'diagonal') {
         pCtx.setLineDash([tileSize * 0.06, tileSize * 0.08]);
@@ -862,19 +886,42 @@ function renderRoomVisualMotifs(ctx, roomNumber) {
         if (!motif || !motif.type) return;
 
         if (motif.type === 'swarmBossArena') {
+            const mx = motif.centerX != null ? motif.centerX : centerX;
+            const my = motif.centerY != null ? motif.centerY : centerY;
             for (let ring = 0; ring < 3; ring++) {
                 const radius = 210 + ring * 150;
                 ctx.beginPath();
                 for (let i = 0; i < 6; i++) {
                     const angle = Math.PI / 6 + (Math.PI * 2 * i) / 6;
-                    const x = centerX + Math.cos(angle) * radius;
-                    const y = centerY + Math.sin(angle) * radius * 0.72;
+                    const x = mx + Math.cos(angle) * radius;
+                    const y = my + Math.sin(angle) * radius * 0.72;
                     if (i === 0) ctx.moveTo(x, y);
                     else ctx.lineTo(x, y);
                 }
                 ctx.closePath();
                 ctx.stroke();
             }
+        } else if (motif.type === 'surgeColiseum') {
+            const rx = motif.radiusX || 700;
+            const ry = motif.radiusY || 520;
+            const mx = motif.centerX != null ? motif.centerX : centerX;
+            const my = motif.centerY != null ? motif.centerY : centerY;
+            ctx.beginPath();
+            ctx.ellipse(mx, my, rx, ry, 0, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.ellipse(mx, my, rx * 0.72, ry * 0.72, 0, 0, Math.PI * 2);
+            ctx.stroke();
+        } else if (motif.type === 'surgeGrid' || motif.type === 'surgeDumbbell') {
+            const mx = motif.centerX != null ? motif.centerX : centerX;
+            const my = motif.centerY != null ? motif.centerY : centerY;
+            ctx.strokeRect(mx - 620, my - 390, 1240, 780);
+            ctx.beginPath();
+            ctx.moveTo(mx - 900, my);
+            ctx.lineTo(mx + 900, my);
+            ctx.moveTo(mx, my - 520);
+            ctx.lineTo(mx, my + 520);
+            ctx.stroke();
         } else if (motif.type === 'prismDashLanes') {
             ctx.beginPath();
             ctx.moveTo(centerX - 850, centerY - 430);
@@ -894,13 +941,15 @@ function renderRoomVisualMotifs(ctx, roomNumber) {
             ctx.lineTo(centerX, centerY + 520);
             ctx.stroke();
         } else if (motif.type === 'fractalBossIslands') {
+            const mx = motif.centerX != null ? motif.centerX : centerX;
+            const my = motif.centerY != null ? motif.centerY : centerY;
             for (let i = 0; i < 4; i++) {
                 const radius = 170 + i * 125;
                 ctx.beginPath();
-                ctx.moveTo(centerX, centerY - radius * 0.65);
-                ctx.lineTo(centerX + radius, centerY);
-                ctx.lineTo(centerX, centerY + radius * 0.65);
-                ctx.lineTo(centerX - radius, centerY);
+                ctx.moveTo(mx, my - radius * 0.65);
+                ctx.lineTo(mx + radius, my);
+                ctx.lineTo(mx, my + radius * 0.65);
+                ctx.lineTo(mx - radius, my);
                 ctx.closePath();
                 ctx.stroke();
             }
@@ -1104,6 +1153,37 @@ function renderRoomSemanticScenery(ctx, roomNumber, options = {}) {
         const pathWidth = path.width || 150;
         const isAccess = path.type && path.type.includes('Access');
         const isOffshoot = path.type === 'offshoot';
+        const isArenaPath = path.type === 'arenaLane' || path.type === 'arenaRing';
+
+        // Surge Arena circulation — subtle plaza fills, not Gear elevated highways.
+        if (isArenaPath) {
+            ctx.save();
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.globalAlpha = path.type === 'arenaRing' ? 0.22 : 0.28;
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = path.color || `rgba(${r}, ${g}, ${b}, 0.35)`;
+            ctx.lineWidth = pathWidth * 0.92;
+            ctx.beginPath();
+            path.points.forEach((point, index) => {
+                if (index === 0) ctx.moveTo(point.x, point.y);
+                else ctx.lineTo(point.x, point.y);
+            });
+            ctx.stroke();
+            ctx.globalAlpha = 0.14;
+            ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.55)`;
+            ctx.lineWidth = Math.max(2, pathWidth * 0.08);
+            ctx.setLineDash(path.type === 'arenaRing' ? [16, 12] : [10, 10]);
+            ctx.beginPath();
+            path.points.forEach((point, index) => {
+                if (index === 0) ctx.moveTo(point.x, point.y);
+                else ctx.lineTo(point.x, point.y);
+            });
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.restore();
+            return;
+        }
 
         if (isOffshoot) {
             ctx.save();
@@ -2382,6 +2462,13 @@ function renderRoomAmbientLife(ctx, roomNumber) {
 
 // Render room boundaries (visible walls at edges)
 function renderRoomBoundaries(ctx, roomNumber) {
+    // Surge Arena seating / rim comes from blocked-cell obstacle draw + topology motifs.
+    // A fixed 20px map-edge frame misrepresents the real collision silhouette.
+    if (typeof currentRoom !== 'undefined' && currentRoom &&
+        (currentRoom.archetype === 'surgeArena' || currentRoom.isArenaComplex)) {
+        return;
+    }
+
     const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : 2400;
     const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : 1350;
     const biome = getBiomeForRoom(roomNumber);
@@ -2416,25 +2503,32 @@ function renderRoomBoundaries(ctx, roomNumber) {
     ctx.strokeRect(roomWidth - wallThickness, 0, wallThickness, roomHeight);
 }
 
-function renderRoomObstacles(ctx, roomNumber) {
+function renderRoomObstacles(ctx, roomNumber, options = {}) {
     if (typeof currentRoom === 'undefined' || !currentRoom) return;
+    const occlude = !!options.occlude;
     const biome = getBiomeForRoom(roomNumber);
     const hex = biome.accentColor.replace('#', '');
     const r = parseInt(hex.substring(0, 2), 16);
     const g = parseInt(hex.substring(2, 4), 16);
     const b = parseInt(hex.substring(4, 6), 16);
+    // Occluder pass punches solid silhouettes through settled viscera without re-blooming glow.
+    const fillMul = occlude ? 0.42 : 0.26;
+    const fillAlpha = occlude ? 0.92 : 0.68;
+    const strokeAlpha = occlude ? 0.95 : 0.82;
+    const shadowBlur = occlude ? 0 : 9;
 
     const drawSolidBlock = (x, y, width, height, layout, row, startCol, runLength) => {
         const borderInset = 4;
-        ctx.fillStyle = `rgba(${Math.floor(r * 0.28)}, ${Math.floor(g * 0.28)}, ${Math.floor(b * 0.28)}, 0.78)`;
-        ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.98)`;
+        ctx.fillStyle = `rgba(${Math.floor(r * (occlude ? 0.42 : 0.28))}, ${Math.floor(g * (occlude ? 0.42 : 0.28))}, ${Math.floor(b * (occlude ? 0.42 : 0.28))}, ${occlude ? 0.94 : 0.78})`;
+        ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${occlude ? 1 : 0.98})`;
         ctx.lineWidth = 3;
         ctx.shadowColor = `rgba(${r}, ${g}, ${b}, 0.9)`;
-        ctx.shadowBlur = 14;
+        ctx.shadowBlur = occlude ? 0 : 14;
         ctx.fillRect(x, y, width, height);
         ctx.strokeRect(x + 1, y + 1, width - 2, height - 2);
 
         ctx.shadowBlur = 0;
+        if (occlude) return;
         ctx.strokeStyle = `rgba(255, 255, 255, 0.22)`;
         ctx.lineWidth = 1;
         ctx.strokeRect(x + borderInset, y + borderInset, Math.max(1, width - borderInset * 2), Math.max(1, height - borderInset * 2));
@@ -2462,11 +2556,11 @@ function renderRoomObstacles(ctx, roomNumber) {
     const drawSwarmHiveCell = (centerX, centerY, radius) => {
         const rotation = Math.PI / 6;
 
-        ctx.fillStyle = `rgba(${Math.floor(r * 0.26)}, ${Math.floor(g * 0.34)}, ${Math.floor(b * 0.22)}, 0.70)`;
-        ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.86)`;
+        ctx.fillStyle = `rgba(${Math.floor(r * (occlude ? 0.40 : 0.26))}, ${Math.floor(g * (occlude ? 0.48 : 0.34))}, ${Math.floor(b * (occlude ? 0.34 : 0.22))}, ${occlude ? 0.94 : 0.70})`;
+        ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${occlude ? 0.96 : 0.86})`;
         ctx.lineWidth = 2.2;
         ctx.shadowColor = `rgba(${r}, ${g}, ${b}, 0.62)`;
-        ctx.shadowBlur = 10;
+        ctx.shadowBlur = occlude ? 0 : 10;
 
         ctx.beginPath();
         for (let i = 0; i < 6; i++) {
@@ -2481,6 +2575,7 @@ function renderRoomObstacles(ctx, roomNumber) {
         ctx.stroke();
 
         ctx.shadowBlur = 0;
+        if (occlude) return;
         ctx.globalAlpha = 0.42;
         ctx.strokeStyle = `rgba(230, 255, 190, 0.30)`;
         ctx.lineWidth = 1;
@@ -2502,11 +2597,11 @@ function renderRoomObstacles(ctx, roomNumber) {
         const centerX = col * cellSize + cellSize / 2;
         const centerY = row * cellSize + cellSize / 2;
         const radius = cellSize * 0.48;
-        ctx.fillStyle = `rgba(${Math.floor(r * 0.26)}, ${Math.floor(g * 0.28)}, ${Math.floor(b * 0.32)}, 0.68)`;
-        ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.82)`;
+        ctx.fillStyle = `rgba(${Math.floor(r * fillMul)}, ${Math.floor(g * fillMul)}, ${Math.floor(b * (fillMul + 0.06))}, ${fillAlpha})`;
+        ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${strokeAlpha})`;
         ctx.lineWidth = 2;
         ctx.shadowColor = `rgba(${r}, ${g}, ${b}, 0.55)`;
-        ctx.shadowBlur = 9;
+        ctx.shadowBlur = shadowBlur;
 
         if (layout.biomeId === 'prism') {
             ctx.beginPath();
@@ -2518,6 +2613,7 @@ function renderRoomObstacles(ctx, roomNumber) {
             ctx.fill();
             ctx.stroke();
             ctx.shadowBlur = 0;
+            if (occlude) return;
             ctx.globalAlpha = 0.35;
             ctx.beginPath();
             ctx.moveTo(centerX, centerY - radius * 0.72);
@@ -2526,7 +2622,8 @@ function renderRoomObstacles(ctx, roomNumber) {
             ctx.globalAlpha = 1;
         } else if (layout.biomeId === 'fractal') {
             for (let i = 0; i < 3; i++) {
-                ctx.globalAlpha = 0.72 - i * 0.15;
+                ctx.globalAlpha = occlude ? (i === 0 ? 1 : 0) : (0.72 - i * 0.15);
+                if (occlude && i > 0) break;
                 ctx.beginPath();
                 const currentRadius = radius * (1 - i * 0.24);
                 for (let p = 0; p < 4; p++) {
@@ -2541,12 +2638,14 @@ function renderRoomObstacles(ctx, roomNumber) {
                 ctx.stroke();
             }
             ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
         } else if (layout.biomeId === 'vortex') {
             ctx.beginPath();
             ctx.ellipse(centerX, centerY, radius, radius * 0.64, (col + row) * 0.34, 0, Math.PI * 2);
             ctx.fill();
             ctx.stroke();
             ctx.shadowBlur = 0;
+            if (occlude) return;
             ctx.globalAlpha = 0.35;
             ctx.beginPath();
             ctx.ellipse(centerX, centerY, radius * 0.58, radius * 0.28, (col + row) * 0.34 + Math.PI / 4, 0, Math.PI * 2);
@@ -2565,11 +2664,13 @@ function renderRoomObstacles(ctx, roomNumber) {
             ctx.closePath();
             ctx.fill();
             ctx.stroke();
+            ctx.shadowBlur = 0;
         }
     };
 
     const drawSwarmHiveCluster = (cluster, layout) => {
-        const radius = layout.cellSize * 0.53;
+        // Cap hex/pad to the cell — oversize pads painted walkable floor as "solid" scenery.
+        const radius = layout.cellSize * 0.46;
         const cells = cluster.map(cell => {
             return {
                 x: cell.col * layout.cellSize + layout.cellSize / 2,
@@ -2577,30 +2678,32 @@ function renderRoomObstacles(ctx, roomNumber) {
             };
         });
 
-        const padRadius = radius * (cluster.length <= 2 ? 1.45 : 1.7);
-        ctx.save();
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.34)';
-        ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.22)`;
-        ctx.lineWidth = 1.5;
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
-        cells.forEach(cell => {
-            ctx.globalAlpha = 0.28;
-            ctx.beginPath();
-            for (let i = 0; i < 6; i++) {
-                const angle = Math.PI / 6 + (Math.PI * 2 * i) / 6;
-                const px = cell.x + Math.cos(angle) * padRadius;
-                const py = cell.y + Math.sin(angle) * padRadius;
-                if (i === 0) ctx.moveTo(px, py);
-                else ctx.lineTo(px, py);
-            }
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
-        });
-        ctx.restore();
+        if (!occlude) {
+            const padRadius = radius * 0.98;
+            ctx.save();
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
+            ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.18)`;
+            ctx.lineWidth = 1.2;
+            ctx.shadowBlur = 6;
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.28)';
+            cells.forEach(cell => {
+                ctx.globalAlpha = 0.22;
+                ctx.beginPath();
+                for (let i = 0; i < 6; i++) {
+                    const angle = Math.PI / 6 + (Math.PI * 2 * i) / 6;
+                    const px = cell.x + Math.cos(angle) * padRadius;
+                    const py = cell.y + Math.sin(angle) * padRadius;
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+            });
+            ctx.restore();
+        }
 
-        cells.forEach(cell => drawSwarmHiveCell(cell.x, cell.y, layout.cellSize * 0.58));
+        cells.forEach(cell => drawSwarmHiveCell(cell.x, cell.y, radius));
     };
 
     const getSwarmHiveClusters = (layout) => {

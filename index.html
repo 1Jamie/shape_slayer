@@ -23,6 +23,7 @@
     <script src="src/engine/system.js"></script>
     <script src="src/engine/save.js"></script>
     <script src="src/engine/physics.js"></script>
+    <script src="src/engine/director.js"></script>
     <script src="src/engine/proc.js"></script>
     <script src="src/engine/graphics.js"></script>
     <script src="src/engine/fx.js"></script>
@@ -52,6 +53,14 @@
     <script src="src/engine/ui/boot-cinematic.js"></script>
     <script src="src/engine/ui/boot-screen.js"></script>
     <script src="src/engine/boot.js"></script>
+    <!-- Shape Slayer game package registry (modes consume these pieces) -->
+    <script src="src/game/packages.js"></script>
+    <script src="src/game/world-context.js"></script>
+    <script src="src/game/game-bus.js"></script>
+    <script src="src/game/mode-profile.js"></script>
+    <script src="src/game/playing-host.js"></script>
+    <script src="src/game/mode-catalog.js"></script>
+    <script src="src/game/mode-takeover.js"></script>
     <script src="src/game/audio/game-music.js"></script>
     <script src="src/game/ui/core/modal-adapter.js"></script>
 
@@ -75,6 +84,7 @@
     <script src="src/game/ui/components/audioMenu.js"></script>
     <script src="src/game/ui/components/deathOverlay.js"></script>
     <script src="src/game/ui/components/roomInfo.js"></script>
+    <script src="src/game/ui/components/comboMeter.js"></script>
     <script src="src/game/ui/components/roomAndLevel.js"></script>
     <script src="src/game/ui/components/otherPlayersHealth.js"></script>
     <script src="src/game/ui/components/mobileCooldowns.js"></script>
@@ -140,6 +150,7 @@
     <script src="src/game/entities/bosses/boss-base.js"></script>
     <script src="src/game/simulation/combat-scaling.js"></script>
     <script src="src/game/simulation/combat-economy.js"></script>
+    <script src="src/game/simulation/kill-rewards.js"></script>
     <script src="src/game/entities/bosses/boss-scaling.js"></script>
     <script src="src/game/entities/bosses/pheromone-polyline.js"></script>
     <script src="src/game/entities/bosses/boss-swarmking.js"></script>
@@ -148,7 +159,13 @@
     <script src="src/game/entities/bosses/boss-fractalcore.js"></script>
     <script src="src/game/entities/bosses/boss-vortex.js"></script>
     <script src="src/game/simulation/level.js"></script>
+    <script src="src/game/simulation/room-clear-effects.js"></script>
+    <script src="src/game/simulation/barriers.js"></script>
+    <script src="src/game/simulation/surge-arena-generator.js"></script>
+    <script src="src/game/simulation/wave-director.js"></script>
+    <script src="src/game/simulation/arena-mode.js"></script>
     <script src="src/game/simulation/combat.js"></script>
+    <script src="src/game/simulation/combat-projectiles.js"></script>
     <script src="src/game/presentation/ui.js"></script>
     <script src="src/game/run-profiler.js"></script>
     <script src="src/game/simulation/debug.js"></script>
@@ -168,6 +185,16 @@
     <script src="src/game/simulation/nexus.js"></script>
     <script src="src/game/simulation/title-attract.js"></script>
     <script src="src/game/main.js"></script>
+    <!-- Modes consume game packages; host selects one (default roguelike) -->
+    <script src="src/modes/modes.js"></script>
+    <script src="src/modes/roguelike/rules.js"></script>
+    <script src="src/modes/roguelike/run.js"></script>
+    <script src="src/modes/roguelike/mode.js"></script>
+    <script src="src/modes/sandbox/rules.js"></script>
+    <script src="src/modes/sandbox/mode.js"></script>
+    <script src="src/modes/surge-arena/rules.js"></script>
+    <script src="src/modes/surge-arena/mode.js"></script>
+    <script src="src/app/host.js"></script>
     <script src="src/game/pwa-update.js"></script>
     <script>
         if ('serviceWorker' in navigator) {

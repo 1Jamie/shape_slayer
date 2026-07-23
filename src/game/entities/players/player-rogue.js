@@ -588,83 +588,12 @@ class Rogue extends PlayerBase {
         return clone;
     }
     
-    // Override startDodge for Rogue directional dodge
-    startDodge(input) {
-        // Play rogue-specific dodge sound (replaces generic dodge sound)
-        if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
-            GameAudio.sounds.rogueDodge();
+    // Rogue directional dodge: base already handles triangle aim paths + cancel semantics.
+    startDodge(input, options = {}) {
+        PlayerBase.prototype.startDodge.call(this, input, options);
+        if (!options || !options.predictOnly) {
+            this.dodgeHasChainedLegendary = false;
         }
-        
-        console.log('[ROGUE DODGE] startDodge called, isTouchMode:', input.isTouchMode ? input.isTouchMode() : false);
-        console.log('[ROGUE DODGE] input.touchButtons:', input.touchButtons);
-        
-        let dodgeDirX = 0;
-        let dodgeDirY = 0;
-        
-        // Mobile: Use joystick direction if available
-        if (input.isTouchMode && input.isTouchMode()) {
-            const button = input.touchButtons && input.touchButtons.dodge;
-            console.log('[ROGUE DODGE] button:', button, 'finalJoystickState:', button?.finalJoystickState);
-            
-            if (button && button.finalJoystickState) {
-                // Use stored joystick direction from button release
-                const state = button.finalJoystickState;
-                console.log('[ROGUE DODGE] Using finalJoystickState - mag:', state.magnitude, 'dir:', state.direction, 'angle:', state.angle);
-                
-                if (state.magnitude > 0.1) {
-                    dodgeDirX = state.direction.x * this.dodgeSpeedBoost;
-                    dodgeDirY = state.direction.y * this.dodgeSpeedBoost;
-                    console.log('[ROGUE DODGE] Direction from joystick:', dodgeDirX, dodgeDirY);
-                    // Clear the stored state after using it
-                    button.finalJoystickState = null;
-                } else {
-                    // Magnitude too low, use facing direction
-                    dodgeDirX = Math.cos(this.rotation) * this.dodgeSpeedBoost;
-                    dodgeDirY = Math.sin(this.rotation) * this.dodgeSpeedBoost;
-                    console.log('[ROGUE DODGE] Magnitude too low, using rotation:', this.rotation);
-                }
-            } else if (input.touchJoysticks && input.touchJoysticks.dodge && input.touchJoysticks.dodge.active) {
-                // Joystick still active (fallback)
-                const joystick = input.touchJoysticks.dodge;
-                const dir = joystick.getDirection();
-                dodgeDirX = dir.x * this.dodgeSpeedBoost;
-                dodgeDirY = dir.y * this.dodgeSpeedBoost;
-                console.log('[ROGUE DODGE] Using active joystick:', dodgeDirX, dodgeDirY);
-            } else {
-                // No joystick data, use facing direction
-                dodgeDirX = Math.cos(this.rotation) * this.dodgeSpeedBoost;
-                dodgeDirY = Math.sin(this.rotation) * this.dodgeSpeedBoost;
-                console.log('[ROGUE DODGE] No joystick, using rotation:', this.rotation);
-            }
-        } else {
-            // Desktop: Always dash in facing direction
-            dodgeDirX = Math.cos(this.rotation) * this.dodgeSpeedBoost;
-            dodgeDirY = Math.sin(this.rotation) * this.dodgeSpeedBoost;
-            console.log('[ROGUE DODGE] Desktop mode, using rotation:', this.rotation);
-        }
-        
-        // Store dodge velocity
-        this.dodgeVx = dodgeDirX;
-        this.dodgeVy = dodgeDirY;
-        
-        this.beginDashAnimation(dodgeDirX, dodgeDirY, { seedTrail: true });
-        
-        // Update rotation to face dodge direction
-        this.rotation = Math.atan2(dodgeDirY, dodgeDirX);
-        this.lastAimAngle = this.rotation; // Store for mobile aim retention
-        
-        console.log('[ROGUE DODGE] Final dodge velocity:', this.dodgeVx, this.dodgeVy, 'rotation:', this.rotation);
-        
-        // Set dodge state
-        this.isDodging = true;
-        this.invulnerable = true;
-        this.dodgeElapsed = 0;
-        this.dodgeHitEnemies.clear(); // Reset hit tracking for new dodge
-        this.dodgeHasChainedLegendary = false; // Reset chain flag for this dodge
-        
-        this.consumeDodgeCharge();
-        
-        // Note: Rogue dodge sound is played at the start of this function (overrides base class sound)
     }
     
     // Override updateClassAbilities for Rogue-specific updates

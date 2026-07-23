@@ -4,15 +4,15 @@ Canvas 2D backed procedural game engine. Classic scripts, no bundler, no WASM.
 
 Covers seeded generation and sim (`Engine.Proc`, `Engine.Physics`, fixed-step `Engine.Core`) and the Canvas 2D / DOM stack that draws and takes input (`Engine.Render`, Graphics, FX, Input, UI). Both halves are the engine.
 
-Version **0.1a** (`Engine.VERSION`). Shape Slayer is the first game on it.
+Version **0.2a** (`Engine.VERSION`). Shape Slayer game packages live in `src/game/`; modes in `src/modes/` consume those packages.
 
 ```text
-browser APIs  <-  src/engine  <-  src/game
+browser APIs  <-  src/engine  <-  src/game  <-  src/modes
 ```
 
-Engine code cannot import `src/game/`, name Shape Slayer stuff (bosses, gear, biomes, Nexus, class kits), or own game save schemas. `tests/directory-boundaries.test.js` watches for that.
+Engine code cannot import `src/game/` or `src/modes/`, name Shape Slayer stuff (bosses, gear, biomes, Nexus, class kits), or own game save schemas. `tests/directory-boundaries.test.js` watches for that.
 
-Game docs: [repo README](../../README.md). This file is just the engine.
+Game/mode docs: [repo README](../../README.md), [`src/game/README.md`](../game/README.md), [`src/modes/README.md`](../modes/README.md). This file is just the engine.
 
 ## Modules
 
@@ -32,6 +32,8 @@ Game docs: [repo README](../../README.md). This file is just the engine.
 | `Engine.Audio` / `Engine.Music` | `audio.js`, `music.js` | Procedural SFX bits + playlist transport; `Audio.setQualityTier` |
 | `Engine.Save` | `save.js` | Versioned stores, migrations, storage |
 | `Engine.UI` | `ui/*` | Root, bus, modal stack, toasts |
+| `Engine.Director` | `director.js` | Spawn-point queries for playable regions (walkability, avoidance, ring preference, cluster spacing) |
+| `Engine.SDLGameControllerDB` | `sdl-gamecontrollerdb.js` | SDL gamepad database parser and remapping layer to standard W3C Gamepad layout |
 | `Engine.Shell` | `shell.js` | Feature flags, back-nav guard |
 | `Engine.Profiler` | `profiler.js` | Frame / phase timing |
 | `Engine.Debug` | `debug.js` | Optional debug shell; sections, metrics, pipeline profile / snapshots / bag explorer |
@@ -40,13 +42,38 @@ Boot **requires**: `System`, `Save`, `Physics`, `Proc`, `Graphics`, `FX`, `Rende
 
 Optional for verify: `Music`, `Split`, `Profiler`, `Debug`, `Camera` (`Engine.Camera`), touch helpers next to Input.
 
+## Core Subsystems
+
+### 🌲 Procedural Generation & Breakup (`Engine.Proc`)
+Handles seeded generation, mathematical helpers, and voxel-fracture decomposition without external libraries:
+* **Seeded RNG & Noise (`Proc.Rng`, `Proc.Noise`):** A custom Linear Congruential Generator / Xorshift seeding mechanism paired with Perlin and 2D Simplex noise functions for deterministic biomes, layouts, and properties.
+* **Contours & Marching Squares (`Proc.MarchingSquares`):** Extracts exact vector outlines and polylines from raw grid cells to construct solid wall boundaries.
+* **Connected Component BFS (`Proc.VoxelIslands`):** Performs connected-component analysis on 2D boolean masks. To eliminate Garbage Collection spikes during execution, it runs BFS sweeps using static, pre-allocated typed arrays (`_bfsQueue` and `_visited`). It includes boundary tracing (`traceIslandBoundary`) to compute vertices of detached voxel islands.
+* **Voxel Disintegration (`Proc.VoxelDisintegration`):** A multi-variable stress engine that decomposes destroyed voxel bodies into physics-enabled shards:
+  * *Stress Score:* Calculated via `computeStressScore` using the attack's damage ratio, strike location relative to entity center, attack archetype (e.g., slash, crush, beam, bleed), and material multipliers.
+  * *Mass Partitioning:* `partitionVoxelMass` clusters the voxel grid into shards across five tiers: `slab` (size $\ge$ 12), `large` (7–11), `medium` (4–6), `small` (2–3), and `voxel` crumbs. 
+  * *Complexity Caps:* Island polylines are automatically simplified to a maximum of 16 vertices (32 floats) to match `ShardPool` buffer constraints and keep rendering lightweight.
+
+### 🧮 Physics & Spatial Queries (`Engine.Physics`)
+An impulse-based simulation engine equipped with accelerated neighborhood lookups:
+* **Fixed-Step Integrator (`ImpulsePhysics`):** Manages basic linear and angular equations of motion, drag coefficients, and elastic circle/wall collisions.
+* **Spatial Hash Grid (`Physics.SpatialHash`):** Accelerates target detection and collision checks.
+  * *Fast Keys:* Custom integer hashing (`(cx & 0xFFFF) | ((cy & 0xFFFF) << 16)`) avoids string concatenation in table lookups.
+  * *Double-Query Gate:* Increments a global query ID on each search to bypass items already queried, preventing duplicates.
+  * *Zero Allocation:* Supports passing a pre-allocated `outResults` array to `queryRadius` to bypass memory allocation during hot loops.
+* **Lever-Arm & Peel Physics (`RigidDebris`):** Computes complex shard behavior after structural breaks:
+  * *Impact Torque:* `computeImpactTorque` calculates the rotational force applied by strikes based on contact point lever arms relative to the shard center of mass.
+  * *Centroid Peeling:* `computeIslandPhysics` resolves velocities by mixing linear impact vectors, radial center-outward peeling thrusts, and tangential torque, ensuring pieces fly apart realistically depending on where the strike landed.
+
 ### Workers
 
 Workers are fine for heavy jobs (optical flow, edge detect, big typed-array passes, fat diffs) so the main loop keeps its budget. They are not required.
 
 If something can run on a Worker, the **same engine file** needs a sync main-thread fallback that does the same work. Probe picks Worker when it can, otherwise falls back (`file://`, no Workers, no SharedArrayBuffer, etc.). Do not assume a second thread exists.
 
-Concrete today: `Proc.dispatchWorkerTask('GENERATE_GRID', …)` spins `src/engine/proc-worker.js` when Workers exist, otherwise runs the same grid fill/smooth on the main thread and invokes the callback.
+Concrete today:
+- `Proc.dispatchWorkerTask('GENERATE_GRID', …)` spins `src/engine/proc-worker.js` when Workers exist, otherwise runs the same grid fill/smooth on the main thread and invokes the callback.
+- `particle-worker.js` handles off-thread particle simulation and rendering using `OffscreenCanvas` and `SharedArrayBuffer` typed array buffers for high-density particle FX.
 
 New Worker script (or module that owns Worker + fallback)? Put every URL it needs in:
 
@@ -105,18 +132,35 @@ Engine gives you `configureCanvas`. It does not listen for resize or rewrite fro
 
 Shape Slayer: `Boot.start` -> `Engine.Core` -> `Boot.handoff` (`src/game/main.js`). Later resizes go through `setupResponsiveCanvas()` -> `configureCanvas`.
 
-## Perf rules
+## Performance Strategy & Perf Rules
 
-Act like GC will ruin your day.
+Act like GC will ruin your day. If the frame rate drops below budget, the engine should dynamically adapt to keep the gameplay smooth.
 
-- Prefer `Engine.Graphics.createCanvas(w, h)` (and `CanvasPool` acquire/release) over `document.createElement('canvas')`. Retained pattern tiles / door caches still own their canvases; just create them through Graphics.
-- Hot paths: fixed-capacity typed arrays. Grow rarely, not per tick.
-- No fresh `{}` / `[]` / throwaway closures in `onUpdate`, `onRender`, stage `draw()`, input poll, physics integrate. Scratch objects, pooled slots.
-- Optional `out` / scratch args on hot helpers (camera screen/world, physics `integrate`, FX raycasts, net interpolate, proc geometry) so callers can reuse result objects.
-- No DOM size reads while rendering. Resize handler only. Use your cached viewport (or boot `runtime.*` if you never resize).
-- Prefer mutate over `map` / `filter` / `concat` in the frame loop.
+### Performance Strategy
+1. **Zero-Allocation Hot Paths (GC Avoidance):** No fresh allocations inside tick loops. Reuse structures, pass pre-allocated scratch objects, and cache resources.
+2. **Fixed Timestep Accumulator:** The physics and simulation loops run at a deterministic 60 Hz independent of frame rate. If frames drop, a catch-up accumulator keeps game time running linearly without causing temporal jitter or stutters.
+3. **Adaptive Quality Tiering:** When active frame budgets degrade, the core loop signals an adaptive tier shift (`Normal`, `Medium`, `Heavy`). This automatically shuts down expensive aesthetic features (like scenery lighting, vignette overlays, and ring particle count) to maintain frame budget.
+4. **Viewport Culling:** Only items and entities visible in the active viewport cameras are dispatched to draw buffers.
+5. **Pattern & Sprite Caching:** Draw floor grids and complex sprite geometries (such as high-rarity gear models) to offline cached canvases once, then blit them instead of performing raw pathing calls per frame.
+
+### Concrete Rules
+- **Prefer CanvasPool:** Use `Engine.Graphics.createCanvas(w, h)` and `CanvasPool` acquire/release over `document.createElement('canvas')` for offscreen draws.
+- **Typed Arrays:** Hot paths use fixed-capacity typed arrays. Grow them rarely and never in tick hooks.
+- **Scratch & Out References:** No fresh `{}` / `[]` / throwaway closures in `onUpdate`, `onRender`, stage `draw()`, or physics loops. Use scratch variables or pass optional `out` arguments so callers can reuse references.
+- **No DOM Queries While Drawing:** Do not perform reads on DOM layouts or viewport bounds while rendering. Cache sizes in resize handlers or use boot-time `runtime` values.
+- **Avoid Array Copying:** Prefer mutation over functional methods like `map`, `filter`, or `concat` in the hot frame loop.
 
 Allocate on boot, resize, and rare mode changes. That is it.
+
+## Coding & Typing Requirements
+
+Keep the client runtime dependency-free, robust, and readable.
+
+1. **Vanilla JS & Classic Scripts:** No bundler, no transpilation, no client build steps. Everything must run directly in standard browser execution contexts.
+2. **Strict Boundary Enforcements:** Engine code lives in `src/engine/` and must remain completely agnostic of game concepts (no mentioning bosses, gear, Nexus, or lobbies). Game packages consume engine APIs; modes consume game packages. Enforced via `tests/directory-boundaries.test.js`.
+3. **JSDoc Type Safety:** We do not write TypeScript, so IDE autocomplete and code contract safety are backed by rich JSDoc typing. All public APIs, parameters, return values, and configuration shapes must be fully documented using `@typedef`, `@property`, `@param`, and `@returns`.
+4. **Worker Parallelism with Sync Fallbacks:** Heavy asynchronous workflows (like procedural generation) can utilize Web Workers, but they must implement a synchronous main-thread fallback for environments running on restrictive protocols (like local `file://` shells).
+5. **Autoplay & Audio Lifecycle:** Device audio context hooks must respect browser permissions and resume automatically on user interaction triggers. Autoplay restrictions are handled by the engine initialization layer; game code should not replicate this logic.
 
 ## Boundaries
 

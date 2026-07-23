@@ -91,22 +91,80 @@ function createDamageNumber(x, y, damage, isCrit = false, isWeakPoint = false) {
     }
 }
 
-// Update damage numbers
+/**
+ * World-space floating combat label (combo bleed, banners, etc.).
+ * Shares the damageNumbers update/render list.
+ */
+class FloatingCombatText {
+    constructor(x, y, text, options) {
+        const opts = options || {};
+        this.x = x;
+        this.y = y;
+        this.text = String(text);
+        this.color = opts.color || '#ff6644';
+        this.fontSize = opts.fontSize || 26;
+        this.life = opts.life != null ? opts.life : 1.2;
+        this.maxLife = this.life;
+        this.alpha = 1.0;
+        this.dy = opts.dy != null ? opts.dy : -55;
+        this.dx = opts.dx != null ? opts.dx : (Math.random() - 0.5) * 36;
+    }
+
+    update(deltaTime) {
+        this.x += this.dx * deltaTime;
+        this.y += this.dy * deltaTime;
+        this.life -= deltaTime;
+        this.alpha = this.life / this.maxLife;
+        this.dy *= 0.95;
+        this.dx *= 0.9;
+        return this.life > 0;
+    }
+
+    render(ctx) {
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, this.alpha);
+        ctx.font = `bold ${this.fontSize}px Orbitron`;
+        ctx.textAlign = 'center';
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 6;
+        ctx.strokeText(this.text, this.x, this.y);
+        ctx.fillStyle = this.color;
+        ctx.fillText(this.text, this.x, this.y);
+        ctx.restore();
+    }
+}
+
+function createFloatingCombatText(x, y, text, options) {
+    if (typeof Game === 'undefined') return;
+    if (!Game.damageNumbers) Game.damageNumbers = [];
+    if (typeof x !== 'number' || typeof y !== 'number' || isNaN(x) || isNaN(y)) return;
+    Game.damageNumbers.push(new FloatingCombatText(x, y, text, options));
+}
+
+// Update damage numbers (in-place compaction, zero allocations)
 function updateDamageNumbers(deltaTime) {
     if (!Game || !Game.damageNumbers) return;
-
-    Game.damageNumbers = Game.damageNumbers.filter(number => number.update(deltaTime));
+    const list = Game.damageNumbers;
+    let writeIndex = 0;
+    for (let readIndex = 0; readIndex < list.length; readIndex++) {
+        const item = list[readIndex];
+        if (item && item.update(deltaTime)) {
+            list[writeIndex++] = item;
+        }
+    }
+    list.length = writeIndex;
 }
 
 // Render damage numbers
 function renderDamageNumbers(ctx) {
     if (!Game || !Game.damageNumbers) return;
-
-    if (typeof DebugFlags !== 'undefined' && DebugFlags.DAMAGE_NUMBERS && Game.damageNumbers.length > 0) {
-        console.log(`[UI] Rendering ${Game.damageNumbers.length} damage numbers`);
+    const list = Game.damageNumbers;
+    if (typeof DebugFlags !== 'undefined' && DebugFlags.DAMAGE_NUMBERS && list.length > 0) {
+        console.log(`[UI] Rendering ${list.length} damage numbers`);
     }
-
-    Game.damageNumbers.forEach(number => number.render(ctx));
+    for (let i = 0; i < list.length; i++) {
+        if (list[i]) list[i].render(ctx);
+    }
 }
 
 // Helper function to draw a small shape indicator
@@ -549,12 +607,15 @@ function formatTime(seconds) {
     const timePlayed = ((Game.endTime - Game.startTime) / 1000).toFixed(1);
     const minutes = Math.floor(timePlayed / 60);
 
-    // Calculate currency breakdown
+    const isArena = Game && (Game.activeSessionId === 'surge-arena' || Game.modeId === 'surge-arena' || Game.selectedModeId === 'surge-arena' || (Game.modeProfile && Game.modeProfile.id === 'surge-arena'));
+    const waveNumber = Game ? (Game.waveNumber || Game.roomNumber || 1) : 1;
+    const wavesCleared = Math.max(0, waveNumber - 1);
     const roomsCleared = Math.max(0, Game.roomNumber - 1);
-    const enemiesKilled = Game.enemiesKilled || 0;
+    const enemiesKilled = Game ? (Game.enemiesKilled || 0) : 0;
     const levelReached = player.level || 1;
+    const highestCombo = Game ? (Game.highestCombo || 0) : 0;
 
-    const baseCurrency = Math.floor(9 * roomsCleared); // Reduced from 10
+    const baseCurrency = Math.floor(9 * (isArena ? wavesCleared : roomsCleared)); // Reduced from 10
     const bonusCurrency = Math.floor(1.8 * enemiesKilled); // Reduced from 2
     const levelCurrency = Math.floor(0.9 * levelReached); // Reduced from 1
     const totalEarned = baseCurrency + bonusCurrency + levelCurrency;
@@ -581,7 +642,13 @@ function formatTime(seconds) {
     ctx.fillStyle = '#ffffff';
     ctx.font = `bold ${Math.floor(24 * scale)}px Orbitron`;
 
-    const stats = [
+    const stats = isArena ? [
+        `Level Reached: ${levelReached}`,
+        `Waves Survived: ${wavesCleared}`,
+        `Highest Combo: ${highestCombo}`,
+        `Enemies Killed: ${enemiesKilled}`,
+        `Time Played: ${minutes}:${seconds}`
+    ] : [
         `Level Reached: ${levelReached}`,
         `Rooms Cleared: ${roomsCleared}`,
         `Enemies Killed: ${enemiesKilled}`,
@@ -1245,27 +1312,34 @@ function checkNexusInteractions() {
         }
     }
 
-    // Check card portal (default)
+    // Check portal
     if (nexusRoom.portalPos && allow('portal')) {
         const portalDx = nexusRoom.portalPos.x - Game.player.x;
         const portalDy = nexusRoom.portalPos.y - Game.player.y;
         const portalDistance = Math.sqrt(portalDx * portalDx + portalDy * portalDy);
-        const hasResume = typeof SaveSystem !== 'undefined' && SaveSystem.hasActiveRunCheckpoint
-            && SaveSystem.hasActiveRunCheckpoint();
+        const selectedMode = (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.getSelected)
+            ? GameModeCatalog.getSelected(nexusRoom)
+            : null;
+        const modeId = (selectedMode && selectedMode.id) || 'roguelike';
+        const hasResume = !!(selectedMode && selectedMode.supportsResume
+            && typeof SaveSystem !== 'undefined' && SaveSystem.hasActiveRunCheckpoint
+            && SaveSystem.hasActiveRunCheckpoint());
+        const needsClass = !selectedMode || selectedMode.requiresClass !== false;
+        const classReady = !needsClass || Game.selectedClass || Game.localSplitSelectedClass;
 
-        if (portalDistance < 60 && (Game.selectedClass || hasResume)) {
-            return { type: 'portal', data: { mode: 'gear', resume: hasResume } };
+        if (portalDistance < 60 && (classReady || hasResume)) {
+            return { type: 'portal', data: { mode: modeId, resume: hasResume } };
         }
     }
 
-    // Check gear portal
+    // Check gear portal (legacy dual-portal layout, if present)
     if (nexusRoom.gearPortalPos && allow('portal')) {
         const gearPortalDx = nexusRoom.gearPortalPos.x - Game.player.x;
         const gearPortalDy = nexusRoom.gearPortalPos.y - Game.player.y;
         const gearPortalDistance = Math.sqrt(gearPortalDx * gearPortalDx + gearPortalDy * gearPortalDy);
 
         if (gearPortalDistance < 60 && Game.selectedClass) {
-            return { type: 'portal', data: { mode: 'gear' } };
+            return { type: 'portal', data: { mode: 'roguelike' } };
         }
     }
 
@@ -1279,7 +1353,13 @@ function checkNexusInteractions() {
             // Check if in multiplayer lobby
             const inMultiplayerLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
             if (!inMultiplayerLobby) {
-                return { type: 'modeSwitcher' };
+                const selectedMode = (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.getSelected)
+                    ? GameModeCatalog.getSelected(nexusRoom)
+                    : null;
+                return {
+                    type: 'modeSwitcher',
+                    data: { mode: selectedMode ? selectedMode.id : 'roguelike' }
+                };
             }
         }
     }
@@ -1405,6 +1485,7 @@ function getInteractionTargetName(interaction) {
     if (!interaction) return '';
     const data = interaction.data || interaction.pylon || interaction;
     if (interaction.type === 'safeRoomMachine') return interaction.machineName || 'Safe Room Machine';
+    if (interaction.type === 'wavePylon') return 'Wave Trigger';
     if (interaction.type === 'preBossHealer') return 'Pre-Boss Healer';
     if (interaction.type === 'doorpack' && data) {
         return data.packName || data.name || data.type || '';
@@ -1431,6 +1512,7 @@ function getInteractionLabel(interaction) {
         }
         return (interaction.machineId === 'runSave' ? 'Use ' : 'Open ') + (interaction.machineName || 'Machine');
     }
+    if (interaction.type === 'wavePylon') return 'Start Next Wave';
     if (interaction.type === 'preBossHealer') return 'Activate Healer';
     if (interaction.type === 'doorpack') return 'Select Pack';
     if (interaction.type === 'gear') return 'Pickup Gear';
@@ -1448,7 +1530,12 @@ function getInteractionLabel(interaction) {
     if (interaction.type === 'itemPylon') return 'Interact with Item Pylon';
     if (interaction.type === 'modeSwitcher') {
         const inMultiplayerLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
-        return inMultiplayerLobby ? 'Cannot swap modes in multiplayer' : 'Switch Mode';
+        if (inMultiplayerLobby) return 'Cannot swap modes in multiplayer';
+        const selectedMode = (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.getSelected)
+            ? GameModeCatalog.getSelected(typeof nexusRoom !== 'undefined' ? nexusRoom : null)
+            : null;
+        const label = selectedMode ? selectedMode.title : 'Mode';
+        return 'Switch Mode (' + label + ')';
     }
     if (interaction.type === 'gearUpgrade') {
         const upgradeNames = {
@@ -1537,15 +1624,30 @@ function updateInteractionState() {
     if (Game && Game.state === 'PLAYING') {
         // Check for safe room machines interaction
         let safeMachineInteraction = null;
-        if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'safe' && Game.player) {
-            const machines = (typeof window.getSafeRoomMachines === 'function') ? window.getSafeRoomMachines(currentRoom) : [];
-            const nearMachine = machines.find(m => {
-                const dx = m.x - Game.player.x;
-                const dy = m.y - Game.player.y;
-                return Math.sqrt(dx * dx + dy * dy) < m.range;
-            });
-            if (nearMachine) {
-                safeMachineInteraction = { type: 'safeRoomMachine', machineId: nearMachine.id, machineName: nearMachine.name };
+        if (typeof currentRoom !== 'undefined' && currentRoom && Game.player) {
+            const machinesOk = currentRoom.type === 'safe'
+                || (currentRoom.machinesAccessible && (currentRoom.allowSafeRoomMachines || currentRoom.isArenaComplex));
+            if (machinesOk) {
+                const machines = (typeof window.getSafeRoomMachines === 'function') ? window.getSafeRoomMachines(currentRoom) : [];
+                const nearMachine = machines.find(m => {
+                    const dx = m.x - Game.player.x;
+                    const dy = m.y - Game.player.y;
+                    return Math.sqrt(dx * dx + dy * dy) < m.range;
+                });
+                if (nearMachine) {
+                    safeMachineInteraction = { type: 'safeRoomMachine', machineId: nearMachine.id, machineName: nearMachine.name };
+                }
+            }
+        }
+
+        let wavePylonInteraction = null;
+        if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.wavePylon
+            && currentRoom.wavePylon.active && Game.player) {
+            const pylon = currentRoom.wavePylon;
+            const dx = pylon.x - Game.player.x;
+            const dy = pylon.y - Game.player.y;
+            if (Math.sqrt(dx * dx + dy * dy) < pylon.range) {
+                wavePylonInteraction = { type: 'wavePylon', pylon };
             }
         }
 
@@ -1587,6 +1689,7 @@ function updateInteractionState() {
         }
 
         currentInteraction = safeMachineInteraction ||
+            wavePylonInteraction ||
             preBossHealerInteraction ||
             checkGearInteraction() ||
             pylonInteraction ||
@@ -1721,6 +1824,12 @@ function performCurrentInteraction() {
             if (typeof window.toggleSafeRoomMachine === 'function') {
                 window.toggleSafeRoomMachine(true, currentInteraction.machineId);
             }
+        } else if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'wavePylon') {
+            if (typeof GameBus !== 'undefined' && GameBus.emit) {
+                GameBus.emit('arena:startNextWave', { world: Game });
+            } else if (typeof GameArena !== 'undefined' && GameArena.triggerNextWave) {
+                GameArena.triggerNextWave(Game);
+            }
         } else if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'preBossHealer'
             && typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen) {
             const healer = currentInteraction.healer;
@@ -1744,11 +1853,29 @@ function performCurrentInteraction() {
         } else if (Game && Game.state === 'NEXUS') {
             // Handle specific nexus interaction types
             if (currentInteraction.type === 'modeSwitcher') {
-                // Portal switcher is locked to Gear Mode (Card Mode removed)
-                if (typeof nexusRoom !== 'undefined' && nexusRoom) {
-                    nexusRoom.portalMode = 'gear';
+                if (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.cycleNext
+                    && typeof nexusRoom !== 'undefined' && nexusRoom) {
+                    const next = GameModeCatalog.cycleNext(nexusRoom, { inMultiplayer: false });
+                    console.log('[Nexus] Mode switcher →', next ? next.id : '(none)');
+                } else if (typeof nexusRoom !== 'undefined' && nexusRoom) {
+                    nexusRoom.portalMode = 'roguelike';
                 }
-                console.log('[Nexus] Portal switcher is locked to Gear Mode');
+            } else if (currentInteraction.type === 'portal') {
+                const hasResume = !!(currentInteraction.data && currentInteraction.data.resume);
+                if (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.enterFromPortal
+                    && typeof nexusRoom !== 'undefined' && nexusRoom) {
+                    GameModeCatalog.enterFromPortal({
+                        nexusRoom,
+                        hasResumeCheckpoint: hasResume
+                    });
+                } else if (Engine.Input && Engine.Input.keys) {
+                    const originalGState = Engine.Input.keys['g'];
+                    Engine.Input.keys['g'] = true;
+                    Game.lastGKeyState = false;
+                    setTimeout(() => {
+                        Engine.Input.keys['g'] = originalGState;
+                    }, 10);
+                }
             } else if (currentInteraction.type === 'gearUpgrade') {
                 // Open gear upgrades
                 if (typeof window !== 'undefined' && typeof window.toggleGearUpgrades === 'function') {
@@ -2080,7 +2207,14 @@ function onGameStart(data) {
 
             // Start game if in nexus
             if (Game.state === 'NEXUS') {
-                Game.startGame();
+                const modeId = data && data.modeId ? data.modeId : 'roguelike';
+                if (modeId !== 'roguelike') {
+                    if (typeof AppHost !== 'undefined' && AppHost.launchSession) {
+                        AppHost.launchSession(modeId);
+                    }
+                } else {
+                    Game.startGame();
+                }
             }
         }
 

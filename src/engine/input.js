@@ -69,6 +69,7 @@ function createInputSeat(input, options = {}) {
         _buttons: new Uint8Array(16),
         _previousButtons: new Uint8Array(16),
         _justPressed: new Uint8Array(16),
+        _justReleased: new Uint8Array(16),
         _axes: new Float32Array(4),
         _interactPrev: false,
         // Per-seat input class for prompts/gameplay (never borrow global Input source).
@@ -81,6 +82,10 @@ function createInputSeat(input, options = {}) {
 
         _buttonJustPressed(index) {
             return !!this._justPressed[index];
+        },
+
+        _buttonJustReleased(index) {
+            return !!this._justReleased[index];
         },
 
         _stick(axisX, axisY) {
@@ -142,9 +147,11 @@ function createInputSeat(input, options = {}) {
                     const down = btn && (btn.pressed || btn.value > 0.15) ? 1 : 0;
                     this._buttons[i] = down;
                     this._justPressed[i] = (down === 1 && this._previousButtons[i] === 0) ? 1 : 0;
+                    this._justReleased[i] = (down === 0 && this._previousButtons[i] === 1) ? 1 : 0;
                 } else {
                     this._buttons[i] = 0;
                     this._justPressed[i] = 0;
+                    this._justReleased[i] = this._previousButtons[i] === 1 ? 1 : 0;
                 }
             }
 
@@ -240,6 +247,15 @@ function createInputSeat(input, options = {}) {
             }
             const button = ABILITY_BUTTON_MAP[ability];
             return button === undefined ? false : this._buttonJustPressed(button);
+        },
+
+        isAbilityJustReleased(ability) {
+            if (this._usesKeyboardMouse() && input._desktopAbilityJustReleased
+                && input._desktopAbilityJustReleased[ability]) {
+                return true;
+            }
+            const button = ABILITY_BUTTON_MAP[ability];
+            return button === undefined ? false : this._buttonJustReleased(button);
         },
 
         getAbilityDirection(out = null) {
@@ -385,16 +401,20 @@ Engine.Input = {
         };
     },
 
-    _mapPointer(clientX, clientY, canvas) {
+    _mapPointer(clientX, clientY, canvas, out = null) {
         if (typeof this._hooks.mapPointer === 'function') {
             return this._hooks.mapPointer(clientX, clientY, canvas);
         }
         const rect = canvas.getBoundingClientRect();
         const size = this._getLogicalSize(canvas);
-        return {
-            x: (clientX - rect.left) * (size.width / rect.width),
-            y: (clientY - rect.top) * (size.height / rect.height)
-        };
+        const rx = (clientX - rect.left) * (size.width / (rect.width || 1));
+        const ry = (clientY - rect.top) * (size.height / (rect.height || 1));
+        if (out && typeof out === 'object') {
+            out.x = rx;
+            out.y = ry;
+            return out;
+        }
+        return { x: rx, y: ry };
     },
 
     // Key states
@@ -408,8 +428,24 @@ Engine.Input = {
     // Touch state
     touchActive: false,
     activeTouches: {},   // Map of touchId -> { x, y }
+    activeTouchCount: 0,
     touchJoysticks: {},  // Map of joystick name -> VirtualJoystick
     touchButtons: {},    // Map of button name -> TouchButton
+    touchJoystickList: [],
+    touchButtonList: [],
+
+    _rebuildTouchLists() {
+        this.touchJoystickList.length = 0;
+        for (const key in this.touchJoysticks) {
+            const val = this.touchJoysticks[key];
+            if (val) this.touchJoystickList.push(val);
+        }
+        this.touchButtonList.length = 0;
+        for (const key in this.touchButtons) {
+            const val = this.touchButtons[key];
+            if (val) this.touchButtonList.push(val);
+        }
+    },
 
     // Control mode
     controlMode: 'auto', // 'auto', 'mobile', 'desktop', 'gamepad'
@@ -623,13 +659,16 @@ Engine.Input = {
     // ------------------------------------------------------------------ touch
 
     _resetTouchState(reason = 'manual') {
-        for (const joystick of Object.values(this.touchJoysticks)) {
+        for (let i = 0; i < this.touchJoystickList.length; i++) {
+            const joystick = this.touchJoystickList[i];
             if (joystick && joystick.touchId !== null) joystick.endTouch(joystick.touchId);
         }
-        for (const button of Object.values(this.touchButtons)) {
+        for (let i = 0; i < this.touchButtonList.length; i++) {
+            const button = this.touchButtonList[i];
             if (button && button.touchId !== null) button.endTouch(button.touchId);
         }
         this.activeTouches = {};
+        this.activeTouchCount = 0;
         this.touchActive = false;
         this._recordInputEvent('inputReset', { reason, target: 'touch' });
     },
@@ -638,6 +677,56 @@ Engine.Input = {
         this._resetKeyboardState(reason);
         this._resetPointerState(reason);
         if (this.isTouchMode()) this._resetTouchState(reason);
+    },
+
+    /**
+     * Clear edge-trigger state so a portal activate click/key does not fire
+     * abilities on frame 0 of a new mode session.
+     * Held keys stay held; justPressed / justReleased / mouse-down edges are cleared.
+     */
+    flushEdgeTriggers(reason = 'mode-takeover') {
+        // Treat currently-held gamepad buttons as already-seen (no fresh edges).
+        if (this._seats && typeof this._seats.values === 'function') {
+            for (const seat of this._seats.values()) {
+                if (!seat) continue;
+                if (seat._justPressed && seat._previousButtons && seat._buttons) {
+                    seat._previousButtons.set(seat._buttons);
+                    seat._justPressed.fill(0);
+                }
+                seat._interactPrev = true;
+            }
+        }
+        this._gamepadStartPrev = true;
+        this._gamepadSelectPrev = true;
+
+        // Mouse: drop pressed so held click does not carry into session as attack.
+        this.mouseLeft = false;
+        this.mouseRight = false;
+
+        // Interact / menu keys commonly used on the portal.
+        if (this.keys) {
+            this.keys['g'] = false;
+            this.keys[' '] = false;
+            this.keys['escape'] = false;
+            this.keys['enter'] = false;
+        }
+
+        for (let i = 0; i < this.touchButtonList.length; i++) {
+            const button = this.touchButtonList[i];
+            if (!button) continue;
+            button.justPressed = false;
+            button.justReleased = false;
+            // If still physically held, mark pressed without edge.
+            if (button.pressed) {
+                button.justPressed = false;
+            } else {
+                button.pressed = false;
+                button.active = false;
+            }
+        }
+
+        this._recordInputEvent('inputFlushEdges', { reason, target: 'edge-triggers' });
+        return this;
     },
 
     getSafeAreaInsets() {
@@ -662,8 +751,10 @@ Engine.Input = {
     _clearTouchControls() {
         this.touchActive = false;
         this.activeTouches = {};
+        this.activeTouchCount = 0;
         this.touchJoysticks = {};
         this.touchButtons = {};
+        this._rebuildTouchLists();
     },
 
     initTouchControls(canvas) {
@@ -722,6 +813,7 @@ Engine.Input = {
         if (typeof this._hooks.onInputSurfaceReady === 'function') {
             this._hooks.onInputSurfaceReady();
         }
+        this._rebuildTouchLists();
     },
 
     // ------------------------------------------------------------------ control surface
@@ -1284,6 +1376,7 @@ Engine.Input = {
         this.touchButtons.heavyAttack      = new TouchButton(-9999, -9999, 48, 44, 'Heavy');
         this.touchButtons.specialAbility   = new TouchButton(-9999, -9999, 48, 44, 'Spcl');
         this.touchButtons.dodge            = new TouchButton(-9999, -9999, 48, 44, 'Dodge');
+        this._rebuildTouchLists();
     },
 
     // Poll the Gamepad API and write its state into the existing touch joystick/button objects.
@@ -1447,8 +1540,33 @@ Engine.Input = {
         syncAbilityJoystick(this.touchJoysticks.specialAbility, rightStick.mag > 0.05 ? rightStick : leftStick, specialDown);
 
         const dodgeDown = gp.buttons[STANDARD_PAD.RB]?.pressed || false;
-        syncButton(this.touchButtons.dodge, dodgeDown);
-        syncAbilityJoystick(this.touchJoysticks.dodge, leftStick, dodgeDown);
+        const dodgeButton = this.touchButtons.dodge;
+        const dodgeWasDown = !!(dodgeButton && dodgeButton.pressed);
+        const dodgeStick = this.touchJoysticks.dodge;
+        let dodgeReleaseAim = null;
+        if (dodgeWasDown && !dodgeDown && dodgeStick) {
+            const mag = typeof dodgeStick.getMagnitude === 'function'
+                ? dodgeStick.getMagnitude()
+                : (dodgeStick.magnitude || 0);
+            if (mag > 0.1) {
+                const dir = typeof dodgeStick.getDirection === 'function'
+                    ? dodgeStick.getDirection()
+                    : (dodgeStick.direction || {
+                        x: Math.cos(dodgeStick.angle || 0),
+                        y: Math.sin(dodgeStick.angle || 0)
+                    });
+                dodgeReleaseAim = {
+                    direction: { x: dir.x, y: dir.y },
+                    magnitude: mag,
+                    angle: dodgeStick.angle || Math.atan2(dir.y, dir.x)
+                };
+            }
+        }
+        syncButton(dodgeButton, dodgeDown);
+        syncAbilityJoystick(dodgeStick, leftStick, dodgeDown);
+        if (dodgeReleaseAim && dodgeButton) {
+            dodgeButton.finalJoystickState = dodgeReleaseAim;
+        }
 
         if (!(typeof this._hooks.uiHandlesSystemButtons === 'function' && this._hooks.uiHandlesSystemButtons())) {
             const startNow = gp.buttons[STANDARD_PAD.START]?.pressed || false;
@@ -1489,41 +1607,50 @@ Engine.Input = {
             return;
         }
 
-        const touches = Array.from(e.touches);
-        const convertCoords = (cx, cy) => this._mapPointer(cx, cy, canvas);
+        const size = this._getLogicalSize(canvas);
+        const mapScratch = { x: 0, y: 0 };
 
-        touches.forEach(touch => {
-            const { x, y } = convertCoords(touch.clientX, touch.clientY);
+        for (let idx = 0; idx < e.touches.length; idx++) {
+            const touch = e.touches[idx];
             const touchId = touch.identifier;
 
-            this.activeTouches[touchId] = { x, y };
+            this._mapPointer(touch.clientX, touch.clientY, canvas, mapScratch);
+            const x = mapScratch.x;
+            const y = mapScratch.y;
+
+            if (!this.activeTouches[touchId]) {
+                this.activeTouches[touchId] = { x: 0, y: 0 };
+                this.activeTouchCount++;
+            }
+            this.activeTouches[touchId].x = x;
+            this.activeTouches[touchId].y = y;
             this.touchActive = true;
 
             if (typeof this._hooks.onCharacterSheetTouchStart === 'function') {
                 const firstClientY = e.touches.length > 0 ? e.touches[0].clientY : 0;
-                if (this._hooks.onCharacterSheetTouchStart(x, y, firstClientY)) return;
+                if (this._hooks.onCharacterSheetTouchStart(x, y, firstClientY)) continue;
             }
 
-            if (typeof this._hooks.onInteractionButtonClick === 'function' && this._hooks.onInteractionButtonClick(x, y)) return;
+            if (typeof this._hooks.onInteractionButtonClick === 'function' && this._hooks.onInteractionButtonClick(x, y)) continue;
 
-            if (this.usesDomTouchControls()) return;
+            if (this.usesDomTouchControls()) continue;
 
-            const logicalWidth = this._getLogicalSize(canvas).width;
-            const screenMiddle = logicalWidth / 2;
+            const screenMiddle = size.width / 2;
             const isLeftSide   = x < screenMiddle;
 
             if (isLeftSide) {
                 if (this.touchJoysticks.movement && !this.touchJoysticks.movement.active) {
-                    if (this.touchJoysticks.movement.startTouch(touchId, x, y)) return;
+                    if (this.touchJoysticks.movement.startTouch(touchId, x, y)) continue;
                 }
             } else {
                 const buttonOrder = ['heavyAttack', 'dodge', 'specialAbility'];
                 let buttonMatched = false;
-                for (const buttonName of buttonOrder) {
+                for (let b = 0; b < buttonOrder.length; b++) {
+                    const buttonName = buttonOrder[b];
                     const button = this.touchButtons[buttonName];
                     if (button && !button.active && button.contains(x, y)) {
                         buttonMatched = true;
-                        if (button.startTouch(touchId, x, y)) return;
+                        if (button.startTouch(touchId, x, y)) break;
                     }
                 }
 
@@ -1534,16 +1661,19 @@ Engine.Input = {
                     const restrictedHitRadius = joystick.radius * 1.2;
                     if (distance <= restrictedHitRadius) {
                         let tooCloseToButton = false;
-                        for (const button of Object.values(this.touchButtons)) {
+                        for (let b = 0; b < this.touchButtonList.length; b++) {
+                            const button = this.touchButtonList[b];
                             if (button && button.contains(x, y)) { tooCloseToButton = true; break; }
                             if (button) {
                                 const bcx = button.x + button.width / 2, bcy = button.y + button.height / 2;
-                                if (Math.sqrt((x - bcx) ** 2 + (y - bcy) ** 2) < Math.max(button.width, button.height) / 2 + 10) {
+                                const diffX = x - bcx;
+                                const diffY = y - bcy;
+                                if (Math.sqrt(diffX * diffX + diffY * diffY) < Math.max(button.width, button.height) / 2 + 10) {
                                     tooCloseToButton = true; break;
                                 }
                             }
                         }
-                        if (!tooCloseToButton && joystick.startTouch(touchId, x, y, restrictedHitRadius)) return;
+                        if (!tooCloseToButton && joystick.startTouch(touchId, x, y, restrictedHitRadius)) continue;
                     }
                 }
             }
@@ -1551,21 +1681,21 @@ Engine.Input = {
             // Fallback
             if (isLeftSide) {
                 if (this.touchJoysticks.movement && !this.touchJoysticks.movement.active) {
-                    if (this.touchJoysticks.movement.startTouch(touchId, x, y)) return;
+                    if (this.touchJoysticks.movement.startTouch(touchId, x, y)) continue;
                 }
             } else {
                 if (this.touchJoysticks.basicAttack && !this.touchJoysticks.basicAttack.active) {
                     const joystick = this.touchJoysticks.basicAttack;
                     const dx = x - joystick.centerX, dy = y - joystick.centerY;
                     const fallbackHitRadius = joystick.radius * 1.15;
-                    if (Math.sqrt(dx * dx + dy * dy) <= fallbackHitRadius && joystick.startTouch(touchId, x, y, fallbackHitRadius)) return;
+                    if (Math.sqrt(dx * dx + dy * dy) <= fallbackHitRadius && joystick.startTouch(touchId, x, y, fallbackHitRadius)) continue;
                 }
             }
 
             if (!isLeftSide) {
                 this._recordInputEvent('mobileTouchMiss', { side: 'right', x: Math.round(x), y: Math.round(y) });
             }
-        });
+        }
     },
 
     handleTouchMove(e, canvas) {
@@ -1587,18 +1717,22 @@ Engine.Input = {
         const rect = canvas.getBoundingClientRect();
         if (rect.width === 0 || rect.height === 0) return;
 
-        const touches = Array.from(e.touches);
-        const convertCoords = (cx, cy) => this._mapPointer(cx, cy, canvas);
+        const mapScratch = { x: 0, y: 0 };
 
-        touches.forEach(touch => {
-            const { x, y } = convertCoords(touch.clientX, touch.clientY);
+        for (let idx = 0; idx < e.touches.length; idx++) {
+            const touch = e.touches[idx];
             const touchId = touch.identifier;
 
-            if (!this.activeTouches[touchId]) return;
+            this._mapPointer(touch.clientX, touch.clientY, canvas, mapScratch);
+            const x = mapScratch.x;
+            const y = mapScratch.y;
+
+            if (!this.activeTouches[touchId]) continue;
             this.activeTouches[touchId].x = x;
             this.activeTouches[touchId].y = y;
 
-            for (const joystick of Object.values(this.touchJoysticks)) {
+            for (let j = 0; j < this.touchJoystickList.length; j++) {
+                const joystick = this.touchJoystickList[j];
                 if (joystick && joystick.touchId === touchId) joystick.updateTouch(touchId, x, y);
             }
 
@@ -1615,7 +1749,7 @@ Engine.Input = {
                 this.touchButtons.heavyAttack.touchId === touchId) {
                 const button = this.touchButtons.heavyAttack;
                 const dx = x - (button.x + button.width / 2), dy = y - (button.y + button.height / 2);
-                if (Math.sqrt(dx * dx + dy * dy) > 10) {
+                if (dx * dx + dy * dy > 100) {
                     if (this.touchJoysticks.heavyAttack && !this.touchJoysticks.heavyAttack.active) {
                         this.touchJoysticks.heavyAttack.startTouch(touchId, x, y);
                     }
@@ -1632,7 +1766,7 @@ Engine.Input = {
                 this.touchButtons.dodge.touchId === touchId) {
                 const button = this.touchButtons.dodge;
                 const dx = x - (button.x + button.width / 2), dy = y - (button.y + button.height / 2);
-                if (Math.sqrt(dx * dx + dy * dy) > 10) {
+                if (dx * dx + dy * dy > 100) {
                     if (this.touchJoysticks.dodge && !this.touchJoysticks.dodge.active) {
                         this.touchJoysticks.dodge.startTouch(touchId, x, y);
                     }
@@ -1652,7 +1786,7 @@ Engine.Input = {
                 this.touchButtons.specialAbility.touchId === touchId) {
                 const button = this.touchButtons.specialAbility;
                 const dx = x - (button.x + button.width / 2), dy = y - (button.y + button.height / 2);
-                if (Math.sqrt(dx * dx + dy * dy) > 10) {
+                if (dx * dx + dy * dy > 100) {
                     if (this.touchJoysticks.specialAbility && !this.touchJoysticks.specialAbility.active) {
                         this.touchJoysticks.specialAbility.startTouch(touchId, x, y);
                     }
@@ -1661,36 +1795,43 @@ Engine.Input = {
                     this.touchJoysticks.specialAbility.updateTouch(touchId, x, y);
                 }
             }
-        });
+        }
     },
 
     handleTouchEnd(e) {
         if (this._couchSplitActive) return;
         if (!this.isTouchMode()) return;
 
-        const touches = Array.from(e.changedTouches);
+        const touches = e.changedTouches;
         if (this.usesDomTouchControls()) {
-            touches.forEach(touch => delete this.activeTouches[touch.identifier]);
-            if (Object.keys(this.activeTouches).length === 0) this.touchActive = false;
+            for (let idx = 0; idx < touches.length; idx++) {
+                const touchId = touches[idx].identifier;
+                if (this.activeTouches[touchId]) {
+                    delete this.activeTouches[touchId];
+                    this.activeTouchCount = Math.max(0, this.activeTouchCount - 1);
+                }
+            }
+            if (this.activeTouchCount === 0) this.touchActive = false;
             return;
         }
 
         const abilityInputType = this._hooks.getAbilityInputType;
 
-        touches.forEach(touch => {
+        const captureJoystickState = (joystick, button) => {
+            if (!joystick || !button) return;
+            button.finalJoystickState = {
+                direction: joystick.getDirection(),
+                magnitude: joystick.getMagnitude(),
+                angle: joystick.angle
+            };
+        };
+
+        for (let idx = 0; idx < touches.length; idx++) {
+            const touch = touches[idx];
             const touchId = touch.identifier;
             const classType = typeof this._hooks.getClassType === 'function'
                 ? this._hooks.getClassType()
                 : null;
-
-            const captureJoystickState = (joystick, button) => {
-                if (!joystick || !button) return;
-                button.finalJoystickState = {
-                    direction: joystick.getDirection(),
-                    magnitude: joystick.getMagnitude(),
-                    angle: joystick.angle
-                };
-            };
 
             // Heavy attack joystick capture
             const usesHeavyJoystick = classType && abilityInputType
@@ -1732,12 +1873,21 @@ Engine.Input = {
                 }
             }
 
-            for (const joystick of Object.values(this.touchJoysticks)) { if (joystick) joystick.endTouch(touchId); }
-            for (const button  of Object.values(this.touchButtons))    { if (button)  button.endTouch(touchId); }
-            delete this.activeTouches[touchId];
-        });
+            for (let j = 0; j < this.touchJoystickList.length; j++) {
+                const joystick = this.touchJoystickList[j];
+                if (joystick) joystick.endTouch(touchId);
+            }
+            for (let b = 0; b < this.touchButtonList.length; b++) {
+                const button = this.touchButtonList[b];
+                if (button) button.endTouch(touchId);
+            }
+            if (this.activeTouches[touchId]) {
+                delete this.activeTouches[touchId];
+                this.activeTouchCount = Math.max(0, this.activeTouchCount - 1);
+            }
+        }
 
-        if (Object.keys(this.activeTouches).length === 0) this.touchActive = false;
+        if (this.activeTouchCount === 0) this.touchActive = false;
     },
 
     // ------------------------------------------------------------------ lifecycle
@@ -1890,12 +2040,14 @@ Engine.Input = {
         if (this.isGamepadMode()) this._updateGamepad();
 
         if (!this.isGamepadMode()) {
-            for (const joystick of Object.values(this.touchJoysticks)) {
+            for (let i = 0; i < this.touchJoystickList.length; i++) {
+                const joystick = this.touchJoystickList[i];
                 if (joystick) joystick.update(deltaTime);
             }
         }
 
-        for (const button of Object.values(this.touchButtons)) {
+        for (let i = 0; i < this.touchButtonList.length; i++) {
+            const button = this.touchButtonList[i];
             if (button && !this.isGamepadMode()) button.update(deltaTime);
         }
 
@@ -1967,6 +2119,7 @@ Engine.Input = {
     _desktopAbilitySlots: ['basicAttack', 'heavyAttack', 'specialAbility', 'dodge'],
     _desktopAbilityPrev: {},
     _desktopAbilityJust: {},
+    _desktopAbilityJustReleased: {},
 
     /** Raw desktop held-state for a named ability slot. */
     _desktopAbilityDown(ability) {
@@ -1979,14 +2132,16 @@ Engine.Input = {
     },
 
     /**
-     * Latch desktop ability rising edges once per frame so
-     * isAbilityJustPressed() reports a one-shot press instead of mirroring
-     * the held state. Runs from update() in every control mode.
+     * Latch desktop ability rising/falling edges once per frame so
+     * isAbilityJustPressed/Released() report one-shot edges instead of
+     * mirroring held state. Runs from update() in every control mode.
      */
     _sampleDesktopAbilityEdges() {
         for (const slot of this._desktopAbilitySlots) {
             const down = this._desktopAbilityDown(slot);
-            this._desktopAbilityJust[slot] = down && !this._desktopAbilityPrev[slot];
+            const was = !!this._desktopAbilityPrev[slot];
+            this._desktopAbilityJust[slot] = down && !was;
+            this._desktopAbilityJustReleased[slot] = !down && was;
             this._desktopAbilityPrev[slot] = down;
         }
     },
@@ -2027,6 +2182,14 @@ Engine.Input = {
             return this.touchButtons[ability] ? this.touchButtons[ability].justPressed : false;
         }
         return !!this._desktopAbilityJust[ability];
+    },
+
+    /** Check if a named ability slot was just released this frame (edge detect). */
+    isAbilityJustReleased(ability) {
+        if (this.isTouchMode()) {
+            return this.touchButtons[ability] ? !!this.touchButtons[ability].justReleased : false;
+        }
+        return !!this._desktopAbilityJustReleased[ability];
     },
 
     /** Get the normalized direction vector for a named ability slot. */

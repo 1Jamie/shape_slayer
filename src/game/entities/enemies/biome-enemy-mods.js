@@ -305,6 +305,23 @@
     function applyVortexPullToPlayers(enemy, players, deltaTime) {
         if (!enemy || !enemy.biomeFlags || !enemy.biomeFlags.pullDuringTelegraph) return;
         if (!enemy.activeTelegraph && enemy.state !== 'telegraph') return;
+
+        // Surge Arena packs dozens of aggro'd trash: every telegraph pull stacks into
+        // "random force while I swing." Keep the suck for Gear vortex rooms only.
+        if (typeof currentRoom !== 'undefined' && currentRoom
+            && (currentRoom.archetype === 'surgeArena' || currentRoom.isArenaComplex)) {
+            return;
+        }
+
+        // Arena: enemies sealed in the machine bay must not yank the player through the gate.
+        if (typeof currentRoom !== 'undefined' && currentRoom
+            && currentRoom.machineBay && !currentRoom.machinesAccessible) {
+            const b = currentRoom.machineBay;
+            if (enemy.x >= b.x && enemy.x <= b.x + b.w && enemy.y >= b.y && enemy.y <= b.y + b.h) {
+                return;
+            }
+        }
+
         const strength = enemy.biomePullStrength || 160;
         const radius = enemy.biomePullRadius || 200;
         const list = players instanceof Map ? Array.from(players.values()) : (Array.isArray(players) ? players : [players]);

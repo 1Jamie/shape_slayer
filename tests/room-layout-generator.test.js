@@ -468,3 +468,83 @@ test('boss base resolves scenery anchors to nearby walkable points', () => {
         );
     });
 });
+
+test('blocked cell collision silhouettes match biome scenery shapes', () => {
+    const Geometry = Engine.Physics.Geometry;
+
+    function blockedLayout(biomeId, cols, rows, cellSize) {
+        const grid = new Array(cols * rows).fill(0);
+        grid[1 * cols + 1] = 1;
+        return { biomeId, cols, rows, cellSize, width: cols * cellSize, height: rows * cellSize, grid };
+    }
+
+    const vortex = blockedLayout('vortex', 5, 5, 60);
+    const vortexShape = RoomLayoutGenerator.getCellCollisionShape(vortex, 1, 1);
+    assert.equal(vortexShape.type, 'ellipse');
+    assert.ok(Math.abs(vortexShape.radiusY / vortexShape.radiusX - 0.64) < 1e-6);
+    assert.ok(Math.abs(vortexShape.rotation - (1 + 1) * 0.34) < 1e-6);
+
+    // Along the local minor axis, ellipse leaves a pocket a matching circle would still block.
+    const vCos = Math.cos(vortexShape.rotation);
+    const vSin = Math.sin(vortexShape.rotation);
+    const minorProbe = {
+        x: vortexShape.x - vSin * (vortexShape.radiusX * 0.82),
+        y: vortexShape.y + vCos * (vortexShape.radiusX * 0.82)
+    };
+    assert.equal(
+        Geometry.circleEllipseOverlap(
+            minorProbe.x, minorProbe.y, 1,
+            vortexShape.x, vortexShape.y, vortexShape.radiusX, vortexShape.radiusY, vortexShape.rotation
+        ),
+        false,
+        'vortex minor-axis pocket should miss the ellipse'
+    );
+    assert.equal(
+        Geometry.circlesOverlap(
+            minorProbe.x, minorProbe.y, 1,
+            vortexShape.x, vortexShape.y, vortexShape.radiusX,
+            { inclusive: true }
+        ),
+        true,
+        'legacy circular probe would still block that pocket'
+    );
+    assert.equal(
+        RoomLayoutGenerator.isPointWalkable(vortex, minorProbe.x, minorProbe.y, 1),
+        true,
+        'vortex walkability should use the ellipse silhouette'
+    );
+
+    const prism = blockedLayout('prism', 5, 5, 60);
+    const prismShape = RoomLayoutGenerator.getCellCollisionShape(prism, 1, 1);
+    const prismCenter = RoomLayoutGenerator.cellCenter(prism, 1, 1);
+    assert.equal(prismShape.type, 'polygon');
+    assert.equal(prismShape.points.length, 4);
+    assert.equal(
+        RoomLayoutGenerator.isPointWalkable(prism, prismCenter.x, prismCenter.y + 60 * 0.48 * 0.85, 1),
+        false,
+        'prism diamond tip should block'
+    );
+    // Corner pocket outside the flat diamond side should remain open.
+    assert.equal(
+        RoomLayoutGenerator.isPointWalkable(
+            prism,
+            prismCenter.x + 60 * 0.48 * 0.85,
+            prismCenter.y + 60 * 0.48 * 0.85,
+            1
+        ),
+        true,
+        'prism diamond corner pocket should stay open'
+    );
+
+    const fractal = blockedLayout('fractal', 5, 5, 60);
+    assert.equal(RoomLayoutGenerator.getCellCollisionShape(fractal, 1, 1).type, 'polygon');
+    assert.equal(RoomLayoutGenerator.getCellCollisionShape(fractal, 1, 1).points.length, 4);
+
+    const swarm = blockedLayout('swarm', 5, 5, 60);
+    const swarmShape = RoomLayoutGenerator.getCellCollisionShape(swarm, 1, 1);
+    assert.equal(swarmShape.type, 'polygon');
+    assert.equal(swarmShape.points.length, 6);
+
+    const fortress = blockedLayout('fortress', 5, 5, 60);
+    assert.equal(RoomLayoutGenerator.getCellCollisionShape(fortress, 1, 1).type, 'rect');
+});

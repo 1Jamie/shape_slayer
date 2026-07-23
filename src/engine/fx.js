@@ -604,7 +604,7 @@
             return this;
         }
 
-        spawn(options = {}) {
+        spawnRaw(x, y, vx, vy, size, lifeVal, crVal, cgVal, cbVal, gravity, drag, bounce) {
             const cap = this.particleCap;
             if (cap === 0) return -1;
             const currentCount = atomicLoad(this.header, 0);
@@ -614,22 +614,37 @@
                 atomicStore(this.header, 0, cap);
                 return -1;
             }
-            const life = Math.max(0.0001, Number(options.life) || 1);
-            this.x[index] = Number(options.x) || 0;
-            this.y[index] = Number(options.y) || 0;
-            this.vx[index] = Number(options.vx) || 0;
-            this.vy[index] = Number(options.vy) || 0;
-            this.size[index] = Math.max(0, Number(options.size) || 1);
+            const life = Math.max(0.0001, lifeVal || 1);
+            this.x[index] = x || 0;
+            this.y[index] = y || 0;
+            this.vx[index] = vx || 0;
+            this.vy[index] = vy || 0;
+            this.size[index] = size > 0 ? size : 1;
             this.life[index] = life;
             this.maxLife[index] = life;
-            this.gravity[index] = Number(options.gravity) || 0;
-            this.drag[index] = Math.max(0, Number(options.drag) || 0);
-            this.bounce[index] = Math.max(0, Math.min(1, Number(options.bounce) || 0));
-            const [cr, cg, cb] = parseColorToRgb(options.color || '#ffffff');
-            this.cr[index] = cr;
-            this.cg[index] = cg;
-            this.cb[index] = cb;
+            this.gravity[index] = gravity || 0;
+            this.drag[index] = drag > 0 ? drag : 0;
+            this.bounce[index] = bounce > 0 ? (bounce > 1 ? 1 : bounce) : 0;
+            this.cr[index] = crVal != null ? crVal : 1;
+            this.cg[index] = cgVal != null ? cgVal : 1;
+            this.cb[index] = cbVal != null ? cbVal : 1;
             return index;
+        }
+
+        spawn(options = {}) {
+            const [cr, cg, cb] = parseColorToRgb(options.color || '#ffffff');
+            return this.spawnRaw(
+                Number(options.x) || 0,
+                Number(options.y) || 0,
+                Number(options.vx) || 0,
+                Number(options.vy) || 0,
+                Math.max(0, Number(options.size) || 1),
+                Number(options.life) || 1,
+                cr, cg, cb,
+                Number(options.gravity) || 0,
+                Math.max(0, Number(options.drag) || 0),
+                Math.max(0, Math.min(1, Number(options.bounce) || 0))
+            );
         }
 
         initWorkerOffscreen(canvas) {
@@ -743,13 +758,19 @@
             if (currentCount <= 0) return;
             const last = atomicSub(this.header, 0, 1) - 1;
             if (index === last || index > last) return;
-            for (const field of [
-                this.x, this.y, this.vx, this.vy, this.size, this.life,
-                this.maxLife, this.gravity, this.drag, this.bounce,
-                this.cr, this.cg, this.cb
-            ]) {
-                field[index] = field[last];
-            }
+            this.x[index] = this.x[last];
+            this.y[index] = this.y[last];
+            this.vx[index] = this.vx[last];
+            this.vy[index] = this.vy[last];
+            this.size[index] = this.size[last];
+            this.life[index] = this.life[last];
+            this.maxLife[index] = this.maxLife[last];
+            this.gravity[index] = this.gravity[last];
+            this.drag[index] = this.drag[last];
+            this.bounce[index] = this.bounce[last];
+            this.cr[index] = this.cr[last];
+            this.cg[index] = this.cg[last];
+            this.cb[index] = this.cb[last];
         }
 
         update(deltaTime) {
@@ -779,14 +800,24 @@
             const bounds = viewBounds ? normalizeBounds(viewBounds) : null;
             ctx.save();
             const currentCount = this.count;
+            let lastAlpha = -1;
+            let lastFill = null;
             for (let index = 0; index < currentCount; index++) {
                 const radius = this.size[index];
                 if (bounds && (this.x[index] + radius < bounds.left
                     || this.x[index] - radius > bounds.right
                     || this.y[index] + radius < bounds.top
                     || this.y[index] - radius > bounds.bottom)) continue;
-                ctx.globalAlpha = Math.max(0, this.life[index] / this.maxLife[index]);
-                ctx.fillStyle = getCachedRgbString(this.cr[index], this.cg[index], this.cb[index]);
+                const alpha = Math.max(0, this.life[index] / this.maxLife[index]);
+                if (lastAlpha !== alpha) {
+                    ctx.globalAlpha = alpha;
+                    lastAlpha = alpha;
+                }
+                const fill = getCachedRgbString(this.cr[index], this.cg[index], this.cb[index]);
+                if (lastFill !== fill) {
+                    ctx.fillStyle = fill;
+                    lastFill = fill;
+                }
                 ctx.beginPath();
                 ctx.arc(this.x[index], this.y[index], radius, 0, Math.PI * 2);
                 ctx.fill();
@@ -821,7 +852,9 @@
     function burst(systemOrOptions, maybeOptions) {
         const system = systemOrOptions instanceof ParticleSystem ? systemOrOptions : FX.Particles;
         const options = systemOrOptions instanceof ParticleSystem ? (maybeOptions || {}) : (systemOrOptions || {});
+        if (!system) return 0;
         const count = Math.max(0, Math.floor(options.count ?? 12));
+        if (count <= 0) return 0;
         const baseAngle = Number(options.angle) || 0;
         const spread = Number.isFinite(options.spread) ? options.spread : Math.PI * 2;
         const random = options.rng && typeof options.rng.next === 'function'
@@ -831,23 +864,36 @@
             if (Array.isArray(value)) return value[0] + (value[1] - value[0]) * random();
             return Number.isFinite(value) ? value : fallback;
         };
+        const posX = Number(options.x) || 0;
+        const posY = Number(options.y) || 0;
+        const addVx = Number(options.vx) || 0;
+        const addVy = Number(options.vy) || 0;
+        const gravity = Number(options.gravity) || 0;
+        const drag = Math.max(0, Number(options.drag) || 0);
+        const bounce = Math.max(0, Math.min(1, Number(options.bounce) || 0));
+        const colors = Array.isArray(options.color) ? options.color : null;
+        let defaultRgb = null;
+        if (!colors) {
+            defaultRgb = parseColorToRgb(options.color || '#ffffff');
+        }
+
         let spawned = 0;
         for (let index = 0; index < count; index++) {
             const angle = baseAngle + (random() - 0.5) * spread;
             const speed = range(options.speed, 100);
-            const colors = Array.isArray(options.color) ? options.color : null;
-            const result = system.spawn({
-                x: options.x,
-                y: options.y,
-                vx: Math.cos(angle) * speed + (Number(options.vx) || 0),
-                vy: Math.sin(angle) * speed + (Number(options.vy) || 0),
-                color: colors ? colors[Math.floor(random() * colors.length)] : options.color,
-                size: range(options.size, 2),
-                life: range(options.life, 0.5),
-                gravity: options.gravity,
-                drag: options.drag,
-                bounce: options.bounce
-            });
+            const vx = Math.cos(angle) * speed + addVx;
+            const vy = Math.sin(angle) * speed + addVy;
+            const size = range(options.size, 2);
+            const life = range(options.life, 0.5);
+            let cr = 1, cg = 1, cb = 1;
+            if (colors) {
+                const picked = colors[Math.floor(random() * colors.length)];
+                const rgb = parseColorToRgb(picked);
+                cr = rgb[0]; cg = rgb[1]; cb = rgb[2];
+            } else {
+                cr = defaultRgb[0]; cg = defaultRgb[1]; cb = defaultRgb[2];
+            }
+            const result = system.spawnRaw(posX, posY, vx, vy, size, life, cr, cg, cb, gravity, drag, bounce);
             if (result < 0) break;
             spawned++;
         }
@@ -876,6 +922,15 @@
             // Soft spawn budget (governor); physical capacity stays larger for headroom boost.
             this.softCap = Math.min(256, capacity);
             this._airborneScratch = new Int16Array(capacity);
+            this._scratchCollideOptions = {
+                z: 0,
+                age: 0,
+                index: 0,
+                step: 0,
+                subSteps: 0,
+                vx: 0,
+                vy: 0
+            };
         }
 
         setSoftCap(cap) {
@@ -954,7 +1009,7 @@
             for (let k = 0; k < count; k++) {
                 const lx = this.vertData[vertOffset + k * 2];
                 const ly = this.vertData[vertOffset + k * 2 + 1];
-                maxR = Math.max(maxR, Math.hypot(lx, ly));
+                maxR = Math.max(maxR, Math.sqrt(lx * lx + ly * ly));
             }
             return Math.max(3, maxR * scale * 0.85);
         }
@@ -969,6 +1024,8 @@
             const gravity = 1800;
             const collide = this.resolveWorldCollision;
             let airborneCount = 0;
+
+            const opts = this._scratchCollideOptions;
 
             for (let i = 0; i < this.capacity; i++) {
                 const stride = i * 20;
@@ -988,18 +1045,17 @@
                     if (typeof collide === 'function') {
                         const radius = this._shardRadius(i);
                         const zNow = this.data[stride + 16];
+                        opts.z = zNow;
+                        opts.age = age;
+                        opts.index = i;
+                        opts.step = step;
+                        opts.subSteps = SUB_STEPS;
+                        opts.vx = this.data[stride + 2];
+                        opts.vy = this.data[stride + 3];
                         const resolved = collide(
                             this.data[stride + 0], this.data[stride + 1],
                             prevX, prevY, radius,
-                            {
-                                z: zNow,
-                                age,
-                                index: i,
-                                step,
-                                subSteps: SUB_STEPS,
-                                vx: this.data[stride + 2],
-                                vy: this.data[stride + 3]
-                            }
+                            opts
                         );
                         if (resolved) {
                             this.data[stride + 0] = resolved.x;
@@ -1007,7 +1063,7 @@
                             if (resolved.hit) {
                                 const moveX = resolved.x - prevX;
                                 const moveY = resolved.y - prevY;
-                                const moved = Math.hypot(moveX, moveY);
+                                const moved = Math.sqrt(moveX * moveX + moveY * moveY);
                                 let vx = this.data[stride + 2];
                                 let vy = this.data[stride + 3];
                                 if (moved > 0.4) {
@@ -1067,7 +1123,9 @@
                     }
                 }
 
-                const speed = Math.hypot(this.data[stride + 2], this.data[stride + 3]);
+                const sVx = this.data[stride + 2];
+                const sVy = this.data[stride + 3];
+                const speed = Math.sqrt(sVx * sVx + sVy * sVy);
                 const zVal = this.data[stride + 16];
                 if (speed < 15 && zVal <= 0.1 && this.data[stride + 15] === 1) {
                     if (this.settledCount < this.capacity) {
@@ -1130,7 +1188,7 @@
                     const sj = j * 20;
                     const dx = this.data[sj] - xi;
                     const dy = this.data[sj + 1] - yi;
-                    const dist = Math.hypot(dx, dy);
+                    const dist = Math.sqrt(dx * dx + dy * dy);
                     const minDist = ri + this._shardRadius(j) * 0.7;
                     if (dist >= minDist || dist < 1e-4) continue;
 
@@ -1166,6 +1224,9 @@
 
             // Pass 1: Soft ground contact shadow only while a shard is elevated.
             ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+            let lastAlpha = -1;
+            let lastFill = 'rgba(0, 0, 0, 0.35)';
+
             for (let i = 0; i < this.capacity; i++) {
                 const stride = i * 20;
                 if (this.data[stride + 15] !== 1) continue;
@@ -1207,9 +1268,6 @@
                 const rot = this.data[stride + 4];
                 const scale = this.data[stride + 6];
                 const alpha = Math.max(0.6, this.data[stride + 7]);
-                const r = Math.round(this.data[stride + 10] * 255);
-                const g = Math.round(this.data[stride + 11] * 255);
-                const b = Math.round(this.data[stride + 12] * 255);
                 const count = this.data[stride + 13];
                 const vertOffset = this.data[stride + 14];
 
@@ -1218,8 +1276,15 @@
                 const cos = Math.cos(rot) * scale;
                 const sin = Math.sin(rot) * scale;
 
-                ctx.globalAlpha = alpha;
-                ctx.fillStyle = `rgb(${r},${g},${b})`;
+                if (lastAlpha !== alpha) {
+                    ctx.globalAlpha = alpha;
+                    lastAlpha = alpha;
+                }
+                const fill = getCachedRgbString(this.data[stride + 10], this.data[stride + 11], this.data[stride + 12]);
+                if (lastFill !== fill) {
+                    ctx.fillStyle = fill;
+                    lastFill = fill;
+                }
                 ctx.beginPath();
 
                 for (let k = 0; k < count; k++) {

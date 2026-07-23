@@ -4,7 +4,13 @@
 
 Shape Slayer is a fast, skill-first top-down action roguelike. Pick a sentient shape, dive into procedurally generated arenas, stack gear affixes until the build gets weird, and see how far you can push a run. Gear Mode is the game now - Card Mode got deleted on purpose.
 
-Current version: **0.8.2** (see in-game patch notes / `src/game/content/version.js`).
+> [!TIP]
+> ### 🎮 Play Right in Your Browser
+> [![Play Shape Slayer Now](https://img.shields.io/badge/▶_PLAY_NOW-1jamie.github.io%2Fshape_slayer-2ea44f?style=for-the-badge&logo=googlechrome&logoColor=white)](https://1jamie.github.io/shape_slayer)
+> 
+> Direct link: **[https://1jamie.github.io/shape_slayer](https://1jamie.github.io/shape_slayer)** *(No download or setup required - interactive tutorial included!)*
+
+Current version: **0.9.0** (see in-game patch notes / `src/game/content/version.js`).
 
 ## Why You’ll Love It
 
@@ -27,14 +33,65 @@ Current version: **0.8.2** (see in-game patch notes / `src/game/content/version.
 
 Production multiplayer already points at `wss://shape-slayer.gpe.pet` if you don’t feel like self-hosting.
 
-## The Loop (Gear Mode)
+## Game Modes & Loops
 
-1. **Nexus** - pick a class, buy permanent upgrades with credits/shards, step through the portal.
-2. **Rooms 1–50** - procedural combat arenas that shift biomes as you climb (Swarm → Prism → Fortress → Fractal → Vortex). Same enemy bases, remixed rules per biome; elites start showing up mid/late.
-3. **Safe Rooms** - after every 5 combat rooms: craft gear, heal, optionally save the run (solo).
-4. **Bosses at 10 / 20 / 30 / 40 / 50** - Swarm King, Twin Prism, Fortress, Fractal Core, Vortex.
-5. **Past 50** - keep going if you’re unhinged; scaling soft-caps so deep runs stay mean without needing scientific notation for HP bars.
-6. **Die (or finish)** - bank leftover credits, collect shards, brag on the scoreboard.
+Select your game mode at the Nexus portal console before entering.
+
+### 🏆 Campaign Mode (Gear Mode)
+*Classic room-by-room climb to defeat the geometry bosses.*
+1. **Nexus Hub:** Pick a class, spend shards on permanent gear drop modifiers, and select Campaign Mode.
+2. **Rooms 1–50:** Climb through procedural combat arenas spanning five biomes (Swarm → Prism → Fortress → Fractal → Vortex). Same enemy bases, remixed rules per biome; elites start showing up mid/late.
+3. **Safe Rooms:** After every 5 rooms, rest in a cyan lounge: level up gear with credits, reroll affixes, forge higher rarities, heal, or save the run (solo only).
+4. **Boss Arenas:** Confront a boss every 10 rooms (Swarm King, Twin Prism, Fortress, Fractal Core, and Vortex).
+5. **Post-50 Endless:** Keep going on a slower, soft-capped scaling curve so runs stay playable without scientific notation.
+6. **Retire/Die:** Bank leftover credits, claim shards based on achievements/feats, and check the ledger.
+
+### ⚡ Surge Arena Mode
+*Wave-defense survival on a persistent, complex stadium layout.*
+
+#### 🔄 Wave Loop & Progression Flow
+Instead of climbing sequential rooms like the campaign, Surge Arena drops you into a persistent stadium layout where you control the pace of combat:
+1. **Waiting For Trigger (WFT):** You start in a downtime phase. Step onto the central **activator pylon** and interact with it to trigger the next wave. 
+2. **Active Combat Wave:** The pylon shuts down, and the spawn director launches waves using the calculated **spawn budget**. The machine bay containing the **Gear Level Up** and **Affix Reroll** stations is sealed behind a solid, impassable **Machine Bay Gate** (`GameBarriers`) to block cheese.
+3. **Clearing Regular Waves:** When a regular wave (e.g., Waves 1-4, 6-9) is cleared, the game enters the downtime WFT phase and activates the pylon, but the machine bay remains locked.
+4. **Hard Surges (Every 5th Wave):** Clearing standard spawns triggers a **Hard Surge**. The arena is flooded with a massive horde, immediately followed by a boss encounter:
+   * **Wave 5 / 15 / 25 / etc.:** Single boss fight (scaled to wave intensity).
+   * **Wave 10 / 20 / 30 / etc.:** Double boss fight (two bosses spawned simultaneously with adjusted health/damage tuning).
+5. **Downtime & Machine Access:** Clearing a Hard Surge opens the **Machine Bay Gate**. During this post-surge downtime, you can access the upgrade stations. Triggering the next wave will automatically **eject all players** from the bay and kill any trapped enemies to prevent stuck states, then seal the gate once more.
+
+#### 📈 Adaptive Allostatic Spawn Budget
+The difficulty of active waves adapts dynamically to your performance:
+* **Baseline Budget:** Determined strictly by the wave number. Starts at a floor of 90 and increases by 32 per wave, experiencing a quadratic acceleration after Wave 8 to push late-arena density.
+* **Performance Pressure:** Your total XP earned and total time alive add additional "allostatic pressure" to the spawn budget (`XP * 0.015 + Time * 0.12`), capped by a wave-scaled threshold to keep growth challenging but fair.
+* **Spike Dampening:** The budget is throttled to a maximum of 1.45× the previous wave's budget to prevent sudden, unplayable jumps in threat.
+* **Multiplayer Scaling:** The budget is multiplied by `1 + (players - 1) * 0.5` to scale wave density appropriately for up to 4 players.
+* **Enemy Tier Unlocks:** Types of enemies spawned are gated by wave milestones or player XP:
+  * *Basic:* Wave 1 / 0 XP
+  * *Star:* Wave 2 / 150 XP
+  * *Diamond:* Wave 3 / 400 XP
+  * *Rectangle:* Wave 4 / 800 XP
+  * *Octagon (Mini-Commander):* Wave 5 / 1500 XP
+
+#### 🎭 The 5-Tier Style Engine
+Surge Arena features a dynamic ranking system (Tiers 0–4: D to S) that scales both player power and enemy aggression in a high-risk, high-reward feedback loop:
+
+* **Tiers & Stat Modifiers:**
+  * **D - DUST (Tier 0):** Base state (0–4 kills). No bonuses.
+  * **C - SLAYER (Tier 1):** Unlocked at 5 kills. 
+    * *Player:* +10% movement speed, +10% Cooldown Reduction (CDR).
+    * *Enemies:* +5% movement speed (Foes Quickened).
+  * **B - RAMPAGE (Tier 2):** Unlocked at 15 kills.
+    * *Player:* 1.5× credits earned, +15% CDR, +10% critical strike chance, +25% loot drop quality.
+    * *Enemies:* -15% telegraph duration (faster attacks), flanking AI active (Foes Aggressive).
+  * **A - APEX (Tier 3):** Unlocked at 30 kills.
+    * *Player:* 2.0× credits earned, +25% CDR, +100ms dash invincibility (i-frames).
+    * *Enemies:* +20% movement speed, zero hesitation before lunges, elites roll extra affixes (Foes Frenzied).
+  * **S - APOCALYPSE (Tier 4):** Unlocked at 50 kills.
+    * *Player:* 3.0× credits earned, +40% CDR, +10% lifesteal, and defeated enemies shatter into voxel shards.
+    * *Enemies:* Max active cap increased by 35%, spawn interval reduced to 0.15s (Surge Overload).
+* **Attack Variety & Monotone Streaks:** Stringing together different attack types (alternating primary, heavy, special, and dash attacks) awards a **Variety Bonus** (+1 combo count). Reusing the exact same attack type 3+ times in a row triggers a **Monotone Streak**, freezing variety bonuses.
+* **Style Decay & Recovery:** If you fail to hit or kill targets, your style level starts decaying. However, decay leaves a brief **Style Recovery Window**. Hitting an enemy with a heavy or dash attack during this window triggers a **Style Recovery**, immediately clawing back a portion of the decayed combo score.
+* **Style Crash:** Taking hit damage while at Tier 4 (Apex) triggers a **Style Crash**. Your style level instantly drops back to Tier 2, and physical **Style Crash Shards** (gold coins) scatter around the floor. You must quickly run over and collect these coins before they evaporate to salvage your lost credits.
 
 First time here? There’s an actual onboarding coach now, plus **Room 0** - a combat drill dummy arena so you aren’t dropped into glowing mystery boxes with zero explanation.
 
@@ -603,29 +660,31 @@ npm test
 ALLOW_TEST_MIGRATION=true node tests/mp-cluster-smoke.js
 ```
 
-`npm test` includes engine contract suites (`tests/engine-*.test.js`) plus game wiring checks (`tests/game-engine-wiring.test.js`, `tests/game-render-pipeline.test.js`, `tests/directory-boundaries.test.js`). Boundary tests enforce the engine/game divorce: engine modules must not import game paths or Shape Slayer content vocabulary.
+`npm test` includes engine contract suites (`tests/engine-*.test.js`) plus game wiring checks (`tests/game-engine-wiring.test.js`, `tests/game-render-pipeline.test.js`, `tests/directory-boundaries.test.js`). Boundary tests enforce the three-layer divorce: engine ← game ← modes (engine must not import game/modes; game must not import modes).
 
 The live cluster smoke is deliberately small: two workers, a few WebSocket
 clients, and four concurrent Redis claims. It verifies ownership, both redirect
 directions, roster migration, reconnection, and post-migration routing without
 running a load test.
 
-## Architecture (engine vs game)
+## Architecture (engine → game → modes)
 
-Shape Slayer is a game on the engine under `src/engine/`. Engine and game stay separate.
+Shape Slayer is pieces on the engine, plus modes that consume those pieces.
 
 | Layer | Owns | Must not own |
 | --- | --- | --- |
-| **`src/engine/`** | Proc/physics/sim loop, Canvas2D host/pipeline, input hardware, FX, audio/music transport, saves storage, net helpers, DOM UI shell | Bosses, gear, biomes, Nexus, class kits, lobby schemas |
-| **`src/game/`** | Rules, entities, content, Shape Slayer draw recipe, action mapping, game SFX/playlists, MP client, DOM menus | Reimplementing engine primitives |
+| **`src/engine/`** | Proc/physics/sim loop, Canvas2D host/pipeline, input hardware, FX, audio/music transport, saves storage, net helpers, DOM UI shell | Bosses, gear, biomes, Nexus, class kits, lobby schemas, mode boot |
+| **`src/game/`** | Reusable Shape Slayer packages: combat, entities, rooms, telegraphs, content, shared presentation/audio, world piece (`main.js`) | Mode state machines, “which mode is active”, reimplementing engine primitives |
+| **`src/modes/`** | Mode contract (`Modes.<id>.create`), scene/state wiring, package selection, product shell for that mode | Forking combat/entity bases; engine primitives |
 
-Load order is one way: `browser APIs <- engine <- game`. `index.html` loads engine first, then game. `Engine.Boot` probes, shows the cover, inits canvas/UI/save, and only reveals after `Engine.Boot.handoff()`.
+Load order is one way: `browser APIs <- engine <- game <- modes`. `index.html` loads engine, then game packages, then modes; [`src/app/host.js`](src/app/host.js) starts the active mode (default `roguelike`). `Engine.Boot` probes, shows the cover, inits canvas/UI/save, and only reveals after `Engine.Boot.handoff()` (from the mode).
 
 Examples:
 
 - **Input:** `Engine.Input` samples hardware. `src/game/input-map.js` (`GameInput`) turns that into Shape Slayer actions. Old `src/game/simulation/input.js` is gone on purpose.
 - **Audio:** `Engine.Audio` / `Engine.Music` are transport. `src/game/audio/` wires SaveSystem and owns combat cues / playlists.
-- **Render:** `Engine.Render` owns targets + the pipe runner. `src/game/presentation/render-pipeline.js` owns all state recipes (TITLE, NEXUS, ENTERING_ROOM, PLAYING, PAUSED); `main.js` runs them and cleans pooled targets on teardown/resize.
+- **Render:** `Engine.Render` owns targets + the pipe runner. `src/game/presentation/render-pipeline.js` owns state recipes; the **roguelike mode** runs the scene tick and hands off to `Game.render`.
+- **Packages:** [`src/game/packages.js`](src/game/packages.js) (`GamePackages`) lists opt-in package ids modes can consume. See [`src/game/README.md`](src/game/README.md) and [`src/modes/README.md`](src/modes/README.md).
 - **Graphics:** prefer `Engine.Graphics.createCanvas` / `Graphics.Text` over ad-hoc `document.createElement('canvas')` and raw `ctx.font` / `measureText` in game code.
 
 Details: [`src/engine/README.md`](src/engine/README.md).
@@ -634,7 +693,8 @@ Details: [`src/engine/README.md`](src/engine/README.md).
 
 ```
 shape_slayer/
-├── index.html                 # PWA shell + classic-script load order (engine → game)
+├── index.html                 # PWA shell + classic-script load order (engine → game → modes → host)
+├── sandbox.html               # Minimal mode host (entities + combat subset)
 ├── static-server.js           # Optional static / PWA-friendly local server
 ├── sw.js / manifest.json      # Service worker + PWA bits
 ├── src/                       # Playable client code only
@@ -647,16 +707,24 @@ shape_slayer/
 │   │   ├── audio.js / music.js
 │   │   ├── save.js / physics.js / proc.js / proc-worker.js / net.js / system.js / profiler.js / shell.js
 │   │   └── ui/                # Boot screen, modal stack, bus, toasts, root
-│   └── game/                  # Shape Slayer package
-│       ├── main.js            # Game orchestration; calls Engine.Boot.handoff()
-│       ├── input-map.js       # GameInput: actions over Engine.Input
-│       ├── audio/             # GameAudio / GameMusic wrappers
-│       ├── simulation/        # Combat, level, nexus, room layout (no input.js)
-│       ├── entities/          # Players, enemies, bosses, items
-│       ├── content/           # Biomes, gear, saves, tutorials, version
-│       ├── presentation/      # Render adapters, state pipelines, voxel FX
-│       ├── networking/        # Multiplayer client, mp-config, telemetry
-│       └── ui/                # DOM menus, HUD, Safe Room, Index, shops
+│   ├── game/                  # Shape Slayer reusable packages
+│   │   ├── packages.js        # GamePackages registry
+│   │   ├── world-context.js   # GameWorld.resolveWorld
+│   │   ├── main.js            # Game world piece (not mode boot)
+│   │   ├── input-map.js       # GameInput: actions over Engine.Input
+│   │   ├── audio/             # GameAudio / GameMusic wrappers
+│   │   ├── simulation/        # Combat, level, nexus, room layout (no input.js)
+│   │   ├── entities/          # Players, enemies, bosses, items
+│   │   ├── content/           # Biomes, gear, saves, tutorials, version
+│   │   ├── presentation/      # Render adapters, state pipelines, voxel FX
+│   │   ├── networking/        # Multiplayer client, mp-config, telemetry
+│   │   └── ui/                # DOM menus, HUD, Safe Room, Index, shops
+│   ├── modes/                 # Mode packages that consume game pieces
+│   │   ├── modes.js           # Modes registry
+│   │   ├── roguelike/         # Default Gear Mode room-clear loop
+│   │   └── sandbox/           # Subset consumer (validation)
+│   └── app/
+│       └── host.js            # Selects and starts the active mode
 ├── assets/                    # Browser-loaded audio, fonts, and PWA icons
 ├── multiplayer/               # Gameplay WebSocket relay only
 ├── metrics/                   # Telemetry system only

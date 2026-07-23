@@ -416,10 +416,10 @@ test('God-Tier Multi-Variable Voxel Disintegration Engine', async (t) => {
         assert.match(src, /const FLUID_DRAG = 0\.935/);
         assert.match(src, /Math\.pow\((?:fastDrag|drag|FLUID_DRAG(?:_FAST)?), dt \* 60\)/);
         assert.match(src, /fluidProfileForFragment|_fluidProfileForFragment/);
-        assert.match(src, /rgba\(\$\{r\},\$\{g\},\$\{b\}, 0\.28\)/);
+        assert.match(src, /rgba\(\$\{r\},\$\{g\},\$\{b\}, 0\.34\)/);
         assert.match(src, /globalCompositeOperation = 'lighter'/);
-        assert.match(src, /VoxelParticlePool\.cr\[i\] \* 1\.35/);
-        assert.match(src, /baseW \* 2\.2|VoxelParticlePool\.w\[i\] \* 2\.2/);
+        assert.match(src, /VoxelParticlePool\.cr\[i\] \* 1\.12 \+ 0\.07/);
+        assert.match(src, /baseW \* 2\.45|VoxelParticlePool\.w\[i\] \* 2\.45/);
         assert.match(src, /VoxelParticlePool\.w\[fluidIdx\] = 2\.2 \+ rng\(\) \* 1\.5/);
         assert.match(src, /baseW \* 1\.35/);
         assert.match(src, /\(240 \+ rng\(\) \* 260\)/);
@@ -430,7 +430,7 @@ test('God-Tier Multi-Variable Voxel Disintegration Engine', async (t) => {
         assert.match(src, /Stable cache key|never per-frame flash/);
         assert.match(src, /_scratchFlash|never paint source-atop on the main framebuffer/);
         const stampBlock = src.slice(src.indexOf('function _stampToStaticCanvas'), src.indexOf('function _spawnImpactFluidBurst'));
-        assert.ok(stampBlock.includes("rgba(${r},${g},${b}, 0.28)"), 'soft wash stamp matches main');
+        assert.ok(stampBlock.includes("rgba(${r},${g},${b}, 0.34)"), 'soft wash stamp matches main');
         assert.ok(!stampBlock.includes('_stampFluidPuddle'), 'experimental puddle stack removed');
     });
 
@@ -463,6 +463,9 @@ test('God-Tier Multi-Variable Voxel Disintegration Engine', async (t) => {
                 greenish++;
             }
             assert.ok(pool.cr[i] < 0.85, 'fluid must not be near-white flash');
+            // Mild milky wash: each channel should sit above the raw base green's red (0).
+            assert.ok(pool.cr[i] > 0.08, 'fluid should be washed toward milky opaque');
+            assert.ok(pool.cr[i] < pool.cg[i] - 0.15, 'wash must not erase green identity');
         }
         assert.ok(fluidCount > 0, 'expected fluid particles');
         assert.ok(greenish === fluidCount, 'all fluid droplets should track base green');
@@ -625,6 +628,130 @@ test('God-Tier Multi-Variable Voxel Disintegration Engine', async (t) => {
         assert.ok(slab.heavy > mist.heavy, 'slab globs are heavier in drag class');
         assert.ok(slab.satellites >= 1, 'slab globs can carry satellite droplets');
         assert.equal(mist.satellites, 0, 'crumb mist stays solo');
+    });
+
+    await t.test('fluid satellites stamp+free with their leader instead of orphaning pool slots', () => {
+        const env = loadVoxelFractureModule();
+        env.resetVoxelStaticCanvas(800, 600);
+        env.currentRoom = { width: 800, height: 600, layout: null };
+        env.Game = { renderQuality: { damageFxScale: 1, voxelParticleCap: 512 } };
+
+        const pool = env.VoxelParticlePool;
+        const leader = 11;
+        const sats = [12, 13];
+
+        function activateManual(idx, opts) {
+            pool.alive[idx] = 1;
+            pool.type[idx] = 1;
+            pool.linkLeader[idx] = opts.leader != null ? opts.leader : -1;
+            pool.groupOx[idx] = opts.ox || 0;
+            pool.groupOy[idx] = opts.oy != null ? opts.oy : 1.55;
+            pool.px[idx] = opts.x;
+            pool.py[idx] = opts.y;
+            pool.vx[idx] = opts.vx || 0;
+            pool.vy[idx] = opts.vy || 0;
+            pool.life[idx] = opts.life != null ? opts.life : 0.35;
+            pool.maxLife[idx] = pool.life[idx];
+            pool.w[idx] = opts.w || 3;
+            pool.h[idx] = opts.h || 2.5;
+            pool.cr[idx] = 0.85;
+            pool.cg[idx] = 0.12;
+            pool.cb[idx] = 0.1;
+            pool.alpha[idx] = 1;
+            pool.rot[idx] = 0;
+            pool.rotV[idx] = 0;
+            pool.settleT[idx] = 0;
+            pool.age[idx] = 0;
+            pool.sprite[idx] = null;
+        }
+
+        activateManual(leader, { x: 400, y: 300, vx: 40, vy: 10, life: 0.4, w: 3.5, h: 2.8 });
+        activateManual(sats[0], { leader, x: 402, y: 301, ox: 2, oy: 1, life: 0.4, w: 1.6, h: 1.4 });
+        activateManual(sats[1], { leader, x: 398, y: 299, ox: -2, oy: -1, life: 0.4, w: 1.5, h: 1.3 });
+
+        pool._activeIndices[0] = leader;
+        pool._activeIndices[1] = sats[0];
+        pool._activeIndices[2] = sats[1];
+        pool._activeIndexPos[leader] = 0;
+        pool._activeIndexPos[sats[0]] = 1;
+        pool._activeIndexPos[sats[1]] = 2;
+        pool._activeCount = 3;
+
+        assert.equal(pool._activeCount, 3);
+        assert.ok(pool.linkLeader[sats[0]] === leader && pool.linkLeader[sats[1]] === leader);
+
+        for (let step = 0; step < 120; step++) {
+            env.updateVoxelParticles(1 / 60);
+        }
+
+        let orphaned = 0;
+        for (let i = 0; i < pool.alive.length; i++) {
+            if (!pool.alive[i]) continue;
+            const L = pool.linkLeader[i];
+            if (L >= 0 && !pool.alive[L]) orphaned++;
+        }
+        assert.equal(orphaned, 0, 'no satellite may remain alive after its leader stamps out');
+        assert.equal(pool.alive[leader], 0, 'leader must leave the active pool');
+        assert.equal(pool.alive[sats[0]], 0, 'satellite 0 must free with leader');
+        assert.equal(pool.alive[sats[1]], 0, 'satellite 1 must free with leader');
+        assert.equal(pool._activeCount, 0, 'pool must fully recycle after settle');
+        assert.equal(env.VoxelStaticCanvas.dirty, true, 'settled spray must stamp to viscera layer');
+    });
+
+    await t.test('orphan fluid satellites with a dead leader are stamped and freed', () => {
+        const env = loadVoxelFractureModule();
+        env.resetVoxelStaticCanvas(400, 300);
+        const pool = env.VoxelParticlePool;
+
+        // Manually wire a leader + satellite, then kill only the leader (old bug path).
+        const leader = 3;
+        const sat = 7;
+        pool.alive[leader] = 1;
+        pool.alive[sat] = 1;
+        pool.type[leader] = 1;
+        pool.type[sat] = 1;
+        pool.linkLeader[leader] = -1;
+        pool.linkLeader[sat] = leader;
+        pool.px[leader] = 100;
+        pool.py[leader] = 100;
+        pool.px[sat] = 102;
+        pool.py[sat] = 101;
+        pool.vx[leader] = 0;
+        pool.vy[leader] = 0;
+        pool.vx[sat] = 0;
+        pool.vy[sat] = 0;
+        pool.life[leader] = 1;
+        pool.maxLife[leader] = 1;
+        pool.life[sat] = 1;
+        pool.maxLife[sat] = 1;
+        pool.w[leader] = 3;
+        pool.h[leader] = 3;
+        pool.w[sat] = 1.5;
+        pool.h[sat] = 1.5;
+        pool.cr[leader] = pool.cr[sat] = 0.8;
+        pool.cg[leader] = pool.cg[sat] = 0.1;
+        pool.cb[leader] = pool.cb[sat] = 0.1;
+        pool.alpha[leader] = pool.alpha[sat] = 1;
+        pool.rot[leader] = pool.rot[sat] = 0;
+        pool.settleT[leader] = pool.settleT[sat] = 0;
+        pool._activeIndices[0] = leader;
+        pool._activeIndices[1] = sat;
+        pool._activeIndexPos[leader] = 0;
+        pool._activeIndexPos[sat] = 1;
+        pool._activeCount = 2;
+
+        // Simulate solo leader deactivate (pre-fix leak).
+        pool.alive[leader] = 0;
+        pool._activeIndices[0] = sat;
+        pool._activeIndexPos[sat] = 0;
+        pool._activeIndexPos[leader] = -1;
+        pool._activeCount = 1;
+
+        env.updateVoxelParticles(1 / 60);
+
+        assert.equal(pool.alive[sat], 0, 'orphan satellite must be freed');
+        assert.equal(pool._activeCount, 0, 'orphaned slot must return to the free budget');
+        assert.equal(env.VoxelStaticCanvas.dirty, true, 'orphan cleanup still stamps to viscera');
     });
 
     await t.test('death fluid size tracks large vs small fracture seats', () => {
@@ -806,5 +933,75 @@ test('God-Tier Multi-Variable Voxel Disintegration Engine', async (t) => {
         }
         assert.ok(fluid > 5, `expected spin fluid droplets (got ${fluid})`);
         assert.ok(tangential / fluid > 0.35, `spin spray should be mostly tangential (got ${tangential}/${fluid})`);
+    });
+
+    await t.test('fluid spray collides with ellipse scenery colliders', () => {
+        const env = loadVoxelFractureModule();
+        env.resetVoxelStaticCanvas(800, 600);
+        env.currentRoom = {
+            width: 800,
+            height: 600,
+            layout: {
+                biomeId: 'vortex',
+                cellSize: 60,
+                cols: 14,
+                rows: 10,
+                cachedDebrisColliders: [
+                    { kind: 'ellipse', x: 340, y: 200, radiusX: 48, radiusY: 22, rotation: 0.4 }
+                ]
+            }
+        };
+
+        const enemy = {
+            shape: 'circle',
+            size: 20,
+            maxHp: 80,
+            x: 180,
+            y: 200,
+            color: '#ff5555',
+            _voxelHitSeq: 0
+        };
+        env.refreshEntityVoxelGrid(enemy);
+        env.flagVoxelDamage(enemy, 50, 190, 200, 'blast');
+
+        const pool = env.VoxelParticlePool;
+        let aimed = 0;
+        for (let i = 0; i < pool.alive.length; i++) {
+            if (!pool.alive[i] || pool.type[i] !== 1) continue;
+            pool.px[i] = 250;
+            pool.py[i] = 200;
+            pool.vx[i] = 420;
+            pool.vy[i] = 0;
+            pool.life[i] = 2;
+            pool.maxLife[i] = 2;
+            pool.settleT[i] = 0;
+            aimed++;
+        }
+        assert.ok(aimed > 0, 'need fluid particles aimed at ellipse');
+
+        let stamped = false;
+        let maxX = 0;
+        for (let step = 0; step < 90; step++) {
+            env.updateVoxelParticles(1 / 60);
+            if (env.VoxelStaticCanvas.dirty) stamped = true;
+            for (let i = 0; i < pool.alive.length; i++) {
+                if (!pool.alive[i] || pool.type[i] !== 1) continue;
+                maxX = Math.max(maxX, pool.px[i]);
+            }
+        }
+        assert.ok(stamped, 'fluid should stamp after ellipse contact');
+        assert.ok(maxX < 400, `fluid must not tunnel through ellipse (maxX=${maxX})`);
+    });
+
+    await t.test('biome fluid stamp profile skews vortex and diamonds prism puddles', () => {
+        const src = fs.readFileSync(path.join(__dirname, '../src/game/presentation/voxel-fracture.js'), 'utf8');
+        assert.match(src, /function _biomeFluidStampProfile/);
+        assert.match(src, /biomeId === 'vortex'/);
+        assert.match(src, /diamond: true/);
+        assert.match(src, /stretchX: 1\.4/);
+        assert.ok(src.includes("renderRoomObstacles(ctx, this.roomNumber, { occlude: true })")
+            || fs.readFileSync(path.join(__dirname, '../src/game/main.js'), 'utf8')
+                .includes("renderRoomObstacles(ctx, this.roomNumber, { occlude: true })"),
+            'world bodies should occlude viscera with solid silhouettes');
     });
 });

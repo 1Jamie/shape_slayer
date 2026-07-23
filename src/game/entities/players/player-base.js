@@ -25,6 +25,46 @@ const CLASS_DEFINITIONS = {
     }
 };
 
+const PLAYER_INTEGRATE_MOVE_FN = (dx, dy, entity, out) => {
+    const startX = entity.x;
+    const startY = entity.y;
+    entity.x += dx;
+    entity.y += dy;
+    const collided = entity.resolveWorldCollision(startX, startY);
+    const actualDx = entity.x - startX;
+    const actualDy = entity.y - startY;
+    const actualMoved = Math.sqrt(actualDx * actualDx + actualDy * actualDy);
+    const intendedMoved = Math.sqrt(dx * dx + dy * dy);
+    const blocked = !!collided && actualMoved < intendedMoved * 0.3;
+    // Also treat significant axis clamping as contact even if resolve returned false
+    // (e.g. room-bound clamp that still left some progress).
+    const lostContact = intendedMoved > 0.001 && actualMoved < intendedMoved * 0.92;
+
+    out.ok = !collided || actualMoved > 0.001;
+    out.blocked = blocked || (collided && lostContact);
+    out.actualMoved = actualMoved;
+    out.intendedMoved = intendedMoved;
+    out.actualDx = actualDx;
+    out.actualDy = actualDy;
+    out.normalX = null;
+    out.normalY = null;
+    return out;
+};
+
+const PLAYER_INTEGRATE_AFTER_DECAY = (entity) => {
+    if (entity.pullForceDampFrames > 0) {
+        entity.impulseVx *= entity.pullForceDampFactor || 0.85;
+        entity.impulseVy *= entity.pullForceDampFactor || 0.85;
+        entity.pullForceDampFrames--;
+        const stopThreshold = entity.pullForceDampThreshold || 0.5;
+        if (Math.abs(entity.impulseVx) < stopThreshold) entity.impulseVx = 0;
+        if (Math.abs(entity.impulseVy) < stopThreshold) entity.impulseVy = 0;
+        if (entity.impulseVx === 0 && entity.impulseVy === 0) {
+            entity.pullForceDampFrames = 0;
+        }
+    }
+};
+
 class PlayerBase {
     constructor(x = 400, y = 300) {
         // Position
@@ -54,7 +94,9 @@ class PlayerBase {
         // XP system
         this.xp = 0;
         this.xpToNext = 100;
+        this.totalXpEarned = 0;
         this.lastLevelBonusesApplied = 1; // Track last level we applied bonuses for (prevent double application)
+        this.cooldownRegenMult = 1;
 
         // Attack system
         this.attackCooldown = 0;
@@ -434,28 +476,29 @@ class PlayerBase {
         // Calculate rotation to face aim direction (mouse or joystick)
         this.applyAimFromInput(input);
 
-        // Handle attacks
+        // Handle combat inputs. Dodge runs first so same-frame dash+attack
+        // prefers the escape (kit use must not soft-lock dodge).
         const room0Action = (typeof Room0Tutorial !== 'undefined' && Room0Tutorial.isActive && Room0Tutorial.isActive())
             ? Room0Tutorial.getAllowedAction()
             : 'all';
+
+        if (room0Action === 'all' || room0Action === 'dash') {
+            this.handleDodge(input);
+        }
 
         if (room0Action === 'all' || room0Action === 'primary') {
             this.handleAttack(input);
         }
 
-        // Handle heavy attacks
         if (room0Action === 'all' || room0Action === 'heavy') {
             this.handleHeavyAttack(input);
-        }
-
-        // Handle dodge roll
-        if (room0Action === 'all' || room0Action === 'dash') {
-            this.handleDodge(input);
         }
 
         // Attack recovery (readable weight); dodge-cancelable
         if (this._wasAttacking && !this.isAttacking) {
             this.beginAttackRecovery();
+            // Flush buffered dodge as soon as attack frames end (not after recovery).
+            this.tryFlushQueuedDodge(input);
         }
         this._wasAttacking = !!this.isAttacking;
         this.updateAttackRecovery(deltaTime, input);
@@ -476,12 +519,12 @@ class PlayerBase {
 
         // Update attack cooldown
         if (this.attackCooldown > 0) {
-            this.attackCooldown -= deltaTime;
+            this.attackCooldown -= deltaTime * (this.cooldownRegenMult || 1);
         }
 
         // Update heavy attack cooldown
         if (this.heavyAttackCooldown > 0) {
-            this.heavyAttackCooldown -= deltaTime;
+            this.heavyAttackCooldown -= deltaTime * (this.cooldownRegenMult || 1);
         }
 
         // Update dodge cooldowns (supports both single and multi-charge systems)
@@ -492,7 +535,7 @@ class PlayerBase {
                 const rawValue = this.dodgeChargeCooldowns[i];
                 let cooldown = Number.isFinite(rawValue) ? rawValue : 0;
                 if (cooldown > 0) {
-                    cooldown = Math.max(0, cooldown - deltaTime);
+                    cooldown = Math.max(0, cooldown - deltaTime * (this.cooldownRegenMult || 1));
                     this.dodgeChargeCooldowns[i] = cooldown;
                 } else {
                     this.dodgeChargeCooldowns[i] = 0;
@@ -505,7 +548,7 @@ class PlayerBase {
             this.dodgeCooldown = this.getNextChargeReadyTime(this.dodgeChargeCooldowns);
         } else {
             if (this.dodgeCooldown > 0) {
-                this.dodgeCooldown = Math.max(0, this.dodgeCooldown - deltaTime);
+                this.dodgeCooldown = Math.max(0, this.dodgeCooldown - deltaTime * (this.cooldownRegenMult || 1));
             }
             if (this.dodgeChargeCooldowns && this.dodgeChargeCooldowns.length > 0) {
                 this.dodgeChargeCooldowns[0] = this.dodgeCooldown;
@@ -532,10 +575,14 @@ class PlayerBase {
                 this.isDodging = false;
                 this.dodgeElapsed = 0;
                 this.dodgeHitEnemies.clear(); // Reset hit tracking
+                if (this.styleActionTag === 'dashAttack') this.styleActionTag = null;
 
                 // Grant additional i-frames after dodge ends for safety
                 this.invulnerable = true;
-                this.invulnerabilityTime = 0.3; // 0.3s post-dodge i-frames
+                this.invulnerabilityTime = 0.3 + (this.styleDashIFramesBonus || 0);
+
+                // If a dash was buffered while charges/CD weren't ready, try now.
+                this.tryFlushQueuedDodge(input);
             }
         }
 
@@ -554,6 +601,7 @@ class PlayerBase {
                     this.updateHeavyAttackPreview(input);
 
                     if (button.justReleased) {
+                        this.styleActionTag = 'heavy';
                         this.createHeavyAttack();
                         this.applyHeavyAttackCooldown();
                         this.isChargingHeavy = false;
@@ -572,6 +620,7 @@ class PlayerBase {
                 this.heavyChargeElapsed += deltaTime;
                 if (this.heavyChargeElapsed >= windupTime) {
                     // Spawn heavy attack hitbox
+                    this.styleActionTag = 'heavy';
                     this.createHeavyAttack();
                     this.applyHeavyAttackCooldown(); // Apply cooldown after firing
                     this.isChargingHeavy = false;
@@ -582,7 +631,7 @@ class PlayerBase {
 
         // Update special ability cooldown
         if (this.specialCooldown > 0) {
-            this.specialCooldown -= deltaTime;
+            this.specialCooldown -= deltaTime * (this.cooldownRegenMult || 1);
         }
 
         // Normalize cooldowns for UI consumers
@@ -723,22 +772,36 @@ class PlayerBase {
             this.attackRecoveryRemaining = Math.max(0, this.attackRecoveryRemaining - deltaTime);
             if (this.attackRecoveryRemaining <= 0) {
                 this.turnRateMultiplier = 1.0;
-                // 150ms timestamp dodge buffer on recovery frame 1
-                if (this.queuedDodgeTime && (Date.now() - this.queuedDodgeTime) < 150) {
-                    this.queuedDodgeTime = 0;
-                    if (!this.isDodging && this.guardBreakLockout <= 0) {
-                        const canDodge = this.usesChargeBasedDodge()
-                            ? this.getReadyDodgeCharges() > 0
-                            : this.dodgeCooldown <= 0;
-                        if (canDodge && input) {
-                            this.startDodge(input);
-                        }
-                    }
-                }
             }
+            // Keep trying the dodge buffer through recovery (not only on the last frame).
+            this.tryFlushQueuedDodge(input);
         } else {
             this.turnRateMultiplier = 1.0;
         }
+    }
+
+    /** Max age for a buffered dodge press (ms). Covers attack frames + soft recovery. */
+    static get QUEUED_DODGE_BUFFER_MS() { return 320; }
+
+    canStartDodge() {
+        if (this.isDodging || this.guardBreakLockout > 0) return false;
+        if (this.usesChargeBasedDodge()) {
+            return this.getReadyDodgeCharges() > 0;
+        }
+        return this.dodgeCooldown <= 0;
+    }
+
+    tryFlushQueuedDodge(input) {
+        if (!this.queuedDodgeTime || !input) return false;
+        if ((Date.now() - this.queuedDodgeTime) >= PlayerBase.QUEUED_DODGE_BUFFER_MS) {
+            this.queuedDodgeTime = 0;
+            return false;
+        }
+        if (!this.canStartDodge()) return false;
+        this.queuedDodgeTime = 0;
+        this.dashPreviewActive = false;
+        this.startDodge(input);
+        return true;
     }
 
     /**
@@ -953,6 +1016,8 @@ class PlayerBase {
     }
 
     handleAttack(input) {
+        if (this.isDodging) return;
+
         // Check for attack input (mouse click or touch joystick)
         let shouldAttack = false;
 
@@ -1042,79 +1107,62 @@ class PlayerBase {
     handleDodge(input) {
         if (this.isDodging) return; // Already dodging
 
-        // Check for dodge input (Shift key or touch button/joystick)
+        // Check for dodge input (Shift key, touch/gamepad button, or seat ability API)
         let dodgeJustPressed = false;
-        let dodgeButtonPressed = false;
 
         if (input.isTouchMode && input.isTouchMode()) {
-            // Touch mode: check for dodge button
             if (input.touchButtons && input.touchButtons.dodge) {
                 const button = input.touchButtons.dodge;
-                dodgeButtonPressed = button.pressed;
 
                 // Triangle uses joystick: fire on release (press-and-hold-to-aim, release-to-fire)
                 if (this.playerClass === 'triangle') {
-                    dodgeJustPressed = button.justReleased;
-
-                    if (button.justReleased) {
-                        console.log(`[${this.playerClass}] Detected dodge justReleased, finalJoystickState:`, button.finalJoystickState);
-                    }
+                    dodgeJustPressed = !!button.justReleased;
 
                     // Update dash preview and rotation while button is pressed and joystick is active
                     if (button.pressed && input.touchJoysticks && input.touchJoysticks.dodge) {
                         const joystick = input.touchJoysticks.dodge;
                         if (joystick.active && joystick.getMagnitude() > 0.1) {
-                            // Update rotation to face joystick direction while aiming
                             this.rotation = joystick.getAngle();
-                            // Show preview
                             this.dashPreviewActive = true;
                         } else {
-                            // Joystick not active, hide preview
                             this.dashPreviewActive = false;
                         }
                     } else if (!button.pressed) {
-                        // Button released, hide preview
                         this.dashPreviewActive = false;
                     }
                 } else {
-                    // Other classes: fire on press
-                    dodgeJustPressed = button.justPressed;
+                    dodgeJustPressed = !!button.justPressed;
+                }
+            } else if (typeof input.isAbilityJustPressed === 'function') {
+                // Local-split / pad seats expose ability edges but not touchButtons.
+                if (this.playerClass === 'triangle' && typeof input.isAbilityJustReleased === 'function') {
+                    dodgeJustPressed = !!input.isAbilityJustReleased('dodge')
+                        || !!input.isAbilityJustPressed('dodge');
+                } else {
+                    dodgeJustPressed = !!input.isAbilityJustPressed('dodge');
                 }
             }
         } else {
-            // Keyboard mode: check for Shift key press
-            const shiftJustPressed = input.getKeyState('shift') && !this.lastShiftState;
-            this.lastShiftState = input.getKeyState('shift');
+            // Keyboard mode: Shift rising edge (also honor seat ability edges)
+            const shiftDown = !!(input.getKeyState && input.getKeyState('shift'));
+            const shiftJustPressed = shiftDown && !this.lastShiftState;
+            this.lastShiftState = shiftDown;
             dodgeJustPressed = shiftJustPressed;
-        }
-
-        // Check if dodge is available
-        let canDodge = false;
-        const usesChargeDodge = this.usesChargeBasedDodge();
-
-        if (usesChargeDodge) {
-            canDodge = this.getReadyDodgeCharges() > 0;
-        } else {
-            canDodge = this.dodgeCooldown <= 0;
-        }
-
-        if (this.guardBreakLockout > 0) {
-            canDodge = false;
-        }
-
-        // If dodge pressed/released and available
-        if (dodgeJustPressed && canDodge) {
-            // Active attack frames: queue timestamp buffer (not sticky bool)
-            if (this.isAttacking) {
-                this.queuedDodgeTime = Date.now();
-                return;
+            if (!dodgeJustPressed && typeof input.isAbilityJustPressed === 'function') {
+                dodgeJustPressed = !!input.isAbilityJustPressed('dodge');
             }
-            console.log(`[${this.playerClass}] Starting dodge! justReleased: ${dodgeJustPressed}, canDodge: ${canDodge}`);
-            // Clear preview before starting dodge
+        }
+
+        const canDodge = this.canStartDodge();
+
+        // Dodge-cancel attacks/recovery immediately. Only buffer when something
+        // else briefly blocks (e.g. charge refresh); guard-break stays hard-locked.
+        if (dodgeJustPressed && canDodge) {
             this.dashPreviewActive = false;
             this.startDodge(input);
-        } else if (dodgeJustPressed && !canDodge) {
-            console.log(`[${this.playerClass}] Dodge on cooldown!`);
+        } else if (dodgeJustPressed && this.guardBreakLockout <= 0) {
+            // Charge/cooldown miss: keep a short sticky buffer so a near-ready dash still fires.
+            this.queuedDodgeTime = Date.now();
         }
     }
 
@@ -1263,7 +1311,9 @@ class PlayerBase {
         this.isDodging = true;
         this.invulnerable = true;
         this.dodgeElapsed = 0;
-        // Dodge-cancel recovery
+        this.styleActionTag = 'dashAttack';
+        // Dodge-cancel active attack frames + soft recovery
+        this.isAttacking = false;
         this.attackRecoveryRemaining = 0;
         this.turnRateMultiplier = 1.0;
         this.queuedDodgeTime = 0;
@@ -1273,7 +1323,11 @@ class PlayerBase {
 
         if (!predictOnly) {
             if (typeof GameAudio !== 'undefined' && GameAudio.sounds) {
-                GameAudio.sounds.dodge();
+                if (this.playerClass === 'triangle' && typeof GameAudio.sounds.rogueDodge === 'function') {
+                    GameAudio.sounds.rogueDodge();
+                } else if (typeof GameAudio.sounds.dodge === 'function') {
+                    GameAudio.sounds.dodge();
+                }
             }
             this.consumeDodgeCharge();
         }
@@ -1499,6 +1553,8 @@ class PlayerBase {
     }
 
     handleHeavyAttack(input) {
+        if (this.isDodging) return;
+
         // Check for heavy attack input (right click or touch button/joystick)
         let heavyJustPressed = false;
         let heavyPressed = false;
@@ -1577,6 +1633,7 @@ class PlayerBase {
         // Check if cooldown ready
         if (specialJustPressed && this.specialCooldown <= 0) {
             // Call subclass-specific special ability activation
+            this.styleActionTag = 'special';
             this.activateSpecialAbility(input);
         }
     }
@@ -1597,11 +1654,13 @@ class PlayerBase {
         // Start charging
         this.isChargingHeavy = true;
         this.heavyChargeElapsed = 0;
+        this.styleActionTag = 'heavy';
         // NOTE: Cooldown is now set when the attack is actually fired (in applyHeavyAttackCooldown)
     }
 
     // Create heavy attack - override in subclass
     createHeavyAttack() {
+        this.styleActionTag = 'heavy';
         // Subclass must override this
         throw new Error('createHeavyAttack() must be implemented by subclass');
     }
@@ -1636,7 +1695,7 @@ class PlayerBase {
         }
     }
 
-    takeDamage(damage, sourceEnemy = null) {
+    takeDamage(damage, sourceEnemy = null, options = null) {
         if (typeof DebugFlags !== 'undefined' && DebugFlags.INVINCIBILITY) {
             return;
         }
@@ -1661,7 +1720,20 @@ class PlayerBase {
             return; // Completely negate damage
         }
 
+        const damageCause = (options && options.cause) || 'physical';
+        const isStatusDamage = damageCause === 'status';
         const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
+
+        // Discrete physical hit for mode rules (combo bleed). DoT/status excluded.
+        if (!isStatusDamage && typeof GameBus !== 'undefined' && GameBus.emit) {
+            GameBus.emit('combat:playerDamaged', {
+                player: this,
+                damage,
+                sourceEnemy,
+                physical: true,
+                world: typeof Game !== 'undefined' ? Game : null
+            });
+        }
 
         // Item shield: absorb damage first (before fortify shield)
         if (this.shieldHealth > 0) {
@@ -1863,6 +1935,13 @@ class PlayerBase {
             this.dead = true;
             this.alive = false;
 
+            if (typeof GameBus !== 'undefined' && GameBus.emit) {
+                GameBus.emit('combat:playerDied', {
+                    player: this,
+                    world: typeof Game !== 'undefined' ? Game : null
+                });
+            }
+
             // Track death for lifetime stats
             const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
             if (!isClient && typeof window.trackLifetimeStat === 'function') {
@@ -2052,7 +2131,7 @@ class PlayerBase {
                 while (bleed.accumulator >= tickRate) {
                     bleed.accumulator -= tickRate;
                     const tickDamage = bleed.dps * tickRate;
-                    this.takeDamage(tickDamage, bleed.sourceEnemy || null);
+                    this.takeDamage(tickDamage, bleed.sourceEnemy || null, { cause: 'status' });
                 }
             }
             if (bleed.elapsed >= bleed.duration || this.dead) {
@@ -2108,6 +2187,7 @@ class PlayerBase {
         // 50% bonus XP for faster leveling (increased from 10% for balance)
         const bonusXP = amount * 1.5;
         this.xp += bonusXP;
+        this.totalXpEarned = (this.totalXpEarned || 0) + bonusXP;
 
         // Check if enough XP to level up
         while (this.xp >= this.xpToNext) {
@@ -2124,12 +2204,12 @@ class PlayerBase {
             return;
         }
 
-        // Increase base stats (damage 9% per level, HP 15%)
-        // Damage scaling: 9% to match enemy HP scaling
-        // HP scaling: 15% (increased from 10%) to address 8:1 enemy damage vs player HP crisis
+        // Increase base stats (damage 9% per level, HP 12% levels 1-10, 5% post-10)
+        // Taper HP growth past level 10 to prevent infinite player health inflation
+        const hpGrowthRate = this.level <= 10 ? 1.12 : 1.05;
         this.baseDamageBase = (this.baseDamageBase || this.baseDamage) * 1.09;
         this.baseDamage = this.baseDamageBase;
-        this.baseMaxHpBase = (this.baseMaxHpBase || this.baseMaxHp) * 1.15;
+        this.baseMaxHpBase = (this.baseMaxHpBase || this.baseMaxHp) * hpGrowthRate;
         this.baseMaxHp = this.baseMaxHpBase;
         this.maxHp = this.baseMaxHp;
 
@@ -2481,7 +2561,7 @@ class PlayerBase {
         const PLAYER_MOVE_SPEED_CAP = 520;
         this.moveSpeed = Math.min(
             PLAYER_MOVE_SPEED_CAP,
-            this.baseMoveSpeed * speedBonus * (1 + (this.itemSpeedBonus || 0))
+            this.baseMoveSpeed * speedBonus * (1 + (this.itemSpeedBonus || 0)) * (this.styleMoveSpeedMult || 1)
         );
 
         // Apply bonus health (clamping current HP if needed)
@@ -2823,42 +2903,8 @@ class PlayerBase {
             decay: this.impulseDecay,
             cutoff: this.impulseCutoff,
             maxDuration: this.impulseMaxDuration,
-            moveFn: (dx, dy) => {
-                const startX = this.x;
-                const startY = this.y;
-                this.x += dx;
-                this.y += dy;
-                const collided = this.resolveWorldCollision(startX, startY);
-                const actualDx = this.x - startX;
-                const actualDy = this.y - startY;
-                const actualMoved = Math.hypot(actualDx, actualDy);
-                const intendedMoved = Math.hypot(dx, dy);
-                const blocked = !!collided && actualMoved < intendedMoved * 0.3;
-                // Also treat significant axis clamping as contact even if resolve returned false
-                // (e.g. room-bound clamp that still left some progress).
-                const lostContact = intendedMoved > 0.001 && actualMoved < intendedMoved * 0.92;
-                return {
-                    ok: !collided || actualMoved > 0.001,
-                    blocked: blocked || (collided && lostContact),
-                    actualMoved,
-                    intendedMoved,
-                    actualDx,
-                    actualDy
-                };
-            },
-            afterDecay: (entity) => {
-                if (entity.pullForceDampFrames > 0) {
-                    entity.impulseVx *= entity.pullForceDampFactor || 0.85;
-                    entity.impulseVy *= entity.pullForceDampFactor || 0.85;
-                    entity.pullForceDampFrames--;
-                    const stopThreshold = entity.pullForceDampThreshold || 0.5;
-                    if (Math.abs(entity.impulseVx) < stopThreshold) entity.impulseVx = 0;
-                    if (Math.abs(entity.impulseVy) < stopThreshold) entity.impulseVy = 0;
-                    if (entity.impulseVx === 0 && entity.impulseVy === 0) {
-                        entity.pullForceDampFrames = 0;
-                    }
-                }
-            }
+            moveFn: PLAYER_INTEGRATE_MOVE_FN,
+            afterDecay: PLAYER_INTEGRATE_AFTER_DECAY
         });
         this._impulsesProcessedFrame = true;
     }
@@ -3312,207 +3358,35 @@ class PlayerBase {
         ctx.restore();
     }
 
-    // Affix synergy detection - groups that work well together
-    static getAffixSynergies() {
-        return {
-            offensive: ['critChance', 'critDamage', 'attackSpeed', 'pierce', 'chainLightning', 'execute', 'rampage', 'multishot', 'explosiveAttacks'],
-            defensive: ['maxHealth', 'lifesteal', 'dodgeCharges', 'phasing', 'fortify'],
-            mobility: ['movementSpeed', 'dodgeCharges', 'phasing'],
-            utility: ['cooldownReduction', 'projectileSpeed', 'areaOfEffect', 'overcharge'],
-            impact: ['knockbackPower', 'areaOfEffect', 'pierce', 'explosiveAttacks']
-        };
-    }
-
-    // Determine which synergy group an affix belongs to
-    static getAffixSynergyGroup(affixType) {
-        const synergies = PlayerBase.getAffixSynergies();
-        for (const [group, affixes] of Object.entries(synergies)) {
-            if (affixes.includes(affixType)) {
-                return group;
-            }
-        }
-        return 'misc'; // No specific group
-    }
-
-    // Calculate visual pattern for a single gear piece using multi-wave interference
+    // One ring per equipped gear piece; affix waves weighted by tier bias.
     calculateGearPieceVisual(gearPiece) {
         if (!gearPiece) return null;
 
         const waves = [];
-        let baseColor = { r: 150, g: 150, b: 150 }; // Default gray
+        let baseColor = { r: 150, g: 150, b: 150 };
 
-        // Assign wave parameters based on stat type (deterministic based on type and value)
         const statTypeMap = {
-            damage: { freq: 3.0, colorChannel: 'r', baseColor: { r: 255, g: 100, b: 100 } },
-            defense: { freq: 1.5, colorChannel: 'b', baseColor: { r: 100, g: 150, b: 255 } },
-            speed: { freq: 4.5, colorChannel: 'g', baseColor: { r: 150, g: 255, b: 100 } }
+            damage: { freq: 3.0, baseColor: { r: 255, g: 100, b: 100 } },
+            defense: { freq: 1.5, baseColor: { r: 100, g: 150, b: 255 } },
+            speed: { freq: 4.5, baseColor: { r: 150, g: 255, b: 100 } }
         };
 
-        const affixTypeMap = {
-            critChance: {
-                freq: 5.0,
-                shape: 'triangle',
-                waveType: 'square',
-                modR: 255, modG: 50, modB: 50
-            },
-            critDamage: {
-                freq: 4.0,
-                shape: 'star',
-                waveType: 'sawtooth',
-                modR: 255, modG: 0, modB: 100
-            },
-            attackSpeed: {
-                freq: 6.0,
-                shape: 'zigzag',
-                waveType: 'digital',
-                modR: 255, modG: 255, modB: 0
-            },
-            lifesteal: {
-                freq: 2.5,
-                shape: 'cross',
-                waveType: 'pulse',
-                modR: 200, modG: 0, modB: 0
-            },
-            movementSpeed: {
-                freq: 5.5,
-                shape: 'wave',
-                waveType: 'triangle',
-                modR: 0, modG: 255, modB: 255
-            },
-            cooldownReduction: {
-                freq: 3.5,
-                shape: 'hexagon',
-                waveType: 'stepped',
-                modR: 100, modG: 100, modB: 255
-            },
-            areaOfEffect: {
-                freq: 2.0,
-                shape: 'circle',
-                waveType: 'radial',
-                modR: 255, modG: 150, modB: 0
-            },
-            projectileSpeed: {
-                freq: 7.0,
-                shape: 'chevron',
-                waveType: 'linear',
-                modR: 100, modG: 255, modB: 100
-            },
-            knockbackPower: {
-                freq: 3.0,
-                shape: 'burst',
-                waveType: 'shockwave',
-                modR: 200, modG: 0, modB: 255
-            },
-            dodgeCharges: {
-                freq: 4.0,
-                shape: 'diamond',
-                waveType: 'phase',
-                modR: 255, modG: 255, modB: 255
-            },
-            maxHealth: {
-                freq: 1.8,
-                shape: 'plus',
-                waveType: 'pulse',
-                modR: 0, modG: 255, modB: 0
-            },
-            pierce: {
-                freq: 3.0,
-                shape: 'arrow',
-                waveType: 'linear',
-                modR: 100, modG: 255, modB: 255
-            },
-            chainLightning: {
-                freq: 4.0,
-                shape: 'fork',
-                waveType: 'digital',
-                modR: 150, modG: 200, modB: 255
-            },
-            execute: {
-                freq: 2.0,
-                shape: 'skull',
-                waveType: 'pulse',
-                modR: 255, modG: 50, modB: 50
-            },
-            rampage: {
-                freq: 3.0,
-                shape: 'stairs',
-                waveType: 'sawtooth',
-                modR: 255, modG: 100, modB: 0
-            },
-            multishot: {
-                freq: 3.0,
-                shape: 'splitarrow',
-                waveType: 'triangle',
-                modR: 200, modG: 255, modB: 100
-            },
-            phasing: {
-                freq: 4.0,
-                shape: 'ghost',
-                waveType: 'phase',
-                modR: 200, modG: 200, modB: 255
-            },
-            explosiveAttacks: {
-                freq: 2.0,
-                shape: 'explosion',
-                waveType: 'radial',
-                modR: 255, modG: 200, modB: 0
-            },
-            fortify: {
-                freq: 2.0,
-                shape: 'shield',
-                waveType: 'stepped',
-                modR: 150, modG: 150, modB: 255
-            },
-            overcharge: {
-                freq: 4.0,
-                shape: 'lightning',
-                waveType: 'digital',
-                modR: 255, modG: 255, modB: 150
-            },
-            beamCharges: {
-                freq: 3.5,
-                shape: 'charge',
-                waveType: 'pulse',
-                modR: 150, modG: 100, modB: 255
-            },
-            beamTickRate: {
-                freq: 6.0,
-                shape: 'pulse',
-                waveType: 'digital',
-                modR: 255, modG: 150, modB: 200
-            },
-            beamDuration: {
-                freq: 2.5,
-                shape: 'extend',
-                waveType: 'linear',
-                modR: 200, modG: 100, modB: 255
-            },
-            beamPenetration: {
-                freq: 3.0,
-                shape: 'penetrate',
-                waveType: 'linear',
-                modR: 100, modG: 200, modB: 255
-            }
-        };
-
-        // Add waves from base stats
         if (gearPiece.stats) {
             for (const [statType, statValue] of Object.entries(gearPiece.stats)) {
                 if (statTypeMap[statType] && statValue > 0) {
                     const config = statTypeMap[statType];
-                    // Normalize value: damage 0-50, defense 0-0.5, speed 0-0.3
                     let normalizedValue = statType === 'damage' ? statValue / 50 :
                         statType === 'defense' ? statValue / 0.5 :
                             statValue / 0.3;
                     normalizedValue = Math.min(1, normalizedValue);
 
                     waves.push({
-                        frequency: config.freq,
+                        frequency: Math.max(1, Math.min(4, Math.round(config.freq))),
                         phase: normalizedValue * Math.PI * 2,
-                        amplitude: 0.3 + normalizedValue * 0.4
+                        amplitude: 0.3 + normalizedValue * 0.4,
+                        waveType: 'sine'
                     });
 
-                    // Blend base color
                     baseColor.r = (baseColor.r + config.baseColor.r) / 2;
                     baseColor.g = (baseColor.g + config.baseColor.g) / 2;
                     baseColor.b = (baseColor.b + config.baseColor.b) / 2;
@@ -3520,119 +3394,65 @@ class PlayerBase {
             }
         }
 
-        // Store affix visual metadata and group by synergy
-        const affixVisuals = [];
-        const synergyGroups = {}; // Group affixes by synergy
+        const affixes = (typeof buildWeightedAffixRingEntries === 'function')
+            ? buildWeightedAffixRingEntries(gearPiece.affixes || [])
+            : [];
 
-        if (gearPiece.affixes && gearPiece.affixes.length > 0) {
-            gearPiece.affixes.forEach((affix, index) => {
-                if (affixTypeMap[affix.type]) {
-                    const config = affixTypeMap[affix.type];
-                    // Normalize affix value (most are 0-0.5 range)
-                    const normalizedValue = Math.min(1, affix.value / 0.5);
-
-                    // Limit frequencies to 1-4 for smooth, non-epileptic patterns
-                    const safeFreq = Math.max(1, Math.min(4, Math.round(config.freq)));
-
-                    const waveData = {
-                        frequency: safeFreq,
-                        phase: normalizedValue * Math.PI * 2,
-                        amplitude: 0.25 + normalizedValue * 0.25, // Reduced amplitude
-                        waveType: config.waveType || 'sine',
-                        affixType: affix.type
-                    };
-
-                    waves.push(waveData);
-
-                    // Determine synergy group
-                    const synergyGroup = PlayerBase.getAffixSynergyGroup(affix.type);
-                    if (!synergyGroups[synergyGroup]) {
-                        synergyGroups[synergyGroup] = [];
-                    }
-                    synergyGroups[synergyGroup].push({
-                        type: affix.type,
-                        shape: config.shape || 'circle',
-                        waveType: config.waveType || 'sine',
-                        color: { r: config.modR, g: config.modG, b: config.modB },
-                        value: normalizedValue,
-                        wave: waveData
-                    });
-
-                    // Store affix visual data
-                    affixVisuals.push({
-                        type: affix.type,
-                        shape: config.shape || 'circle',
-                        waveType: config.waveType || 'sine',
-                        color: { r: config.modR, g: config.modG, b: config.modB },
-                        value: normalizedValue,
-                        synergyGroup: synergyGroup
-                    });
-
-                    // Blend color contributions
-                    baseColor.r = (baseColor.r + config.modR) / 2;
-                    baseColor.g = (baseColor.g + config.modG) / 2;
-                    baseColor.b = (baseColor.b + config.modB) / 2;
-                }
-            });
+        if (affixes.length > 0) {
+            for (let i = 0; i < affixes.length; i++) {
+                waves.push(affixes[i].wave);
+            }
+            const blended = (typeof blendWeightedAffixRingColor === 'function')
+                ? blendWeightedAffixRingColor(affixes, baseColor)
+                : baseColor;
+            baseColor = blended;
         }
 
-        // Get tier-based complexity settings
         const tierSettings = {
-            gray: { opacity: 0.5, layers: 1, glow: 0 },
-            green: { opacity: 0.7, layers: 1, glow: 5 },
-            blue: { opacity: 0.9, layers: 2, glow: 10 },
-            purple: { opacity: 1.0, layers: 3, glow: 15 },
-            orange: { opacity: 1.0, layers: 4, glow: 25 }
+            gray: { opacity: 0.5, stroke: 2, glow: 0 },
+            green: { opacity: 0.7, stroke: 2, glow: 5 },
+            blue: { opacity: 0.9, stroke: 2.5, glow: 10 },
+            purple: { opacity: 1.0, stroke: 3, glow: 15 },
+            orange: { opacity: 1.0, stroke: 3.5, glow: 25 }
         };
 
         const tier = gearPiece.tier || 'gray';
         const tierConfig = tierSettings[tier] || tierSettings.gray;
 
         return {
-            waves: waves,
-            baseColor: baseColor,
+            waves,
+            baseColor,
             tierColor: gearPiece.color || '#999999',
-            intensity: waves.length > 0 ? Math.min(1, waves.length * 0.15) : 0.3,
-            affixVisuals: affixVisuals,
-            synergyGroups: synergyGroups, // Grouped affixes
-            tier: tier,
+            intensity: affixes.length > 0
+                ? Math.min(1, affixes.length * 0.15)
+                : (waves.length > 0 ? Math.min(1, waves.length * 0.15) : 0.3),
+            affixes,
+            affixVisuals: affixes,
+            tier,
             tierOpacity: tierConfig.opacity,
-            tierLayers: tierConfig.layers,
+            tierStroke: tierConfig.stroke,
             tierGlow: tierConfig.glow,
             hasLegendary: !!gearPiece.legendaryEffect
         };
     }
 
-    // Update gear visuals when gear changes
     updateGearVisuals() {
         this.weaponVisual = this.calculateGearPieceVisual(this.weapon);
         this.armorVisual = this.calculateGearPieceVisual(this.armor);
         this.accessoryVisual = this.calculateGearPieceVisual(this.accessory);
         this.gearVisualsVersion = (this.gearVisualsVersion || 0) + 1;
-        this._gearRingCacheVersion = this.gearVisualsVersion;
         const numPoints = this._getGearRingPointCount();
         if (numPoints > 0) {
             PlayerBase.getAngleLookup(numPoints);
-            this._rebuildGearRingCache();
-        } else {
-            this._gearRingSprites = null;
         }
     }
 
-    _collectSynergyGroups() {
-        const allSynergyGroups = {};
-        const gearPieces = [this.weaponVisual, this.armorVisual, this.accessoryVisual].filter(v => v);
-        gearPieces.forEach(visual => {
-            if (visual && visual.synergyGroups) {
-                Object.entries(visual.synergyGroups).forEach(([group, affixes]) => {
-                    if (!allSynergyGroups[group]) {
-                        allSynergyGroups[group] = [];
-                    }
-                    allSynergyGroups[group].push(...affixes);
-                });
-            }
-        });
-        return { allSynergyGroups, gearPieces };
+    _getEquippedSlotVisuals() {
+        return [
+            this.weaponVisual,
+            this.armorVisual,
+            this.accessoryVisual
+        ];
     }
 
     _getGearRingPointCount() {
@@ -3662,128 +3482,62 @@ class PlayerBase {
         return lookup;
     }
 
-    static bakeSynergyRingSprite(affixesInGroup, baseRadius, numPoints, strokeStyle, lineWidth) {
-        const padding = 24;
-        const maxWave = 12;
-        const diameter = (baseRadius + maxWave) * 2 + padding * 2;
-        const canvas = document.createElement('canvas');
-        canvas.width = diameter;
-        canvas.height = diameter;
-        const ctx = canvas.getContext('2d');
-        const center = diameter / 2;
-        const lookup = PlayerBase.getAngleLookup(numPoints);
-
-        ctx.beginPath();
-        for (let i = 0; i <= numPoints; i++) {
-            let totalOffset = 0;
-            affixesInGroup.forEach(affix => {
-                const wave = affix.wave;
-                const angle = (i / numPoints) * Math.PI * 2;
-                const waveValue = PlayerBase.getWaveValue(
-                    wave.waveType,
-                    angle,
-                    wave.frequency,
-                    wave.phase
-                );
-                totalOffset += waveValue * wave.amplitude * 6;
-            });
-            const radius = baseRadius + totalOffset;
-            const px = center + lookup.cos[i] * radius;
-            const py = center + lookup.sin[i] * radius;
-            if (i === 0) ctx.moveTo(px, py);
-            else ctx.lineTo(px, py);
-        }
-        ctx.closePath();
-        ctx.strokeStyle = strokeStyle;
-        ctx.lineWidth = lineWidth;
-        ctx.stroke();
-        return { canvas, centerOffset: center };
-    }
-
-    _rebuildGearRingCache() {
-        const { allSynergyGroups, gearPieces } = this._collectSynergyGroups();
-        const synergyGroupNames = Object.keys(allSynergyGroups);
+    _renderSlotGearRings(ctx, time) {
+        const slotVisuals = this._getEquippedSlotVisuals();
         const numPoints = this._getGearRingPointCount();
-        this._gearRingSprites = [];
+        if (numPoints <= 0) return 0;
 
-        if (numPoints <= 0 || synergyGroupNames.length === 0) {
-            return;
+        let drawn = 0;
+        let maxGlow = 0;
+        let maxGlowColor = '#999999';
+        for (let i = 0; i < slotVisuals.length; i++) {
+            const visual = slotVisuals[i];
+            if (!visual) continue;
+            if (visual.tierGlow > maxGlow) {
+                maxGlow = visual.tierGlow;
+                maxGlowColor = visual.tierColor || maxGlowColor;
+            }
+        }
+        if (maxGlow > 0) {
+            ctx.shadowBlur = maxGlow * 0.7;
+            ctx.shadowColor = maxGlowColor;
         }
 
-        synergyGroupNames.forEach((groupName, groupIndex) => {
-            const affixesInGroup = allSynergyGroups[groupName];
-            const baseRadius = this.size + 8 + (groupIndex * 8);
+        for (let slotIndex = 0; slotIndex < slotVisuals.length; slotIndex++) {
+            const visual = slotVisuals[slotIndex];
+            if (!visual) continue;
 
-            let avgR = 0, avgG = 0, avgB = 0;
-            affixesInGroup.forEach(affix => {
-                avgR += affix.color.r;
-                avgG += affix.color.g;
-                avgB += affix.color.b;
-            });
-            avgR = Math.floor(avgR / affixesInGroup.length);
-            avgG = Math.floor(avgG / affixesInGroup.length);
-            avgB = Math.floor(avgB / affixesInGroup.length);
-
-            const maxOpacity = Math.max(...gearPieces.map(v => v ? v.tierOpacity : 0.5));
-            const maxLayers = Math.max(...gearPieces.map(v => v ? v.tierLayers : 1));
-            const strokeStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${maxOpacity * 0.85})`;
-            const lineWidth = 2 + maxLayers * 0.5;
-
-            const baked = PlayerBase.bakeSynergyRingSprite(
-                affixesInGroup, baseRadius, numPoints, strokeStyle, lineWidth
-            );
-            this._gearRingSprites.push({
-                sprite: baked.canvas,
-                centerOffset: baked.centerOffset,
-                groupPhaseOffset: groupIndex * 0.4
-            });
-        });
-    }
-
-    _renderLiveSynergyRings(ctx, time, allSynergyGroups, gearPieces, numRings) {
-        if (numRings <= 0) return;
-
-        const synergyGroupNames = Object.keys(allSynergyGroups);
-        const numPoints = this._getGearRingPointCount();
-        if (numPoints <= 0) return;
-
-        const maxTierGlow = Math.max(...gearPieces.map(v => v ? v.tierGlow : 0));
-        if (maxTierGlow > 0) {
-            const maxTierColor = gearPieces.find(v => v && v.tierGlow === maxTierGlow)?.tierColor;
-            ctx.shadowBlur = maxTierGlow * 0.7;
-            ctx.shadowColor = maxTierColor || '#999999';
-        }
-
-        synergyGroupNames.forEach((groupName, groupIndex) => {
-            const affixesInGroup = allSynergyGroups[groupName];
-            const baseRadius = this.size + 8 + (groupIndex * 8);
-
-            let avgR = 0, avgG = 0, avgB = 0;
-            affixesInGroup.forEach(affix => {
-                avgR += affix.color.r;
-                avgG += affix.color.g;
-                avgB += affix.color.b;
-            });
-            avgR = Math.floor(avgR / affixesInGroup.length);
-            avgG = Math.floor(avgG / affixesInGroup.length);
-            avgB = Math.floor(avgB / affixesInGroup.length);
+            const baseRadius = this.size + 10 + (drawn * 10);
+            const phaseBias = drawn * 0.15;
+            const affixes = visual.affixes || [];
+            let color = visual.baseColor || { r: 150, g: 150, b: 150 };
+            if (affixes.length > 0 && typeof blendWeightedAffixRingColor === 'function') {
+                color = blendWeightedAffixRingColor(affixes, color);
+            }
 
             ctx.beginPath();
             for (let i = 0; i <= numPoints; i++) {
                 const angle = (i / numPoints) * Math.PI * 2;
-                let totalOffset = 0;
-                affixesInGroup.forEach(affix => {
-                    const wave = affix.wave;
-                    const smoothPhase = wave.phase + (time * (0.5 + groupIndex * 0.15));
-                    const waveValue = PlayerBase.getWaveValue(
-                        wave.waveType,
+                let offset = 0;
+                if (affixes.length > 0 && typeof sampleWeightedAffixRingOffset === 'function') {
+                    offset = sampleWeightedAffixRingOffset(
+                        angle,
+                        affixes,
+                        time,
+                        phaseBias,
+                        PlayerBase.getWaveValue.bind(PlayerBase)
+                    );
+                } else if (visual.waves && visual.waves.length > 0) {
+                    const wave = visual.waves[0];
+                    const smoothPhase = wave.phase + (time * (0.5 + phaseBias));
+                    offset = PlayerBase.getWaveValue(
+                        wave.waveType || 'sine',
                         angle,
                         wave.frequency,
                         smoothPhase
-                    );
-                    totalOffset += waveValue * wave.amplitude * 6;
-                });
-                const radius = baseRadius + totalOffset;
+                    ) * wave.amplitude * 4;
+                }
+                const radius = baseRadius + offset;
                 const px = this.x + Math.cos(angle) * radius;
                 const py = this.y + Math.sin(angle) * radius;
                 if (i === 0) ctx.moveTo(px, py);
@@ -3791,25 +3545,14 @@ class PlayerBase {
             }
             ctx.closePath();
 
-            const maxOpacity = Math.max(...gearPieces.map(v => v ? v.tierOpacity : 0.5));
-            const maxLayers = Math.max(...gearPieces.map(v => v ? v.tierLayers : 1));
-            ctx.strokeStyle = `rgba(${avgR}, ${avgG}, ${avgB}, ${maxOpacity * 0.85})`;
-            ctx.lineWidth = 2 + maxLayers * 0.5;
+            ctx.strokeStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${visual.tierOpacity * 0.85})`;
+            ctx.lineWidth = visual.tierStroke || 2;
             ctx.stroke();
-        });
+            drawn++;
+        }
 
         ctx.shadowBlur = 0;
-    }
-
-    _renderCachedGearRings(ctx, time) {
-        if (!this._gearRingSprites || this._gearRingSprites.length === 0) return;
-        this._gearRingSprites.forEach(entry => {
-            ctx.save();
-            ctx.translate(this.x, this.y);
-            ctx.rotate(time * 0.5 + entry.groupPhaseOffset);
-            ctx.drawImage(entry.sprite, -entry.centerOffset, -entry.centerOffset);
-            ctx.restore();
-        });
+        return drawn;
     }
 
     render(ctx) {
@@ -3869,20 +3612,14 @@ class PlayerBase {
         }
 
         const time = Date.now() * 0.0003;
-
-        const { allSynergyGroups, gearPieces } = this._collectSynergyGroups();
-        const synergyGroupNames = Object.keys(allSynergyGroups);
-        const numRings = synergyGroupNames.length;
+        const slotVisuals = this._getEquippedSlotVisuals();
+        const equippedVisuals = slotVisuals.filter(v => v);
         const ringPoints = this._getGearRingPointCount();
 
-        if (this._gearVisualsVersion !== this._gearRingCacheVersion) {
-            this._rebuildGearRingCache();
-            this._gearRingCacheVersion = this._gearVisualsVersion;
-        }
-
+        let numRings = 0;
         const drawGearRings = () => {
-            if (numRings > 0 && ringPoints > 0) {
-                this._renderLiveSynergyRings(ctx, time, allSynergyGroups, gearPieces, numRings);
+            if (ringPoints > 0 && equippedVisuals.length > 0) {
+                numRings = this._renderSlotGearRings(ctx, time);
             }
         };
 
@@ -3893,10 +3630,10 @@ class PlayerBase {
         }
 
         // Legendary effects rendering (independent of ring system)
-        const hasLegendary = gearPieces.some(v => v && v.hasLegendary);
+        const hasLegendary = equippedVisuals.some(v => v && v.hasLegendary);
         if (hasLegendary) {
             const legendaryPulse = Math.sin(time * 3) * 0.5 + 0.5;
-            const maxRadius = this.size + 8 + (numRings * 8);
+            const maxRadius = this.size + 10 + (Math.max(numRings, 1) * 10);
             const legendaryRadius = maxRadius + 4 + legendaryPulse * 4;
             ctx.strokeStyle = `rgba(255, 200, 0, ${0.5 * legendaryPulse})`;
             ctx.lineWidth = 2;
@@ -3916,100 +3653,6 @@ class PlayerBase {
                 ctx.arc(sx, sy, 2, 0, Math.PI * 2);
                 ctx.fill();
             }
-        }
-
-        // Legacy rendering for gear without affixes
-        if (this.armorVisual && (!allSynergyGroups || Object.keys(allSynergyGroups).length === 0)) {
-            const visual = this.armorVisual;
-
-            // Apply tier-based glow effect
-            if (visual.tierGlow > 0) {
-                ctx.shadowBlur = visual.tierGlow;
-                ctx.shadowColor = visual.tierColor;
-            }
-
-            // Calculate base color once (for use in layers and legendary effect)
-            let baseR = 150, baseG = 150, baseB = 150;
-            if (visual.affixVisuals && visual.affixVisuals.length > 0) {
-                let r = 0, g = 0, b = 0;
-                visual.affixVisuals.forEach(affix => {
-                    r += affix.color.r;
-                    g += affix.color.g;
-                    b += affix.color.b;
-                });
-                baseR = Math.floor(r / visual.affixVisuals.length);
-                baseG = Math.floor(g / visual.affixVisuals.length);
-                baseB = Math.floor(b / visual.affixVisuals.length);
-            } else {
-                const rgb = this.hexToRgb(visual.tierColor);
-                baseR = rgb.r;
-                baseG = rgb.g;
-                baseB = rgb.b;
-            }
-
-            // Draw single wave-deformed ring (simplified from multiple layers)
-            const baseRadius = this.size + 10;
-            const numPoints = 64; // High resolution for smooth waves
-
-            ctx.beginPath();
-            for (let i = 0; i <= numPoints; i++) {
-                const angle = (i / numPoints) * Math.PI * 2;
-
-                // Combine wave patterns - but limit to avoid messiness
-                let totalOffset = 0;
-
-                if (visual.waves && visual.waves.length > 0) {
-                    // Use up to 3 most prominent waves
-                    const wavesToUse = Math.min(3, visual.waves.length);
-                    for (let w = 0; w < wavesToUse; w++) {
-                        const wave = visual.waves[w];
-                        // Smooth time-based phase shift (slow oscillation)
-                        const smoothPhase = wave.phase + (time * (0.5 + w * 0.2));
-
-                        const waveValue = PlayerBase.getWaveValue(
-                            wave.waveType,
-                            angle,
-                            wave.frequency,
-                            smoothPhase
-                        );
-                        // Stronger amplitude for more visibility
-                        totalOffset += waveValue * wave.amplitude * 12;
-                    }
-                }
-
-                const radius = baseRadius + totalOffset;
-                const px = this.x + Math.cos(angle) * radius;
-                const py = this.y + Math.sin(angle) * radius;
-
-                if (i === 0) ctx.moveTo(px, py);
-                else ctx.lineTo(px, py);
-            }
-            ctx.closePath();
-
-            // Stroke with tier-based thickness
-            ctx.strokeStyle = `rgba(${baseR}, ${baseG}, ${baseB}, ${visual.tierOpacity})`;
-            ctx.lineWidth = 2 + visual.tierLayers;
-            ctx.stroke();
-
-            // Add inner glow for higher tiers
-            if (visual.tierLayers >= 2) {
-                ctx.strokeStyle = `rgba(${baseR}, ${baseG}, ${baseB}, ${visual.tierOpacity * 0.3})`;
-                ctx.lineWidth = 4 + visual.tierLayers * 2;
-                ctx.stroke();
-            }
-
-            // Legendary aura - extra pulsing ring
-            if (visual.hasLegendary) {
-                const legendaryPulse = Math.sin(time * 3) * 0.5 + 0.5;
-                const legendaryRadius = this.size + 15 + legendaryPulse * 5;
-                ctx.strokeStyle = `rgba(255, 200, 0, ${0.6 * legendaryPulse})`;
-                ctx.lineWidth = 3;
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, legendaryRadius, 0, Math.PI * 2);
-                ctx.stroke();
-            }
-
-            ctx.shadowBlur = 0;
         }
 
         const shape = this.shape || 'square';
@@ -4102,33 +3745,6 @@ class PlayerBase {
         ctx.fill();
 
         ctx.restore();
-        const orbitSpeedFactor = 0.2;
-
-        // Draw weapon orbiting visual (simple indicator, not the wave rings)
-        if (this.weapon) {
-            const weaponTime = Date.now() * 0.001 * orbitSpeedFactor;
-            const weaponRadius = this.size + 10;
-            const weaponX = this.x + Math.cos(weaponTime * 2) * weaponRadius;
-            const weaponY = this.y + Math.sin(weaponTime * 2) * weaponRadius;
-
-            ctx.fillStyle = this.weapon.color;
-            ctx.beginPath();
-            ctx.arc(weaponX, weaponY, 8, 0, Math.PI * 2);
-            ctx.fill();
-        }
-
-        // Draw accessory trailing dots
-        if (this.accessory) {
-            const accTime = Date.now() * 0.002 * orbitSpeedFactor;
-            const accRadius = this.size - 5;
-            const accX = this.x + Math.cos(accTime * 2 + Math.PI) * accRadius;
-            const accY = this.y + Math.sin(accTime * 2 + Math.PI) * accRadius;
-
-            ctx.fillStyle = this.accessory.color;
-            ctx.beginPath();
-            ctx.arc(accX, accY, 5, 0, Math.PI * 2);
-            ctx.fill();
-        }
 
         // Render item shield visual (glowing ring around player)
         this.renderItemShield(ctx);

@@ -246,7 +246,9 @@ class Enemy extends EnemyBase {
 
         // Update attack cooldown (slower when stunned)
         if (this.attackCooldown > 0) {
-            const cooldownDelta = this.stunned ? deltaTime * this.stunSlowFactor : deltaTime;
+            const cooldownDelta = typeof this.getCooldownDelta === 'function'
+            ? this.getCooldownDelta(deltaTime)
+            : (this.stunned ? deltaTime * this.stunSlowFactor : deltaTime);
             this.attackCooldown -= cooldownDelta;
         }
 

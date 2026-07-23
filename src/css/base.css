@@ -598,6 +598,40 @@ body {
   letter-spacing: 0.1em;
 }
 
+.pause-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pause-view[hidden] {
+  display: none !important;
+}
+
+.pause-settings-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 2px;
+}
+
+.pause-settings-header__back {
+  flex: 0 0 auto;
+  min-width: 72px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.pause-settings-header__title {
+  margin: 0;
+  flex: 1 1 auto;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ui-text);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .pause-label {
   display: block;
   font-size: 12px;

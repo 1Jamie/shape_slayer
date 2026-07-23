@@ -1,9 +1,14 @@
 (function () {
 	let layer, modal, modalBody, resumeBtn, skipGuideBtn, multiplayerBtn, localCoopBtn;
+	let restartBtn, exitBtn, settingsBtn, customizeControlsBtn, settingsBackBtn;
+	let mainViewEl, settingsViewEl;
 	let updateModeButtons, updateCameraDistanceButtons;
 	let wasPauseVisible = false;
+	let pauseView = 'main'; // 'main' | 'settings'
 
 	const MP_LOCK_HINT = 'Finish your first run (Room 0 tutorial) first';
+	const NEXUS_EXIT_HINT = 'Already in the Nexus';
+	const NEXUS_RESTART_HINT = 'No active run to restart';
 
 	const CONTROL_MODES = [
 		{ id: 'auto', label: 'Auto' },
@@ -57,6 +62,45 @@
 			return SaveSystem.getControlMode();
 		}
 		return 'auto';
+	}
+
+	function isTouchUiActive() {
+		if (typeof Engine !== 'undefined' && Engine.Input) {
+			if (typeof Engine.Input.isMobileUiMode === 'function' && Engine.Input.isMobileUiMode()) {
+				return true;
+			}
+			const mode = Engine.Input.controlMode;
+			if (mode === 'mobile' || mode === 'touch') return true;
+		}
+		const saved = getCurrentControlMode();
+		return saved === 'mobile' || saved === 'touch';
+	}
+
+	function getPauseContext() {
+		const game = typeof Game !== 'undefined' ? Game : null;
+		const inNexus = !!(game && (
+			game.pausedFromState === 'NEXUS'
+			|| game.state === 'NEXUS'
+		));
+		const profile = game && game.modeProfile ? game.modeProfile : null;
+		const isIslandSession = !!(game && (
+			game.activeSessionId
+			|| (profile && profile.exit === 'endSession')
+		));
+		const exitIsEndSession = !!(profile && profile.exit === 'endSession')
+			|| !!(game && game.activeSessionId);
+		return {
+			inNexus,
+			isIslandSession,
+			exitIsEndSession,
+			touchUiActive: isTouchUiActive(),
+			restartLabel: isIslandSession ? 'Restart Session' : 'Restart',
+			exitLabel: exitIsEndSession ? 'End Session' : 'Return to Nexus',
+			restartDisabled: inNexus,
+			exitDisabled: inNexus,
+			restartHint: NEXUS_RESTART_HINT,
+			exitHint: NEXUS_EXIT_HINT
+		};
 	}
 
 	function setButtonDisabled(btn, disabled, tooltipText) {
@@ -121,6 +165,7 @@
 			btn.title = options.title;
 		}
 		btn.addEventListener('click', () => {
+			if (btn.disabled) return;
 			action();
 			refresh();
 		});
@@ -145,6 +190,7 @@
 				e.stopPropagation();
 				onSelect(opt.id);
 				sync();
+				refresh();
 			});
 			wrap.appendChild(btn);
 			buttons.push(btn);
@@ -162,17 +208,44 @@
 		return wrap;
 	}
 
-	function focusResumeForController() {
-		if (!resumeBtn) return;
+	function focusElement(el) {
+		if (!el) return;
 		if (window.ControllerNav && typeof window.ControllerNav.setFocus === 'function') {
-			window.ControllerNav.setFocus(resumeBtn);
+			window.ControllerNav.setFocus(el);
 			return;
 		}
 		try {
-			resumeBtn.focus({ preventScroll: true });
+			el.focus({ preventScroll: true });
 		} catch (_) {
-			resumeBtn.focus();
+			el.focus();
 		}
+	}
+
+	function focusResumeForController() {
+		focusElement(resumeBtn);
+	}
+
+	function setPauseView(next, { focusTarget } = {}) {
+		pauseView = next === 'settings' ? 'settings' : 'main';
+		if (mainViewEl) {
+			mainViewEl.hidden = pauseView !== 'main';
+			mainViewEl.classList.toggle('is-active', pauseView === 'main');
+		}
+		if (settingsViewEl) {
+			settingsViewEl.hidden = pauseView !== 'settings';
+			settingsViewEl.classList.toggle('is-active', pauseView === 'settings');
+		}
+		if (focusTarget) {
+			requestAnimationFrame(() => focusElement(focusTarget));
+		}
+	}
+
+	function openSettingsView() {
+		setPauseView('settings', { focusTarget: settingsBackBtn });
+	}
+
+	function closeSettingsView() {
+		setPauseView('main', { focusTarget: settingsBtn });
 	}
 
 	function createMenu() {
@@ -213,7 +286,10 @@
 		const scroll = document.createElement('div');
 		scroll.className = 'pause-scroll';
 
-		// --- Run ---
+		// --- Main view ---
+		mainViewEl = document.createElement('div');
+		mainViewEl.className = 'pause-view pause-view--main is-active';
+
 		const runSection = makeSection('Run', 'pause-section--run');
 
 		localCoopBtn = makeActionButton('Local Co-op', () => {
@@ -257,19 +333,42 @@
 		attachDisabledTooltip(multiplayerBtn, getMultiplayerLockHint);
 		runSection.appendChild(multiplayerBtn);
 
-		runSection.appendChild(makeActionButton('Restart', async () => {
+		restartBtn = makeActionButton('Restart', async () => {
+			const ctx = getPauseContext();
+			if (ctx.restartDisabled) return;
+			const confirmMsg = ctx.isIslandSession
+				? 'Restart this session? Your current progress will be lost.'
+				: 'Restart this run? Your current progress will be lost.';
 			const confirmed = typeof window.showConfirm === 'function'
-				? await window.showConfirm('Restart this run? Your current progress will be lost.')
-				: window.confirm('Restart this run? Your current progress will be lost.');
+				? await window.showConfirm(confirmMsg)
+				: window.confirm(confirmMsg);
 			if (confirmed && Game && Game.restart) Game.restart();
-		}));
+		}, { datasetAction: 'restart' });
+		attachDisabledTooltip(restartBtn, () => getPauseContext().restartHint);
+		runSection.appendChild(restartBtn);
 
-		runSection.appendChild(makeActionButton('Return to Nexus', async () => {
+		exitBtn = makeActionButton('Return to Nexus', async () => {
+			const ctx = getPauseContext();
+			if (ctx.exitDisabled) return;
+			const confirmMsg = ctx.exitIsEndSession
+				? 'End this session and return?'
+				: 'Return to Nexus? Your current run will end.';
 			const confirmed = typeof window.showConfirm === 'function'
-				? await window.showConfirm('Return to Nexus? Your current run will end.')
-				: window.confirm('Return to Nexus? Your current run will end.');
-			if (confirmed && Game && Game.returnToNexus) Game.returnToNexus();
-		}));
+				? await window.showConfirm(confirmMsg)
+				: window.confirm(confirmMsg);
+			if (!confirmed) return;
+			// Prefer returnToNexus so Island sessions and Gear share one exit path.
+			if (Game && Game.returnToNexus) {
+				Game.returnToNexus();
+				return;
+			}
+			if (Game && Game.activeSessionId
+				&& typeof AppHost !== 'undefined' && AppHost.endSession) {
+				AppHost.endSession();
+			}
+		}, { datasetAction: 'exit' });
+		attachDisabledTooltip(exitBtn, () => getPauseContext().exitHint);
+		runSection.appendChild(exitBtn);
 
 		skipGuideBtn = makeActionButton(
 			'Skip Guide',
@@ -284,13 +383,51 @@
 				}
 				if (Game && Game.togglePause) Game.togglePause();
 			},
-			{ title: 'Dismiss the Nexus tutorial spotlight if you get stuck' }
+			{ title: 'Dismiss the Nexus tutorial spotlight if you get stuck', datasetAction: 'skip-guide' }
 		);
 		skipGuideBtn.hidden = true;
 		runSection.appendChild(skipGuideBtn);
 
-		// --- Preferences ---
-		const prefsSection = makeSection('Preferences', 'pause-section--preferences');
+		const moreSection = makeSection('More', 'pause-section--more');
+		settingsBtn = makeActionButton(
+			'Settings',
+			() => { openSettingsView(); },
+			{ datasetAction: 'settings' }
+		);
+		moreSection.appendChild(settingsBtn);
+		moreSection.appendChild(makeActionButton(
+			'How to Play',
+			() => { if (Game) { Game.launchModalVisible = true; } },
+			{ datasetAction: 'how-to-play' }
+		));
+
+		mainViewEl.appendChild(runSection);
+		mainViewEl.appendChild(moreSection);
+
+		// --- Settings sub-view ---
+		settingsViewEl = document.createElement('div');
+		settingsViewEl.className = 'pause-view pause-view--settings';
+		settingsViewEl.hidden = true;
+
+		const settingsHeader = document.createElement('div');
+		settingsHeader.className = 'pause-settings-header';
+		settingsBackBtn = document.createElement('button');
+		settingsBackBtn.type = 'button';
+		settingsBackBtn.className = 'btn pause-settings-header__back';
+		settingsBackBtn.textContent = 'Back';
+		settingsBackBtn.setAttribute('data-pause-action', 'settings-back');
+		settingsBackBtn.addEventListener('click', () => {
+			closeSettingsView();
+			refresh();
+		});
+		const settingsTitle = document.createElement('h3');
+		settingsTitle.className = 'pause-settings-header__title';
+		settingsTitle.textContent = 'Settings';
+		settingsHeader.appendChild(settingsBackBtn);
+		settingsHeader.appendChild(settingsTitle);
+		settingsViewEl.appendChild(settingsHeader);
+
+		const prefsSection = makeSection(null, 'pause-section--preferences');
 
 		const controlLabel = document.createElement('div');
 		controlLabel.className = 'pause-label';
@@ -323,38 +460,33 @@
 			updateRef: (fn) => { updateCameraDistanceButtons = fn; }
 		}));
 
-		const customizeControlsBtn = makeActionButton(
+		customizeControlsBtn = makeActionButton(
 			'Customize Mobile Controls',
 			() => {
 				if (typeof MobileControlEditor !== 'undefined' && MobileControlEditor.open) {
 					MobileControlEditor.open();
 				}
-			}
+			},
+			{ datasetAction: 'customize-mobile' }
 		);
+		customizeControlsBtn.hidden = true;
 		prefsSection.appendChild(customizeControlsBtn);
 
-		// --- Settings ---
-		const settingsSection = makeSection('Settings', 'pause-section--settings');
-		settingsSection.appendChild(makeActionButton(
+		prefsSection.appendChild(makeActionButton(
 			'Audio',
-			() => { if (window.UIAudio) window.UIAudio.open(); }
+			() => { if (window.UIAudio) window.UIAudio.open(); },
+			{ datasetAction: 'audio' }
 		));
-		settingsSection.appendChild(makeActionButton(
+		prefsSection.appendChild(makeActionButton(
 			'Privacy',
-			() => { if (Game && Game.openPrivacyModal) Game.openPrivacyModal('pause'); }
+			() => { if (Game && Game.openPrivacyModal) Game.openPrivacyModal('pause'); },
+			{ datasetAction: 'privacy' }
 		));
 
-		// --- Info ---
-		const infoSection = makeSection('Info', 'pause-section--info');
-		infoSection.appendChild(makeActionButton(
-			'How to Play',
-			() => { if (Game) { Game.launchModalVisible = true; } }
-		));
+		settingsViewEl.appendChild(prefsSection);
 
-		scroll.appendChild(runSection);
-		scroll.appendChild(prefsSection);
-		scroll.appendChild(settingsSection);
-		scroll.appendChild(infoSection);
+		scroll.appendChild(mainViewEl);
+		scroll.appendChild(settingsViewEl);
 
 		body.appendChild(primary);
 		body.appendChild(scroll);
@@ -397,6 +529,7 @@
 		root.appendChild(rootLayer);
 		layer = rootLayer;
 		modal = panel;
+		setPauseView('main');
 	}
 
 	function isPauseVisible() {
@@ -419,7 +552,10 @@
 		} else if (pauseModalEntry) {
 			GameUI.closeModal(pauseModalEntry);
 			pauseModalEntry = null;
+			setPauseView('main');
 		}
+
+		const ctx = getPauseContext();
 
 		const canSkipOnboarding = typeof Onboarding !== 'undefined'
 			&& Onboarding.canSkipGuide
@@ -429,6 +565,18 @@
 			&& FeatureTutorials.canSkipGuide();
 		if (skipGuideBtn) {
 			skipGuideBtn.hidden = !(canSkipOnboarding || canSkipFeature);
+		}
+
+		if (restartBtn) {
+			restartBtn.textContent = ctx.restartLabel;
+			setButtonDisabled(restartBtn, ctx.restartDisabled, ctx.restartHint);
+		}
+		if (exitBtn) {
+			exitBtn.textContent = ctx.exitLabel;
+			setButtonDisabled(exitBtn, ctx.exitDisabled, ctx.exitHint);
+		}
+		if (customizeControlsBtn) {
+			customizeControlsBtn.hidden = !ctx.touchUiActive;
 		}
 
 		setButtonDisabled(multiplayerBtn, !canOpenMultiplayer(), getMultiplayerLockHint());
@@ -452,6 +600,7 @@
 
 			// On open: baseline gamepad focus on sticky Resume (avoids scroll-container focus trap)
 			if (!wasPauseVisible) {
+				setPauseView('main');
 				requestAnimationFrame(() => focusResumeForController());
 			}
 		}
@@ -490,6 +639,14 @@
 				// Nested overlays (patch notes, how to play, audio, privacy): close those first
 				if (typeof Game !== 'undefined' && Game.dismissOverlayAbovePause
 					&& Game.dismissOverlayAbovePause()) {
+					e.preventDefault();
+					e.stopPropagation();
+					return;
+				}
+				// Settings sub-view: Back to main before unpausing
+				if (pauseView === 'settings') {
+					closeSettingsView();
+					refresh();
 					e.preventDefault();
 					e.stopPropagation();
 					return;

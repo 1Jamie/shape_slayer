@@ -226,3 +226,36 @@ test('boss room scales use tapered post-canonical growth', () => {
         'gear endless per-room extra stays mild'
     );
 });
+
+test('surge-arena mode scales HP and defense faster than campaign and respects defense caps', () => {
+    const CombatScaling = loadCombatScaling();
+
+    const gearWave10 = CombatScaling.computeScalingFactors(
+        CombatScaling.createContext({ roomNumber: 10, gameMode: 'gear' })
+    );
+    const arenaWave10 = CombatScaling.computeScalingFactors(
+        CombatScaling.createContext({ roomNumber: 10, gameMode: 'surge-arena' })
+    );
+
+    assert.ok(arenaWave10.roomHp > gearWave10.roomHp, 'surge-arena wave 10 HP scaling is higher than gear room 10');
+    assert.ok(arenaWave10.roomDamage > gearWave10.roomDamage, 'surge-arena wave 10 damage scaling is higher than gear room 10');
+    assert.ok(arenaWave10.roomDefenseAdd > gearWave10.roomDefenseAdd, 'surge-arena wave 10 defense addition is higher than gear');
+
+    const basicStatsW20 = CombatScaling.resolveEnemyStats(
+        'enemy_basic',
+        { maxHp: 100, damage: 10, xpValue: 10 },
+        CombatScaling.createContext({ roomNumber: 50, gameMode: 'surge-arena' }),
+        CombatScaling.computeScalingFactors(CombatScaling.createContext({ roomNumber: 50, gameMode: 'surge-arena' }))
+    );
+    assert.ok(basicStatsW20.defense <= 0.45, 'trash defense is capped at 0.45');
+
+    const octagonStatsW20 = CombatScaling.resolveEnemyStats(
+        'enemy_octagon',
+        { maxHp: 300, damage: 20, xpValue: 30 },
+        CombatScaling.createContext({ roomNumber: 50, gameMode: 'surge-arena' }),
+        CombatScaling.computeScalingFactors(CombatScaling.createContext({ roomNumber: 50, gameMode: 'surge-arena' }))
+    );
+    assert.ok(octagonStatsW20.defense <= 0.60, 'elite defense is capped at 0.60');
+    assert.ok(octagonStatsW20.defense > basicStatsW20.defense, 'elite base defense exceeds trash defense');
+});
+
