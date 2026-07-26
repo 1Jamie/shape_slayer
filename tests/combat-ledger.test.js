@@ -64,7 +64,8 @@ function loadLedgerHarness() {
         LedgerManager: sandbox.LedgerManager,
         Game: sandbox.Game,
         toasts,
-        localStorage
+        localStorage,
+        sandbox
     };
 }
 
@@ -313,5 +314,126 @@ describe('Close Call', () => {
         });
         assert.equal(SaveSystem.hasFeat('close_call'), true);
         assert.ok(SaveSystem.getGlobalRecords().deepestRoom >= 5);
+    });
+});
+
+describe('Surge Arena stat tracking', () => {
+    it('initializes arena stats to defaults', () => {
+        const { SaveSystem } = loadLedgerHarness();
+        const records = SaveSystem.getGlobalRecords();
+        assert.equal(records.arenaHighestWave, 0);
+        assert.equal(records.arenaMostKills, 0);
+        assert.equal(records.arenaMaxStyleTimeMs, 0);
+        assert.equal(records.coopArenaHighestWave, 0);
+        assert.equal(records.coopArenaMostKills, 0);
+        assert.equal(records.coopArenaMaxStyleTimeMs, 0);
+        assert.equal(records.coopArenaMaxStyleTimeMs_p2, false);
+    });
+
+    it('records and saves highest wave, most kills, and style max duration at run end', () => {
+        const harness = loadLedgerHarness();
+        const { LedgerManager, SaveSystem, Game, sandbox } = harness;
+        
+        // Setup mock Game state for arena
+        Game.gameMode = 'arena';
+        Game.activeSessionId = 'surge-arena';
+        Game.waveNumber = 12; // 11 waves cleared
+        Game.enemiesKilled = 145;
+
+        // Mock SurgeArenaRules inside the VM sandbox context
+        sandbox.SurgeArenaRules = {
+            getComboState(playerId) {
+                assert.equal(playerId, 'local');
+                return { timeAtMaxStyleMs: 15400 };
+            }
+        };
+
+        LedgerManager.recordEvent('runEnded', {
+            now: Date.now(),
+            roomNumber: 0,
+            successfulClear: false
+        });
+
+        const records = SaveSystem.getGlobalRecords();
+        assert.equal(records.arenaHighestWave, 11);
+        assert.equal(records.arenaMostKills, 145);
+        assert.equal(records.arenaMaxStyleTimeMs, 15400);
+        // Ensure coop records remain untouched
+        assert.equal(records.coopArenaHighestWave, 0);
+    });
+
+    it('resolves the maximum style time between both players in split-screen co-op', () => {
+        const harness = loadLedgerHarness();
+        const { LedgerManager, SaveSystem, Game, sandbox } = harness;
+        
+        Game.gameMode = 'arena';
+        Game.activeSessionId = 'surge-arena';
+        Game.waveNumber = 5;
+        Game.enemiesKilled = 25;
+        Game.localSplitEnabled = true;
+        Game.localSplitPlayerId = 'local-seat-1';
+
+        sandbox.SurgeArenaRules = {
+            getComboState(playerId) {
+                if (playerId === 'local') {
+                    return { timeAtMaxStyleMs: 5000 };
+                } else if (playerId === 'local-seat-1') {
+                    return { timeAtMaxStyleMs: 12000 };
+                }
+                return null;
+            }
+        };
+
+        LedgerManager.recordEvent('runEnded', {
+            now: Date.now(),
+            roomNumber: 0,
+            successfulClear: false
+        });
+
+        let records = SaveSystem.getGlobalRecords();
+        assert.equal(records.coopArenaMaxStyleTimeMs, 12000);
+        assert.equal(records.coopArenaMaxStyleTimeMs_p2, true);
+        assert.equal(records.coopArenaHighestWave, 4);
+        assert.equal(records.coopArenaMostKills, 25);
+        // Ensure solo records remain untouched
+        assert.equal(records.arenaMaxStyleTimeMs, 0);
+        assert.equal(records.arenaHighestWave, 0);
+
+        // Sub-test: If Player 1 breaks the record in a subsequent solo run
+        const harness2 = loadLedgerHarness();
+        // Link localStorage mock data
+        harness2.localStorage._data = harness.localStorage._data;
+        const LM2 = harness2.LedgerManager;
+        const SS2 = harness2.SaveSystem;
+        const G2 = harness2.Game;
+        const sb2 = harness2.sandbox;
+
+        G2.gameMode = 'arena';
+        G2.activeSessionId = 'surge-arena';
+        G2.waveNumber = 7;
+        G2.localSplitEnabled = false;
+
+        sb2.SurgeArenaRules = {
+            getComboState(playerId) {
+                if (playerId === 'local') {
+                    return { timeAtMaxStyleMs: 16000 };
+                }
+                return null;
+            }
+        };
+
+        LM2.recordEvent('runEnded', {
+            now: Date.now(),
+            roomNumber: 0,
+            successfulClear: false
+        });
+
+        records = SS2.getGlobalRecords();
+        assert.equal(records.arenaMaxStyleTimeMs, 16000);
+        assert.equal(records.arenaHighestWave, 6);
+        // Co-op records should remain untouched!
+        assert.equal(records.coopArenaMaxStyleTimeMs, 12000);
+        assert.equal(records.coopArenaMaxStyleTimeMs_p2, true);
+        assert.equal(records.coopArenaHighestWave, 4);
     });
 });

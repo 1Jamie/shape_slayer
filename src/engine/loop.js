@@ -326,8 +326,10 @@ class Core {
         const count = Math.max(1, validCount);
         const frameAvg = frameSum / count;
         const renderAvg = renderSum / count;
+        const targetBudget = (this.fixedTimestep || (1 / 60)) * 1000;
         this.debugFrameBudget.frameAvg = frameAvg;
         this.debugFrameBudget.renderAvg = renderAvg;
+        this.debugFrameBudget.targetBudget = targetBudget;
 
         if (adaptiveEnabled) {
             const thresholds = this.getFrameBudgetThresholds();

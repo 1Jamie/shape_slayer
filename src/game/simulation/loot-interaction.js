@@ -115,6 +115,18 @@ const GameLootInteraction = {
                 }
             }
 
+            // Gore-clean pad — clear the accumulated viscera/stamp layer
+            if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.goreCleanPad) {
+                const gcp = currentRoom.goreCleanPad;
+                const dist = Math.hypot(gcp.x - actor.player.x, gcp.y - actor.player.y);
+                if (dist < gcp.range) {
+                    if (typeof resetVoxelStaticCanvas === 'function') {
+                        resetVoxelStaticCanvas(currentRoom.width || 2400, currentRoom.height || 1350);
+                    }
+                    continue;
+                }
+            }
+
             if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen && currentRoom.preBossHealer) {
                 const healer = currentRoom.preBossHealer;
                 if (!healer.usedBy) healer.usedBy = new Set();

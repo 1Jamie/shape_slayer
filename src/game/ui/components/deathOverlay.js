@@ -170,13 +170,13 @@
 		
 		const inMultiplayer = Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
 		
-		if (inMultiplayer) {
-			// Multiplayer: show when all players are dead
+		if (inMultiplayer || Game.localSplitEnabled) {
+			// Multiplayer or local split screen: show when all players are dead
 			const shouldShow = Game.state === 'PLAYING' && Game.allPlayersDead === true;
 			
 			// Debug logging (only log when state changes to avoid spam)
 			if (shouldShow && window._lastDeathVisible !== shouldShow) {
-				console.log('[DeathOverlay] Multiplayer death screen should be visible:', {
+				console.log('[DeathOverlay] Multiplayer/Co-op death screen should be visible:', {
 					allPlayersDead: Game.allPlayersDead,
 					state: Game.state,
 					shouldShow: shouldShow
@@ -231,6 +231,7 @@
 		}
 
 		const inMultiplayer = Game.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+		const showCoopStats = inMultiplayer || Game.localSplitEnabled;
 		
 		// Initialize death screen start time if not set
 		if (!Game.deathScreenStartTime) {
@@ -245,8 +246,8 @@
 		const canAcceptInput = timeSinceDeath >= 3.0;
 		const timeRemaining = Math.ceil(3.0 - timeSinceDeath);
 
-		// Update title for multiplayer
-		if (inMultiplayer && Game.allPlayersDead) {
+		// Update title for multiplayer/co-op
+		if (showCoopStats && Game.allPlayersDead) {
 			titleEl.textContent = 'GAME OVER - Final Scores';
 		} else {
 			titleEl.textContent = 'GAME OVER';
@@ -258,8 +259,8 @@
 		creditsEl.innerHTML = '';
 		instructionsEl.innerHTML = '';
 
-		if (inMultiplayer && Game.allPlayersDead) {
-			// MULTIPLAYER MODE: Show all players' stats
+		if (showCoopStats && Game.allPlayersDead) {
+			// MULTIPLAYER/CO-OP MODE: Show all players' stats
 			refreshMultiplayerStats();
 		} else {
 			// SINGLEPLAYER MODE: Show single player stats
@@ -490,9 +491,47 @@
 		// Get all player stats in lobby join order
 		const allStats = [];
 		const isClient = typeof multiplayerManager !== 'undefined' && multiplayerManager && !multiplayerManager.isHost;
-		const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
+		const localPlayerId = (Game.getLocalPlayerId ? Game.getLocalPlayerId() : null) || 'local';
 
-		if (isClient && Game.finalStats) {
+		if (Game.localSplitEnabled) {
+			// Local Split-Screen Co-Op: construct Player 1 and Player 2 entries
+			const p1Id = Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local';
+			const p2Id = Game.localSplitPlayerId || 'local-seat-1';
+			
+			const p1Stats = Game.playerStats ? Game.playerStats.get(p1Id) : null;
+			const p2Stats = Game.playerStats ? Game.playerStats.get(p2Id) : null;
+			
+			if (p1Stats) {
+				allStats.push({
+					playerId: p1Id,
+					playerName: 'Player 1',
+					stats: {
+						damageDealt: p1Stats.damageDealt,
+						kills: p1Stats.kills,
+						damageTaken: p1Stats.damageTaken,
+						timeAlive: p1Stats.getTimeAlive ? p1Stats.getTimeAlive() : 0,
+						roomsCleared: Math.max(0, Game.roomNumber - 1),
+						wavesCleared: Math.max(0, (Game.waveNumber || Game.roomNumber || 1) - 1),
+						highestCombo: p1Stats.highestCombo || Game.highestCombo || 0
+					}
+				});
+			}
+			if (p2Stats) {
+				allStats.push({
+					playerId: p2Id,
+					playerName: 'Player 2',
+					stats: {
+						damageDealt: p2Stats.damageDealt,
+						kills: p2Stats.kills,
+						damageTaken: p2Stats.damageTaken,
+						timeAlive: p2Stats.getTimeAlive ? p2Stats.getTimeAlive() : 0,
+						roomsCleared: Math.max(0, Game.roomNumber - 1),
+						wavesCleared: Math.max(0, (Game.waveNumber || Game.roomNumber || 1) - 1),
+						highestCombo: p2Stats.highestCombo || Game.highestCombo || 0
+					}
+				});
+			}
+		} else if (isClient && Game.finalStats) {
 			// Client: Use final stats from host (authoritative)
 			if (typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.players) {
 				multiplayerManager.players.forEach(player => {

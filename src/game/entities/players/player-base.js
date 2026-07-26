@@ -2596,6 +2596,10 @@ class PlayerBase {
             this.maxShieldHealth = 0;
             this.shieldHealth = 0;
         }
+
+        if (typeof CompanionSync !== 'undefined' && typeof CompanionSync.broadcastNow === 'function') {
+            CompanionSync.broadcastNow();
+        }
     }
 
     // Update shield system (regeneration)
@@ -2653,6 +2657,8 @@ class PlayerBase {
                 break;
             case 'knockbackPower':
                 this.knockbackMultiplier += affix.value;
+                // Cap so stacked gear affixes don't make the combined multiplier insane
+                this.knockbackMultiplier = Math.min(this.knockbackMultiplier, 2.0);
                 break;
             case 'dodgeCharges':
                 this.bonusDodgeCharges += Math.floor(affix.value);

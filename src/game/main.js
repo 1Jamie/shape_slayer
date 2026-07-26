@@ -80,7 +80,7 @@ const Game = {
     },
     renderSubTimings: { groundLoot: 0, gearRings: 0, remotePlayers: 0, worldGlow: 0, worldBodies: 0 },
     renderSubTimingSamples: null,
-    debugFrameBudget: { frameAvg: 0, renderAvg: 0 },
+    debugFrameBudget: { frameAvg: 0, renderAvg: 0, targetBudget: 16.67 },
 
     // Modal states
     launchModalVisible: false,
@@ -3132,6 +3132,11 @@ const Game = {
         // Only update if in PLAYING state
         if (this.state !== 'PLAYING') return;
 
+        // Throttled tick for stream companion cross-tab state sync (5Hz max)
+        if (typeof CompanionSync !== 'undefined' && typeof CompanionSync.tick === 'function') {
+            CompanionSync.tick();
+        }
+
         // Clear SpatialHash grid at the exact start of update
         if (!this.spatialHash && typeof Engine !== 'undefined' && Engine.Physics && typeof Engine.Physics.SpatialHash === 'function') {
             this.spatialHash = new Engine.Physics.SpatialHash(64);
@@ -5420,6 +5425,14 @@ const Game = {
                 drawLight(vCtx, wp.x, wp.y, lightRadius);
             }
         }
+        // 3.10. Gore-clean pad — amber warm light, always present in arena
+        if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.goreCleanPad) {
+            const gcp = currentRoom.goreCleanPad;
+            const lightRadius = Math.max(120, (gcp.padRadius || 68) * 1.8);
+            if (isVisibleInVignette(gcp.x, gcp.y, lightRadius)) {
+                drawLight(vCtx, gcp.x, gcp.y, lightRadius);
+            }
+        }
 
         // 4. Level Exit Door (Standard Door) - CULLED
         if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen && typeof getDoorPosition === 'function') {
@@ -5988,6 +6001,9 @@ const Game = {
         if (typeof this.renderArenaWavePylon === 'function') {
             this.renderArenaWavePylon(ctx, { promptOnly: false });
         }
+        if (typeof this.renderArenaGoreCleanPad === 'function') {
+            this.renderArenaGoreCleanPad(ctx, { promptOnly: false });
+        }
         if (typeof this.renderStylePickups === 'function') {
             this.renderStylePickups(ctx);
         }
@@ -6181,6 +6197,9 @@ const Game = {
         // Arena wave trigger prompt (pad body already drawn above viscera / below player)
         if (typeof this.renderArenaWavePylon === 'function') {
             this.renderArenaWavePylon(ctx, { promptOnly: true });
+        }
+        if (typeof this.renderArenaGoreCleanPad === 'function') {
+            this.renderArenaGoreCleanPad(ctx, { promptOnly: true });
         }
 
         // Draw pre-boss healer machine (visible only once the boss door is open)
@@ -6508,6 +6527,93 @@ const Game = {
                 Engine.Input.drawInteractionPrompt(ctx, 'start next wave', pylon.x, pylon.y + 62, promptOpts);
             } else {
                 ctx.fillText('Press [G] — next wave', pylon.x, pylon.y + 62);
+            }
+            ctx.shadowBlur = 0;
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 0;
+        }
+        ctx.restore();
+    },
+
+    /**
+     * Arena gore-clean pad — amber/orange to contrast the cyan wave pylon.
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {{promptOnly?: boolean}} [options]
+     */
+    renderArenaGoreCleanPad(ctx, options) {
+        if (typeof currentRoom === 'undefined' || !currentRoom || !currentRoom.goreCleanPad) return;
+        const opts = options || {};
+        const pad = currentRoom.goreCleanPad;
+        const padR = pad.padRadius || 68;
+        const isNear = typeof this.isAnyLocalActorNear === 'function'
+            ? this.isAnyLocalActorNear(pad.x, pad.y, pad.range)
+            : false;
+
+        const accent = isNear ? '#FFD680' : '#C48A20';
+        const fillCol = isNear ? 'rgba(255, 190, 60, 0.22)' : 'rgba(180, 130, 30, 0.12)';
+        const ringCol = isNear ? 'rgba(255, 220, 100, 0.90)' : 'rgba(200, 150, 40, 0.50)';
+
+        ctx.save();
+        if (!opts.promptOnly) {
+            // Drop shadow
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.50)';
+            ctx.beginPath();
+            ctx.ellipse(pad.x + 3, pad.y + 8, padR * 1.02, padR * 0.72, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(10, 6, 0, 0.30)';
+            ctx.beginPath();
+            ctx.arc(pad.x, pad.y, padR * 1.04, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Pad fill + ring
+            ctx.fillStyle = fillCol;
+            ctx.beginPath();
+            ctx.arc(pad.x, pad.y, padR, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.strokeStyle = ringCol;
+            ctx.lineWidth = isNear ? 3 : 2;
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            ctx.arc(pad.x, pad.y, padR, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Inner beacon disc
+            ctx.fillStyle = isNear ? 'rgba(255, 210, 80, 0.40)' : 'rgba(180, 130, 30, 0.24)';
+            ctx.beginPath();
+            ctx.arc(pad.x, pad.y, 30, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = isNear ? '#FFF0C0' : accent;
+            ctx.lineWidth = isNear ? 2.5 : 1.5;
+            ctx.stroke();
+
+            // Label
+            ctx.fillStyle = isNear ? '#FFF0C0' : accent;
+            ctx.font = 'bold 11px Orbitron, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
+            ctx.shadowBlur = 5;
+            ctx.fillText('SWEEP', pad.x, pad.y + 1);
+            ctx.shadowBlur = 0;
+        }
+
+        if (opts.promptOnly && isNear) {
+            ctx.fillStyle = '#FFF0C0';
+            ctx.font = 'bold 13px Orbitron, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+            ctx.shadowBlur = 6;
+            ctx.shadowOffsetX = 1;
+            ctx.shadowOffsetY = 1;
+            if (typeof Engine !== 'undefined' && Engine.Input && Engine.Input.drawInteractionPrompt) {
+                const promptOpts = typeof this.getInteractionPromptOptionsNear === 'function'
+                    ? this.getInteractionPromptOptionsNear(pad.x, pad.y, pad.range)
+                    : null;
+                Engine.Input.drawInteractionPrompt(ctx, 'clear arena viscera', pad.x, pad.y + 48, promptOpts);
+            } else {
+                ctx.fillText('[G] Clear Viscera', pad.x, pad.y + 48);
             }
             ctx.shadowBlur = 0;
             ctx.shadowOffsetX = 0;

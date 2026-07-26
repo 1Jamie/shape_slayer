@@ -463,6 +463,7 @@
             lastStyleTag: null,
             varietyStreak: 0,
             lastVarietyTags: [],
+            timeAtMaxStyleMs: 0,
 
             reset() {
                 this.comboCount = 0;
@@ -475,6 +476,7 @@
                 this.lastStyleTag = null;
                 this.varietyStreak = 0;
                 this.lastVarietyTags = [];
+                this.timeAtMaxStyleMs = 0;
                 this.setTier(0, root.Game);
             },
 
@@ -723,6 +725,10 @@
 
             update(dt, world) {
                 const step = Math.max(0, dt || 0);
+
+                if (this.comboTier === 4) {
+                    this.timeAtMaxStyleMs = (this.timeAtMaxStyleMs || 0) + step * 1000;
+                }
 
                 if (this.recoveryWindow > 0) {
                     this.recoveryWindow = Math.max(0, this.recoveryWindow - step);

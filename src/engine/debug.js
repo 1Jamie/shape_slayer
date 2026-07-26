@@ -1052,7 +1052,8 @@
             overview.appendChild(boundMetricLine('CPU 1s', 'perf.cpu1'));
             overview.appendChild(boundMetricLine('CPU 5s', 'perf.cpu5'));
             overview.appendChild(boundMetricLine('CPU 10s', 'perf.cpu10'));
-            overview.appendChild(boundMetricLine('Budget 2s', 'perf.budget'));
+            overview.appendChild(boundMetricLine('CPU / Target', 'perf.budget'));
+            overview.appendChild(boundMetricLine('Render 2s', 'perf.renderAvg'));
             overview.appendChild(boundMetricLine('Catch-up', 'perf.catchup'));
             overview.appendChild(boundMetricLine('Accum drop', 'perf.drop'));
         }

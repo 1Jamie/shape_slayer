@@ -3,6 +3,7 @@
 	let open = false;
 	let currentTab = 'affixes'; // 'affixes', 'eliteAffixes', 'enemies', 'items', 'weapons', 'combatLedger'
 	let currentLedgerSubtab = 'global'; // 'global' | 'warrior' | 'rogue' | 'tank' | 'mage'
+	let currentLedgerMode = 'solo'; // 'solo' | 'coop'
 	let selectedEntry = null; // Currently selected entry for preview
 	let previewAnimId = null;
 	let previewAnimCanvas = null;
@@ -840,6 +841,43 @@
 	}
 
 	function renderCombatLedger() {
+		// Toggle between Solo/Online and Local Co-Op
+		const toggleRow = document.createElement('div');
+		toggleRow.style.display = 'flex';
+		toggleRow.style.gap = '10px';
+		toggleRow.style.marginBottom = '16px';
+		toggleRow.style.padding = '8px 12px';
+		toggleRow.style.backgroundColor = '#151515';
+		toggleRow.style.borderRadius = '6px';
+		toggleRow.style.border = '1px solid #333';
+
+		const modes = [
+			{ key: 'solo', label: 'Solo & Online' },
+			{ key: 'coop', label: 'Local Co-Op' }
+		];
+
+		modes.forEach(m => {
+			const btn = document.createElement('button');
+			btn.className = 'btn';
+			btn.textContent = m.label;
+			btn.style.padding = '6px 12px';
+			btn.style.fontSize = '12px';
+			btn.style.borderRadius = '4px';
+			btn.style.border = 'none';
+			btn.style.cursor = 'pointer';
+			const active = currentLedgerMode === m.key;
+			btn.style.backgroundColor = active ? '#9c27b0' : 'transparent';
+			btn.style.color = active ? '#fff' : '#aaa';
+			btn.addEventListener('click', () => {
+				currentLedgerMode = m.key;
+				selectedEntry = null;
+				refresh();
+				updatePreview(null);
+			});
+			toggleRow.appendChild(btn);
+		});
+		body.appendChild(toggleRow);
+
 		const subtabs = [
 			{ key: 'global', label: 'GLOBAL' },
 			{ key: 'warrior', label: 'WARRIOR' },
@@ -886,45 +924,79 @@
 			const records = (typeof SaveSystem !== 'undefined' && SaveSystem.getGlobalRecords)
 				? SaveSystem.getGlobalRecords()
 				: {};
-			const deepest = records.deepestRoom || 0;
-			const biome = records.deepestBiome || 'None';
+
+			const isCoop = currentLedgerMode === 'coop';
+			const deepest = isCoop ? (records.coopDeepestRoom || 0) : (records.deepestRoom || 0);
+			const biome = isCoop ? (records.coopDeepestBiome || 'None') : (records.deepestBiome || 'None');
+			const longest = isCoop ? (records.coopLongestRunMs || 0) : (records.longestRunMs || 0);
+			const maxHit = isCoop ? (records.coopMaxSingleHit || 0) : (records.maxSingleHit || 0);
+			const fastest = isCoop ? (records.coopFastestRunClear || 0) : (records.fastestRunClear || 0);
+			const voxels = isCoop ? (records.coopLifetimeVoxels || 0) : (records.lifetimeVoxels || 0);
+			const arenaHighestWave = isCoop ? (records.coopArenaHighestWave || 0) : (records.arenaHighestWave || 0);
+			const arenaMostKills = isCoop ? (records.coopArenaMostKills || 0) : (records.arenaMostKills || 0);
+			const arenaMaxStyleTimeMs = isCoop ? (records.coopArenaMaxStyleTimeMs || 0) : (records.arenaMaxStyleTimeMs || 0);
+			const maxStyleHolderLabel = isCoop
+				? (arenaMaxStyleTimeMs > 0 ? (records.coopArenaMaxStyleTimeMs_p2 ? ' (P2)' : ' (P1)') : '')
+				: '';
+
 			const items = [
 				{
 					type: 'record',
 					id: 'deepest',
-					title: 'Deepest Excursion',
+					title: isCoop ? 'Deepest Excursion (Co-Op)' : 'Deepest Excursion',
 					summary: deepest > 0 ? `Room ${deepest} (${biome})` : 'None yet',
 					detail: 'Furthest room and biome reached. Independent of run duration.'
 				},
 				{
 					type: 'record',
 					id: 'longest',
-					title: 'Longest Active Run',
-					summary: formatLedgerMs(records.longestRunMs || 0),
+					title: isCoop ? 'Longest Active Run (Co-Op)' : 'Longest Active Run',
+					summary: formatLedgerMs(longest),
 					detail: 'Longest pause/safe-room-gated active play time across runs.'
 				},
 				{
 					type: 'record',
 					id: 'maxHit',
-					title: 'The Big One',
-					summary: `${Math.floor(records.maxSingleHit || 0).toLocaleString()} Damage`,
+					title: isCoop ? 'The Big One (Co-Op)' : 'The Big One',
+					summary: `${Math.floor(maxHit).toLocaleString()} Damage`,
 					detail: 'Maximum damage dealt in a single frame/hit.'
 				},
 				{
 					type: 'record',
 					id: 'fastest',
-					title: 'Speed Demon',
-					summary: (records.fastestRunClear > 0)
-						? formatLedgerMs(records.fastestRunClear)
+					title: isCoop ? 'Speed Demon (Co-Op)' : 'Speed Demon',
+					summary: (fastest > 0)
+						? formatLedgerMs(fastest)
 						: 'No room-50 clear yet',
 					detail: 'Fastest active clear time for a successful 50-room run.'
 				},
 				{
 					type: 'record',
 					id: 'voxels',
-					title: 'Voxel Shatter Count',
-					summary: `${Math.floor(records.lifetimeVoxels || 0).toLocaleString()} Voxels`,
+					title: isCoop ? 'Voxel Shatter Count (Co-Op)' : 'Voxel Shatter Count',
+					summary: `${Math.floor(voxels).toLocaleString()} Voxels`,
 					detail: 'Lifetime count of enemy shape cells fractured into debris.'
+				},
+				{
+					type: 'record',
+					id: 'arenaHighestWave',
+					title: isCoop ? 'Arena Highest Wave (Co-Op)' : 'Arena Highest Wave',
+					summary: arenaHighestWave > 0 ? `Wave ${arenaHighestWave}` : 'None yet',
+					detail: 'Highest wave survived in Surge Arena Mode.'
+				},
+				{
+					type: 'record',
+					id: 'arenaMostKills',
+					title: isCoop ? 'Arena Most Kills (Co-Op)' : 'Arena Most Kills',
+					summary: arenaMostKills > 0 ? `${arenaMostKills} Kills` : 'None yet',
+					detail: 'Most enemy kills in a single Surge Arena run.'
+				},
+				{
+					type: 'record',
+					id: 'arenaMaxStyleTime',
+					title: isCoop ? 'Time at Max Style (Co-Op)' : 'Time at Max Style',
+					summary: formatLedgerMs(arenaMaxStyleTimeMs) + maxStyleHolderLabel,
+					detail: 'Longest total active time spent at S-Rank (Style Tier 4) in a single Surge Arena run.'
 				}
 			];
 			items.forEach(entry => appendLedgerCard(grid, entry));
@@ -1022,6 +1094,18 @@
 				completions: times
 			});
 		});
+
+		if (currentLedgerSubtab !== 'global') {
+			const note = document.createElement('div');
+			note.style.gridColumn = '1 / -1';
+			note.style.fontSize = '12px';
+			note.style.color = '#777';
+			note.style.fontStyle = 'italic';
+			note.style.marginTop = '12px';
+			note.style.textAlign = 'center';
+			note.textContent = 'Class stats and Feats progression are accumulated globally across all runs.';
+			grid.appendChild(note);
+		}
 
 		body.appendChild(grid);
 	}

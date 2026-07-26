@@ -104,12 +104,28 @@ const SaveSystem = {
             },
             // Combat Ledger historical records + feats (nested in shapeSlayerSave)
             globalRecords: {
+                // Solo / Online records
                 deepestRoom: 0,
                 deepestBiome: 'None',
                 longestRunMs: 0,
                 maxSingleHit: 0,
                 fastestRunClear: 0,
-                lifetimeVoxels: 0
+                lifetimeVoxels: 0,
+                arenaHighestWave: 0,
+                arenaMostKills: 0,
+                arenaMaxStyleTimeMs: 0,
+
+                // Local Co-Op records
+                coopDeepestRoom: 0,
+                coopDeepestBiome: 'None',
+                coopLongestRunMs: 0,
+                coopMaxSingleHit: 0,
+                coopFastestRunClear: 0,
+                coopLifetimeVoxels: 0,
+                coopArenaHighestWave: 0,
+                coopArenaMostKills: 0,
+                coopArenaMaxStyleTimeMs: 0,
+                coopArenaMaxStyleTimeMs_p2: false
             },
             classTracking: {
                 warrior: {

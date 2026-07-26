@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shape Slayer - Stream Companion Character Sheet</title>
+    <link rel="stylesheet" href="src/css/base.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #0b0b16;
+            color: #ffffff;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            transition: background-color 0.2s ease;
+        }
+
+        /* OBS Overlay Background Modes */
+        body.obs-mode-chroma {
+            background-color: #00ff00 !important;
+        }
+
+        body.obs-mode-transparent {
+            background-color: transparent !important;
+        }
+
+        .companion-header {
+            background: rgba(18, 18, 36, 0.95);
+            border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            flex-wrap: wrap;
+            backdrop-filter: blur(8px);
+            z-index: 100;
+        }
+
+        .companion-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 16px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            color: #ffaa55;
+        }
+
+        .companion-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #ff4444;
+            box-shadow: 0 0 8px #ff4444;
+        }
+
+        .companion-status.connected .status-dot {
+            background-color: #44ff88;
+            box-shadow: 0 0 8px #44ff88;
+        }
+
+        .companion-controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .btn-companion {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .btn-companion:hover {
+            background: rgba(255, 255, 255, 0.2);
+            border-color: #ffaa55;
+        }
+
+        .btn-companion.active {
+            background: #ff66aa;
+            border-color: #ff66aa;
+            color: #000;
+        }
+
+        .companion-main {
+            flex: 1;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+        }
+
+        .companion-sheet-container {
+            width: 1200px;
+            max-width: 100%;
+            height: 680px;
+            box-sizing: border-box;
+            background: rgba(15, 15, 30, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(12px);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Seamless support for companion container with locked static panel heights */
+        .companion-sheet-container .cs-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 16px;
+            height: 100%;
+            box-sizing: border-box;
+        }
+
+        .companion-sheet-container .cs-panel {
+            height: 638px;
+            max-height: 638px;
+            box-sizing: border-box;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        @media (max-width: 900px) {
+            .companion-sheet-container .cs-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <header class="companion-header">
+        <div class="companion-title">
+            <span>⚔️ Shape Slayer — Stream Companion</span>
+            <div id="statusBadge" class="companion-status">
+                <span class="status-dot"></span>
+                <span id="statusText">Searching for game...</span>
+            </div>
+        </div>
+
+        <div class="companion-controls">
+            <!-- Seat Selector (for splitscreen P1 / P2) -->
+            <button id="btnP1" class="btn-companion active" onclick="setSeat('p1')">P1 View</button>
+            <button id="btnP2" class="btn-companion" onclick="setSeat('p2')">P2 View</button>
+
+            <!-- OBS Chroma/Background toggle -->
+            <select id="obsBgSelect" class="btn-companion" onchange="changeBgMode(this.value)">
+                <option value="dark">Background: Dark</option>
+                <option value="chroma">OBS Chroma Green</option>
+                <option value="transparent">Transparent</option>
+            </select>
+
+            <button class="btn-companion" onclick="CompanionSync.requestSync()">🔄 Refresh</button>
+        </div>
+    </header>
+
+    <main class="companion-main">
+        <div id="companionSheet" class="companion-sheet-container">
+            <div style="text-align: center; padding: 40px; color: #aaa;">
+                Waiting for active game data stream...
+            </div>
+        </div>
+    </main>
+
+    <script src="src/game/ui/components/companionRenderer.js"></script>
+    <script src="src/game/ui/components/companionSync.js"></script>
+
+    <script>
+        let currentSeat = 'p1';
+        let latestPayload = null;
+        let lastReceivedTime = 0;
+
+        function updateStatusUI() {
+            const statusBadge = document.getElementById('statusBadge');
+            const statusText = document.getElementById('statusText');
+            const now = Date.now();
+
+            if (latestPayload && (now - lastReceivedTime < 5000)) {
+                statusBadge.classList.add('connected');
+                statusText.textContent = '🟢 Live Sync';
+            } else {
+                statusBadge.classList.remove('connected');
+                statusText.textContent = '🔴 Searching for game...';
+            }
+        }
+
+        function setSeat(seat) {
+            currentSeat = seat;
+            document.getElementById('btnP1').classList.toggle('active', seat === 'p1');
+            document.getElementById('btnP2').classList.toggle('active', seat === 'p2');
+            renderCurrentState();
+        }
+
+        function changeBgMode(mode) {
+            document.body.classList.remove('obs-mode-chroma', 'obs-mode-transparent');
+            if (mode === 'chroma') {
+                document.body.classList.add('obs-mode-chroma');
+            } else if (mode === 'transparent') {
+                document.body.classList.add('obs-mode-transparent');
+            }
+        }
+
+        function renderCurrentState() {
+            const container = document.getElementById('companionSheet');
+            if (!latestPayload) {
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 40px; color: #888;">
+                        Waiting for active game state from main game tab...<br>
+                        <span style="font-size: 12px; opacity: 0.7;">Make sure Shape Slayer is open in another tab/window.</span>
+                    </div>
+                `;
+                return;
+            }
+
+            const playerData = (currentSeat === 'p2' && latestPayload.p2) ? latestPayload.p2 : latestPayload.p1;
+            CompanionRenderer.renderGearSheet(container, playerData);
+        }
+
+        // Subscribe to state updates from CompanionSync
+        CompanionSync.subscribe((payload) => {
+            latestPayload = payload;
+            lastReceivedTime = Date.now();
+            updateStatusUI();
+            renderCurrentState();
+        });
+
+        // Request initial state hand-shake
+        CompanionSync.requestSync();
+
+        // Heartbeat check every 1.5 seconds
+        setInterval(updateStatusUI, 1500);
+    </script>
+</body>
+
+</html>

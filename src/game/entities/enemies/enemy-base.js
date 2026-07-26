@@ -347,18 +347,8 @@ class EnemyBase {
 
     // Calculate if this enemy should be stealth based on room number
     calculateStealthChance() {
-        const roomNum = typeof Game !== 'undefined' ? (Game.roomNumber || 1) : 1;
-
-        // No stealth before room 11
-        if (roomNum < 11) return false;
-
-        // Room 11: 15%, Room 31+: 50%
-        // Linear scaling: 15% + ((roomNum - 11) / 20) * 35%
-        const stealthChance = roomNum >= 31
-            ? 0.5
-            : 0.15 + ((roomNum - 11) / 20) * 0.35;
-
-        return Math.random() < stealthChance;
+        // Disabled for now
+        return false;
     }
 
     // =====================

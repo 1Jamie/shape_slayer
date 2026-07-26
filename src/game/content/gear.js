@@ -32,7 +32,7 @@ const AFFIX_POOL = {
     attackSpeed: { min: 0.1, max: 0.2, slot: ['weapon', 'accessory'], weight: 0.8, tier: 'basic' }, // Reduced from 0.3 max, weight 1.0
     projectileSpeed: { min: 0.15, max: 0.25, slot: ['weapon', 'accessory'], weight: 1.0, tier: 'basic' }, // Reduced from 0.4 max
     maxHealth: { min: 15, max: 40, slot: ['armor'], weight: 1.0, tier: 'basic' },
-    knockbackPower: { min: 0.2, max: 0.5, slot: ['weapon'], weight: 1.0, tier: 'basic' },
+    knockbackPower: { min: 0.1, max: 0.25, slot: ['weapon'], weight: 1.0, tier: 'basic' },
     
     // ADVANCED TIER
     critChance: { min: 0.05, max: 0.15, slot: ['weapon', 'accessory'], weight: 1.0, tier: 'advanced' },

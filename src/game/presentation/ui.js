@@ -1486,6 +1486,7 @@ function getInteractionTargetName(interaction) {
     const data = interaction.data || interaction.pylon || interaction;
     if (interaction.type === 'safeRoomMachine') return interaction.machineName || 'Safe Room Machine';
     if (interaction.type === 'wavePylon') return 'Wave Trigger';
+    if (interaction.type === 'goreCleanPad') return 'Gore Sweep';
     if (interaction.type === 'preBossHealer') return 'Pre-Boss Healer';
     if (interaction.type === 'doorpack' && data) {
         return data.packName || data.name || data.type || '';
@@ -1513,6 +1514,7 @@ function getInteractionLabel(interaction) {
         return (interaction.machineId === 'runSave' ? 'Use ' : 'Open ') + (interaction.machineName || 'Machine');
     }
     if (interaction.type === 'wavePylon') return 'Start Next Wave';
+    if (interaction.type === 'goreCleanPad') return 'Clear Arena Viscera';
     if (interaction.type === 'preBossHealer') return 'Activate Healer';
     if (interaction.type === 'doorpack') return 'Select Pack';
     if (interaction.type === 'gear') return 'Pickup Gear';
@@ -1651,6 +1653,16 @@ function updateInteractionState() {
             }
         }
 
+        let goreCleanPadInteraction = null;
+        if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.goreCleanPad && Game.player) {
+            const gcp = currentRoom.goreCleanPad;
+            const dx = gcp.x - Game.player.x;
+            const dy = gcp.y - Game.player.y;
+            if (Math.sqrt(dx * dx + dy * dy) < gcp.range) {
+                goreCleanPadInteraction = { type: 'goreCleanPad', pad: gcp };
+            }
+        }
+
         // Check for pre-boss healer interaction (only after room clear opens the boss door)
         let preBossHealerInteraction = null;
         if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen && currentRoom.preBossHealer && Game.player) {
@@ -1690,6 +1702,7 @@ function updateInteractionState() {
 
         currentInteraction = safeMachineInteraction ||
             wavePylonInteraction ||
+            goreCleanPadInteraction ||
             preBossHealerInteraction ||
             checkGearInteraction() ||
             pylonInteraction ||
@@ -1829,6 +1842,10 @@ function performCurrentInteraction() {
                 GameBus.emit('arena:startNextWave', { world: Game });
             } else if (typeof GameArena !== 'undefined' && GameArena.triggerNextWave) {
                 GameArena.triggerNextWave(Game);
+            }
+        } else if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'goreCleanPad') {
+            if (typeof resetVoxelStaticCanvas === 'function' && typeof currentRoom !== 'undefined' && currentRoom) {
+                resetVoxelStaticCanvas(currentRoom.width || 2400, currentRoom.height || 1350);
             }
         } else if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'preBossHealer'
             && typeof currentRoom !== 'undefined' && currentRoom && currentRoom.doorOpen) {

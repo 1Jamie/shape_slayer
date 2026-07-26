@@ -485,10 +485,24 @@ const GameCombatProjectiles = {
                         // Check shield blocking (local and remote tank instances)
                         let isBlocked = false;
 
-                        if (p.shieldActive) {
-                            const shieldStart = p.size + 5;
-                            const shieldDepth = 20;
-                            const shieldWidth = 60;
+                        if (p.shieldActive || p.shieldWaveActive) {
+                            let shieldStart, shieldDepth, shieldWidth, dirX, dirY;
+                            if (p.shieldActive) {
+                                shieldStart = p.size + 5;
+                                shieldDepth = 20;
+                                shieldWidth = 60;
+                                dirX = Math.cos(p.rotation);
+                                dirY = Math.sin(p.rotation);
+                            } else {
+                                shieldStart = p.size + 5;
+                                const waveProgress = p.shieldWaveElapsed / p.shieldWaveDuration;
+                                const waveMaxDistance = (typeof TANK_CONFIG !== 'undefined' ? TANK_CONFIG.shieldWaveRange : 200);
+                                shieldDepth = waveMaxDistance * waveProgress;
+                                shieldWidth = (typeof TANK_CONFIG !== 'undefined' ? TANK_CONFIG.shieldWaveWidth : 150) / 2;
+                                const shieldDir = p.shieldDirection !== undefined ? p.shieldDirection : p.rotation;
+                                dirX = Math.cos(shieldDir);
+                                dirY = Math.sin(shieldDir);
+                            }
 
                             const toPlayerX = projectile.x - p.x;
                             const toPlayerY = projectile.y - p.y;
@@ -497,14 +511,11 @@ const GameCombatProjectiles = {
                                 const toPlayerNormX = toPlayerX / toPlayerDist;
                                 const toPlayerNormY = toPlayerY / toPlayerDist;
 
-                                const playerDirX = Math.cos(p.rotation);
-                                const playerDirY = Math.sin(p.rotation);
-
-                                const dot = toPlayerNormX * playerDirX + toPlayerNormY * playerDirY;
+                                const dot = toPlayerNormX * dirX + toPlayerNormY * dirY;
 
                                 if (dot > 0 && toPlayerDist < shieldStart + shieldDepth) {
-                                    const perpendicularX = -playerDirY;
-                                    const perpendicularY = playerDirX;
+                                    const perpendicularX = -dirY;
+                                    const perpendicularY = dirX;
                                     const lateralDist = Math.abs(toPlayerX * perpendicularX + toPlayerY * perpendicularY);
 
                                     if (lateralDist < shieldWidth) {
@@ -587,31 +598,44 @@ const GameCombatProjectiles = {
                     // Just check for blocking
                     let isBlocked = false;
 
-                    if (this.player && this.player.shieldActive) {
-                        const shieldStart = this.player.size + 5;
-                        const shieldDepth = 20;
-                        const shieldWidth = 60;
+                    if (this.player && (this.player.shieldActive || this.player.shieldWaveActive)) {
+                        let shieldStart, shieldDepth, shieldWidth, dirX, dirY;
+                        if (this.player.shieldActive) {
+                            shieldStart = this.player.size + 5;
+                            shieldDepth = 20;
+                            shieldWidth = 60;
+                            dirX = Math.cos(this.player.rotation);
+                            dirY = Math.sin(this.player.rotation);
+                        } else {
+                            shieldStart = this.player.size + 5;
+                            const waveProgress = this.player.shieldWaveElapsed / this.player.shieldWaveDuration;
+                            const waveMaxDistance = (typeof TANK_CONFIG !== 'undefined' ? TANK_CONFIG.shieldWaveRange : 200);
+                            shieldDepth = waveMaxDistance * waveProgress;
+                            shieldWidth = (typeof TANK_CONFIG !== 'undefined' ? TANK_CONFIG.shieldWaveWidth : 150) / 2;
+                            const shieldDir = this.player.shieldDirection !== undefined ? this.player.shieldDirection : this.player.rotation;
+                            dirX = Math.cos(shieldDir);
+                            dirY = Math.sin(shieldDir);
+                        }
 
                         const toPlayerX = projectile.x - this.player.x;
                         const toPlayerY = projectile.y - this.player.y;
                         const toPlayerDist = Math.sqrt(toPlayerX * toPlayerX + toPlayerY * toPlayerY);
-                        const toPlayerNormX = toPlayerX / toPlayerDist;
-                        const toPlayerNormY = toPlayerY / toPlayerDist;
+                        if (toPlayerDist > 0) {
+                            const toPlayerNormX = toPlayerX / toPlayerDist;
+                            const toPlayerNormY = toPlayerY / toPlayerDist;
 
-                        const playerDirX = Math.cos(this.player.rotation);
-                        const playerDirY = Math.sin(this.player.rotation);
+                            const dot = toPlayerNormX * dirX + toPlayerNormY * dirY;
 
-                        const dot = toPlayerNormX * playerDirX + toPlayerNormY * playerDirY;
+                            if (dot > 0 && toPlayerDist < shieldStart + shieldDepth) {
+                                const perpendicularX = -dirY;
+                                const perpendicularY = dirX;
+                                const lateralDist = Math.abs(toPlayerX * perpendicularX + toPlayerY * perpendicularY);
 
-                        if (dot > 0 && toPlayerDist < shieldStart + shieldDepth) {
-                            const perpendicularX = -playerDirY;
-                            const perpendicularY = playerDirX;
-                            const lateralDist = Math.abs(toPlayerX * perpendicularX + toPlayerY * perpendicularY);
-
-                            if (lateralDist < shieldWidth) {
-                                isBlocked = true;
-                                if (typeof createParticleBurst !== 'undefined') {
-                                    createParticleBurst(projectile.x, projectile.y, '#0099ff', 5);
+                                if (lateralDist < shieldWidth) {
+                                    isBlocked = true;
+                                    if (typeof createParticleBurst !== 'undefined') {
+                                        createParticleBurst(projectile.x, projectile.y, '#0099ff', 5);
+                                    }
                                 }
                             }
                         }

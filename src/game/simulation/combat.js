@@ -1179,7 +1179,9 @@ function processMeleeHitOnEnemy(player, enemies, hitbox, enemy, playerId, bodyHi
                     if (knockbackDist > 0) {
                         const weaponKb = typeof getWeaponKnockbackMult === 'function' ? getWeaponKnockbackMult(player) : 1.0;
                         const hammerKb = player.hammerKnockbackMultiplier || 1.0;
-                        const knockbackForce = 135 * (player.knockbackMultiplier || 1.0) * weaponKb * hammerKb;
+                        // Cap the combined multiplier to 2.5x so stacked affixes/cards don't send enemies across the map
+                        const combinedMult = Math.min((player.knockbackMultiplier || 1.0) * weaponKb * hammerKb, 2.5);
+                        const knockbackForce = 68 * combinedMult;
                         const knockbackX = (knockbackDx / knockbackDist) * knockbackForce;
                         const knockbackY = (knockbackDy / knockbackDist) * knockbackForce;
                         const sourceId = player.playerId || player.id || attackerId || null;

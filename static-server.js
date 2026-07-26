@@ -22,7 +22,7 @@ const VERBOSE = process.env.STATIC_VERBOSE === '1' || process.env.STATIC_VERBOSE
 const IP = getLocalIP();
 const ROOT_DIR = path.resolve(__dirname);
 
-const ALLOWED_ROOT_FILES = new Set(['index.html', 'privacy.html', 'manifest.json', 'sw.js']);
+const ALLOWED_ROOT_FILES = new Set(['index.html', 'privacy.html', 'companion.html', 'manifest.json', 'sw.js']);
 const ALLOWED_DIRECTORIES = new Set(['src', 'assets']);
 
 const mimeTypes = {
@@ -59,7 +59,8 @@ function cacheControlFor(filePath) {
         relative === 'index.html' ||
         relative === 'sw.js' ||
         relative === 'manifest.json' ||
-        relative === 'privacy.html'
+        relative === 'privacy.html' ||
+        relative === 'companion.html'
     ) {
         return 'no-cache';
     }

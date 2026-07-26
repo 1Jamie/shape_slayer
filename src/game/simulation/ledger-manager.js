@@ -185,7 +185,12 @@ const LedgerManager = (function () {
             Game.lastRunTimingResult = result;
         }
         if (isHostOrSolo() && typeof SaveSystem !== 'undefined') {
-            SaveSystem.setGlobalMax('longestRunMs', result.activeMs);
+            const isCoop = typeof Game !== 'undefined' && Game.localSplitEnabled;
+            if (isCoop) {
+                SaveSystem.setGlobalMax('coopLongestRunMs', result.activeMs);
+            } else {
+                SaveSystem.setGlobalMax('longestRunMs', result.activeMs);
+            }
         }
         return result;
     }
@@ -370,10 +375,18 @@ const LedgerManager = (function () {
         const classKey = resolveClassKey(data && data.player);
 
         if (typeof SaveSystem !== 'undefined') {
+            const isCoop = typeof Game !== 'undefined' && Game.localSplitEnabled;
             const records = SaveSystem.getGlobalRecords();
-            if (roomNumber > (records.deepestRoom || 0)) {
-                SaveSystem.setGlobalRecord('deepestRoom', roomNumber);
-                SaveSystem.setGlobalRecord('deepestBiome', biomeName);
+            if (isCoop) {
+                if (roomNumber > (records.coopDeepestRoom || 0)) {
+                    SaveSystem.setGlobalRecord('coopDeepestRoom', roomNumber);
+                    SaveSystem.setGlobalRecord('coopDeepestBiome', biomeName);
+                }
+            } else {
+                if (roomNumber > (records.deepestRoom || 0)) {
+                    SaveSystem.setGlobalRecord('deepestRoom', roomNumber);
+                    SaveSystem.setGlobalRecord('deepestBiome', biomeName);
+                }
             }
             if (classKey) SaveSystem.bumpClassStat(classKey, 'roomsCleared', 1);
         }
@@ -631,7 +644,12 @@ const LedgerManager = (function () {
         if (!isHostOrSolo()) return;
         const n = Number(data && data.count) || 0;
         if (n > 0 && typeof SaveSystem !== 'undefined') {
-            SaveSystem.bumpGlobalRecord('lifetimeVoxels', n);
+            const isCoop = typeof Game !== 'undefined' && Game.localSplitEnabled;
+            if (isCoop) {
+                SaveSystem.bumpGlobalRecord('coopLifetimeVoxels', n);
+            } else {
+                SaveSystem.bumpGlobalRecord('lifetimeVoxels', n);
+            }
         }
     }
 
@@ -667,14 +685,74 @@ const LedgerManager = (function () {
         if (runState.frameDamageAccum > runState.frameDamagePeak) {
             runState.frameDamagePeak = runState.frameDamageAccum;
         }
+        
+        const isCoop = typeof Game !== 'undefined' && Game.localSplitEnabled;
+
         if (typeof SaveSystem !== 'undefined') {
-            SaveSystem.setGlobalMax('maxSingleHit', runState.frameDamagePeak);
+            if (isCoop) {
+                SaveSystem.setGlobalMax('coopMaxSingleHit', runState.frameDamagePeak);
+            } else {
+                SaveSystem.setGlobalMax('maxSingleHit', runState.frameDamagePeak);
+            }
         }
 
         const roomNumber = Number(data && data.roomNumber) || (typeof Game !== 'undefined' ? Game.roomNumber : 0);
         const successfulClear = !!(data && data.successfulClear);
         if (successfulClear && roomNumber >= 50 && timing.activeMs > 0 && typeof SaveSystem !== 'undefined') {
-            SaveSystem.setGlobalMinPositive('fastestRunClear', timing.activeMs);
+            if (isCoop) {
+                SaveSystem.setGlobalMinPositive('coopFastestRunClear', timing.activeMs);
+            } else {
+                SaveSystem.setGlobalMinPositive('fastestRunClear', timing.activeMs);
+            }
+        }
+
+        // Surge Arena meta tracking
+        if (typeof Game !== 'undefined' && (Game.gameMode === 'arena' || Game.activeSessionId === 'surge-arena')) {
+            if (typeof SaveSystem !== 'undefined') {
+                const waves = Math.max(0, (Game.waveNumber || 1) - 1);
+                const records = SaveSystem.getGlobalRecords();
+                
+                if (isCoop) {
+                    const prevHighestWave = records.coopArenaHighestWave || 0;
+                    if (waves > prevHighestWave) {
+                        SaveSystem.setGlobalRecord('coopArenaHighestWave', waves);
+                    }
+                    SaveSystem.setGlobalMax('coopArenaMostKills', Game.enemiesKilled || 0);
+                } else {
+                    const prevHighestWave = records.arenaHighestWave || 0;
+                    if (waves > prevHighestWave) {
+                        SaveSystem.setGlobalRecord('arenaHighestWave', waves);
+                    }
+                    SaveSystem.setGlobalMax('arenaMostKills', Game.enemiesKilled || 0);
+                }
+
+                if (typeof SurgeArenaRules !== 'undefined' && typeof SurgeArenaRules.getComboState === 'function') {
+                    const localId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local';
+                    const pc = SurgeArenaRules.getComboState(localId);
+                    let maxStyleTime = pc && pc.timeAtMaxStyleMs ? pc.timeAtMaxStyleMs : 0;
+                    let isP2 = false;
+
+                    if (isCoop) {
+                        const splitId = Game.localSplitPlayerId || 'local-seat-1';
+                        const pcSplit = SurgeArenaRules.getComboState(splitId);
+                        if (pcSplit && pcSplit.timeAtMaxStyleMs && pcSplit.timeAtMaxStyleMs > maxStyleTime) {
+                            maxStyleTime = pcSplit.timeAtMaxStyleMs;
+                            isP2 = true;
+                        }
+
+                        const prevMaxStyleTime = records.coopArenaMaxStyleTimeMs || 0;
+                        if (maxStyleTime > prevMaxStyleTime) {
+                            SaveSystem.setGlobalRecord('coopArenaMaxStyleTimeMs', maxStyleTime);
+                            SaveSystem.setGlobalRecord('coopArenaMaxStyleTimeMs_p2', isP2);
+                        }
+                    } else {
+                        const prevMaxStyleTime = records.arenaMaxStyleTimeMs || 0;
+                        if (maxStyleTime > prevMaxStyleTime) {
+                            SaveSystem.setGlobalRecord('arenaMaxStyleTimeMs', maxStyleTime);
+                        }
+                    }
+                }
+            }
         }
 
         flushAggregates();

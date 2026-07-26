@@ -23,19 +23,20 @@ const TANK_CONFIG = {
     // Basic Attack (Hammer Swing)
     hammerDistance: 81,            // Distance from player center to hammer (pixels) - increased 15%
     hammerArcWidth: 130,           // Arc width in degrees
-    hammerSwingDuration: 0.3,      // Duration of hammer swing animation (seconds)
+    hammerSwingDuration: 0.510,     // Duration of hammer swing animation (seconds) - slowed 8% from 0.3
     hammerHitboxRadius: 35,        // Radius of hammer hitbox (pixels) - increased 15%
+    hammerDamageMultiplier: 1.21,  // Damage multiplier for hammer swing (+11%)
     hammerHealOnHit: 0.05,         // Heal 5% of damage dealt with hammer attacks
     
     // Heavy Attack (Shout)
     heavyAttackCooldown: 2.5,      // Cooldown for heavy attack (seconds)
-    shoutDamage: 0.975,            // Damage multiplier for shout (reduced by 25% from 1.3)
+    shoutDamage: 1.15,              // Damage multiplier for shout (bumped from 0.975)
     shoutRadius: 140,              // Radius of shout AoE (increased from 120)
     shoutHitboxCount: 8,           // Number of hitboxes in ring
     shoutHitboxDistance: 70,       // Distance from player to hitboxes (increased for coverage)
     shoutHitboxRadius: 50,         // Radius of each hitbox (increased for coverage)
-    shoutStunDuration: 1.5,        // Stun duration on enemies hit (seconds)
-    shoutSlowAmount: 0.5,          // Slow percentage after stun (0.5 = 50% slow)
+    shoutStunDuration: 1.0,        // Stun duration on enemies hit (seconds)
+    shoutSlowAmount: 0.7,         // Slow percentage after stun (0.65 = 65% slow, up from 0.5)
     shoutSlowDuration: 2.0,        // Slow duration after stun expires (seconds)
     shoutAggroMultiplier: 3.0,     // Aggro threat multiplier (false damage spike)
     
@@ -48,10 +49,10 @@ const TANK_CONFIG = {
     shieldWaveDamage: 2.5,         // Damage multiplier for shield wave
     shieldWaveRange: 200,          // Maximum range of shield wave (pixels)
     shieldWaveWidth: 150,          // Width of shield wave (pixels)
-    shieldWaveKnockback: 300,      // Knockback force of shield wave (pixels)
+    shieldWaveKnockback: 180,      // Knockback force of shield wave (pixels) - reduced from 300 to prevent chasing
     shieldDistance: 25,             // Distance shield starts from player (pixels)
     shieldDepth: 20,               // Forward extent of shield (pixels)
-    shieldWidth: 120,              // Lateral width of shield (pixels)
+    shieldWidth: 130,              // Lateral width of shield (pixels)
     shieldKnockbackDistance: 15,   // Knockback distance per frame (pixels)
     // Sustained crush while pressing an enemy into scenery (modest, tick-based)
     shieldCrushDamageMult: 0.22,   // Fraction of tank damage per crush tick
@@ -60,7 +61,7 @@ const TANK_CONFIG = {
     
     // Passive Ability (Retaliatory Knockback)
     passiveKnockbackRadius: 80,    // Radius for passive knockback (small)
-    passiveKnockbackForce: 200,    // Knockback force (small)
+    passiveKnockbackForce: 110,    // Knockback force (small)
     passiveKnockbackCooldown: 3.0, // Cooldown between passive triggers (seconds)
     
     // Descriptions for UI (tooltips, character sheet)
@@ -227,6 +228,8 @@ class Tank extends PlayerBase {
                     break;
                 case 'hammer_knockback':
                     this.hammerKnockbackMultiplier += modifier.value;
+                    // Cap so stacked cards don't send enemies across the map
+                    this.hammerKnockbackMultiplier = Math.min(this.hammerKnockbackMultiplier, 2.0);
                     break;
                 case 'shield_reduction':
                     this.shieldReductionBonus += modifier.value;
@@ -464,21 +467,33 @@ class Tank extends PlayerBase {
     
     // Override executeAttack for Tank hammer swing
     executeAttack(input) {
-        this.hammerSwingAttack();
+        // Calculate effective duration of the swing based on weapon type and attack speed
+        const weaponRecovery = this.weaponRecoveryScale != null ? this.weaponRecoveryScale : 1.0;
+        const attackSpeed = Math.max(0.5, this.attackSpeedMultiplier || 1.0);
+        const effectiveDuration = (TANK_CONFIG.hammerSwingDuration * weaponRecovery) / attackSpeed;
+
+        this.hammerSwingAttack(effectiveDuration);
         
         // Reset cooldown and set attacking state with attack speed and weapon type
         const weaponCooldownMult = this.weaponCooldownMultiplier || 1.0;
         const effectiveAttackCooldown = this.attackCooldownTime * weaponCooldownMult / (1 + (this.attackSpeedMultiplier - 1));
-        this.attackCooldown = effectiveAttackCooldown;
+        
+        // Make sure next attack cannot start before the current swing duration is completed
+        this.attackCooldown = Math.max(effectiveAttackCooldown, effectiveDuration);
         this.isAttacking = true;
         
-        // Clear attacking state after duration
+        // Clear attacking state after the actual effective duration
         setTimeout(() => {
             this.isAttacking = false;
-        }, this.attackDuration * 1000);
+        }, effectiveDuration * 1000);
     }
     
-    hammerSwingAttack() {
+    hammerSwingAttack(duration) {
+        // Fallback to config duration if none is passed
+        if (duration === undefined) {
+            duration = TANK_CONFIG.hammerSwingDuration;
+        }
+
         // Track ability use for lifetime stats
         if (typeof window.trackLifetimeStat === 'function') {
             window.trackLifetimeStat('totalAbilityUses', 1);
@@ -490,7 +505,7 @@ class Tank extends PlayerBase {
         }
         
         // Tank: Hammer swing in arc
-        const hammerDamage = this.damage;
+        const hammerDamage = this.damage * (TANK_CONFIG.hammerDamageMultiplier || 1.0);
         const reachMult = typeof getWeaponMeleeReachMult === 'function'
             ? getWeaponMeleeReachMult(this)
             : (this.weaponRangeMultiplier || 1.0);
@@ -515,7 +530,7 @@ class Tank extends PlayerBase {
             y: hammerY,
             radius: TANK_CONFIG.hammerHitboxRadius * (this.aoeMultiplier || 1.0), // Apply AoE multiplier
             damage: hammerDamage,
-            duration: TANK_CONFIG.hammerSwingDuration,
+            duration: duration,
             elapsed: 0,
             hitEnemies: new Set(),
             
@@ -848,9 +863,15 @@ class Tank extends PlayerBase {
                             }
 
                             if (!this.shieldWaveHitEnemies.has(enemy)) {
-                                const damageDealt = Math.min(waveDamage, enemy.hp);
+                                const styleCrit = this.styleCritBonus || 0;
+                                const effectiveCrit = (this.critChance || 0) + styleCrit;
+                                const isCrit = effectiveCrit > 0 && Math.random() < effectiveCrit;
+                                const critMultiplier = isCrit ? (2.0 * (this.critDamageMultiplier || 1.0)) : 1.0;
+                                const finalWaveDamage = waveDamage * critMultiplier;
+
+                                const damageDealt = Math.min(finalWaveDamage, enemy.hp);
                                 const attackerId = this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : null);
-                                enemy.takeDamage(waveDamage, attackerId);
+                                enemy.takeDamage(finalWaveDamage, attackerId);
                                 this.shieldWaveHitEnemies.add(enemy);
                                 const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();
                                 if (!isClient) {
@@ -877,12 +898,12 @@ class Tank extends PlayerBase {
                                     }
                                 }
                                 if (typeof createDamageNumber !== 'undefined') {
-                                    createDamageNumber(body.x, body.y, damageDealt, true);
+                                    createDamageNumber(body.x, body.y, damageDealt, isCrit);
                                 }
                                 if (typeof hostBroadcastDamageNumber === 'function') {
                                     hostBroadcastDamageNumber(body.x, body.y, damageDealt, {
                                         enemyId: enemy.id,
-                                        isCrit: true
+                                        isCrit: isCrit
                                     });
                                 }
                                 const knockbackForce = TANK_CONFIG.shieldWaveKnockback;

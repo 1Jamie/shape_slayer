@@ -5,6 +5,14 @@
 	let lastLevel = null;
 	let activeSeatId = 'p1';
 
+	// Class marker placed on every item tooltip so we can sweep orphans globally.
+	const TOOLTIP_CLASS = 'cs-item-tooltip';
+
+	function cleanupAllTooltips() {
+		const orphans = document.querySelectorAll('.' + TOOLTIP_CLASS);
+		orphans.forEach(el => el.parentNode && el.parentNode.removeChild(el));
+	}
+
 	function createCharacterSheet() {
 		const rootLayer = document.createElement('div');
 		rootLayer.className = 'ui-layer ui-layer--modal';
@@ -55,11 +63,29 @@
 
 		const footer = document.createElement('div');
 		footer.className = 'modal__footer';
+		footer.style.display = 'flex';
+		footer.style.justifyContent = 'space-between';
+		footer.style.alignItems = 'center';
+
+		const popoutBtn = document.createElement('button');
+		popoutBtn.className = 'btn';
+		popoutBtn.textContent = '🍿 Pop Out Companion';
+		popoutBtn.setAttribute('aria-label', 'Open character sheet companion window');
+		popoutBtn.addEventListener('click', () => {
+			if (typeof CompanionSync !== 'undefined' && typeof CompanionSync.openCompanionWindow === 'function') {
+				CompanionSync.openCompanionWindow();
+			} else {
+				window.open('companion.html', 'ShapeSlayerCompanion', 'width=1260,height=840,resizable=yes');
+			}
+		});
+
 		const close = document.createElement('button');
 		close.className = 'btn';
 		close.textContent = 'Close';
 		close.setAttribute('aria-label', 'Close character sheet');
 		close.addEventListener('click', () => toggle(false));
+
+		footer.appendChild(popoutBtn);
 		footer.appendChild(close);
 
 		panel.appendChild(header);
@@ -73,7 +99,11 @@
 	}
 
 	function renderGearMode(player) {
-		// Gear mode character sheet
+		if (typeof CompanionRenderer !== 'undefined' && typeof CompanionRenderer.renderGearSheet === 'function') {
+			CompanionRenderer.renderGearSheet(body, player);
+			return;
+		}
+		// Gear mode character sheet fallback
 		const grid = document.createElement('div');
 		grid.className = 'cs-grid';
 		grid.style.gridColumn = '1 / -1'; // Span both columns of parent grid
@@ -576,6 +606,13 @@
 				let tooltip = null;
 
 				itemCard.addEventListener('mouseenter', (e) => {
+					// Cancel any pending delayed tooltip and remove any existing one first
+					// to avoid orphans when mousing quickly between cards or after a re-render.
+					clearTimeout(tooltipTimeout);
+					if (tooltip && tooltip.parentNode) {
+						tooltip.parentNode.removeChild(tooltip);
+						tooltip = null;
+					}
 					tooltipTimeout = setTimeout(() => {
 						// Create tooltip
 						tooltip = document.createElement('div');
@@ -610,6 +647,9 @@
 						tooltipDesc.style.fontWeight = '500';
 						tooltipDesc.textContent = item.tooltip || item.definition.description || 'No description';
 						tooltip.appendChild(tooltipDesc);
+
+						// Mark with class so orphans can be swept globally
+						tooltip.className = TOOLTIP_CLASS;
 
 						// Append to body instead of item card
 						document.body.appendChild(tooltip);
@@ -655,6 +695,9 @@
 
 	function render() {
 		if (!body) return;
+		// Sweep any tooltips that may have been orphaned if the sheet is re-rendered
+		// while a tooltip was visible (e.g. fast hover followed by data refresh).
+		cleanupAllTooltips();
 		body.innerHTML = '';
 		if (sheetHeader) sheetHeader.textContent = sheetTitleForSeat(activeSeatId);
 		const player = resolveSheetPlayer(activeSeatId);
@@ -693,6 +736,7 @@
 				sheetModalEntry = GameUI.openModal(layer, {
 					closeOnEscape: true,
 					onClose: () => {
+						cleanupAllTooltips();
 						open = false;
 						sheetModalEntry = null;
 						activeSeatId = 'p1';
@@ -703,6 +747,7 @@
 				});
 			}
 		} else if (sheetModalEntry) {
+			cleanupAllTooltips();
 			GameUI.closeModal(sheetModalEntry);
 			sheetModalEntry = null;
 			activeSeatId = 'p1';
@@ -789,6 +834,13 @@
 		window.CharacterSheet.isOpen = isOpen;
 		window.CharacterSheet.getActiveSeatId = getActiveSeatId;
 		window.CharacterSheet.openForSeat = (seatId, force) => toggle(force, { seatId });
+		window.CharacterSheet.cleanupTooltips = cleanupAllTooltips;
+
+		// Safety-net: sweep orphaned tooltips whenever focus leaves the page.
+		window.addEventListener('blur', cleanupAllTooltips);
+		document.addEventListener('visibilitychange', () => {
+			if (document.visibilityState === 'hidden') cleanupAllTooltips();
+		});
 	}
 
 	if (document.readyState === 'loading') {

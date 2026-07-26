@@ -34,28 +34,64 @@
         return wave > 0 && wave % 5 === 0;
     }
 
+    function getArenaBossCount(wave) {
+        const w = Math.max(1, wave || 1);
+        const hardIndex = Math.max(1, Math.floor(w / 5));
+        if (hardIndex === 1) return 1;
+        if (hardIndex === 2) return 2;
+        if (hardIndex === 3) return 3;
+        if (hardIndex <= 7) {
+            // RNG between 3 and 5 for surges 4 to 7 (waves 20 to 35)
+            return 3 + Math.floor(Math.random() * 3);
+        }
+        // Absurd waves (Surge 8+, wave 40+): scale min & max boss counts upward
+        const extraSurges = hardIndex - 7;
+        const minBosses = Math.min(8, 3 + Math.floor(extraSurges / 2));
+        const maxBosses = Math.min(10, minBosses + 2);
+        return minBosses + Math.floor(Math.random() * (maxBosses - minBosses + 1));
+    }
+
     function isDoubleBossWave(wave) {
-        return wave > 0 && wave % 10 === 0;
+        return getArenaBossCount(wave) > 1;
     }
 
     /**
-     * Map Surge Arena hard waves onto a shallow Gear room for BossScaling.
-     * Arena players have far less gear than a Gear run at the same "room" —
-     * hardIndex*5 still left wave-5 bosses as 11k+ walls. Use 1,3,5,7…
-     * plus an HP mult in constructBoss for paced surge fights.
+     * Map Surge Arena hard waves onto a Gear room equivalent for BossScaling.
+     * Early surges (surges 1-3) start gentle (rooms 1, 3, 6), then scaling accelerates
+     * past surge 3 so players don't rapidly outscale bosses in mid/late surges.
      */
     function arenaBossScalingRoom(wave) {
         const w = Math.max(1, wave || 1);
         const hardIndex = Math.max(1, Math.floor(w / 5));
-        return 1 + (hardIndex - 1) * 2;
+        if (hardIndex <= 1) return 1;
+        if (hardIndex === 2) return 3;
+        if (hardIndex === 3) return 5;
+        const extra = hardIndex - 3;
+        return Math.floor(5 + extra * 4 + Math.pow(extra, 1.4) * 1.5);
     }
 
-    function arenaBossHpMult(wave) {
-        return isDoubleBossWave(wave) ? 0.38 : 0.45;
+    function arenaBossHpMult(wave, bossCount) {
+        const w = Math.max(1, wave || 1);
+        const hardIndex = Math.max(1, Math.floor(w / 5));
+        const count = Math.max(1, bossCount || getArenaBossCount(w));
+
+        let baseHpMult = 0.45;
+        if (count === 2) baseHpMult = 0.38;
+        else if (count === 3) baseHpMult = 0.35;
+        else if (count >= 4) baseHpMult = 0.32;
+
+        const growth = 1 + Math.max(0, hardIndex - 3) * 0.08;
+        return Math.min(1.25, baseHpMult * growth);
     }
 
-    function arenaBossDamageMult(wave) {
-        return isDoubleBossWave(wave) ? 0.82 : 0.88;
+    function arenaBossDamageMult(wave, bossCount) {
+        const w = Math.max(1, wave || 1);
+        const hardIndex = Math.max(1, Math.floor(w / 5));
+        const count = Math.max(1, bossCount || getArenaBossCount(w));
+
+        let baseDmgMult = count > 1 ? 0.82 : 0.88;
+        const growth = 1 + Math.max(0, hardIndex - 3) * 0.04;
+        return Math.min(1.5, baseDmgMult * growth);
     }
 
     function pickArenaBosses(wave, count) {
@@ -77,14 +113,14 @@
             out.push(available.splice(idx, 1)[0]);
         }
         while (out.length < n) {
-            const fallback = ARENA_BOSS_POOL.filter((b) => out.indexOf(b) === -1);
-            if (!fallback.length) break;
-            out.push(fallback[Math.floor(Math.random() * fallback.length)]);
+            const fallback = pool.length ? pool : ARENA_BOSS_POOL;
+            const pick = fallback[Math.floor(Math.random() * fallback.length)];
+            out.push(pick);
         }
         return out;
     }
 
-    function constructBoss(entry, x, y, wave) {
+    function constructBoss(entry, x, y, wave, bossCount) {
         let BossCtor = null;
         if (entry.key === 'BossSwarmKing' && typeof BossSwarmKing !== 'undefined') BossCtor = BossSwarmKing;
         else if (entry.key === 'BossTwinPrism' && typeof BossTwinPrism !== 'undefined') BossCtor = BossTwinPrism;
@@ -99,6 +135,7 @@
         boss.activated = true;
         boss.arenaFullAgro = true;
 
+        const totalCount = bossCount || 1;
         const scaleRoom = arenaBossScalingRoom(wave);
         if (typeof BossScaling !== 'undefined' && BossScaling.applyBossScaling) {
             const mpScaling = (typeof getMultiplayerScaling === 'function')
@@ -110,17 +147,18 @@
                 mpScaling,
                 isEliteSpawn: false
             });
-            // Arena bosses are paced surge fights, not Gear-room walls.
+            const hpMult = arenaBossHpMult(wave, totalCount);
+            const dmgMult = arenaBossDamageMult(wave, totalCount);
             if (stats && stats.maxHp) {
-                const tunedHp = Math.max(1, Math.floor(stats.maxHp * arenaBossHpMult(wave)));
+                const tunedHp = Math.max(1, Math.floor(stats.maxHp * hpMult));
                 boss.maxHp = tunedHp;
                 boss.hp = tunedHp;
             }
             if (stats && stats.damage != null) {
-                boss.damage = stats.damage * arenaBossDamageMult(wave);
+                boss.damage = stats.damage * dmgMult;
             }
             boss.arenaBossScaleRoom = scaleRoom;
-            boss.arenaBossHpMult = arenaBossHpMult(wave);
+            boss.arenaBossHpMult = hpMult;
         }
         return boss;
     }
@@ -180,6 +218,14 @@
                 lootClearRadius: 230,
                 active: false,
                 label: 'Wave Trigger'
+            };
+            // Gore-clean pad sits to the right of the wave pylon.
+            room.goreCleanPad = {
+                x: pylon.x + 320,
+                y: pylon.y,
+                range: 80,
+                padRadius: 68,
+                label: 'Clear Viscera'
             };
             // Session spawn / revive is the wave pylon plaza (not the south lip).
             room.layout.spawnZone = {
@@ -596,7 +642,7 @@
         const wave = Math.max(1, waveNum || (w && w.waveNumber) || 1);
         stopWaveDirector(w);
 
-        const count = isDoubleBossWave(wave) ? 2 : 1;
+        const count = getArenaBossCount(wave);
         const picks = pickArenaBosses(wave, count);
         const layout = room.layout;
         const floor = room.arenaFloor || {
@@ -604,12 +650,14 @@
             y: (room.height || 720) * 0.58
         };
 
+        const spawnedPoints = [];
+
         picks.forEach((entry, i) => {
-            let x = floor.x + (i === 0 ? -140 : 140);
-            let y = floor.y - 60;
+            let x = floor.x + (i - (picks.length - 1) / 2) * 140;
+            let y = floor.y - 60 + ((i % 2 === 0) ? -30 : 30);
             if (layout && typeof RoomLayoutGenerator !== 'undefined'
                 && RoomLayoutGenerator.findSafeSpawnPoint) {
-                const avoid = [];
+                const avoid = spawnedPoints.slice();
                 if (room.machineBay && !room.machinesAccessible) {
                     const b = room.machineBay;
                     avoid.push({
@@ -625,11 +673,13 @@
                     minDistanceFrom: avoid
                 });
                 if (pt) {
-                    x = pt.x + (i * 80);
+                    x = pt.x;
                     y = pt.y;
                 }
             }
-            const boss = constructBoss(entry, x, y, wave);
+            spawnedPoints.push({ x, y, distance: 150 });
+
+            const boss = constructBoss(entry, x, y, wave, picks.length);
             if (boss) {
                 room.enemies.push(boss);
             }
@@ -702,6 +752,7 @@
         ARENA_BOSS_POOL,
         isHardWave,
         isDoubleBossWave,
+        getArenaBossCount,
         arenaBossScalingRoom,
         arenaBossHpMult,
         arenaBossDamageMult,
