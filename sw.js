@@ -5,7 +5,7 @@
  * Shell is precached on install. Audio warms in the background so playback can start ASAP
  * while the library fills for full offline use.
  */
-const CACHE_VERSION = '0.9.0.0';
+const CACHE_VERSION = '0.9.0.1';
 const SHELL_CACHE = `shape-slayer-shell-v${CACHE_VERSION}`;
 const RUNTIME_CACHE = `shape-slayer-runtime-v${CACHE_VERSION}`;
 const AUDIO_WARM_CONCURRENCY = 2;
