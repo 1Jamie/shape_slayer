@@ -1491,7 +1491,7 @@ function renderNexus(ctx) {
 
     // Check if in multiplayer lobby
     const inMultiplayerLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
-    const isDisabled = inMultiplayerLobby || resumeLocked;
+    const isDisabled = resumeLocked; // MP now supports all modes; only checkpoint resume lock disables switcher
     const selectedMode = (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.getSelected)
         ? GameModeCatalog.getSelected(nexusRoom)
         : null;
@@ -1547,12 +1547,6 @@ function renderNexus(ctx) {
             ctx.font = 'bold 11px Orbitron';
             ctx.textAlign = 'center';
             ctx.fillText(NEXUS_RESUME_LOCK_HINT, nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y + 60);
-        } else if (isDisabled) {
-            // Show disabled message in multiplayer
-            ctx.fillStyle = '#ff6666';
-            ctx.font = 'bold 12px Orbitron';
-            ctx.textAlign = 'center';
-            ctx.fillText('Cannot swap modes in multiplayer', nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y + 60);
         } else if (selectableModes.length <= 1) {
             ctx.fillStyle = '#aaaaaa';
             ctx.font = 'bold 12px Orbitron';

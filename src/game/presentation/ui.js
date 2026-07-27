@@ -1531,8 +1531,6 @@ function getInteractionLabel(interaction) {
     }
     if (interaction.type === 'itemPylon') return 'Interact with Item Pylon';
     if (interaction.type === 'modeSwitcher') {
-        const inMultiplayerLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
-        if (inMultiplayerLobby) return 'Cannot swap modes in multiplayer';
         const selectedMode = (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.getSelected)
             ? GameModeCatalog.getSelected(typeof nexusRoom !== 'undefined' ? nexusRoom : null)
             : null;
@@ -1563,8 +1561,8 @@ function getInteractionLabel(interaction) {
 function getInteractionDisabledReason(interaction) {
     if (!interaction) return '';
     if (interaction.type === 'modeSwitcher') {
-        const inMultiplayerLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
-        if (inMultiplayerLobby) return 'Cannot swap modes in multiplayer';
+        // MP now supports all modes — no disabled reason for mode switcher in multiplayer
+        return '';
     }
     if (interaction.type === 'gearUpgradeLocked') {
         return interaction.unlockHint || 'Locked';

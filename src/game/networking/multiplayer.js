@@ -2580,6 +2580,13 @@ class MultiplayerManager {
             }
         }
         
+        // Clear the local player's run gear immediately — each client is authoritative
+        // for their own gear. Don't wait for returnToNexus() to reach clearRunEquippedGear()
+        // since guard logic may delay it.
+        if (typeof Game !== 'undefined' && typeof Game.clearRunEquippedGear === 'function') {
+            Game.clearRunEquippedGear();
+        }
+
         // THEN: Notify game to return to nexus
         if (typeof onReturnToNexus === 'function') {
             onReturnToNexus(data);

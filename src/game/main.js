@@ -2721,6 +2721,18 @@ const Game = {
         const ensureInstance = (playerId, playerClass, stateData) => {
             if (!playerId || playerId === localId) return;
             const className = (stateData && stateData.class) || playerClass || 'square';
+
+            // Populate upgrades and currency BEFORE creating the instance so that
+            // initializeRemotePlayerInstance reads the correct values from playerUpgrades.
+            if (stateData) {
+                if (stateData.upgrades) {
+                    this.playerUpgrades.set(playerId, JSON.parse(JSON.stringify(stateData.upgrades)));
+                }
+                if (stateData.currency !== undefined) {
+                    this.playerCurrencies.set(playerId, stateData.currency);
+                }
+            }
+
             this.initializeRemotePlayerInstance(playerId, className);
             const remoteInstance = this.remotePlayerInstances.get(playerId);
             if (remoteInstance && stateData && remoteInstance.applyState) {
@@ -2742,15 +2754,6 @@ const Game = {
                 size: (stateData && stateData.size) || (remoteInstance && remoteInstance.size) || 20,
                 dead: !!(stateData && (stateData.dead || stateData.hp <= 0))
             });
-
-            if (stateData) {
-                if (stateData.currency !== undefined) {
-                    this.playerCurrencies.set(playerId, stateData.currency);
-                }
-                if (stateData.upgrades) {
-                    this.playerUpgrades.set(playerId, JSON.parse(JSON.stringify(stateData.upgrades)));
-                }
-            }
         };
 
         // Prefer snapshot players; fall back to lobby roster for anyone missing
@@ -7006,6 +7009,12 @@ const Game = {
             }
             this.allPlayersDead = false;
             this.spectateMode = false;
+
+            // Clear ALL player gear BEFORE broadcasting so the very next sendGameState
+            // carries null gear for every player, not stale run gear.
+            if (typeof this.clearRunEquippedGear === 'function') {
+                this.clearRunEquippedGear();
+            }
 
             // Send return to nexus message to all clients
             multiplayerManager.send({
