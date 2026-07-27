@@ -746,14 +746,20 @@ function updateNexus(ctx, deltaTime) {
             && multiplayerManager && multiplayerManager.lobbyCode;
         if (!interactionHandled && nexusAllows('modeSwitcher')
             && nexusActorDistance(actor, nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y) < 60) {
-            if (inMultiplayerLobby) {
-                console.log('[Nexus] Cannot switch modes in multiplayer lobby');
-            } else if (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.cycleNext) {
-                const next = GameModeCatalog.cycleNext(nexusRoom, { inMultiplayer: false });
+            if (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.cycleNext) {
+                const next = GameModeCatalog.cycleNext(nexusRoom, { inMultiplayer: !!inMultiplayerLobby });
                 if (next) {
                     console.log('[Nexus] Mode switcher →', next.id, '(' + next.title + ')');
                     if (typeof GameAudio !== 'undefined' && GameAudio.sounds && GameAudio.sounds.uiClick) {
                         try { GameAudio.sounds.uiClick(); } catch (_) { /* optional */ }
+                    }
+                    // Broadcast mode change to all connected clients
+                    if (inMultiplayerLobby && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
+                        if (multiplayerManager.isHost) {
+                            multiplayerManager.sendGameState();
+                        } else {
+                            multiplayerManager.sendPlayerState();
+                        }
                     }
                 }
                 interactionHandled = true;

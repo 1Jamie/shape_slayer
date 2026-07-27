@@ -2420,35 +2420,7 @@ class MultiplayerManager {
                     const upgrades = Game.playerUpgrades.get(data.id);
                     if (upgrades && upgrades[targetClass]) {
                         const classUpgrades = upgrades[targetClass];
-                        
-                        // Get the config for this class to calculate upgrade bonuses
-                        let config = null;
-                        if (targetClass === 'square' && typeof WARRIOR_CONFIG !== 'undefined') {
-                            config = WARRIOR_CONFIG;
-                        } else if (targetClass === 'triangle' && typeof ROGUE_CONFIG !== 'undefined') {
-                            config = ROGUE_CONFIG;
-                        } else if (targetClass === 'pentagon' && typeof TANK_CONFIG !== 'undefined') {
-                            config = TANK_CONFIG;
-                        } else if (targetClass === 'hexagon' && typeof MAGE_CONFIG !== 'undefined') {
-                            config = MAGE_CONFIG;
-                        }
-                        
-                        if (config) {
-                            // Calculate upgrade bonuses using config values
-                            const upgradeBonuses = {
-                                damage: classUpgrades.damage * config.damagePerLevel,
-                                defense: classUpgrades.defense * config.defensePerLevel,
-                                speed: classUpgrades.speed * config.speedPerLevel
-                            };
-                            
-                            // Apply upgrades to base stats (config values already loaded in constructor)
-                            newInstance.baseDamage = config.baseDamage + upgradeBonuses.damage;
-                            newInstance.baseMoveSpeed = config.baseSpeed + upgradeBonuses.speed;
-                            newInstance.baseDefense = config.baseDefense + upgradeBonuses.defense;
-                            
-                            // Recalculate effective stats
-                            newInstance.updateEffectiveStats();
-                        }
+                        this.applyUpgradesToInstance(newInstance, targetClass, classUpgrades);
                     }
                     
                     Game.remotePlayerInstances.set(data.id, newInstance);
@@ -3708,25 +3680,41 @@ class MultiplayerManager {
             return;
         }
         
-        // If this is a remote player, trigger effects on their instance
+        // If this is a remote player, trigger effects and apply level-up bonuses on their instance
         // Host uses remotePlayerInstances, clients use remotePlayerShadowInstances
         const isClient = Game.multiplayerEnabled && Game.isMultiplayerClient && Game.isMultiplayerClient();
         
         if (isClient && Game.remotePlayerShadowInstances) {
             // CLIENT: Use shadow instances for remote players
             const remotePlayer = Game.remotePlayerShadowInstances.get(playerId);
-            if (remotePlayer && typeof remotePlayer.triggerLevelUpEffects === 'function') {
-                console.log(`[Multiplayer] Triggering level up effects for remote player ${playerId} (client shadow instance)`);
-                remotePlayer.triggerLevelUpEffects();
+            if (remotePlayer) {
+                if (remotePlayer.level < level) {
+                    remotePlayer.level = level;
+                    if (typeof remotePlayer.applyLevelUpBonuses === 'function') {
+                        remotePlayer.applyLevelUpBonuses();
+                    }
+                }
+                if (typeof remotePlayer.triggerLevelUpEffects === 'function') {
+                    console.log(`[Multiplayer] Triggering level up effects for remote player ${playerId} (client shadow instance)`);
+                    remotePlayer.triggerLevelUpEffects();
+                }
             } else {
                 console.warn(`[Multiplayer] Could not find shadow instance for remote player ${playerId}`);
             }
         } else if (!isClient && Game.remotePlayerInstances) {
             // HOST: Use remote player instances
             const remotePlayer = Game.remotePlayerInstances.get(playerId);
-            if (remotePlayer && typeof remotePlayer.triggerLevelUpEffects === 'function') {
-                console.log(`[Multiplayer] Triggering level up effects for remote player ${playerId} (host instance)`);
-                remotePlayer.triggerLevelUpEffects();
+            if (remotePlayer) {
+                if (remotePlayer.level < level) {
+                    remotePlayer.level = level;
+                    if (typeof remotePlayer.applyLevelUpBonuses === 'function') {
+                        remotePlayer.applyLevelUpBonuses();
+                    }
+                }
+                if (typeof remotePlayer.triggerLevelUpEffects === 'function') {
+                    console.log(`[Multiplayer] Triggering level up effects for remote player ${playerId} (host instance)`);
+                    remotePlayer.triggerLevelUpEffects();
+                }
             } else {
                 console.warn(`[Multiplayer] Could not find instance for remote player ${playerId}`);
             }

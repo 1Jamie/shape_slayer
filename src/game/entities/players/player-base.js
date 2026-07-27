@@ -2204,44 +2204,48 @@ class PlayerBase {
             return;
         }
 
-        // Increase base stats (damage 9% per level, HP 12% levels 1-10, 5% post-10)
-        // Taper HP growth past level 10 to prevent infinite player health inflation
-        const hpGrowthRate = this.level <= 10 ? 1.12 : 1.05;
-        this.baseDamageBase = (this.baseDamageBase || this.baseDamage) * 1.09;
-        this.baseDamage = this.baseDamageBase;
-        this.baseMaxHpBase = (this.baseMaxHpBase || this.baseMaxHp) * hpGrowthRate;
-        this.baseMaxHp = this.baseMaxHpBase;
-        this.maxHp = this.baseMaxHp;
+        const targetLevel = this.level;
+        // Apply bonuses level-by-level from lastLevelBonusesApplied + 1 to targetLevel
+        for (let lvl = this.lastLevelBonusesApplied + 1; lvl <= targetLevel; lvl++) {
+            // Increase base stats (damage 9% per level, HP 12% levels 1-10, 5% post-10)
+            // Taper HP growth past level 10 to prevent infinite player health inflation
+            const hpGrowthRate = lvl <= 10 ? 1.12 : 1.05;
+            this.baseDamageBase = (this.baseDamageBase || this.baseDamage) * 1.09;
+            this.baseDamage = this.baseDamageBase;
+            this.baseMaxHpBase = (this.baseMaxHpBase || this.baseMaxHp) * hpGrowthRate;
+            this.baseMaxHp = this.baseMaxHpBase;
+            this.maxHp = this.baseMaxHp;
 
-        // Apply class-specific speed scaling with cap
-        let speedBoost = 0;
+            // Apply class-specific speed scaling with cap
+            let speedBoost = 0;
 
-        // Levels 1-5: All classes get +5% per level
-        if (this.level >= 2 && this.level <= 5) {
-            const levelsCompleted = this.level - 1; // Level 2 = 1 boost, Level 5 = 4 boosts
-            speedBoost = this.initialBaseMoveSpeed * 0.05 * levelsCompleted;
-        } else if (this.level > 5) {
-            // After level 5, base boost is 4 * 5% = 20%
-            speedBoost = this.initialBaseMoveSpeed * 0.20;
+            // Levels 1-5: All classes get +5% per level
+            if (lvl >= 2 && lvl <= 5) {
+                const levelsCompleted = lvl - 1; // Level 2 = 1 boost, Level 5 = 4 boosts
+                speedBoost = this.initialBaseMoveSpeed * 0.05 * levelsCompleted;
+            } else if (lvl > 5) {
+                // After level 5, base boost is 4 * 5% = 20%
+                speedBoost = this.initialBaseMoveSpeed * 0.20;
 
-            // Rogue gets additional boosts on levels 6, 8, 10
-            if (this.playerClass === 'triangle') {
-                let rogueExtraBoosts = 0;
-                if (this.level >= 6) rogueExtraBoosts++;
-                if (this.level >= 8) rogueExtraBoosts++;
-                if (this.level >= 10) rogueExtraBoosts++;
+                // Rogue gets additional boosts on levels 6, 8, 10
+                if (this.playerClass === 'triangle') {
+                    let rogueExtraBoosts = 0;
+                    if (lvl >= 6) rogueExtraBoosts++;
+                    if (lvl >= 8) rogueExtraBoosts++;
+                    if (lvl >= 10) rogueExtraBoosts++;
 
-                speedBoost += this.initialBaseMoveSpeed * 0.08 * rogueExtraBoosts;
+                    speedBoost += this.initialBaseMoveSpeed * 0.08 * rogueExtraBoosts;
+                }
             }
-        }
 
-        // Apply speed boost with cap
-        this.baseMoveSpeed = this.initialBaseMoveSpeed + speedBoost;
+            // Apply speed boost with cap
+            this.baseMoveSpeed = this.initialBaseMoveSpeed + speedBoost;
 
-        // Cap at 450 pixels/second or 1.5x initial speed, whichever is higher
-        const maxSpeedCap = Math.max(450, this.initialBaseMoveSpeed * 1.5);
-        if (this.baseMoveSpeed > maxSpeedCap) {
-            this.baseMoveSpeed = maxSpeedCap;
+            // Cap at 450 pixels/second or 1.5x initial speed, whichever is higher
+            const maxSpeedCap = Math.max(450, this.initialBaseMoveSpeed * 1.5);
+            if (this.baseMoveSpeed > maxSpeedCap) {
+                this.baseMoveSpeed = maxSpeedCap;
+            }
         }
 
         // Recalculate effective stats with gear bonuses
@@ -2251,7 +2255,7 @@ class PlayerBase {
         this.hp = Math.min(this.maxHp, this.hp + Math.floor(this.maxHp * 0.5));
 
         // Mark that we've applied bonuses for this level
-        this.lastLevelBonusesApplied = this.level;
+        this.lastLevelBonusesApplied = targetLevel;
     }
 
     // Level up function
@@ -4152,9 +4156,17 @@ class PlayerBase {
             // Host or solo: apply HP/XP directly
             if (state.hp !== undefined) this.hp = state.hp;
             if (state.maxHp !== undefined) this.maxHp = state.maxHp;
+            
+            const levelIncreased = state.level !== undefined && state.level > this.level;
             if (state.level !== undefined) this.level = state.level;
             if (state.xp !== undefined) this.xp = state.xp;
             if (state.xpToNext !== undefined) this.xpToNext = state.xpToNext; // Fixed property name
+
+            // Apply level up bonuses on host if level increased
+            if (levelIncreased && typeof this.applyLevelUpBonuses === 'function') {
+                console.log(`[Host/Solo] Level increased to ${this.level}, applying bonuses`);
+                this.applyLevelUpBonuses();
+            }
 
             // Trigger level up message if level increased
             if (state.level !== undefined && state.level > oldLevel && typeof showLevelUpMessage === 'function') {

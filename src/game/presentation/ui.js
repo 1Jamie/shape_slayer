@@ -1872,8 +1872,14 @@ function performCurrentInteraction() {
             if (currentInteraction.type === 'modeSwitcher') {
                 if (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.cycleNext
                     && typeof nexusRoom !== 'undefined' && nexusRoom) {
-                    const next = GameModeCatalog.cycleNext(nexusRoom, { inMultiplayer: false });
+                    const inMpLobby = !!(typeof multiplayerManager !== 'undefined'
+                        && multiplayerManager && multiplayerManager.lobbyCode);
+                    const next = GameModeCatalog.cycleNext(nexusRoom, { inMultiplayer: inMpLobby });
                     console.log('[Nexus] Mode switcher →', next ? next.id : '(none)');
+                    if (next && inMpLobby && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
+                        if (multiplayerManager.isHost) multiplayerManager.sendGameState();
+                        else multiplayerManager.sendPlayerState();
+                    }
                 } else if (typeof nexusRoom !== 'undefined' && nexusRoom) {
                     nexusRoom.portalMode = 'roguelike';
                 }

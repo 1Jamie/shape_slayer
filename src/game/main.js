@@ -1646,7 +1646,14 @@ const Game = {
             playerInstance.playerId = playerId; // Store player ID for damage attribution
 
             // Apply upgrades from host tracking (remote players have their own upgrades)
-            const upgrades = this.playerUpgrades.get(playerId);
+            let upgrades = this.playerUpgrades.get(playerId);
+            if (!upgrades && (this.localSplitEnabled || playerId === this.localSplitPlayerId)) {
+                if (typeof SaveSystem !== 'undefined') {
+                    upgrades = {
+                        [playerClass]: SaveSystem.getUpgrades(playerClass)
+                    };
+                }
+            }
             if (upgrades && upgrades[playerClass]) {
                 const classUpgrades = upgrades[playerClass];
 
@@ -6786,15 +6793,23 @@ const Game = {
             }
         };
 
+        // 1. Clear local player
         clearOne(this.player);
 
+        // 2. Clear local split-screen player
         if (this.localSplitEnabled && this.remotePlayerInstances) {
             const p2 = this.remotePlayerInstances.get(this.localSplitPlayerId);
             clearOne(p2);
         }
 
-        // Host MP remote sims also drop run gear between runs
-        if (this.multiplayerEnabled && this.isHost && this.isHost() && this.remotePlayerInstances) {
+        // Safely determine host status
+        const isHost = this.multiplayerEnabled && 
+                       typeof multiplayerManager !== 'undefined' && 
+                       multiplayerManager && 
+                       multiplayerManager.isHost;
+
+        // 3. Clear remote simulations (Host only, as originally intended)
+        if (isHost && this.remotePlayerInstances) {
             this.remotePlayerInstances.forEach((playerInstance, playerId) => {
                 if (playerId === this.localSplitPlayerId) return;
                 clearOne(playerInstance);
