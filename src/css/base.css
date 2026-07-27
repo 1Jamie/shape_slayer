@@ -290,9 +290,10 @@ body {
 .mp-code__value {
   font-size: 28px;
   font-weight: 700;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.18em;
   line-height: 1.2;
   color: var(--ui-text);
+  font-family: 'Courier New', Courier, monospace;
 }
 
 .mp-lobby__actions {
