@@ -4629,12 +4629,22 @@ class MultiplayerManager {
                 });
             }, MultiplayerConfig.RECONNECT_DELAY);
         } else {
+            // Capture reconnect context BEFORE cleanup() nulls lobbyCode/players
+            const lastLobbyCode = this.lobbyCode;
+            const localPlayer = (this.players || []).find(p => p.id === this.playerId);
+            const lastPlayerName = localPlayer ? localPlayer.name : 'Player';
+            const lastPlayerClass = (typeof Game !== 'undefined' && Game.selectedClass) || 'square';
+
             console.log('[Multiplayer] Disconnected from multiplayer');
             this.cleanup();
             
-            // Notify game
+            // Notify game — pass context so the overlay can offer a Retry
             if (typeof onMultiplayerDisconnect === 'function') {
-                onMultiplayerDisconnect();
+                onMultiplayerDisconnect({
+                    lobbyCode: lastLobbyCode,
+                    playerName: lastPlayerName,
+                    playerClass: lastPlayerClass
+                });
             }
         }
     }

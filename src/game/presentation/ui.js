@@ -2251,10 +2251,42 @@ function onGameStart(data) {
     }
 }
 
-function onMultiplayerDisconnect() {
-    multiplayerError = 'Disconnected from server';
+function onMultiplayerDisconnect(ctx) {
+    multiplayerError = 'Disconnected from session';
     if (Game) {
         Game.multiplayerEnabled = false;
+    }
+
+    if (typeof window !== 'undefined' && typeof window.showMpDisconnectOverlay === 'function') {
+        window.showMpDisconnectOverlay({
+            lobbyCode:   ctx && ctx.lobbyCode   || null,
+            playerName:  ctx && ctx.playerName  || 'Player',
+            playerClass: ctx && ctx.playerClass || 'square',
+
+            onContinueSolo() {
+                // Strip remote player state, resume the run locally in solo mode
+                if (Game) {
+                    Game.remotePlayers = [];
+                    if (Game.remotePlayerInstances)      Game.remotePlayerInstances.clear();
+                    if (Game.remotePlayerShadowInstances) Game.remotePlayerShadowInstances.clear();
+                    Game.multiplayerEnabled = false;
+                    Game.paused = false;
+                }
+                multiplayerError = '';
+            },
+
+            onReturnToNexus() {
+                if (Game && typeof Game.returnToNexus === 'function') {
+                    Game.returnToNexus();
+                }
+                multiplayerError = '';
+            },
+
+            // Nexus-state dismiss: already in nexus, just clear the error banner
+            onDismiss() {
+                multiplayerError = '';
+            }
+        });
     }
 }
 
