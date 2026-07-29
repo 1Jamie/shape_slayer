@@ -5989,13 +5989,13 @@ const Game = {
         // PHASE 2: THE BODIES (The "Solid" look)
         // ------------------------------------------
 
+        if (typeof renderVoxelStaticLayer === 'function') {
+            renderVoxelStaticLayer(ctx);
+        }
+
         // Draw item aura rings (damage aura, slow aura) - BEFORE player render so they appear underneath
         if (typeof renderItemVisuals !== 'undefined') {
             renderItemVisuals(ctx);
-        }
-
-        if (typeof renderVoxelStaticLayer === 'function') {
-            renderVoxelStaticLayer(ctx);
         }
 
         // Solid silhouettes punch through settled viscera so spray hugs biome shapes.

@@ -35,10 +35,10 @@
     // Wave cadence unlocks variety early; XP is a parallel accelerator for god-runs.
     const TIER_WAVE_GATES = Object.freeze({
         basic: 1,
-        star: 2,
-        diamond: 3,
-        rectangle: 4,
-        octagon: 5
+        star: 3,
+        diamond: 5,
+        rectangle: 7,
+        octagon: 9
     });
     const TIER_XP_GATES = Object.freeze({
         basic: 0,
@@ -57,7 +57,9 @@
         { tier: 1, kills: 5 },
         { tier: 2, kills: 15 },
         { tier: 3, kills: 30 },
-        { tier: 4, kills: 50 }
+        { tier: 4, kills: 50 },
+        { tier: 5, kills: 80 },
+        { tier: 6, kills: 120 }
     ]);
 
     const STYLE_TIER_META = Object.freeze({
@@ -95,6 +97,20 @@
             foeLabel: 'SURGE OVERLOAD',
             playerLine: 'CREDITS ×3  ·  CDR +40%  ·  LIFESTEAL 10%  ·  KILL SHATTER',
             foeLine: 'MAX ACTIVE +35%  ·  SPAWN 0.15s'
+        },
+        5: {
+            letter: 'S+',
+            name: 'CALAMITY',
+            foeLabel: 'CALAMITY OVERLOAD',
+            playerLine: 'CREDITS ×4.5  ·  CDR +60%  ·  LIFESTEAL 15%  ·  DASH I-FRAMES +150ms',
+            foeLine: 'MAX ACTIVE +50%  ·  SPAWN 0.10s  ·  SPEED +10%'
+        },
+        6: {
+            letter: 'S++',
+            name: 'ARMAGEDDON',
+            foeLabel: 'ARMAGEDDON OVERLOAD',
+            playerLine: 'CREDITS ×6.0  ·  CDR +80%  ·  LIFESTEAL 25%  ·  DASH I-FRAMES +200ms',
+            foeLine: 'MAX ACTIVE +75%  ·  SPAWN 0.05s  ·  SPEED +20%'
         }
     });
 
@@ -337,7 +353,7 @@
     function applyComboTierEffects(world, playerId, tier) {
         const w = world || root.Game;
         if (!w) return;
-        const t = Math.max(0, Math.min(4, tier | 0));
+        const t = Math.max(0, Math.min(6, tier | 0));
 
         let creditMult = 1;
         let regenMult = 1;
@@ -369,6 +385,28 @@
             regenMult = 1.40;
             lifeSteal = 0.10;
             killShatter = true;
+            moveMult = 1.15;
+            critBonus = 0.15;
+        }
+        if (t >= 5) {
+            creditMult = 4.5;
+            regenMult = 1.60;
+            lifeSteal = 0.15;
+            killShatter = true;
+            moveMult = 1.25;
+            critBonus = 0.20;
+            dashIFrames = 0.15;
+            lootBonus = 1.50;
+        }
+        if (t >= 6) {
+            creditMult = 6.0;
+            regenMult = 1.80;
+            lifeSteal = 0.25;
+            killShatter = true;
+            moveMult = 1.35;
+            critBonus = 0.30;
+            dashIFrames = 0.20;
+            lootBonus = 2.00;
         }
 
         let player = null;
@@ -379,6 +417,8 @@
             w.styleLootBonus = lootBonus;
             w.styleKillShatter = killShatter;
             w.styleLifeSteal = lifeSteal;
+            w.styleRageAura = t >= 2;
+            w.styleMotionTrails = t >= 3;
         } else {
             const inMultiplayer = w.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
             if (inMultiplayer) {
@@ -488,9 +528,11 @@
                 
                 const w = world || root.Game;
                 const localId = w && w.getLocalPlayerId ? w.getLocalPlayerId() : 'local';
-                if (this.playerId === localId) {
+                const isLocalOrCoop = this.playerId === localId || (w && w.localSplitEnabled && this.playerId === w.localSplitPlayerId);
+                if (isLocalOrCoop) {
                     if (tier !== prev && typeof GameBus !== 'undefined' && GameBus.emit) {
                         GameBus.emit('combo:tierChanged', {
+                            playerId: this.playerId,
                             tier,
                             prevTier: prev,
                             comboCount: this.comboCount,
@@ -553,9 +595,11 @@
                 
                 const w = world || root.Game;
                 const localId = w && w.getLocalPlayerId ? w.getLocalPlayerId() : 'local';
-                if (this.playerId === localId) {
+                const isLocalOrCoop = this.playerId === localId || (w && w.localSplitEnabled && this.playerId === w.localSplitPlayerId);
+                if (isLocalOrCoop) {
                     if (typeof GameBus !== 'undefined' && GameBus.emit) {
                         GameBus.emit('combo:styleRecovered', {
+                            playerId: this.playerId,
                             restored: restore,
                             comboCount: this.comboCount,
                             tier: this.comboTier,
@@ -563,6 +607,7 @@
                             world: w
                         });
                         GameBus.emit('combo:countChanged', {
+                            playerId: this.playerId,
                             comboCount: this.comboCount,
                             comboTimer: this.comboTimer,
                             tier: this.comboTier,
@@ -611,10 +656,12 @@
                 
                 const w = world || root.Game;
                 const localId = w && w.getLocalPlayerId ? w.getLocalPlayerId() : 'local';
-                if (this.playerId === localId) {
+                const isLocalOrCoop = this.playerId === localId || (w && w.localSplitEnabled && this.playerId === w.localSplitPlayerId);
+                if (isLocalOrCoop) {
                     if (typeof GameBus !== 'undefined' && GameBus.emit) {
                         if (variety.bonus > 0) {
                             GameBus.emit('combo:varietyBonus', {
+                                playerId: this.playerId,
                                 styleTag,
                                 bonus: variety.bonus,
                                 comboCount: this.comboCount,
@@ -623,6 +670,7 @@
                             });
                         }
                         GameBus.emit('combo:countChanged', {
+                            playerId: this.playerId,
                             comboCount: this.comboCount,
                             comboTimer: this.comboTimer,
                             tier: this.comboTier,
@@ -652,9 +700,11 @@
                 
                 const w = world || root.Game;
                 const localId = w && w.getLocalPlayerId ? w.getLocalPlayerId() : 'local';
-                if (this.playerId === localId) {
+                const isLocalOrCoop = this.playerId === localId || (w && w.localSplitEnabled && this.playerId === w.localSplitPlayerId);
+                if (isLocalOrCoop) {
                     if (typeof GameBus !== 'undefined' && GameBus.emit) {
                         GameBus.emit('combo:styleCrashed', {
+                            playerId: this.playerId,
                             fromTier: prevTier,
                             toTier: nextTier,
                             comboCount: this.comboCount,
@@ -691,9 +741,11 @@
                 
                 const w = world || root.Game;
                 const localId = w && w.getLocalPlayerId ? w.getLocalPlayerId() : 'local';
-                if (this.playerId === localId) {
+                const isLocalOrCoop = this.playerId === localId || (w && w.localSplitEnabled && this.playerId === w.localSplitPlayerId);
+                if (isLocalOrCoop) {
                     if (lost > 0 && typeof GameBus !== 'undefined' && GameBus.emit) {
                         GameBus.emit('combo:bleedApplied', {
+                            playerId: this.playerId,
                             amountLost: lost,
                             comboCount: this.comboCount,
                             tier: this.comboTier,
@@ -706,7 +758,13 @@
 
             fireApexEmp(world) {
                 const w = world || root.Game;
-                const player = w && w.player;
+                const localId = w && w.getLocalPlayerId ? w.getLocalPlayerId() : 'local';
+                let player = null;
+                if (this.playerId === localId) {
+                    player = w && w.player;
+                } else {
+                    player = w && w.remotePlayerInstances && w.remotePlayerInstances.get(this.playerId);
+                }
                 if (!player) return;
                 const cleared = clearEnemyProjectilesNear(w, player.x, player.y, APEX_EMP_RADIUS);
                 this.apexHoldTimer = 0;
@@ -715,6 +773,7 @@
                 }
                 if (typeof GameBus !== 'undefined' && GameBus.emit) {
                     GameBus.emit('combo:apexPulse', {
+                        playerId: this.playerId,
                         cleared,
                         radius: APEX_EMP_RADIUS,
                         tier: this.comboTier,
@@ -773,6 +832,11 @@
     function syncComboFromNetwork(playerId, data) {
         if (!playerId || !data) return;
         const pc = getOrCreatePlayerCombo(root.Game, playerId);
+
+        const prevCount = pc.comboCount;
+        const prevTier = pc.comboTier;
+        const prevRecoveryWindow = pc.recoveryWindow;
+
         pc.comboCount = data.comboCount || 0;
         pc.highestCombo = data.highestCombo || 0;
         pc.comboTimer = data.comboTimer || 0;
@@ -788,6 +852,61 @@
         }
         applyComboTierEffects(root.Game, playerId, pc.comboTier);
         syncComboToWorld(root.Game, playerId, pc);
+
+        // Emit local client GameBus events so HUD / UI animations trigger
+        if (typeof GameBus !== 'undefined' && GameBus.emit) {
+            if (pc.comboCount !== prevCount) {
+                GameBus.emit('combo:countChanged', {
+                    playerId: playerId,
+                    comboCount: pc.comboCount,
+                    comboTimer: pc.comboTimer,
+                    tier: pc.comboTier,
+                    world: root.Game
+                });
+            }
+            if (pc.comboTier !== prevTier) {
+                GameBus.emit('combo:tierChanged', {
+                    playerId: playerId,
+                    tier: pc.comboTier,
+                    prevTier: prevTier,
+                    comboCount: pc.comboCount,
+                    meta: STYLE_TIER_META[pc.comboTier] || STYLE_TIER_META[0],
+                    world: root.Game
+                });
+            }
+            if (pc.comboCount < prevCount && pc.recoveryWindow > 0 && prevRecoveryWindow === 0) {
+                const lost = prevCount - pc.comboCount;
+                if (lost > 0) {
+                    GameBus.emit('combo:bleedApplied', {
+                        playerId: playerId,
+                        amountLost: lost,
+                        comboCount: pc.comboCount,
+                        tier: pc.comboTier,
+                        recoveryWindow: pc.recoveryWindow,
+                        world: root.Game
+                    });
+                }
+            }
+            if (prevRecoveryWindow > 0 && pc.recoveryWindow === 0 && pc.comboCount > prevCount) {
+                const restored = pc.comboCount - prevCount;
+                GameBus.emit('combo:styleRecovered', {
+                    playerId: playerId,
+                    restored: restored,
+                    comboCount: pc.comboCount,
+                    tier: pc.comboTier,
+                    world: root.Game
+                });
+            }
+            if (prevTier >= 4 && pc.comboTier < prevTier) {
+                GameBus.emit('combo:styleCrashed', {
+                    playerId: playerId,
+                    fromTier: prevTier,
+                    toTier: pc.comboTier,
+                    comboCount: pc.comboCount,
+                    world: root.Game
+                });
+            }
+        }
     }
 
     const playerCombos = new Map();
@@ -1029,6 +1148,10 @@
             const localId = playerId || (root.Game && root.Game.getLocalPlayerId ? root.Game.getLocalPlayerId() : 'local');
             return getOrCreatePlayerCombo(root.Game, localId);
         },
+        createState(world) {
+            const localId = world && world.getLocalPlayerId ? world.getLocalPlayerId() : 'local';
+            return getOrCreatePlayerCombo(world, localId);
+        },
         syncComboFromNetwork(playerId, data) {
             syncComboFromNetwork(playerId, data);
         },
@@ -1087,7 +1210,17 @@
                     }
                     const go = () => {
                         if (typeof GameArena !== 'undefined' && GameArena.onWaveCleared) {
-                            GameArena.onWaveCleared(world);
+                            const result = GameArena.onWaveCleared(world);
+                            if (result === 'waiting') {
+                                if (world && typeof world.reviveDeadPlayers === 'function' && typeof world.isHost === 'function'
+                                    && world.multiplayerEnabled && world.isHost()) {
+                                    world.reviveDeadPlayers({
+                                        reason: 'room_clear',
+                                        broadcast: true,
+                                        respawnStrategy: 'safe'
+                                    });
+                                }
+                            }
                         }
                     };
                     if (typeof requestAnimationFrame === 'function') {

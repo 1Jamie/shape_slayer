@@ -3776,6 +3776,20 @@ class EnemyBase {
         }
     }
 
+    getComboAggroMultiplier(playerId) {
+        if (typeof Game === 'undefined' || !Game || Game.activeSessionId !== 'surge-arena') {
+            return 1.0;
+        }
+        let comboTier = 0;
+        if (typeof SurgeArenaRules !== 'undefined' && typeof SurgeArenaRules.getComboState === 'function') {
+            const state = SurgeArenaRules.getComboState(playerId);
+            if (state) comboTier = state.comboTier || 0;
+        } else if (Game.playerCombos && Game.playerCombos[playerId]) {
+            comboTier = Game.playerCombos[playerId].comboTier || 0;
+        }
+        return 1.0 + comboTier * 0.5; // Tier 0: 1.0, Tier 1: 1.5, Tier 2: 2.0, Tier 3: 2.5, Tier 4: 3.0
+    }
+
     // Calculate total threat for a player (within time window)
     getThreat(playerId) {
         if (!this.threatTable.has(playerId)) return 0;
@@ -3791,7 +3805,8 @@ class EnemyBase {
             }
         }
 
-        return totalThreat;
+        const mult = this.getComboAggroMultiplier(playerId);
+        return totalThreat * mult;
     }
 
     // Clean up old threat entries (outside window)
@@ -4228,8 +4243,12 @@ class EnemyBase {
             const dx = player.x - this.x;
             const dy = player.y - this.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist < minDist) {
-                minDist = dist;
+            
+            const mult = this.getComboAggroMultiplier ? this.getComboAggroMultiplier(player.id || player.playerId) : 1.0;
+            const effectiveDist = dist / mult;
+            
+            if (effectiveDist < minDist) {
+                minDist = effectiveDist;
                 nearest = player;
             }
         });
@@ -4246,44 +4265,35 @@ class EnemyBase {
             return this.currentTarget;
         }
 
-        // Get list of player IDs
-        const playerIds = allPlayers.map(p => p.id);
+        const targetCounts = new Map();
+        allPlayers.forEach(p => targetCounts.set(p.id, 0));
 
-        // Weighted random: 70% pure random, 30% favor less-targeted players
-        // This prevents all enemies targeting one player without rigid balancing
-        if (Math.random() < 0.7) {
-            // 70% of the time: pure random
-            const randomIndex = Math.floor(Math.random() * playerIds.length);
-            this.currentTarget = playerIds[randomIndex];
-        } else {
-            // 30% of the time: pick player with fewer enemies targeting them
-            const targetCounts = new Map();
-            playerIds.forEach(id => targetCounts.set(id, 0));
-
-            if (typeof Game !== 'undefined' && Game.enemies) {
-                Game.enemies.forEach(e => {
-                    if (e !== this && e.currentTarget && targetCounts.has(e.currentTarget)) {
-                        targetCounts.set(e.currentTarget, targetCounts.get(e.currentTarget) + 1);
-                    }
-                });
-            }
-
-            // Pick one of the less-targeted players
-            let minCount = Infinity;
-            targetCounts.forEach(count => {
-                if (count < minCount) minCount = count;
-            });
-
-            const lessTargetedPlayers = [];
-            targetCounts.forEach((count, id) => {
-                if (count === minCount) {
-                    lessTargetedPlayers.push(id);
+        if (typeof Game !== 'undefined' && Game.enemies) {
+            Game.enemies.forEach(e => {
+                if (e !== this && e.currentTarget && targetCounts.has(e.currentTarget)) {
+                    targetCounts.set(e.currentTarget, targetCounts.get(e.currentTarget) + 1);
                 }
             });
-
-            this.currentTarget = lessTargetedPlayers[Math.floor(Math.random() * lessTargetedPlayers.length)];
         }
 
+        const weights = allPlayers.map(p => {
+            const mult = this.getComboAggroMultiplier ? this.getComboAggroMultiplier(p.id) : 1.0;
+            const count = targetCounts.get(p.id) || 0;
+            return mult / (1.0 + count);
+        });
+
+        const totalWeight = weights.reduce((a, b) => a + b, 0);
+        let r = Math.random() * (totalWeight || 1.0);
+        let selectedId = allPlayers[0].id;
+        for (let i = 0; i < allPlayers.length; i++) {
+            r -= weights[i];
+            if (r <= 0) {
+                selectedId = allPlayers[i].id;
+                break;
+            }
+        }
+        
+        this.currentTarget = selectedId;
         return this.currentTarget;
     }
 

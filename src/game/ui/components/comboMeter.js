@@ -108,36 +108,55 @@
 			rankShadow: '0 0 20px #ffcc00, 0 0 35px #ff1744, 1px 1px 0 #000',
 			corners: '4-gold-crown',
 			anim: 'comboMeterApocalypseCrown 0.9s ease-in-out infinite alternate',
-			bonus: 'You: ×3 credits · +40% CDR · lifesteal · shatter',
+			bonus: 'You: ×3 credits · +40% CDR · lifesteal 10% · shatter',
 			foe: 'Arena: spawn storm (hit = Style Crash)'
+		},
+		5: {
+			letter: 'S+',
+			name: 'CALAMITY',
+			color: '#ff5500',
+			glow: 'rgba(255,85,0,0.95)',
+			border: 'rgba(255,85,0,0.95)',
+			borderWidth: '3px',
+			bg: 'linear-gradient(165deg, rgba(64,15,5,0.98), rgba(30,5,2,0.98))',
+			panelGlow: '0 0 45px rgba(255,85,0,0.85), 0 0 80px rgba(255,0,0,0.65), inset 0 0 28px rgba(255,85,0,0.4)',
+			timerBg: 'linear-gradient(90deg, #ff0000, #ff5500, #ffcc00, #ffffff)',
+			timerGlow: '0 0 20px rgba(255,85,0,0.95)',
+			countSize: '82px',
+			countColor: '#ffffff',
+			countShadow: '0 0 28px #ff5500, 0 0 55px #ff0000, 2px 2px 0 #000',
+			rankSize: '22px',
+			rankShadow: '0 0 25px #ff5500, 0 0 40px #ff0000, 1px 1px 0 #000',
+			corners: '4-calamity',
+			anim: 'comboMeterCalamityPulse 0.7s ease-in-out infinite alternate',
+			bonus: 'You: ×4.5 credits · +60% CDR · lifesteal 15% · dash +150ms',
+			foe: 'Foes: calamity speed (+10% move · spawn overload)'
+		},
+		6: {
+			letter: 'S++',
+			name: 'ARMAGEDDON',
+			color: '#ff003c',
+			glow: 'rgba(255,0,60,1)',
+			border: '#ff003c',
+			borderWidth: '3.5px',
+			bg: 'linear-gradient(165deg, rgba(72,0,10,0.99), rgba(28,0,4,0.99), rgba(10,10,10,0.95))',
+			panelGlow: '0 0 60px rgba(255,0,60,0.95), 0 0 110px rgba(255,204,0,0.85), inset 0 0 35px rgba(255,0,60,0.5)',
+			timerBg: 'linear-gradient(90deg, #ff003c, #ffcc00, #ffffff, #ff003c)',
+			timerGlow: '0 0 25px rgba(255,0,60,0.95)',
+			countSize: '90px',
+			countColor: '#ffffff',
+			countShadow: '0 0 35px #ff003c, 0 0 75px #ffcc00, 0 0 120px #ffffff, 2px 2px 0 #000',
+			rankSize: '24px',
+			rankShadow: '0 0 30px #ff003c, 0 0 50px #ffcc00, 1px 1px 0 #000',
+			corners: '4-armageddon',
+			anim: 'comboMeterArmageddonSpin 0.5s linear infinite alternate',
+			bonus: 'You: ×6.0 credits · +80% CDR · lifesteal 25% · dash +200ms',
+			foe: 'Foes: armageddon speed (+20% move · spawn storm)'
 		}
 	});
 
-	let rootEl = null;
-	let panelEl = null;
-	let countEl = null;
-	let rankEl = null;
-	let bonusEl = null;
-	let foeEl = null;
-	let toastEl = null;
-	let toastTitleEl = null;
-	let toastDetailEl = null;
-	let recoverEl = null;
-	let timerFill = null;
-	let timerTrack = null;
-	let hitFlashEl = null;
-	let cornerTL = null;
-	let cornerTR = null;
-	let cornerBL = null;
-	let cornerBR = null;
+	const playerMeters = {};
 	let busTeardown = null;
-	let lastShownCount = -1;
-	let lastTier = -1;
-	let lastAnnouncedTier = 0;
-	let punchUntil = 0;
-	let toastClearTimer = 0;
-	let lastVarietyToastAt = 0;
-	let visible = false;
 	let rafId = 0;
 
 	function isSurgeArenaActive() {
@@ -166,13 +185,13 @@
 		return true;
 	}
 
-	function getComboState() {
+	function getComboState(playerId) {
 		if (typeof SurgeArenaRules !== 'undefined' && SurgeArenaRules.getComboState) {
-			const state = SurgeArenaRules.getComboState();
+			const state = SurgeArenaRules.getComboState(playerId);
 			if (state) return state;
 		}
 		const game = typeof Game !== 'undefined' ? Game : null;
-		if (game && typeof game.comboCount === 'number') {
+		if (game && typeof game.comboCount === 'number' && (!playerId || playerId === (game.getLocalPlayerId ? game.getLocalPlayerId() : 'local'))) {
 			return {
 				comboCount: game.comboCount || 0,
 				comboTier: game.comboTier || 0,
@@ -189,17 +208,24 @@
 		return 5.5;
 	}
 
-	function ensureDom() {
-		if (rootEl) return;
-		const mount = document.body;
+	function ensurePlayerMeter(playerId) {
+		if (playerMeters[playerId]) return playerMeters[playerId];
 
-		rootEl = document.createElement('div');
-		rootEl.id = 'combo-meter';
+		const isP2 = (typeof Game !== 'undefined' && Game.localSplitEnabled && playerId === Game.localSplitPlayerId);
+		
+		const rootEl = document.createElement('div');
+		rootEl.id = 'combo-meter-' + playerId;
 		rootEl.className = 'combo-meter';
 		rootEl.setAttribute('aria-hidden', 'true');
+		
+		// Style position based on P1 vs P2 in split screen
+		const rightPos = (typeof Game !== 'undefined' && Game.localSplitEnabled)
+			? (isP2 ? '22px' : 'calc(50% + 22px)')
+			: '22px';
+			
 		rootEl.style.cssText = [
 			'position:fixed',
-			'right:22px',
+			`right:${rightPos}`,
 			'top:18%',
 			'z-index:3200',
 			'pointer-events:none',
@@ -207,11 +233,11 @@
 			'font-family:Orbitron,sans-serif',
 			'opacity:0',
 			'transform:translateX(28px)',
-			'transition:opacity 0.2s ease, transform 0.2s ease',
+			'transition:opacity 0.2s ease, transform 0.2s ease, right 0.2s ease',
 			'display:none'
 		].join(';');
 
-		panelEl = document.createElement('div');
+		const panelEl = document.createElement('div');
 		panelEl.className = 'combo-meter__panel';
 		panelEl.style.cssText = [
 			'position:relative',
@@ -232,7 +258,7 @@
 		inner.className = 'combo-meter__inner';
 		inner.style.cssText = 'transform:skewX(6deg); position:relative;';
 
-		hitFlashEl = document.createElement('div');
+		const hitFlashEl = document.createElement('div');
 		hitFlashEl.className = 'combo-meter__flash';
 		hitFlashEl.style.cssText = [
 			'position:absolute',
@@ -243,7 +269,7 @@
 			'z-index:2'
 		].join(';');
 
-		cornerTL = document.createElement('div');
+		const cornerTL = document.createElement('div');
 		cornerTL.style.cssText = [
 			'position:absolute',
 			'top:3px',
@@ -257,7 +283,7 @@
 			'transition:border-color 0.2s ease, opacity 0.2s ease'
 		].join(';');
 
-		cornerTR = document.createElement('div');
+		const cornerTR = document.createElement('div');
 		cornerTR.style.cssText = [
 			'position:absolute',
 			'top:3px',
@@ -271,7 +297,7 @@
 			'transition:border-color 0.2s ease, opacity 0.2s ease'
 		].join(';');
 
-		cornerBL = document.createElement('div');
+		const cornerBL = document.createElement('div');
 		cornerBL.style.cssText = [
 			'position:absolute',
 			'bottom:3px',
@@ -285,7 +311,7 @@
 			'transition:border-color 0.2s ease, opacity 0.2s ease'
 		].join(';');
 
-		cornerBR = document.createElement('div');
+		const cornerBR = document.createElement('div');
 		cornerBR.style.cssText = [
 			'position:absolute',
 			'bottom:3px',
@@ -301,7 +327,7 @@
 
 		const label = document.createElement('div');
 		label.className = 'combo-meter__label';
-		label.textContent = 'STYLE';
+		label.textContent = isP2 ? 'P2 STYLE' : 'STYLE';
 		label.style.cssText = [
 			'font-size:10px',
 			'font-weight:700',
@@ -311,8 +337,7 @@
 			'text-transform:uppercase'
 		].join(';');
 
-		countEl = document.createElement('div');
-		countEl.id = 'combo-meter-count';
+		const countEl = document.createElement('div');
 		countEl.className = 'combo-meter__count';
 		countEl.style.cssText = [
 			'font-size:64px',
@@ -325,8 +350,7 @@
 		].join(';');
 		countEl.textContent = '0';
 
-		rankEl = document.createElement('div');
-		rankEl.id = 'combo-meter-rank';
+		const rankEl = document.createElement('div');
 		rankEl.className = 'combo-meter__rank';
 		rankEl.style.cssText = [
 			'font-size:16px',
@@ -339,8 +363,7 @@
 		].join(';');
 		rankEl.textContent = 'D · DUST';
 
-		bonusEl = document.createElement('div');
-		bonusEl.id = 'combo-meter-bonus';
+		const bonusEl = document.createElement('div');
 		bonusEl.className = 'combo-meter__bonus';
 		bonusEl.style.cssText = [
 			'font-size:12px',
@@ -356,8 +379,7 @@
 		].join(';');
 		bonusEl.textContent = '';
 
-		foeEl = document.createElement('div');
-		foeEl.id = 'combo-meter-foe';
+		const foeEl = document.createElement('div');
 		foeEl.className = 'combo-meter__foe';
 		foeEl.style.cssText = [
 			'font-size:11px',
@@ -373,8 +395,7 @@
 		].join(';');
 		foeEl.textContent = '';
 
-		toastEl = document.createElement('div');
-		toastEl.id = 'combo-meter-toast';
+		const toastEl = document.createElement('div');
 		toastEl.className = 'combo-meter__toast';
 		toastEl.style.cssText = [
 			'margin-top:10px',
@@ -389,7 +410,7 @@
 			'text-align:right'
 		].join(';');
 
-		toastTitleEl = document.createElement('div');
+		const toastTitleEl = document.createElement('div');
 		toastTitleEl.style.cssText = [
 			'font-size:13px',
 			'font-weight:800',
@@ -399,7 +420,7 @@
 			'text-shadow:1px 1px 0 #000'
 		].join(';');
 
-		toastDetailEl = document.createElement('div');
+		const toastDetailEl = document.createElement('div');
 		toastDetailEl.style.cssText = [
 			'font-size:11px',
 			'font-weight:600',
@@ -412,8 +433,7 @@
 		toastEl.appendChild(toastTitleEl);
 		toastEl.appendChild(toastDetailEl);
 
-		recoverEl = document.createElement('div');
-		recoverEl.id = 'combo-meter-recover';
+		const recoverEl = document.createElement('div');
 		recoverEl.className = 'combo-meter__recover';
 		recoverEl.style.cssText = [
 			'font-size:12px',
@@ -431,7 +451,7 @@
 		].join(';');
 		recoverEl.textContent = 'RECOVER — dash through or heavy hit';
 
-		timerTrack = document.createElement('div');
+		const timerTrack = document.createElement('div');
 		timerTrack.className = 'combo-meter__timer-track';
 		timerTrack.style.cssText = [
 			'margin-top:10px',
@@ -445,8 +465,7 @@
 			'box-shadow:inset 0 0 6px rgba(0,0,0,0.6)'
 		].join(';');
 
-		timerFill = document.createElement('div');
-		timerFill.id = 'combo-meter-timer';
+		const timerFill = document.createElement('div');
 		timerFill.className = 'combo-meter__timer-fill';
 		timerFill.style.cssText = [
 			'height:100%',
@@ -473,7 +492,23 @@
 		panelEl.appendChild(cornerBR);
 		panelEl.appendChild(inner);
 		rootEl.appendChild(panelEl);
-		mount.appendChild(rootEl);
+		document.body.appendChild(rootEl);
+
+		// Create screen border overlay element
+		const borderEl = document.createElement('div');
+		borderEl.id = 'combo-border-' + playerId;
+		borderEl.className = 'combo-border-overlay';
+		borderEl.style.cssText = [
+			'position:fixed',
+			'top:0',
+			'bottom:0',
+			'z-index:3100',
+			'pointer-events:none',
+			'opacity:0',
+			'transition:opacity 0.3s ease, box-shadow 0.3s ease',
+			'display:none'
+		].join(';');
+		document.body.appendChild(borderEl);
 
 		if (!document.getElementById('combo-meter-keyframes')) {
 			const style = document.createElement('style');
@@ -504,47 +539,104 @@
 				'  0% { filter: brightness(1.1) drop-shadow(0 0 18px rgba(255,204,0,0.75)); transform: skewX(-6deg) scale(1); }',
 				'  100% { filter: brightness(1.45) drop-shadow(0 0 36px rgba(255,23,68,0.95)); transform: skewX(-6deg) scale(1.02); }',
 				'}',
+				'@keyframes comboMeterCalamityPulse {',
+				'  0% { filter: brightness(1.1) drop-shadow(0 0 22px rgba(255,85,0,0.75)); transform: skewX(-6deg) scale(1); }',
+				'  100% { filter: brightness(1.5) drop-shadow(0 0 45px rgba(255,0,0,0.95)); transform: skewX(-6deg) scale(1.04); }',
+				'}',
+				'@keyframes comboMeterArmageddonSpin {',
+				'  0% { filter: brightness(1.2) drop-shadow(0 0 30px rgba(255,0,60,0.85)); transform: skewX(-6deg) scale(1.02) rotate(-0.5deg); }',
+				'  100% { filter: brightness(1.7) drop-shadow(0 0 60px rgba(255,204,0,1)); transform: skewX(-6deg) scale(1.06) rotate(0.5deg); }',
+				'}',
+				'@keyframes comboBorderPulseSPlus {',
+				'  0% { box-shadow: inset 0 0 20px rgba(255, 0, 127, 0.4); opacity: 0.85; }',
+				'  100% { box-shadow: inset 0 0 32px rgba(255, 0, 127, 0.65); opacity: 1; }',
+				'}',
+				'@keyframes comboBorderFlickerSDoublePlus {',
+				'  0% { box-shadow: inset 0 0 30px rgba(255, 23, 68, 0.5), inset 0 0 10px rgba(255, 204, 0, 0.3); opacity: 0.9; }',
+				'  25% { box-shadow: inset 0 0 45px rgba(255, 23, 68, 0.7), inset 0 0 20px rgba(255, 204, 0, 0.5); opacity: 1; }',
+				'  50% { box-shadow: inset 0 0 35px rgba(255, 23, 68, 0.55), inset 0 0 15px rgba(255, 204, 0, 0.35); opacity: 0.92; }',
+				'  75% { box-shadow: inset 0 0 50px rgba(255, 23, 68, 0.85), inset 0 0 25px rgba(255, 204, 0, 0.6); opacity: 1; }',
+				'  100% { box-shadow: inset 0 0 40px rgba(255, 23, 68, 0.65), inset 0 0 18px rgba(255, 204, 0, 0.45); opacity: 0.95; }',
+				'}',
 				'@media (max-width: 768px) {',
-				'  #combo-meter { right:10px !important; top:16% !important; }',
+				'  .combo-meter { right:10px !important; top:16% !important; }',
 				'  .combo-meter__panel { min-width:110px !important; padding:10px 12px 8px !important; }',
-				'  #combo-meter-count { font-size:42px !important; }',
-				'  #combo-meter-rank { font-size:12px !important; letter-spacing:0.14em !important; }',
+				'  .combo-meter__count { font-size:42px !important; }',
+				'  .combo-meter__rank { font-size:12px !important; letter-spacing:0.14em !important; }',
 				'  .combo-meter__label { font-size:8px !important; }',
 				'  .combo-meter__bonus { font-size:8px !important; }',
 				'}'
 			].join('\n');
 			document.head.appendChild(style);
 		}
+
+		playerMeters[playerId] = {
+			rootEl,
+			panelEl,
+			countEl,
+			rankEl,
+			bonusEl,
+			foeEl,
+			toastEl,
+			toastTitleEl,
+			toastDetailEl,
+			recoverEl,
+			timerTrack,
+			timerFill,
+			hitFlashEl,
+			cornerTL,
+			cornerTR,
+			cornerBL,
+			cornerBR,
+			borderEl,
+			visible: false,
+			lastShownCount: -1,
+			lastTier: -1,
+			lastAnnouncedTier: 0,
+			punchUntil: 0,
+			toastClearTimer: 0,
+			lastVarietyToastAt: 0
+		};
+
+		return playerMeters[playerId];
 	}
 
-	function setVisible(next) {
-		ensureDom();
-		if (next === visible) {
+	function setVisible(meter, next) {
+		if (next === meter.visible) {
 			if (next) {
-				rootEl.style.display = 'block';
-				rootEl.style.opacity = '1';
-				rootEl.style.transform = 'translateX(0)';
+				meter.rootEl.style.display = 'block';
+				meter.rootEl.style.opacity = '1';
+				meter.rootEl.style.transform = 'translateX(0)';
 			}
 			return;
 		}
-		visible = next;
+		meter.visible = next;
 		if (next) {
-			rootEl.style.display = 'block';
-			void rootEl.offsetWidth;
-			rootEl.style.opacity = '1';
-			rootEl.style.transform = 'translateX(0)';
-			rootEl.setAttribute('aria-hidden', 'false');
+			meter.rootEl.style.display = 'block';
+			void meter.rootEl.offsetWidth;
+			meter.rootEl.style.opacity = '1';
+			meter.rootEl.style.transform = 'translateX(0)';
+			meter.rootEl.setAttribute('aria-hidden', 'false');
 		} else {
-			rootEl.style.opacity = '0';
-			rootEl.style.transform = 'translateX(28px)';
-			rootEl.setAttribute('aria-hidden', 'true');
+			meter.rootEl.style.opacity = '0';
+			meter.rootEl.style.transform = 'translateX(28px)';
+			meter.rootEl.setAttribute('aria-hidden', 'true');
+			if (meter.borderEl) {
+				meter.borderEl.style.opacity = '0';
+				meter.borderEl.style.animation = 'none';
+			}
 			window.setTimeout(() => {
-				if (!visible && rootEl) rootEl.style.display = 'none';
+				if (!meter.visible) {
+					if (meter.rootEl) meter.rootEl.style.display = 'none';
+					if (meter.borderEl) meter.borderEl.style.display = 'none';
+				}
 			}, 200);
 		}
 	}
 
 	function rankFor(tier, count) {
+		if (tier >= 6 || count >= 120) return RANKS[6];
+		if (tier >= 5 || count >= 80) return RANKS[5];
 		if (tier >= 4 || count >= 50) return RANKS[4];
 		if (tier >= 3 || count >= 30) return RANKS[3];
 		if (tier >= 2 || count >= 15) return RANKS[2];
@@ -552,27 +644,27 @@
 		return RANKS[0];
 	}
 
-	function applyRankStyle(tier, count) {
+	function applyRankStyle(meter, tier, count) {
 		const rank = rankFor(tier, count);
 		const label = rank.letter ? `${rank.letter} · ${rank.name}` : rank.name;
-		rankEl.textContent = label;
-		rankEl.style.fontSize = rank.rankSize || '16px';
-		rankEl.style.color = rank.color;
-		rankEl.style.textShadow = rank.rankShadow || `0 0 14px ${rank.glow}, 1px 1px 0 #000`;
+		meter.rankEl.textContent = label;
+		meter.rankEl.style.fontSize = rank.rankSize || '16px';
+		meter.rankEl.style.color = rank.color;
+		meter.rankEl.style.textShadow = rank.rankShadow || `0 0 14px ${rank.glow}, 1px 1px 0 #000`;
 
-		countEl.style.fontSize = rank.countSize || '64px';
-		countEl.style.color = rank.countColor || '#ffffff';
-		countEl.style.textShadow = rank.countShadow || `0 0 12px ${rank.glow}, 2px 2px 0 #000`;
+		meter.countEl.style.fontSize = rank.countSize || '64px';
+		meter.countEl.style.color = rank.countColor || '#ffffff';
+		meter.countEl.style.textShadow = rank.countShadow || `0 0 12px ${rank.glow}, 2px 2px 0 #000`;
 
-		timerFill.style.background = rank.timerBg || `linear-gradient(90deg, ${rank.color}, #ffffff)`;
-		timerFill.style.boxShadow = rank.timerGlow || `0 0 12px ${rank.glow}`;
+		meter.timerFill.style.background = rank.timerBg || `linear-gradient(90deg, ${rank.color}, #ffffff)`;
+		meter.timerFill.style.boxShadow = rank.timerGlow || `0 0 12px ${rank.glow}`;
 
-		if (bonusEl) {
+		if (meter.bonusEl) {
 			const hasBonus = !!(rank.bonus && tier >= 1);
-			bonusEl.textContent = hasBonus ? rank.bonus : '';
-			bonusEl.style.opacity = hasBonus ? '1' : '0';
-			bonusEl.style.color = tier >= 4 ? '#ffd76a' : (tier === 2 ? '#a3ffcc' : (tier === 3 ? '#ffa6d5' : 'rgba(170,200,255,0.85)'));
-			bonusEl.style.textShadow = tier >= 4
+			meter.bonusEl.textContent = hasBonus ? rank.bonus : '';
+			meter.bonusEl.style.opacity = hasBonus ? '1' : '0';
+			meter.bonusEl.style.color = tier >= 4 ? '#ffd76a' : (tier === 2 ? '#a3ffcc' : (tier === 3 ? '#ffa6d5' : 'rgba(170,200,255,0.85)'));
+			meter.bonusEl.style.textShadow = tier >= 4
 				? '0 0 10px rgba(255,200,80,0.85), 1px 1px 0 #000'
 				: (tier === 2
 					? '0 0 10px rgba(0,255,136,0.75), 1px 1px 0 #000'
@@ -580,32 +672,62 @@
 						? '0 0 10px rgba(255,0,127,0.75), 1px 1px 0 #000'
 						: '0 0 8px rgba(120,180,255,0.55), 1px 1px 0 #000'));
 		}
-		if (foeEl) {
+		if (meter.foeEl) {
 			const hasFoe = !!(rank.foe && tier >= 1);
-			foeEl.textContent = hasFoe ? rank.foe : '';
-			foeEl.style.opacity = hasFoe ? '1' : '0';
+			meter.foeEl.textContent = hasFoe ? rank.foe : '';
+			meter.foeEl.style.opacity = hasFoe ? '1' : '0';
 		}
-		if (panelEl) {
-			panelEl.style.background = rank.bg;
-			panelEl.style.borderColor = rank.border;
-			panelEl.style.borderWidth = rank.borderWidth || '2px';
-			panelEl.style.boxShadow = rank.panelGlow;
-			panelEl.style.animation = rank.anim || 'none';
+		if (meter.panelEl) {
+			meter.panelEl.style.background = rank.bg;
+			meter.panelEl.style.borderColor = rank.border;
+			meter.panelEl.style.borderWidth = rank.borderWidth || '2px';
+			meter.panelEl.style.boxShadow = rank.panelGlow;
+			meter.panelEl.style.animation = rank.anim || 'none';
 		}
-		if (timerTrack) {
-			timerTrack.style.borderColor = rank.border;
+		if (meter.timerTrack) {
+			meter.timerTrack.style.borderColor = rank.border;
+		}
+
+		// Apply border effect
+		if (meter.borderEl) {
+			if (tier >= 4) {
+				meter.borderEl.style.display = 'block';
+				void meter.borderEl.offsetWidth;
+				meter.borderEl.style.opacity = '1';
+				if (tier === 4) { // S
+					meter.borderEl.style.boxShadow = 'inset 0 0 20px rgba(255, 204, 0, 0.45)';
+					meter.borderEl.style.background = 'linear-gradient(to right, rgba(255,204,0,0.06), transparent 8%, transparent 92%, rgba(255,204,0,0.06))';
+					meter.borderEl.style.animation = 'none';
+				} else if (tier === 5) { // S+
+					meter.borderEl.style.boxShadow = 'inset 0 0 30px rgba(255, 0, 127, 0.55)';
+					meter.borderEl.style.background = 'linear-gradient(to right, rgba(255,0,127,0.12), transparent 12%, transparent 88%, rgba(255,0,127,0.12))';
+					meter.borderEl.style.animation = 'comboBorderPulseSPlus 2.0s infinite alternate';
+				} else if (tier >= 6) { // S++
+					meter.borderEl.style.boxShadow = 'inset 0 0 45px rgba(255, 23, 68, 0.7), inset 0 0 15px rgba(255, 204, 0, 0.4)';
+					meter.borderEl.style.background = 'linear-gradient(to right, rgba(255,23,68,0.22), transparent 16%, transparent 84%, rgba(255,23,68,0.22))';
+					meter.borderEl.style.animation = 'comboBorderFlickerSDoublePlus 1.2s infinite alternate';
+				}
+			} else {
+				meter.borderEl.style.opacity = '0';
+				meter.borderEl.style.animation = 'none';
+				window.setTimeout(() => {
+					if (meter.borderEl && meter.lastTier < 4) {
+						meter.borderEl.style.display = 'none';
+					}
+				}, 300);
+			}
 		}
 
 		const cMode = rank.corners || 'none';
-		const corners = [cornerTL, cornerTR, cornerBL, cornerBR];
+		const corners = [meter.cornerTL, meter.cornerTR, meter.cornerBL, meter.cornerBR];
 		corners.forEach(c => { if (c) c.style.opacity = '0'; });
 
 		if (cMode === '2-cyan') {
-			if (cornerTL) { cornerTL.style.opacity = '0.8'; cornerTL.style.borderColor = rank.color; cornerTL.style.boxShadow = 'none'; }
-			if (cornerBR) { cornerBR.style.opacity = '0.8'; cornerBR.style.borderColor = rank.color; cornerBR.style.boxShadow = 'none'; }
+			if (meter.cornerTL) { meter.cornerTL.style.opacity = '0.8'; meter.cornerTL.style.borderColor = rank.color; meter.cornerTL.style.boxShadow = 'none'; }
+			if (meter.cornerBR) { meter.cornerBR.style.opacity = '0.8'; meter.cornerBR.style.borderColor = rank.color; meter.cornerBR.style.boxShadow = 'none'; }
 		} else if (cMode === '2-orange' || cMode === '2-emerald' || cMode === '2-green') {
-			if (cornerTL) { cornerTL.style.opacity = '0.9'; cornerTL.style.borderColor = rank.color; cornerTL.style.boxShadow = `0 0 6px ${rank.glow}`; }
-			if (cornerBR) { cornerBR.style.opacity = '0.9'; cornerBR.style.borderColor = rank.color; cornerBR.style.boxShadow = `0 0 6px ${rank.glow}`; }
+			if (meter.cornerTL) { meter.cornerTL.style.opacity = '0.9'; meter.cornerTL.style.borderColor = rank.color; meter.cornerTL.style.boxShadow = `0 0 6px ${rank.glow}`; }
+			if (meter.cornerBR) { meter.cornerBR.style.opacity = '0.9'; meter.cornerBR.style.borderColor = rank.color; meter.cornerBR.style.boxShadow = `0 0 6px ${rank.glow}`; }
 		} else if (cMode === '4-magenta') {
 			corners.forEach(c => {
 				if (c) {
@@ -622,45 +744,53 @@
 					c.style.boxShadow = '0 0 12px #ffcc00, 0 0 20px #ff1744';
 				}
 			});
+		} else if (cMode === '4-calamity') {
+			corners.forEach(c => {
+				if (c) {
+					c.style.opacity = '1';
+					c.style.borderColor = '#ff5500';
+					c.style.boxShadow = '0 0 16px #ff5500, 0 0 28px #ff0000';
+				}
+			});
+		} else if (cMode === '4-armageddon') {
+			corners.forEach(c => {
+				if (c) {
+					c.style.opacity = '1';
+					c.style.borderColor = '#ff003c';
+					c.style.boxShadow = '0 0 25px #ff003c, 0 0 45px #ffcc00, inset 0 0 10px #ffffff';
+				}
+			});
 		}
 	}
 
-	/**
-	 * Fixed-screen toast on the meter (never world-space floaters).
-	 * One headline + one optional detail, readable and long enough to parse.
-	 */
-	function showMeterToast(title, detail, options) {
-		ensureDom();
-		if (!toastEl || !toastTitleEl) return;
+	function showMeterToast(meter, title, detail, options) {
+		if (!meter.toastEl || !meter.toastTitleEl) return;
 		const opts = options || {};
 		const holdMs = opts.holdMs != null ? opts.holdMs : 3200;
 		const color = opts.color || '#ffffff';
 		const detailColor = opts.detailColor || 'rgba(220,230,255,0.92)';
 
-		toastTitleEl.textContent = title || '';
-		toastTitleEl.style.color = color;
-		toastDetailEl.textContent = detail || '';
-		toastDetailEl.style.color = detailColor;
-		toastDetailEl.style.display = detail ? 'block' : 'none';
-		toastDetailEl.style.whiteSpace = detail && detail.indexOf('\n') >= 0 ? 'pre-line' : 'normal';
+		meter.toastTitleEl.textContent = title || '';
+		meter.toastTitleEl.style.color = color;
+		meter.toastDetailEl.textContent = detail || '';
+		meter.toastDetailEl.style.color = detailColor;
+		meter.toastDetailEl.style.display = detail ? 'block' : 'none';
+		meter.toastDetailEl.style.whiteSpace = detail && detail.indexOf('\n') >= 0 ? 'pre-line' : 'normal';
 
-		toastEl.style.opacity = '1';
-		toastEl.style.transform = 'translateY(0)';
-		toastEl.style.borderColor = opts.border || 'rgba(180,200,255,0.45)';
+		meter.toastEl.style.opacity = '1';
+		meter.toastEl.style.transform = 'translateY(0)';
+		meter.toastEl.style.borderColor = opts.border || 'rgba(180,200,255,0.45)';
 
-		if (toastClearTimer) window.clearTimeout(toastClearTimer);
-		toastClearTimer = window.setTimeout(() => {
-			if (!toastEl) return;
-			toastEl.style.opacity = '0';
-			toastEl.style.transform = 'translateY(4px)';
-			toastClearTimer = 0;
+		if (meter.toastClearTimer) window.clearTimeout(meter.toastClearTimer);
+		meter.toastClearTimer = window.setTimeout(() => {
+			if (!meter.toastEl) return;
+			meter.toastEl.style.opacity = '0';
+			meter.toastEl.style.transform = 'translateY(4px)';
+			meter.toastClearTimer = 0;
 		}, holdMs);
 	}
 
-	/**
-	 * Announce tier changes on the meter toast — not above the player.
-	 */
-	function announceTierChange(prevTier, nextTier) {
+	function announceTierChange(meter, prevTier, nextTier) {
 		const prev = prevTier | 0;
 		const next = nextTier | 0;
 		if (prev === next) return;
@@ -670,12 +800,13 @@
 			if (rank && next >= 1) {
 				const detail = [rank.bonus, rank.foe].filter(Boolean).join('\n');
 				showMeterToast(
+					meter,
 					`${rank.letter} · ${rank.name}`,
 					detail,
 					{ color: rank.color, holdMs: 3500, border: rank.border }
 				);
 			}
-			lastAnnouncedTier = next;
+			meter.lastAnnouncedTier = next;
 			return;
 		}
 
@@ -688,34 +819,35 @@
 			detail = 'Style buffs cleared';
 		}
 		showMeterToast(
+			meter,
 			lost && lost.letter ? `${lost.letter} lost` : 'Style drop',
 			detail,
 			{ color: '#ff8866', detailColor: '#ffd0c0', holdMs: 3500, border: 'rgba(255,100,80,0.55)' }
 		);
-		lastAnnouncedTier = next;
+		meter.lastAnnouncedTier = next;
 	}
 
-	function punchCount() {
-		if (!countEl) return;
-		countEl.style.animation = 'none';
-		void countEl.offsetWidth;
-		countEl.style.animation = 'comboMeterPunch 0.28s cubic-bezier(0.2, 0.9, 0.3, 1)';
-		if (hitFlashEl) {
-			hitFlashEl.style.animation = 'none';
-			void hitFlashEl.offsetWidth;
-			hitFlashEl.style.animation = 'comboMeterFlash 0.35s ease-out';
+	function punchCount(meter) {
+		if (!meter.countEl) return;
+		meter.countEl.style.animation = 'none';
+		void meter.countEl.offsetWidth;
+		meter.countEl.style.animation = 'comboMeterPunch 0.28s cubic-bezier(0.2, 0.9, 0.3, 1)';
+		if (meter.hitFlashEl) {
+			meter.hitFlashEl.style.animation = 'none';
+			void meter.hitFlashEl.offsetWidth;
+			meter.hitFlashEl.style.animation = 'comboMeterFlash 0.35s ease-out';
 		}
-		punchUntil = performance.now() + 280;
+		meter.punchUntil = performance.now() + 280;
 	}
 
-	function punchRank() {
-		if (!rankEl) return;
-		rankEl.style.animation = 'none';
-		void rankEl.offsetWidth;
-		rankEl.style.animation = 'comboMeterRankIn 0.4s cubic-bezier(0.15, 0.85, 0.25, 1)';
+	function punchRank(meter) {
+		if (!meter.rankEl) return;
+		meter.rankEl.style.animation = 'none';
+		void meter.rankEl.offsetWidth;
+		meter.rankEl.style.animation = 'comboMeterRankIn 0.4s cubic-bezier(0.15, 0.85, 0.25, 1)';
 	}
 
-	function refreshFromState(state, options) {
+	function refreshFromState(meter, state, options) {
 		const opts = options || {};
 		if (!state) return;
 		const tier = state.comboTier | 0;
@@ -723,49 +855,80 @@
 		const show = count >= 1;
 
 		if (!show) {
-			if (lastTier >= 1) {
-				announceTierChange(lastTier, 0);
+			if (meter.lastTier >= 1) {
+				announceTierChange(meter, meter.lastTier, 0);
 			}
-			setVisible(false);
-			lastTier = 0;
-			lastShownCount = 0;
-			lastAnnouncedTier = 0;
+			setVisible(meter, false);
+			meter.lastTier = 0;
+			meter.lastShownCount = 0;
+			meter.lastAnnouncedTier = 0;
 			return;
 		}
 
-		setVisible(true);
-		applyRankStyle(tier, count);
-		countEl.textContent = String(count);
+		setVisible(meter, true);
+		applyRankStyle(meter, tier, count);
+		meter.countEl.textContent = String(count);
 
-		if (tier !== lastTier) {
-			punchRank();
-			announceTierChange(lastTier, tier);
+		if (tier !== meter.lastTier) {
+			punchRank(meter);
+			announceTierChange(meter, meter.lastTier, tier);
 		}
-		if (opts.punchCount || count > lastShownCount) punchCount();
-		else if (opts.punchRank && tier === lastTier) punchRank();
+		if (opts.punchCount || count > meter.lastShownCount) punchCount(meter);
+		else if (opts.punchRank && tier === meter.lastTier) punchRank(meter);
 
-		lastTier = tier;
-		lastShownCount = count;
+		meter.lastTier = tier;
+		meter.lastShownCount = count;
 
 		const maxT = getComboTimerMax();
 		const ratio = maxT > 0 ? Math.max(0, Math.min(1, (state.comboTimer || 0) / maxT)) : 0;
-		timerFill.style.transform = `scaleX(${ratio})`;
+		meter.timerFill.style.transform = `scaleX(${ratio})`;
 	}
 
 	function onTierChanged(detail) {
 		if (!isSurgeArenaActive() || !isHudAllowed()) return;
-		ensureDom();
-		refreshFromState({
+		const playerId = detail && detail.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local');
+		const meter = ensurePlayerMeter(playerId);
+		refreshFromState(meter, {
 			comboTier: detail && detail.tier,
 			comboCount: detail && detail.comboCount,
 			comboTimer: getComboTimerMax()
 		}, { punchRank: true, punchCount: true });
 	}
 
+	// Dynamic positioning helper
+	function updateMeterViewportPosition(playerId, meter) {
+		if (typeof Game === 'undefined' || !Game) return;
+		const isP2 = (playerId === Game.localSplitPlayerId);
+		const rightPos = Game.localSplitEnabled
+			? (isP2 ? '22px' : 'calc(50% + 22px)')
+			: '22px';
+		if (meter.rootEl.style.right !== rightPos) {
+			meter.rootEl.style.right = rightPos;
+		}
+
+		if (meter.borderEl) {
+			if (Game.localSplitEnabled) {
+				meter.borderEl.style.width = '50%';
+				meter.borderEl.style.left = isP2 ? '50%' : '0';
+				meter.borderEl.style.display = 'block';
+			} else {
+				if (isP2) {
+					meter.borderEl.style.display = 'none';
+				} else {
+					meter.borderEl.style.width = '100%';
+					meter.borderEl.style.left = '0';
+					meter.borderEl.style.display = 'block';
+				}
+			}
+		}
+	}
+
 	function onCountChanged(detail) {
 		if (!isSurgeArenaActive() || !isHudAllowed()) return;
-		ensureDom();
-		refreshFromState({
+		const playerId = detail && detail.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local');
+		const meter = ensurePlayerMeter(playerId);
+		updateMeterViewportPosition(playerId, meter);
+		refreshFromState(meter, {
 			comboTier: detail && detail.tier,
 			comboCount: detail && detail.comboCount,
 			comboTimer: detail && detail.comboTimer
@@ -774,56 +937,62 @@
 
 	function onBleedApplied(detail) {
 		if (!isSurgeArenaActive() || !isHudAllowed()) return;
-		ensureDom();
+		const playerId = detail && detail.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local');
+		const meter = ensurePlayerMeter(playerId);
+		updateMeterViewportPosition(playerId, meter);
 		const lost = detail && detail.amountLost | 0;
 		const count = detail && detail.comboCount | 0;
 		let tier = 0;
 		if (detail && typeof detail.tier === 'number') {
 			tier = detail.tier | 0;
 		} else {
-			const state = getComboState();
+			const state = getComboState(playerId);
 			tier = state ? (state.comboTier | 0) : 0;
 		}
 		if (lost > 0) {
 			showMeterToast(
+				meter,
 				`Hit −${lost}`,
 				'Recover: dash through an enemy or land a heavy',
 				{ color: '#ff6644', detailColor: '#ffccbb', holdMs: 3000, border: 'rgba(255,80,60,0.55)' }
 			);
 		}
-		if (countEl) {
-			countEl.textContent = String(count);
-			countEl.style.color = '#ff6644';
+		if (meter.countEl) {
+			meter.countEl.textContent = String(count);
+			meter.countEl.style.color = '#ff6644';
 			window.setTimeout(() => {
-				if (countEl) countEl.style.color = '#ffffff';
+				if (meter.countEl) meter.countEl.style.color = '#ffffff';
 			}, 180);
 		}
-		if (recoverEl && detail && detail.recoveryWindow > 0) {
-			recoverEl.style.opacity = '1';
+		if (meter.recoverEl && detail && detail.recoveryWindow > 0) {
+			meter.recoverEl.style.opacity = '1';
 		}
 		if (count < 1) {
-			setVisible(false);
-			lastTier = 0;
-			lastShownCount = 0;
-			lastAnnouncedTier = 0;
+			setVisible(meter, false);
+			meter.lastTier = 0;
+			meter.lastShownCount = 0;
+			meter.lastAnnouncedTier = 0;
 			return;
 		}
-		applyRankStyle(tier, count);
-		lastShownCount = count;
-		lastTier = tier;
+		applyRankStyle(meter, tier, count);
+		meter.lastShownCount = count;
+		meter.lastTier = tier;
 	}
 
 	function onStyleRecovered(detail) {
 		if (!isSurgeArenaActive() || !isHudAllowed()) return;
-		ensureDom();
+		const playerId = detail && detail.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local');
+		const meter = ensurePlayerMeter(playerId);
+		updateMeterViewportPosition(playerId, meter);
 		showMeterToast(
+			meter,
 			'Style Recovery',
 			`+${(detail && detail.restored) || 0} combo restored`,
 			{ color: '#66ffcc', detailColor: '#b8ffe8', holdMs: 2800, border: 'rgba(80,255,200,0.55)' }
 		);
-		if (recoverEl) recoverEl.style.opacity = '0';
+		if (meter.recoverEl) meter.recoverEl.style.opacity = '0';
 		if (detail) {
-			refreshFromState({
+			refreshFromState(meter, {
 				comboTier: detail.tier,
 				comboCount: detail.comboCount,
 				comboTimer: getComboTimerMax()
@@ -833,10 +1002,13 @@
 
 	function onStyleCrashed(detail) {
 		if (!isSurgeArenaActive() || !isHudAllowed()) return;
-		ensureDom();
+		const playerId = detail && detail.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local');
+		const meter = ensurePlayerMeter(playerId);
+		updateMeterViewportPosition(playerId, meter);
 		const to = detail && detail.toTier;
 		const still = RANKS[to | 0];
 		showMeterToast(
+			meter,
 			'S-Rank Crash',
 			still && still.letter
 				? `Dropped to ${still.letter} · ${still.name} — pick up ejected credits`
@@ -844,7 +1016,7 @@
 			{ color: '#ff3355', detailColor: '#ffb0b8', holdMs: 4000, border: 'rgba(255,50,70,0.6)' }
 		);
 		if (detail) {
-			refreshFromState({
+			refreshFromState(meter, {
 				comboTier: detail.toTier,
 				comboCount: detail.comboCount,
 				comboTimer: getComboTimerMax()
@@ -855,25 +1027,29 @@
 	function onVarietyBonus(detail) {
 		if (!isSurgeArenaActive() || !isHudAllowed()) return;
 		if (!detail || !(detail.bonus > 0)) return;
-		ensureDom();
+		const playerId = detail && detail.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local');
+		const meter = ensurePlayerMeter(playerId);
 		// Throttle — mixing every kill shouldn't flood the meter toast.
 		const now = performance.now();
-		if (now - lastVarietyToastAt < 4500) {
-			punchCount();
+		if (now - meter.lastVarietyToastAt < 4500) {
+			punchCount(meter);
 			return;
 		}
-		lastVarietyToastAt = now;
+		meter.lastVarietyToastAt = now;
 		showMeterToast(
+			meter,
 			'Mixed attacks +1',
 			'Keep cycling primary / special / heavy / dash',
 			{ color: '#ffe066', detailColor: '#fff0b0', holdMs: 2400, border: 'rgba(255,220,80,0.45)' }
 		);
 	}
 
-	function onApexPulse() {
+	function onApexPulse(detail) {
 		if (!isSurgeArenaActive() || !isHudAllowed()) return;
-		ensureDom();
+		const playerId = detail && detail.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local');
+		const meter = ensurePlayerMeter(playerId);
 		showMeterToast(
+			meter,
 			'Apex EMP',
 			'Nearby enemy projectiles cleared',
 			{ color: '#66e0ff', detailColor: '#c8f4ff', holdMs: 3000, border: 'rgba(80,220,255,0.55)' }
@@ -899,56 +1075,85 @@
 		bindBus();
 
 		if (!isSurgeArenaActive() || !isHudAllowed()) {
-			if (visible) setVisible(false);
+			Object.keys(playerMeters).forEach(playerId => {
+				const meter = playerMeters[playerId];
+				if (meter.visible) setVisible(meter, false);
+			});
 			return;
 		}
 
-		ensureDom();
-		const state = getComboState();
-		if (!state || !(state.comboCount > 0)) {
-			if (visible && lastTier >= 1) {
-				announceTierChange(lastTier, 0);
+		// Find active local players
+		const activeIds = [];
+		if (typeof Game !== 'undefined' && Game) {
+			const p1 = Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local';
+			activeIds.push(p1);
+			if (Game.localSplitEnabled && Game.localSplitPlayerId) {
+				activeIds.push(Game.localSplitPlayerId);
 			}
-			if (visible) setVisible(false);
-			lastShownCount = 0;
-			lastTier = 0;
-			lastAnnouncedTier = 0;
-			return;
 		}
 
-		const tier = state.comboTier | 0;
-		const count = state.comboCount | 0;
-		setVisible(true);
-		if (tier !== lastTier || count !== lastShownCount) {
-			applyRankStyle(tier, count);
-			countEl.textContent = String(count);
-			if (count > lastShownCount) punchCount();
-			if (tier !== lastTier) {
-				punchRank();
-				announceTierChange(lastTier, tier);
+		// Hide any meters of players that are no longer active
+		Object.keys(playerMeters).forEach(playerId => {
+			if (activeIds.indexOf(playerId) < 0) {
+				const meter = playerMeters[playerId];
+				if (meter.visible) setVisible(meter, false);
 			}
-			lastTier = tier;
-			lastShownCount = count;
-		}
+		});
 
-		const maxT = getComboTimerMax();
-		const ratio = maxT > 0 ? Math.max(0, Math.min(1, (state.comboTimer || 0) / maxT)) : 0;
-		timerFill.style.transform = `scaleX(${ratio})`;
+		// Update active player meters
+		activeIds.forEach(playerId => {
+			const meter = ensurePlayerMeter(playerId);
+			updateMeterViewportPosition(playerId, meter);
 
-		if (recoverEl) {
-			recoverEl.style.opacity = (state.recoveryWindow > 0) ? '1' : '0';
-		}
+			const state = getComboState(playerId);
+			if (!state || !(state.comboCount > 0)) {
+				if (meter.visible && meter.lastTier >= 1) {
+					announceTierChange(meter, meter.lastTier, 0);
+				}
+				if (meter.visible) setVisible(meter, false);
+				meter.lastShownCount = 0;
+				meter.lastTier = 0;
+				meter.lastAnnouncedTier = 0;
+				return;
+			}
 
-		if (tier >= 3 && performance.now() > punchUntil) {
-			const pulse = 1 + Math.sin(performance.now() / 180) * 0.03;
-			countEl.style.transform = `scale(${pulse})`;
-		} else if (performance.now() > punchUntil) {
-			countEl.style.transform = 'scale(1)';
-		}
+			const tier = state.comboTier | 0;
+			const count = state.comboCount | 0;
+			setVisible(meter, true);
+			if (tier !== meter.lastTier || count !== meter.lastShownCount) {
+				applyRankStyle(meter, tier, count);
+				meter.countEl.textContent = String(count);
+				if (count > meter.lastShownCount) punchCount(meter);
+				if (tier !== meter.lastTier) {
+					punchRank(meter);
+					announceTierChange(meter, meter.lastTier, tier);
+				}
+				meter.lastTier = tier;
+				meter.lastShownCount = count;
+			}
+
+			const maxT = getComboTimerMax();
+			const ratio = maxT > 0 ? Math.max(0, Math.min(1, (state.comboTimer || 0) / maxT)) : 0;
+			meter.timerFill.style.transform = `scaleX(${ratio})`;
+
+			if (meter.recoverEl) {
+				meter.recoverEl.style.opacity = (state.recoveryWindow > 0) ? '1' : '0';
+			}
+
+			if (tier >= 3 && performance.now() > meter.punchUntil) {
+				const pulse = 1 + Math.sin(performance.now() / 180) * 0.03;
+				meter.countEl.style.transform = `scale(${pulse})`;
+			} else if (performance.now() > meter.punchUntil) {
+				meter.countEl.style.transform = 'scale(1)';
+			}
+		});
 	}
 
 	function init() {
-		ensureDom();
+		if (typeof Game !== 'undefined' && Game) {
+			const p1 = Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local';
+			ensurePlayerMeter(p1);
+		}
 		bindBus();
 		if (!rafId) rafId = window.requestAnimationFrame(tick);
 	}

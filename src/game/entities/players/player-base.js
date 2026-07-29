@@ -3747,6 +3747,75 @@ class PlayerBase {
         ctx.fillStyle = bodyColor;
         ctx.fill();
 
+        // ------------------ STYLE OVERLAY PATTERN ------------------
+        let comboTier = 0;
+        if (typeof Game !== 'undefined' && Game.playerCombos && Game.playerCombos[this.id]) {
+            comboTier = Game.playerCombos[this.id].comboTier || 0;
+        } else if (typeof Game !== 'undefined' && typeof Game.getLocalPlayerId === 'function' && Game.getLocalPlayerId() === this.id) {
+            comboTier = Game.comboTier || 0;
+        }
+
+        if (comboTier >= 3) {
+            ctx.save();
+            ctx.beginPath();
+            transformedVertices.forEach((v, index) => {
+                if (index === 0) ctx.moveTo(v.x, v.y);
+                else ctx.lineTo(v.x, v.y);
+            });
+            ctx.closePath();
+            ctx.clip();
+
+            if (comboTier === 3) { // A: Apex
+                ctx.strokeStyle = 'rgba(255, 0, 127, 0.4)';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(-this.size, -this.size);
+                ctx.lineTo(this.size, this.size);
+                ctx.moveTo(-this.size - 8, -this.size);
+                ctx.lineTo(this.size - 8, this.size);
+                ctx.moveTo(-this.size + 8, -this.size);
+                ctx.lineTo(this.size + 8, this.size);
+                ctx.stroke();
+            } else if (comboTier === 4) { // S: Apocalypse
+                ctx.strokeStyle = 'rgba(255, 204, 0, 0.5)';
+                ctx.lineWidth = 2.5;
+                ctx.beginPath();
+                for (let x = -this.size; x <= this.size; x += 10) {
+                    ctx.moveTo(x, -this.size);
+                    ctx.lineTo(x, this.size);
+                    ctx.moveTo(-this.size, x);
+                    ctx.lineTo(this.size, x);
+                }
+                ctx.stroke();
+            } else if (comboTier === 5) { // S+: Calamity
+                ctx.strokeStyle = 'rgba(255, 85, 0, 0.6)';
+                ctx.lineWidth = 3;
+                const tShift = (time * 80) % 15;
+                ctx.beginPath();
+                for (let r = tShift; r < this.size * 1.5; r += 15) {
+                    ctx.arc(0, 0, r, 0, Math.PI * 2);
+                }
+                ctx.stroke();
+            } else if (comboTier >= 6) { // S++: Armageddon
+                ctx.strokeStyle = 'rgba(255, 0, 60, 0.7)';
+                ctx.lineWidth = 2.5;
+                ctx.beginPath();
+                const rot = time * 25;
+                for (let i = 0; i < 2; i++) {
+                    const startAngle = rot + i * Math.PI;
+                    ctx.moveTo(0, 0);
+                    for (let r = 0; r < this.size * 1.5; r += 2) {
+                        const theta = startAngle + r * 0.15;
+                        const px = Math.cos(theta) * r;
+                        const py = Math.sin(theta) * r;
+                        ctx.lineTo(px, py);
+                    }
+                }
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
+
         const indicatorRadius = Math.min(5, Math.max(2, deformedSpan * 0.08));
         const indicatorX = deformedMax - indicatorRadius * 1.5;
         ctx.fillStyle = '#ffffff';

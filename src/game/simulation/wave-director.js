@@ -156,7 +156,9 @@
             else enemy.state = 'chase';
         }
         if (!enemy.currentTarget && world) {
-            if (typeof world.getLocalPlayerId === 'function') {
+            if (typeof enemy.assignInitialTarget === 'function') {
+                enemy.assignInitialTarget();
+            } else if (typeof world.getLocalPlayerId === 'function') {
                 enemy.currentTarget = world.getLocalPlayerId();
             } else if (world.player) {
                 enemy.currentTarget = 'local';

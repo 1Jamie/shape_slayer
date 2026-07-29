@@ -30,13 +30,19 @@
         return null;
     }
 
+    function getArenaHardIndex(wave) {
+        const w = Math.max(1, wave || 1);
+        if (w < 15) return 1;
+        return 2 + Math.floor((w - 15) / 5);
+    }
+
     function isHardWave(wave) {
-        return wave > 0 && wave % 5 === 0;
+        return wave === 8 || (wave >= 15 && wave % 5 === 0);
     }
 
     function getArenaBossCount(wave) {
         const w = Math.max(1, wave || 1);
-        const hardIndex = Math.max(1, Math.floor(w / 5));
+        const hardIndex = getArenaHardIndex(w);
         if (hardIndex === 1) return 1;
         if (hardIndex === 2) return 2;
         if (hardIndex === 3) return 3;
@@ -62,7 +68,7 @@
      */
     function arenaBossScalingRoom(wave) {
         const w = Math.max(1, wave || 1);
-        const hardIndex = Math.max(1, Math.floor(w / 5));
+        const hardIndex = getArenaHardIndex(w);
         if (hardIndex <= 1) return 1;
         if (hardIndex === 2) return 3;
         if (hardIndex === 3) return 5;
@@ -72,7 +78,7 @@
 
     function arenaBossHpMult(wave, bossCount) {
         const w = Math.max(1, wave || 1);
-        const hardIndex = Math.max(1, Math.floor(w / 5));
+        const hardIndex = getArenaHardIndex(w);
         const count = Math.max(1, bossCount || getArenaBossCount(w));
 
         let baseHpMult = 0.45;
@@ -86,7 +92,7 @@
 
     function arenaBossDamageMult(wave, bossCount) {
         const w = Math.max(1, wave || 1);
-        const hardIndex = Math.max(1, Math.floor(w / 5));
+        const hardIndex = getArenaHardIndex(w);
         const count = Math.max(1, bossCount || getArenaBossCount(w));
 
         let baseDmgMult = count > 1 ? 0.82 : 0.88;
@@ -95,7 +101,7 @@
     }
 
     function pickArenaBosses(wave, count) {
-        const hardIndex = Math.max(1, Math.floor((wave || 1) / 5));
+        const hardIndex = getArenaHardIndex(wave);
         let pool = ARENA_BOSS_POOL.slice();
         // Wave 5: lighter openers. Wave 10: no Vortex yet. Wave 15+: full pool.
         if (hardIndex <= 1) {
@@ -142,10 +148,19 @@
                 ? getMultiplayerScaling()
                 : { bossHP: 1, bossDamage: 1 };
             // Full boss encounter (not elite mid-room spawn) at Gear-equivalent room.
+            const defaultGrowth = (typeof BossScaling !== 'undefined' && typeof BossScaling.getBossGrowthConstants === 'function')
+                ? BossScaling.getBossGrowthConstants()
+                : { hpGrowth: 0.052, hpGrowthPost: 0.040, damageGrowth: 0.080, damageGrowthPost: 0.052 };
             const stats = BossScaling.applyBossScaling(boss, scaleRoom, {
                 gameMode: 'gear',
                 mpScaling,
-                isEliteSpawn: false
+                isEliteSpawn: false,
+                growth: {
+                    hpGrowth: defaultGrowth.hpGrowth * 1.05,
+                    hpGrowthPost: defaultGrowth.hpGrowthPost * 1.05,
+                    damageGrowth: defaultGrowth.damageGrowth,
+                    damageGrowthPost: defaultGrowth.damageGrowthPost
+                }
             });
             const hpMult = arenaBossHpMult(wave, totalCount);
             const dmgMult = arenaBossDamageMult(wave, totalCount);
@@ -358,36 +373,77 @@
         if (!pylon || !Number.isFinite(x) || !Number.isFinite(y)) {
             return { x: x, y: y };
         }
+
+        const cleanPad = room.goreCleanPad;
         const clearR = (opts.clearRadius != null)
             ? opts.clearRadius
-            : (pylon.lootClearRadius || ((pylon.padRadius || 175) + 48));
-        const dx = x - pylon.x;
-        const dy = y - pylon.y;
-        const dist = Math.hypot(dx, dy);
-        if (dist >= clearR) return { x: x, y: y };
+            : ((pylon.range || pylon.lootClearRadius || 230) + 50); // e.g. 280
 
-        let nx;
-        let ny;
-        if (dist < 0.001) {
-            // Deterministic-ish push south so drops don't stack on the beacon.
-            nx = 0;
-            ny = 1;
+        const clearRClean = cleanPad ? ((cleanPad.range || 80) + 40) : 0; // e.g. 120
+
+        let outX = x;
+        let outY = y;
+
+        const dx = outX - pylon.x;
+        const dy = outY - pylon.y;
+
+        if (cleanPad && outX > pylon.x && outX < cleanPad.x) {
+            // Inside the overlap/between-pad horizontal corridor
+            const dcx = outX - cleanPad.x;
+            const minY = Math.sqrt(Math.max(0, clearR * clearR - dx * dx));
+            const minYClean = Math.sqrt(Math.max(0, clearRClean * clearRClean - dcx * dcx));
+            const targetDistY = Math.max(minY, minYClean);
+            if (Math.abs(dy) < targetDistY) {
+                outY = pylon.y + (dy >= 0 ? 1 : -1) * targetDistY;
+            }
         } else {
-            nx = dx / dist;
-            ny = dy / dist;
+            // Normal radial push for whichever circle we are colliding with
+            const dist = Math.hypot(dx, dy);
+            if (dist < clearR) {
+                let nx = 0;
+                let ny = 1;
+                if (dist > 0.001) {
+                    nx = dx / dist;
+                    ny = dy / dist;
+                }
+                outX = pylon.x + nx * clearR;
+                outY = pylon.y + ny * clearR;
+            }
+
+            if (cleanPad) {
+                const dcx = outX - cleanPad.x;
+                const dcy = outY - cleanPad.y;
+                const distClean = Math.hypot(dcx, dcy);
+                if (distClean < clearRClean) {
+                    let ncx = 0;
+                    let ncy = 1;
+                    if (distClean > 0.001) {
+                        ncx = dcx / distClean;
+                        ncy = dcy / distClean;
+                    }
+                    outX = cleanPad.x + ncx * clearRClean;
+                    outY = cleanPad.y + ncy * clearRClean;
+                }
+            }
         }
-        let outX = pylon.x + nx * clearR;
-        let outY = pylon.y + ny * clearR;
 
         const layout = room.layout;
         if (layout && typeof RoomLayoutGenerator !== 'undefined'
             && RoomLayoutGenerator.isPointWalkable
             && !RoomLayoutGenerator.isPointWalkable(layout, outX, outY, 16)) {
             // Fan around the ring until we find a walkable seat.
+            // (Use whichever center we are closer to as the pivot)
+            const pivotX = (cleanPad && Math.abs(outX - cleanPad.x) < Math.abs(outX - pylon.x)) ? cleanPad.x : pylon.x;
+            const pivotY = pylon.y;
+            const pivotR = (pivotX === pylon.x) ? clearR : clearRClean;
+
+            const pdx = outX - pivotX;
+            const pdy = outY - pivotY;
+
             for (let i = 0; i < 12; i++) {
-                const ang = Math.atan2(ny, nx) + (i + 1) * (Math.PI / 6);
-                const tx = pylon.x + Math.cos(ang) * clearR;
-                const ty = pylon.y + Math.sin(ang) * clearR;
+                const ang = Math.atan2(pdy, pdx) + (i + 1) * (Math.PI / 6);
+                const tx = pivotX + Math.cos(ang) * pivotR;
+                const ty = pivotY + Math.sin(ang) * pivotR;
                 if (RoomLayoutGenerator.isPointWalkable(layout, tx, ty, 16)) {
                     outX = tx;
                     outY = ty;

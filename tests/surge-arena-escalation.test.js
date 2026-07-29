@@ -66,10 +66,13 @@ test('SurgeArenaRules computeWavePlan escalates with wave even on fast clears', 
     world.arenaPrevSpawnBudget = 200;
     world.player.totalXpEarned = 0;
     world.getPlayerStats = () => ({ getTimeAlive: () => 10 });
-    // Wave cadence alone unlocks star on wave 2 even with 0 XP
+    // Wave cadence alone unlocks star on wave 3 even with 0 XP
     const waveTwo = Rules.computeWavePlan(world, { wave: 2 });
-    assert.ok(waveTwo.allowedEnemyTiers.includes('star'));
-    assert.ok(!waveTwo.allowedEnemyTiers.includes('diamond'));
+    assert.ok(!waveTwo.allowedEnemyTiers.includes('star'));
+
+    const waveThree = Rules.computeWavePlan(world, { wave: 3 });
+    assert.ok(waveThree.allowedEnemyTiers.includes('star'));
+    assert.ok(!waveThree.allowedEnemyTiers.includes('diamond'));
 
     world.arenaPrevSpawnBudget = Rules.FLOOR_BUDGET;
     world.player.totalXpEarned = 0;
@@ -84,10 +87,14 @@ test('SurgeArenaRules unlocks enemy tiers on wave cadence', () => {
     const env = loadSurgeRules();
     const Rules = env.SurgeArenaRules;
     assert.equal(Rules.allowedEnemyTiersForProgress(0, 1).join(','), 'basic');
-    assert.ok(Rules.allowedEnemyTiersForProgress(0, 2).includes('star'));
-    assert.ok(Rules.allowedEnemyTiersForProgress(0, 3).includes('diamond'));
-    assert.ok(Rules.allowedEnemyTiersForProgress(0, 4).includes('rectangle'));
-    assert.ok(Rules.allowedEnemyTiersForProgress(0, 5).includes('octagon'));
+    assert.ok(!Rules.allowedEnemyTiersForProgress(0, 2).includes('star'));
+    assert.ok(Rules.allowedEnemyTiersForProgress(0, 3).includes('star'));
+    assert.ok(!Rules.allowedEnemyTiersForProgress(0, 4).includes('diamond'));
+    assert.ok(Rules.allowedEnemyTiersForProgress(0, 5).includes('diamond'));
+    assert.ok(!Rules.allowedEnemyTiersForProgress(0, 6).includes('rectangle'));
+    assert.ok(Rules.allowedEnemyTiersForProgress(0, 7).includes('rectangle'));
+    assert.ok(!Rules.allowedEnemyTiersForProgress(0, 8).includes('octagon'));
+    assert.ok(Rules.allowedEnemyTiersForProgress(0, 9).includes('octagon'));
     // XP accelerator without wave progress
     assert.ok(Rules.allowedEnemyTiersForProgress(151, 1).includes('star'));
     assert.ok(!Rules.allowedEnemyTiersForProgress(151, 1).includes('diamond'));

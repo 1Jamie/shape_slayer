@@ -53,29 +53,29 @@ test('GameBarriers create/open/close toggles closed flag and strips obstacle on 
     assert.equal(env.GameBarriers.isOpen(room, 'gate'), false);
 });
 
-test('GameArena hard-wave helpers follow every-5 / every-10 pattern', () => {
+test('GameArena hard-wave helpers follow new room 8 / 15 / 20 cadence pattern', () => {
     const env = loadArena();
-    assert.equal(env.GameArena.isHardWave(5), true);
-    assert.equal(env.GameArena.isHardWave(4), false);
-    assert.equal(env.GameArena.isDoubleBossWave(10), true);
-    assert.equal(env.GameArena.isDoubleBossWave(5), false);
+    assert.equal(env.GameArena.isHardWave(8), true);
+    assert.equal(env.GameArena.isHardWave(7), false);
+    assert.equal(env.GameArena.isDoubleBossWave(15), true);
+    assert.equal(env.GameArena.isDoubleBossWave(8), false);
     assert.ok(!env.GameArena.ARENA_BOSS_POOL.some((b) => /Fortress/i.test(b.name)));
 });
 
 test('GameArena maps hard waves to shallow Gear rooms for boss scaling', () => {
     const env = loadArena();
-    assert.equal(env.GameArena.arenaBossScalingRoom(5), 1);
-    assert.equal(env.GameArena.arenaBossScalingRoom(10), 3);
-    assert.equal(env.GameArena.arenaBossScalingRoom(15), 5);
-    assert.ok(env.GameArena.arenaBossScalingRoom(25) > 9);
-    assert.ok(env.GameArena.arenaBossHpMult(5) < 0.5);
-    assert.ok(env.GameArena.arenaBossHpMult(10) < env.GameArena.arenaBossHpMult(5));
+    assert.equal(env.GameArena.arenaBossScalingRoom(8), 1);
+    assert.equal(env.GameArena.arenaBossScalingRoom(15), 3);
+    assert.equal(env.GameArena.arenaBossScalingRoom(20), 5);
+    assert.ok(env.GameArena.arenaBossScalingRoom(30) > 9);
+    assert.ok(env.GameArena.arenaBossHpMult(8) < 0.5);
+    assert.ok(env.GameArena.arenaBossHpMult(15) < env.GameArena.arenaBossHpMult(8));
 });
 
-test('GameArena wave-5 boss pool excludes late profiles like Vortex', () => {
+test('GameArena wave-8 boss pool excludes late profiles like Vortex', () => {
     const env = loadArena();
     for (let i = 0; i < 16; i++) {
-        const picks = env.GameArena.pickArenaBosses(5, 1);
+        const picks = env.GameArena.pickArenaBosses(8, 1);
         assert.equal(picks.length, 1);
         assert.ok(picks[0].key === 'BossSwarmKing' || picks[0].key === 'BossTwinPrism');
     }

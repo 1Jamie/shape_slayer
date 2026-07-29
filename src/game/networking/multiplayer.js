@@ -903,7 +903,16 @@ class MultiplayerManager {
             // Surge Arena specific state serialization
             playerCombos: (Game.state === 'PLAYING' && Game.activeSessionId === 'surge-arena') ? Game.playerCombos : null,
             styleCrashPickups: (Game.state === 'PLAYING' && Game.activeSessionId === 'surge-arena') ? Game.styleCrashPickups : null,
-            styleHealOrbs: (Game.state === 'PLAYING' && Game.activeSessionId === 'surge-arena') ? Game.styleHealOrbs : null
+            styleHealOrbs: (Game.state === 'PLAYING' && Game.activeSessionId === 'surge-arena') ? Game.styleHealOrbs : null,
+            waveNumber: Game.waveNumber || null,
+            arenaPhase: Game.arenaPhase || null,
+            arenaWavePhase: Game.arenaWavePhase || null,
+            waveDirector: Game.waveDirector ? {
+                complete: !!Game.waveDirector.complete,
+                pendingCount: Game.waveDirector.pending ? Math.max(0, Game.waveDirector.pending.length - (Game.waveDirector.pendingIndex || 0)) : 0
+            } : null,
+            arenaPylonActive: (Game.state === 'PLAYING' && typeof currentRoom !== 'undefined' && currentRoom && currentRoom.wavePylon) ? !!currentRoom.wavePylon.active : false,
+            arenaMachinesAccessible: (Game.state === 'PLAYING' && typeof currentRoom !== 'undefined' && currentRoom) ? !!currentRoom.machinesAccessible : false
         };
         
         return this.roundDeep(state, 2);
@@ -2506,7 +2515,7 @@ class MultiplayerManager {
         // Ensure game mode is set correctly
         if (typeof Game !== 'undefined') {
             const modeId = data && data.modeId ? data.modeId : 'roguelike';
-            Game.gameMode = modeId === 'surge-arena' ? 'surge-arena' : 'gear';
+            Game.gameMode = 'gear'; // Both roguelike and surge-arena are gear-based content modes
             Game.selectedModeId = modeId;
             if (typeof nexusRoom !== 'undefined' && nexusRoom) {
                 nexusRoom.portalMode = modeId;
@@ -4454,6 +4463,32 @@ class MultiplayerManager {
             }
             if (state.styleHealOrbs !== undefined && !this.isHost) {
                 Game.styleHealOrbs = state.styleHealOrbs;
+            }
+            
+            // Sync Surge Arena specific wave, phase, and pylon states
+            if (!this.isHost) {
+                if (state.waveNumber !== undefined) Game.waveNumber = state.waveNumber;
+                if (state.arenaPhase !== undefined) Game.arenaPhase = state.arenaPhase;
+                if (state.arenaWavePhase !== undefined) Game.arenaWavePhase = state.arenaWavePhase;
+                if (state.waveDirector !== undefined) {
+                    if (state.waveDirector) {
+                        Game.waveDirector = {
+                            complete: !!state.waveDirector.complete,
+                            pending: new Array(state.waveDirector.pendingCount || 0),
+                            pendingIndex: 0
+                        };
+                    } else {
+                        Game.waveDirector = null;
+                    }
+                }
+                if (typeof currentRoom !== 'undefined' && currentRoom) {
+                    if (state.arenaPylonActive !== undefined && currentRoom.wavePylon) {
+                        currentRoom.wavePylon.active = state.arenaPylonActive;
+                    }
+                    if (state.arenaMachinesAccessible !== undefined) {
+                        currentRoom.machinesAccessible = state.arenaMachinesAccessible;
+                    }
+                }
             }
         }
 
