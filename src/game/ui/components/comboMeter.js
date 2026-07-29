@@ -1112,11 +1112,14 @@
 			return;
 		}
 
-		// Find active local players
+		// Find active local players (works for singleplayer, local co-op, and remote clients)
 		const activeIds = [];
 		if (typeof Game !== 'undefined' && Game) {
-			const p1 = Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local';
-			activeIds.push(p1);
+			const localId = (typeof Game.getLocalPlayerId === 'function')
+				? Game.getLocalPlayerId()
+				: ((typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.playerId) ? multiplayerManager.playerId : 'local');
+			if (localId) activeIds.push(localId);
+
 			if (Game.localSplitEnabled && Game.localSplitPlayerId) {
 				activeIds.push(Game.localSplitPlayerId);
 			}

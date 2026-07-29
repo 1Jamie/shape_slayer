@@ -85,6 +85,12 @@ const MultiplayerConfig = {
     PREDICTION_CORRECTION_DECAY: 0.85, // Per-frame decay of visual correction offset (higher = linger longer)
     PREDICTION_DIVERGENCE_THRESHOLD: 8, // px - count as significant when reconcile moves pose by more than this
     PREDICTION_MAX_REPLAY_STEPS: 45, // Cap rewind/replay length to limit compounding
+
+    // Mobile specific prediction tuning for touch controls
+    MOBILE_RECONCILE_SOFT_DISTANCE: 12, // Ignore larger touch jitter (px)
+    MOBILE_RECONCILE_BLEND_FACTOR: 0.20, // Gentler pull towards auth state on touch
+    MOBILE_PREDICTION_CORRECTION_DECAY: 0.70, // Faster decay of visual offsets to prevent rubberband lingering
+
     // Systematic drift self-correction (client-side bias from reconcile patterns)
     PREDICTION_DRIFT_WINDOW: 12, // Recent reconcile samples for pattern detection
     PREDICTION_DRIFT_COHERENCE: 0.62, // Mean/avgMagnitude - how consistent direction must be

@@ -822,9 +822,15 @@ class PlayerBase {
 
         // Decay visual correction offset (hides remaining reconcile error)
         if (this._predictionCorrectionX || this._predictionCorrectionY) {
-            const decay = (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.PREDICTION_CORRECTION_DECAY != null)
-                ? MultiplayerConfig.PREDICTION_CORRECTION_DECAY
+            const isMobile = (typeof Engine !== 'undefined' && Engine.Input)
+                ? (typeof Engine.Input.isMobileUiMode === 'function' ? Engine.Input.isMobileUiMode() : (typeof Engine.Input.isMobileDevice === 'function' ? Engine.Input.isMobileDevice() : false))
+                : false;
+            const defaultDecay = isMobile
+                ? (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.MOBILE_PREDICTION_CORRECTION_DECAY != null ? MultiplayerConfig.MOBILE_PREDICTION_CORRECTION_DECAY : 0.70)
                 : 0.85;
+            const decay = (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.PREDICTION_CORRECTION_DECAY != null)
+                ? (isMobile ? defaultDecay : MultiplayerConfig.PREDICTION_CORRECTION_DECAY)
+                : defaultDecay;
             this._predictionCorrectionX = (this._predictionCorrectionX || 0) * decay;
             this._predictionCorrectionY = (this._predictionCorrectionY || 0) * decay;
             if (Math.abs(this._predictionCorrectionX) < 0.15) this._predictionCorrectionX = 0;
@@ -2185,7 +2191,10 @@ class PlayerBase {
     // Add XP and check for level up
     addXP(amount) {
         // 50% bonus XP for faster leveling (increased from 10% for balance)
-        const bonusXP = amount * 1.5;
+        // In Surge Arena, damp XP gains because there are many more enemies
+        const isArena = typeof Game !== 'undefined' && (Game.gameMode === 'surge-arena' || Game.activeSessionId === 'surge-arena');
+        const mult = isArena ? 0.35 : 1.5;
+        const bonusXP = amount * mult;
         this.xp += bonusXP;
         this.totalXpEarned = (this.totalXpEarned || 0) + bonusXP;
 

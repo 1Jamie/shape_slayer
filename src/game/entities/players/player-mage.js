@@ -1296,8 +1296,9 @@ class Mage extends PlayerBase {
 
     // Override renderClassVisuals for Mage-specific visuals
     renderClassVisuals(ctx) {
-        // Draw beam aim telegraph while charging heavy on mobile/controller
-        if (this.beamPreviewActive) {
+        // Draw beam aim telegraph while charging heavy on mobile/controller/desktop
+        const showBeamPreview = this.beamPreviewActive || this.isChargingHeavy;
+        if (showBeamPreview) {
             ctx.save();
 
             const reachMult = typeof getWeaponMeleeReachMult === 'function'
@@ -1306,7 +1307,7 @@ class Mage extends PlayerBase {
             const beamRange = MAGE_CONFIG.beamRange * reachMult;
             const beamWidth = MAGE_CONFIG.beamWidth;
             const halfW = beamWidth / 2;
-            const angle = this.beamPreviewAngle;
+            const angle = this.beamPreviewActive ? this.beamPreviewAngle : this.rotation;
             const cos = Math.cos(angle);
             const sin = Math.sin(angle);
             const px = -sin; // perpendicular

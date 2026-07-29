@@ -68,36 +68,24 @@
      */
     function arenaBossScalingRoom(wave) {
         const w = Math.max(1, wave || 1);
-        const hardIndex = getArenaHardIndex(w);
-        if (hardIndex <= 1) return 1;
-        if (hardIndex === 2) return 3;
-        if (hardIndex === 3) return 5;
-        const extra = hardIndex - 3;
-        return Math.floor(5 + extra * 4 + Math.pow(extra, 1.4) * 1.5);
+        if (w <= 15) return w;
+        const extra = w - 15;
+        return Math.floor(15 + extra * 1.2 + Math.pow(extra, 1.3) * 0.4);
     }
 
     function arenaBossHpMult(wave, bossCount) {
-        const w = Math.max(1, wave || 1);
-        const hardIndex = getArenaHardIndex(w);
-        const count = Math.max(1, bossCount || getArenaBossCount(w));
-
-        let baseHpMult = 0.45;
-        if (count === 2) baseHpMult = 0.38;
-        else if (count === 3) baseHpMult = 0.35;
-        else if (count >= 4) baseHpMult = 0.32;
-
-        const growth = 1 + Math.max(0, hardIndex - 3) * 0.08;
-        return Math.min(1.25, baseHpMult * growth);
+        const count = Math.max(1, bossCount || getArenaBossCount(wave));
+        if (count === 1) return 0.85;
+        if (count === 2) return 0.70;
+        if (count === 3) return 0.60;
+        return 0.50;
     }
 
     function arenaBossDamageMult(wave, bossCount) {
-        const w = Math.max(1, wave || 1);
-        const hardIndex = getArenaHardIndex(w);
-        const count = Math.max(1, bossCount || getArenaBossCount(w));
-
-        let baseDmgMult = count > 1 ? 0.82 : 0.88;
-        const growth = 1 + Math.max(0, hardIndex - 3) * 0.04;
-        return Math.min(1.5, baseDmgMult * growth);
+        const count = Math.max(1, bossCount || getArenaBossCount(wave));
+        if (count === 1) return 0.95;
+        if (count === 2) return 0.85;
+        return 0.75;
     }
 
     function pickArenaBosses(wave, count) {
@@ -679,6 +667,20 @@
             setMachinesAccessible(room, false);
         }
 
+        // Reset machine upgrade / reroll transaction flags for the new wave
+        if (typeof clearAllGearRarityVisitFlags === 'function') {
+            clearAllGearRarityVisitFlags();
+        } else if (typeof window !== 'undefined' && typeof window.clearAllGearRarityVisitFlags === 'function') {
+            window.clearAllGearRarityVisitFlags();
+        }
+        if (typeof LedgerManager !== 'undefined' && LedgerManager.getRunState) {
+            const rs = LedgerManager.getRunState();
+            if (rs) {
+                rs.sameSlotRerolls = {};
+                rs.maxSameSlotRerolls = 0;
+            }
+        }
+
         room.number = wave;
         room.cleared = false;
         room.rewardsGranted = false;
@@ -776,6 +778,27 @@
         const room = resolveRoom(w);
         if (!w || !room || !room.wavePylon || !room.wavePylon.active) return false;
         if (w.arenaPhase !== 'waiting') return false;
+
+        const isMp = w.multiplayerEnabled || w.localSplitEnabled;
+        if (isMp) {
+            const pylon = room.wavePylon;
+            const players = [];
+            if (w.player && w.player.alive && w.player.hp > 0) players.push(w.player);
+            if (w.remotePlayerInstances) {
+                w.remotePlayerInstances.forEach(p => {
+                    if (p && p.alive && p.hp > 0) players.push(p);
+                });
+            }
+            const allInside = players.every(p => {
+                const dx = pylon.x - p.x;
+                const dy = pylon.y - p.y;
+                return Math.sqrt(dx * dx + dy * dy) < pylon.range;
+            });
+            if (!allInside) {
+                console.log('[Arena] Cannot trigger next wave: not all players are inside the trigger ring');
+                return false;
+            }
+        }
 
         const next = Math.max(1, (w.waveNumber || 1) + 1);
         setMachinesAccessible(room, false);

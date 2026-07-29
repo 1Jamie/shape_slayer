@@ -2107,15 +2107,28 @@ class MultiplayerManager {
         if (!Game.player || !hostState) return;
         if (!this.predictionEnabled || this.isHost) return;
 
-        const softDist = (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.RECONCILE_SOFT_DISTANCE != null)
-            ? MultiplayerConfig.RECONCILE_SOFT_DISTANCE
+        const isMobile = (typeof Engine !== 'undefined' && Engine.Input)
+            ? (typeof Engine.Input.isMobileUiMode === 'function' ? Engine.Input.isMobileUiMode() : (typeof Engine.Input.isMobileDevice === 'function' ? Engine.Input.isMobileDevice() : false))
+            : false;
+
+        const defaultSoft = isMobile
+            ? (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.MOBILE_RECONCILE_SOFT_DISTANCE != null ? MultiplayerConfig.MOBILE_RECONCILE_SOFT_DISTANCE : 12)
             : 5;
+        const softDist = (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.RECONCILE_SOFT_DISTANCE != null)
+            ? (isMobile ? defaultSoft : MultiplayerConfig.RECONCILE_SOFT_DISTANCE)
+            : defaultSoft;
+
         const snapDist = (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.RECONCILE_SNAP_DISTANCE != null)
             ? MultiplayerConfig.RECONCILE_SNAP_DISTANCE
             : 80;
-        let blendFactor = (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.RECONCILE_BLEND_FACTOR != null)
-            ? MultiplayerConfig.RECONCILE_BLEND_FACTOR
+
+        const defaultBlend = isMobile
+            ? (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.MOBILE_RECONCILE_BLEND_FACTOR != null ? MultiplayerConfig.MOBILE_RECONCILE_BLEND_FACTOR : 0.20)
             : 0.35;
+        let blendFactor = (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.RECONCILE_BLEND_FACTOR != null)
+            ? (isMobile ? defaultBlend : MultiplayerConfig.RECONCILE_BLEND_FACTOR)
+            : defaultBlend;
+
         const divergenceThreshold = (typeof MultiplayerConfig !== 'undefined' && MultiplayerConfig.PREDICTION_DIVERGENCE_THRESHOLD != null)
             ? MultiplayerConfig.PREDICTION_DIVERGENCE_THRESHOLD
             : 8;
@@ -3969,6 +3982,10 @@ class MultiplayerManager {
         room.archetype = layout.archetype || null;
         room.entranceVariant = layout.entranceVariant || null;
 
+        if (layout.anchors && typeof GameArena !== 'undefined' && GameArena.attachArenaFixtures) {
+            GameArena.attachArenaFixtures(room, layout.anchors);
+        }
+
         if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom !== room && typeof releaseRoomRenderCaches === 'function') {
             releaseRoomRenderCaches(currentRoom);
         }
@@ -3979,7 +3996,11 @@ class MultiplayerManager {
         if (typeof Game !== 'undefined' && typeof Game.syncInSafeRoomFromCurrentRoom === 'function') {
             Game.syncInSafeRoomFromCurrentRoom(currentRoom);
         }
-        this.beginClientRoomEnterTransition(targetRoomNumber);
+
+        const isSurgeArena = (typeof Game !== 'undefined' && (Game.activeSessionId === 'surge-arena' || Game.selectedModeId === 'surge-arena'));
+        if (!isSurgeArena) {
+            this.beginClientRoomEnterTransition(targetRoomNumber);
+        }
     }
 
     applyGameState(state) {

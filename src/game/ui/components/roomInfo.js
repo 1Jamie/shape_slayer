@@ -117,7 +117,9 @@
 			roomNumberEl.textContent = 'Safe Room';
 		} else if (useWave) {
 			const wave = Game.waveNumber || Game.roomNumber || 1;
-			const hard = wave % 5 === 0;
+			const hard = (typeof GameArena !== 'undefined' && GameArena.isHardWave)
+				? GameArena.isHardWave(wave)
+				: (wave === 8 || (wave >= 15 && wave % 5 === 0));
 			roomNumberEl.textContent = hard ? `Wave ${wave} — Surge` : `Wave ${wave}`;
 		} else {
 			roomNumberEl.textContent = `Room ${Game.roomNumber}`;

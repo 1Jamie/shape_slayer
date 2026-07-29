@@ -1058,9 +1058,13 @@ class Tank extends PlayerBase {
             ctx.restore();
         }
         
-        // Draw heavy charge effect - Tank shout indicator
-        if (this.heavyChargeEffectActive) {
-            const chargeProgress = this.heavyChargeEffectElapsed / this.heavyChargeEffectDuration;
+        // Draw heavy charge effect - Tank shout indicator (active when charging or effect active)
+        const showTankHeavyTelegraph = this.heavyChargeEffectActive || this.isChargingHeavy;
+        if (showTankHeavyTelegraph) {
+            const windup = Math.max(this.heavyAttackWindup || 0.3, 0.0001);
+            const chargeProgress = this.heavyChargeEffectActive
+                ? (this.heavyChargeEffectElapsed / (this.heavyChargeEffectDuration || windup))
+                : Math.min(this.heavyChargeElapsed / windup, 1);
             const pulseSize = 1.0 + Math.sin(chargeProgress * Math.PI * 4) * 0.1;
             
             ctx.save();

@@ -64,28 +64,28 @@ test('getArenaBossCount follows 1, 2, 3, RNG 3-5, then absurd wave scaling', () 
     assert.ok(Array.from(wave105Counts).every(c => c >= 8 && c <= 10), 'Wave 105 (Surge 20) should scale to 8..10');
 });
 
-test('arenaBossScalingRoom accelerates past surge 3 to prevent player outscaling', () => {
+test('arenaBossScalingRoom scales directly with wave number', () => {
     const { GameArena } = loadArenaModule();
 
-    assert.equal(GameArena.arenaBossScalingRoom(8), 1, 'Surge 1 baseline room');
-    assert.equal(GameArena.arenaBossScalingRoom(15), 3, 'Surge 2 baseline room');
-    assert.equal(GameArena.arenaBossScalingRoom(20), 5, 'Surge 3 room 5');
+    assert.equal(GameArena.arenaBossScalingRoom(8), 8, 'Surge 1 baseline room');
+    assert.equal(GameArena.arenaBossScalingRoom(15), 15, 'Surge 2 baseline room');
+    assert.equal(GameArena.arenaBossScalingRoom(20), 24, 'Surge 3 room 24');
 
-    assert.ok(GameArena.arenaBossScalingRoom(25) >= 10, 'Surge 4 scale room should accelerate past or equal 10');
-    assert.ok(GameArena.arenaBossScalingRoom(30) >= 16, 'Surge 5 scale room should accelerate past or equal 16');
-    assert.ok(GameArena.arenaBossScalingRoom(55) > 50, 'Surge 10 scale room should exceed 50');
+    assert.ok(GameArena.arenaBossScalingRoom(25) >= 25);
+    assert.ok(GameArena.arenaBossScalingRoom(30) >= 30);
+    assert.ok(GameArena.arenaBossScalingRoom(55) > 50);
 });
 
-test('arenaBossHpMult and arenaBossDamageMult grow past surge 3', () => {
+test('arenaBossHpMult and arenaBossDamageMult change with boss counts', () => {
     const { GameArena } = loadArenaModule();
 
-    const hp3 = GameArena.arenaBossHpMult(20, 3);
-    const hp5 = GameArena.arenaBossHpMult(30, 3);
-    assert.ok(hp5 > hp3, 'Boss HP mult should grow past surge 3');
+    const hpSingle = GameArena.arenaBossHpMult(20, 1);
+    const hpTriple = GameArena.arenaBossHpMult(20, 3);
+    assert.ok(hpSingle > hpTriple, 'HP multiplier should be higher for single bosses');
 
-    const dmg3 = GameArena.arenaBossDamageMult(20, 3);
-    const dmg5 = GameArena.arenaBossDamageMult(30, 3);
-    assert.ok(dmg5 > dmg3, 'Boss damage mult should grow past surge 3');
+    const dmgSingle = GameArena.arenaBossDamageMult(20, 1);
+    const dmgDouble = GameArena.arenaBossDamageMult(20, 2);
+    assert.ok(dmgSingle > dmgDouble, 'Damage multiplier should be higher for single bosses');
 });
 
 test('pickArenaBosses handles count > pool.length with duplicates', () => {

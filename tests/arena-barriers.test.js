@@ -64,11 +64,11 @@ test('GameArena hard-wave helpers follow new room 8 / 15 / 20 cadence pattern', 
 
 test('GameArena maps hard waves to shallow Gear rooms for boss scaling', () => {
     const env = loadArena();
-    assert.equal(env.GameArena.arenaBossScalingRoom(8), 1);
-    assert.equal(env.GameArena.arenaBossScalingRoom(15), 3);
-    assert.equal(env.GameArena.arenaBossScalingRoom(20), 5);
+    assert.equal(env.GameArena.arenaBossScalingRoom(8), 8);
+    assert.equal(env.GameArena.arenaBossScalingRoom(15), 15);
+    assert.equal(env.GameArena.arenaBossScalingRoom(20), 24);
     assert.ok(env.GameArena.arenaBossScalingRoom(30) > 9);
-    assert.ok(env.GameArena.arenaBossHpMult(8) < 0.5);
+    assert.ok(env.GameArena.arenaBossHpMult(8) > 0.5);
     assert.ok(env.GameArena.arenaBossHpMult(15) < env.GameArena.arenaBossHpMult(8));
 });
 

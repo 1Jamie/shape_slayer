@@ -2869,6 +2869,9 @@ function renderExitChevron(ctx) {
     if (!ctx || typeof Game === 'undefined' || Game.state !== 'PLAYING') return;
     if (typeof currentRoom === 'undefined' || !currentRoom || !currentRoom.layout || !currentRoom.layout.exitZone) return;
 
+    const isSurge = Game.activeSessionId === 'surge-arena' || currentRoom.archetype === 'surgeArena';
+    if (isSurge && !currentRoom.machinesAccessible) return;
+
     const layout = currentRoom.layout;
     const exitZone = layout.exitZone;
     const camera = Game.camera;

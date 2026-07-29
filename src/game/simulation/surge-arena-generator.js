@@ -643,6 +643,7 @@
         }
 
         layout.topologyId = topologyId;
+        layout.anchors = finalized;
         layout.hash = computeHash(layout);
         layout.visualMotifs.push({
             type: 'surgeTopology',

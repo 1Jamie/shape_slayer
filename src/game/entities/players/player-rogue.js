@@ -857,10 +857,12 @@ class Rogue extends PlayerBase {
             ctx.restore();
         }
         
-        // Draw heavy attack preview - shows fan of knives cone (mobile)
-        if (this.heavyAttackPreviewActive) {
+        // Draw heavy attack preview - shows fan of knives cone (mobile/aim mode or heavy charge)
+        const showHeavyPreview = this.heavyAttackPreviewActive || this.isChargingHeavy;
+        if (showHeavyPreview) {
             ctx.save();
             ctx.translate(this.x, this.y);
+            const aimAngle = this.heavyAttackPreviewActive ? this.heavyAttackPreviewAngle : this.rotation;
             
             const previewRange = 250; // How far the preview extends
             const numKnives = ROGUE_CONFIG.fanKnifeCount; // Same as actual fan of knives
@@ -873,14 +875,14 @@ class Rogue extends PlayerBase {
             ctx.setLineDash([3, 3]); // Dashed line
             
             // Left edge of cone
-            const leftAngle = this.heavyAttackPreviewAngle - spreadAngle / 2;
+            const leftAngle = aimAngle - spreadAngle / 2;
             ctx.beginPath();
             ctx.moveTo(0, 0);
             ctx.lineTo(Math.cos(leftAngle) * previewRange, Math.sin(leftAngle) * previewRange);
             ctx.stroke();
             
             // Right edge of cone
-            const rightAngle = this.heavyAttackPreviewAngle + spreadAngle / 2;
+            const rightAngle = aimAngle + spreadAngle / 2;
             ctx.beginPath();
             ctx.moveTo(0, 0);
             ctx.lineTo(Math.cos(rightAngle) * previewRange, Math.sin(rightAngle) * previewRange);
@@ -890,7 +892,7 @@ class Rogue extends PlayerBase {
             ctx.strokeStyle = `rgba(255, 150, 230, ${0.5 * pulse})`;
             ctx.lineWidth = 1.5;
             for (let i = 0; i < numKnives; i++) {
-                const angle = this.heavyAttackPreviewAngle + (i / (numKnives - 1) - 0.5) * spreadAngle;
+                const angle = aimAngle + (i / (numKnives - 1) - 0.5) * spreadAngle;
                 ctx.beginPath();
                 ctx.moveTo(0, 0);
                 ctx.lineTo(Math.cos(angle) * previewRange, Math.sin(angle) * previewRange);

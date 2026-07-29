@@ -1509,7 +1509,28 @@ function getInteractionLabel(interaction) {
         }
         return (interaction.machineId === 'runSave' ? 'Use ' : 'Open ') + (interaction.machineName || 'Machine');
     }
-    if (interaction.type === 'wavePylon') return 'Start Next Wave';
+    if (interaction.type === 'wavePylon') {
+        const isMp = Game.multiplayerEnabled || Game.localSplitEnabled;
+        if (isMp) {
+            const pylon = interaction.pylon;
+            const players = [];
+            if (Game.player && Game.player.alive && Game.player.hp > 0) players.push(Game.player);
+            if (Game.remotePlayerInstances) {
+                Game.remotePlayerInstances.forEach(p => {
+                    if (p && p.alive && p.hp > 0) players.push(p);
+                });
+            }
+            const allInside = players.every(p => {
+                const dx = pylon.x - p.x;
+                const dy = pylon.y - p.y;
+                return Math.sqrt(dx * dx + dy * dy) < pylon.range;
+            });
+            if (!allInside) {
+                return 'Waiting for all players...';
+            }
+        }
+        return 'Start Next Wave';
+    }
     if (interaction.type === 'goreCleanPad') return 'Clear Arena Viscera';
     if (interaction.type === 'preBossHealer') return 'Activate Healer';
     if (interaction.type === 'doorpack') return 'Select Pack';
@@ -1844,10 +1865,29 @@ function performCurrentInteraction() {
                 window.toggleSafeRoomMachine(true, currentInteraction.machineId);
             }
         } else if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'wavePylon') {
-            if (typeof GameBus !== 'undefined' && GameBus.emit) {
-                GameBus.emit('arena:startNextWave', { world: Game });
-            } else if (typeof GameArena !== 'undefined' && GameArena.triggerNextWave) {
-                GameArena.triggerNextWave(Game);
+            const isMp = Game.multiplayerEnabled || Game.localSplitEnabled;
+            let allInside = true;
+            if (isMp) {
+                const pylon = currentInteraction.pylon;
+                const players = [];
+                if (Game.player && Game.player.alive && Game.player.hp > 0) players.push(Game.player);
+                if (Game.remotePlayerInstances) {
+                    Game.remotePlayerInstances.forEach(p => {
+                        if (p && p.alive && p.hp > 0) players.push(p);
+                    });
+                }
+                allInside = players.every(p => {
+                    const dx = pylon.x - p.x;
+                    const dy = pylon.y - p.y;
+                    return Math.sqrt(dx * dx + dy * dy) < pylon.range;
+                });
+            }
+            if (allInside) {
+                if (typeof GameBus !== 'undefined' && GameBus.emit) {
+                    GameBus.emit('arena:startNextWave', { world: Game });
+                } else if (typeof GameArena !== 'undefined' && GameArena.triggerNextWave) {
+                    GameArena.triggerNextWave(Game);
+                }
             }
         } else if (Game && Game.state === 'PLAYING' && currentInteraction.type === 'goreCleanPad') {
             if (typeof resetVoxelStaticCanvas === 'function' && typeof currentRoom !== 'undefined' && currentRoom) {

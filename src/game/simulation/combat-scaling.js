@@ -523,11 +523,15 @@ function computeEnemyCount(roomNumber, roomType, ctx, factors) {
 }
 
 function computeScalingFactors(ctx) {
-    const roomNumber = ctx.roomNumber || 1;
-    const roomIndex = Math.max(0, roomNumber - 1);
-    const roomType = ctx.roomType || 'normal';
+    let roomNumber = ctx.roomNumber || 1;
     const gameMode = ctx.gameMode || getGameMode();
     const isArena = gameMode === 'surge-arena' || gameMode === 'arena';
+    if (isArena && roomNumber > 15) {
+        const extra = roomNumber - 15;
+        roomNumber = Math.floor(15 + extra * 1.2 + Math.pow(extra, 1.3) * 0.4);
+    }
+    const roomIndex = Math.max(0, roomNumber - 1);
+    const roomType = ctx.roomType || 'normal';
     const difficulty = resolveDifficulty(ctx.difficulty);
     const mp = getMultiplayerScaling(ctx);
     const roomMod = ROOM_TYPE_MODIFIERS[roomType] || ROOM_TYPE_MODIFIERS.normal;
@@ -678,7 +682,8 @@ function resolveEnemyStats(profileId, baseConfig, ctx, factors, options = {}) {
         damage *= config[profile.damageTrimField];
     }
 
-    let xpMult = f.roomHp;
+    const isArena = ctx.gameMode === 'surge-arena' || ctx.gameMode === 'arena';
+    let xpMult = isArena ? (1 + (ctx.roomNumber || 1) * 0.05) : f.roomHp;
     if (roomNumber <= getPreBossLastRoom(ctx.gameMode)) {
         xpMult *= EARLY_RUN_XP_BONUS;
     }
@@ -860,6 +865,12 @@ function resolveModeWeights(modeConfig, profile, gameMode) {
 
 function computeBossStats(bossScalingId, roomNumber, options = {}) {
     const gameMode = options.gameMode || getGameMode();
+    let targetRoomNumber = roomNumber;
+    const isArena = gameMode === 'surge-arena' || gameMode === 'arena';
+    if (isArena && targetRoomNumber > 15) {
+        const extra = targetRoomNumber - 15;
+        targetRoomNumber = Math.floor(15 + extra * 1.2 + Math.pow(extra, 1.3) * 0.4);
+    }
     const modeConfig = BOSS_MODE_CONFIG[gameMode] || BOSS_MODE_CONFIG.gear;
     const profile = BOSS_SCALING_PROFILES[bossScalingId] || BOSS_SCALING_PROFILES.swarmKing;
     const growth = options.growth || getBossGrowthConstants();
@@ -868,8 +879,8 @@ function computeBossStats(bossScalingId, roomNumber, options = {}) {
     const isEliteSpawn = options.isEliteSpawn === true;
 
     const { hpWeight, damageWeight } = resolveModeWeights(modeConfig, profile, gameMode);
-    const roomIndex = Math.max(0, roomNumber - 1);
-    const encounterIndex = getBossEncounterIndex(gameMode, roomNumber);
+    const roomIndex = Math.max(0, targetRoomNumber - 1);
+    const encounterIndex = getBossEncounterIndex(gameMode, targetRoomNumber);
 
     const encounterHpMult = getEncounterStatMultiplier(
         modeConfig, encounterIndex, modeConfig.encounterHpMultipliers, modeConfig.endlessEncounterHpGrowth
@@ -880,8 +891,8 @@ function computeBossStats(bossScalingId, roomNumber, options = {}) {
 
     let constructorHp = modeConfig.anchorBaseHp * hpWeight * encounterHpMult;
     let constructorDamage = modeConfig.anchorBaseDamage * damageWeight * encounterDamageMult;
-    if (roomNumber > modeConfig.canonicalEndRoom) {
-        const roomsPastEnd = roomNumber - modeConfig.canonicalEndRoom;
+    if (targetRoomNumber > modeConfig.canonicalEndRoom) {
+        const roomsPastEnd = targetRoomNumber - modeConfig.canonicalEndRoom;
         constructorHp *= Math.pow(1 + modeConfig.endlessHpGrowthPerRoom, roomsPastEnd);
         constructorDamage *= Math.pow(1 + modeConfig.endlessDamageGrowthPerRoom, roomsPastEnd);
     }
@@ -907,7 +918,7 @@ function computeBossStats(bossScalingId, roomNumber, options = {}) {
         bossScalingId: profile.id,
         bossName: profile.name,
         gameMode,
-        roomNumber,
+        roomNumber: targetRoomNumber,
         encounterIndex,
         cycleIndex,
         constructorHp,
@@ -916,7 +927,7 @@ function computeBossStats(bossScalingId, roomNumber, options = {}) {
         damage: constructorDamage * roomDamageScale * mpScaling.bossDamage,
         roomHpScale,
         roomDamageScale,
-        isEndless: roomNumber > modeConfig.canonicalEndRoom,
+        isEndless: targetRoomNumber > modeConfig.canonicalEndRoom,
         isEliteSpawn
     };
 }

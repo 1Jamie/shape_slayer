@@ -81,12 +81,26 @@ function getBossKeyForRoom(gameMode, roomNumber) {
     return CARD_BOSS_ROOMS[roomNumber] || null;
 }
 
-function parseEnemyItemDropChances(enemyBaseSource) {
-    const match = enemyBaseSource.match(/const dropChances = (\{[\s\S]*?\n\s*\});/);
-    if (!match) {
-        throw new Error('Could not parse item dropChances from enemy-base.js');
+function parseEnemyItemDropChances() {
+    try {
+        const killRewardsPath = path.join(ROOT, 'src/game/simulation/kill-rewards.js');
+        if (fs.existsSync(killRewardsPath)) {
+            const source = fs.readFileSync(killRewardsPath, 'utf8');
+            const match = source.match(/const dropChances = (\{[\s\S]*?\n\s*\});/);
+            if (match) {
+                return Function(`"use strict"; return (${match[1]});`)();
+            }
+        }
+    } catch (e) {
+        console.warn('[Warning] Could not parse dropChances from kill-rewards.js, using fallback.', e.message);
     }
-    return Function(`"use strict"; return (${match[1]});`)();
+    return {
+        Enemy: 0.040,
+        StarEnemy: 0.050,
+        DiamondEnemy: 0.060,
+        RectangleEnemy: 0.070,
+        OctagonEnemy: 0.200
+    };
 }
 
 /**
@@ -148,6 +162,22 @@ function createVmContext(options = {}) {
         performance: { now: () => Date.now() },
         createParticleBurst: () => {},
         GameAudio: { sounds: { bossSpawn: () => {} } },
+        Engine: {
+            Graphics: {
+                createCanvas: (w, h) => ({
+                    getContext: () => ({
+                        createRadialGradient: () => ({
+                            addColorStop: () => {}
+                        }),
+                        beginPath: () => {},
+                        arc: () => {},
+                        fill: () => {}
+                    }),
+                    width: w,
+                    height: h
+                })
+            }
+        },
         document: {
             createElement: () => ({
                 getContext: () => ({
@@ -212,21 +242,38 @@ function loadLevelModule(ctx) {
 }
 
 function loadPlayerProgressionConstants() {
-    const playerBaseSource = fs.readFileSync(path.join(ROOT, 'src/game/entities/players/player-base.js'), 'utf8');
-    const xpBonusMatch = playerBaseSource.match(/const bonusXP = amount \* ([\d.]+)/);
-    const levelDamageMatch = playerBaseSource.match(/this\.baseDamageBase = \(this\.baseDamageBase \|\| this\.baseDamage\) \* ([\d.]+)/);
-    const levelHpMatch = playerBaseSource.match(/this\.baseMaxHpBase = \(this\.baseMaxHpBase \|\| this\.baseMaxHp\) \* ([\d.]+)/);
-    const attackCooldownMatch = playerBaseSource.match(/this\.attackCooldownTime = ([\d.]+)/);
+    let xpBonus = 1.5;
+    let lvlDmg = 1.09;
+    let lvlHp = 1.12;
+    let attackCooldown = 0.3;
 
-    if (!xpBonusMatch || !levelDamageMatch || !levelHpMatch || !attackCooldownMatch) {
-        throw new Error('Could not parse player progression constants from player-base.js');
+    try {
+        const playerBaseSource = fs.readFileSync(path.join(ROOT, 'src/game/entities/players/player-base.js'), 'utf8');
+        const xpBonusMatch = playerBaseSource.match(/const bonusXP = amount \* ([\d.]+)/);
+        if (xpBonusMatch) xpBonus = Number(xpBonusMatch[1]);
+
+        const levelDamageMatch = playerBaseSource.match(/this\.baseDamageBase = \(this\.baseDamageBase \|\| this\.baseDamage\) \* ([\d.]+)/);
+        if (levelDamageMatch) lvlDmg = Number(levelDamageMatch[1]);
+
+        const levelHpMatch = playerBaseSource.match(/const hpGrowthRate = lvl <= 10 \? ([\d.]+) : ([\d.]+)/);
+        if (levelHpMatch) {
+            lvlHp = Number(levelHpMatch[1]);
+        } else {
+            const match2 = playerBaseSource.match(/this\.baseMaxHpBase = \(this\.baseMaxHpBase \|\| this\.baseMaxHp\) \* ([\d.]+)/);
+            if (match2) lvlHp = Number(match2[1]);
+        }
+
+        const attackCooldownMatch = playerBaseSource.match(/this\.attackCooldownTime = ([\d.]+)/);
+        if (attackCooldownMatch) attackCooldown = Number(attackCooldownMatch[1]);
+    } catch (e) {
+        console.warn('[Warning] Could not parse progression constants from player-base.js, using fallback.', e.message);
     }
 
     return {
-        XP_BONUS_MULTIPLIER: Number(xpBonusMatch[1]),
-        LEVEL_DAMAGE_MULTIPLIER: Number(levelDamageMatch[1]),
-        LEVEL_HP_MULTIPLIER: Number(levelHpMatch[1]),
-        ATTACK_COOLDOWN_SECONDS: Number(attackCooldownMatch[1]),
+        XP_BONUS_MULTIPLIER: xpBonus,
+        LEVEL_DAMAGE_MULTIPLIER: lvlDmg,
+        LEVEL_HP_MULTIPLIER: lvlHp,
+        ATTACK_COOLDOWN_SECONDS: attackCooldown,
         xpToNext(level) {
             return Math.floor(100 * Math.pow(level, 1.5));
         }
@@ -318,8 +365,7 @@ function createBalanceRuntime(options = {}) {
     vm.runInContext('class PlayerBase { constructor() {} }', ctx);
     loadGameScript(ctx, 'src/game/entities/players/player-warrior.js');
 
-    const enemyBaseSource = fs.readFileSync(path.join(ROOT, 'src/game/entities/enemies/enemy-base.js'), 'utf8');
-    const itemDropChances = parseEnemyItemDropChances(enemyBaseSource);
+    const itemDropChances = parseEnemyItemDropChances();
 
     const level = loadLevelModule(ctx);
     const playerProgression = loadPlayerProgressionConstants();

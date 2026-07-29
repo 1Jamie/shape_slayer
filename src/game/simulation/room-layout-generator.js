@@ -3172,6 +3172,7 @@
             exitZone: layout.exitZone,
             generatedByFallback: layout.generatedByFallback,
             fallbackId: layout.fallbackId || null,
+            anchors: layout.anchors || null,
             validation: layout.validation,
             hash: layout.hash
         };
@@ -3187,6 +3188,7 @@
             landmarks: Array.isArray(data.landmarks) ? data.landmarks.slice() : [],
             encounterZones: Array.isArray(data.encounterZones) ? data.encounterZones.slice() : [],
             trailMarkers: Array.isArray(data.trailMarkers) ? data.trailMarkers.slice() : [],
+            anchors: data.anchors || null,
             contentLimits: data.contentLimits || null,
             decorationSeed: data.decorationSeed || (data.seed ? `${data.seed}:decorations` : 'decorations'),
             decorationProfile: data.decorationProfile || 'defaultDust'
