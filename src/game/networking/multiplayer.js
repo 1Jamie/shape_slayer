@@ -324,6 +324,9 @@ class MultiplayerManager {
                 case 'game_start':
                     this.handleGameStart(msg.data);
                     break;
+                case 'nexus_portal_mode':
+                    this.handleNexusPortalMode(msg.data);
+                    break;
                 case 'return_to_nexus':
                     this.handleReturnToNexus(msg.data);
                     break;
@@ -525,6 +528,8 @@ class MultiplayerManager {
         if (typeof playerInstance.updateEffectiveStats === 'function') {
             playerInstance.updateEffectiveStats();
         }
+        playerInstance.maxHp = playerInstance.baseMaxHp;
+        playerInstance.hp = Math.min(playerInstance.hp || playerInstance.maxHp, playerInstance.maxHp);
     }
     
     // Get player's upgrade levels for all classes
@@ -644,6 +649,39 @@ class MultiplayerManager {
                 runSeed: Game.runSeed
             }
         });
+    }
+
+    // Broadcast Nexus portal mode change (host only)
+    broadcastNexusPortalMode(modeId) {
+        if (!this.isHost) return;
+        if (typeof Game !== 'undefined') {
+            Game.selectedModeId = modeId;
+        }
+        if (typeof nexusRoom !== 'undefined' && nexusRoom) {
+            nexusRoom.portalMode = modeId;
+        }
+        this.send({
+            type: 'nexus_portal_mode',
+            data: {
+                modeId: modeId,
+                timestamp: Date.now()
+            }
+        });
+    }
+
+    // Handle Nexus portal mode update (clients)
+    handleNexusPortalMode(data) {
+        if (this.isHost || !data || !data.modeId) return;
+        console.log(`[Multiplayer] Synced portal mode from host: ${data.modeId}`);
+        if (typeof Game !== 'undefined') {
+            Game.selectedModeId = data.modeId;
+        }
+        if (typeof nexusRoom !== 'undefined' && nexusRoom) {
+            nexusRoom.portalMode = data.modeId;
+        }
+        if (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.applySelection) {
+            GameModeCatalog.applySelection(nexusRoom, data.modeId);
+        }
     }
     
     // Send game state (host only)

@@ -1694,6 +1694,8 @@ const Game = {
 
                     // Recalculate effective stats
                     playerInstance.updateEffectiveStats();
+                    playerInstance.maxHp = playerInstance.baseMaxHp;
+                    playerInstance.hp = playerInstance.maxHp;
 
                     console.log(`[Host] Applied upgrades to ${playerId} (${playerClass}): damage=${classUpgrades.damage}, defense=${classUpgrades.defense}, speed=${classUpgrades.speed}, cooldown=${classUpgrades.cooldown}, health=${classUpgrades.health}, attackSpeed=${classUpgrades.attackSpeed}`);
                 }
@@ -2989,16 +2991,18 @@ const Game = {
 
     // Initialize remote player state (host only)
     initializeRemotePlayerState(playerId) {
+        const instance = this.remotePlayerInstances ? this.remotePlayerInstances.get(playerId) : null;
+        const initialMaxHp = instance && (instance.maxHp || instance.baseMaxHp) ? (instance.maxHp || instance.baseMaxHp) : 100;
         this.remotePlayerStates.set(playerId, {
             id: playerId,
-            hp: 100,
-            maxHp: 100,
+            hp: initialMaxHp,
+            maxHp: initialMaxHp,
             invulnerable: false,
             invulnerabilityTime: 0,
             size: 20,
             dead: false
         });
-        console.log(`[Host] Initialized state for remote player: ${playerId}`);
+        console.log(`[Host] Initialized state for remote player: ${playerId} (HP: ${initialMaxHp})`);
     },
 
     // Update invulnerability frames for remote players (host only)

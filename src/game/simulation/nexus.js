@@ -749,7 +749,9 @@ function updateNexus(ctx, deltaTime) {
 
         const inMultiplayerLobby = typeof multiplayerManager !== 'undefined'
             && multiplayerManager && multiplayerManager.lobbyCode;
-        if (!interactionHandled && nexusAllows('modeSwitcher')
+        const isClientInLobby = inMultiplayerLobby && !multiplayerManager.isHost;
+
+        if (!interactionHandled && nexusAllows('modeSwitcher') && !isClientInLobby
             && nexusActorDistance(actor, nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y) < 60) {
             if (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.cycleNext) {
                 const next = GameModeCatalog.cycleNext(nexusRoom, { inMultiplayer: !!inMultiplayerLobby });
@@ -759,12 +761,8 @@ function updateNexus(ctx, deltaTime) {
                         try { GameAudio.sounds.uiClick(); } catch (_) { /* optional */ }
                     }
                     // Broadcast mode change to all connected clients
-                    if (inMultiplayerLobby && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
-                        if (multiplayerManager.isHost) {
-                            multiplayerManager.sendGameState();
-                        } else {
-                            multiplayerManager.sendPlayerState();
-                        }
+                    if (inMultiplayerLobby && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.isHost) {
+                        multiplayerManager.broadcastNexusPortalMode(next.id);
                     }
                 }
                 if (actor.id === 'p1' && typeof Onboarding !== 'undefined' && Onboarding.notifyModeSwitchOpened) {
@@ -796,7 +794,7 @@ function updateNexus(ctx, deltaTime) {
             || !needsClass
             || Game.selectedClass
             || Game.localSplitSelectedClass);
-        if (!interactionHandled && nexusAllows('portal') && portalReady
+        if (!interactionHandled && nexusAllows('portal') && portalReady && !isClientInLobby
             && nexusActorDistance(actor, nexusRoom.portalPos.x, nexusRoom.portalPos.y) < 60) {
             if (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.enterFromPortal) {
                 GameModeCatalog.enterFromPortal({
@@ -809,10 +807,9 @@ function updateNexus(ctx, deltaTime) {
                 nexusRoom.portalMode = activeId;
                 Game.selectedModeId = activeId;
                 Game.gameMode = 'gear';
-                const inLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
-                if (inLobby) {
+                if (inMultiplayerLobby) {
                     if (multiplayerManager.isHost) {
-                        multiplayerManager.startGame();
+                        multiplayerManager.startGame(activeId);
                         Game.startGame();
                     }
                 } else if (typeof Game.tryResumeOrStartFromPortal === 'function') {
@@ -1560,7 +1557,13 @@ function renderNexus(ctx) {
 
     // Switcher interaction prompt
     if (isNearSwitcher && (typeof Engine !== 'undefined' && Engine.Input) && (!Engine.Input.shouldShowWorldInteractionHints || Engine.Input.shouldShowWorldInteractionHints())) {
-        if (resumeLocked) {
+        const inLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+        if (inLobby && !multiplayerManager.isHost) {
+            ctx.fillStyle = '#ff6666';
+            ctx.font = 'bold 12px Orbitron';
+            ctx.textAlign = 'center';
+            ctx.fillText('Only host can switch mode', nexusRoom.modeSwitcherPos.x, nexusRoom.modeSwitcherPos.y + 60);
+        } else if (resumeLocked) {
             ctx.fillStyle = '#ff8866';
             ctx.font = 'bold 11px Orbitron';
             ctx.textAlign = 'center';
