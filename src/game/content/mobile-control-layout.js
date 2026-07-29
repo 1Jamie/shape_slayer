@@ -96,7 +96,7 @@ const MobileControlLayout = {
 
         const rightX = width - Math.max(130, width * 0.10) - safeAreaOffsetRight;
         const radialRadius = basicAttackRadius + Math.floor(58 * widthScale);
-        const mobileBottomOffset = Math.max(height * 0.20, 100);
+        const mobileBottomOffset = Math.max(height * 0.26, 140);
         const rightY = (isMobile
             ? height - mobileBottomOffset
             : height - Math.max(140, height * 0.18)) - safeAreaOffsetY;

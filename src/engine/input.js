@@ -800,14 +800,14 @@ Engine.Input = {
             this._activeControlLayout = layout;
         } else {
             // Fallback if layout module missing
-            this.touchJoysticks.basicAttack   = new VirtualJoystick(width - 130, height - 140, 55, 20);
-            this.touchJoysticks.movement      = new VirtualJoystick(100, height - 140, 60, 20);
-            this.touchButtons.heavyAttack     = new TouchButton(width - 220, height - 220, 54, 54, 'Heavy');
-            this.touchJoysticks.heavyAttack   = new VirtualJoystick(width - 193, height - 193, 28, 14);
-            this.touchButtons.specialAbility  = new TouchButton(width - 100, height - 220, 54, 54, 'Spcl');
-            this.touchJoysticks.specialAbility = new VirtualJoystick(width - 73, height - 193, 28, 14);
-            this.touchButtons.dodge           = new TouchButton(width - 157, height - 80, 54, 54, 'Dodge');
-            this.touchJoysticks.dodge         = new VirtualJoystick(width - 130, height - 53, 28, 14);
+            this.touchJoysticks.basicAttack   = new VirtualJoystick(width - 130, height - 170, 55, 20);
+            this.touchJoysticks.movement      = new VirtualJoystick(100, height - 170, 60, 20);
+            this.touchButtons.heavyAttack     = new TouchButton(width - 220, height - 250, 54, 54, 'Heavy');
+            this.touchJoysticks.heavyAttack   = new VirtualJoystick(width - 193, height - 223, 28, 14);
+            this.touchButtons.specialAbility  = new TouchButton(width - 100, height - 250, 54, 54, 'Spcl');
+            this.touchJoysticks.specialAbility = new VirtualJoystick(width - 73, height - 223, 28, 14);
+            this.touchButtons.dodge           = new TouchButton(width - 157, height - 110, 54, 54, 'Dodge');
+            this.touchJoysticks.dodge         = new VirtualJoystick(width - 130, height - 83, 28, 14);
         }
 
         if (typeof this._hooks.onInputSurfaceReady === 'function') {
