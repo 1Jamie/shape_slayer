@@ -54,9 +54,12 @@
         root.__activeSessionId = null;
 
         if (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.applySelection) {
+            const savedMode = GameModeCatalog.getSelectedId(
+                typeof nexusRoom !== 'undefined' ? nexusRoom : null
+            );
             GameModeCatalog.applySelection(
                 (typeof nexusRoom !== 'undefined' ? nexusRoom : null),
-                'roguelike'
+                savedMode
             );
         }
 

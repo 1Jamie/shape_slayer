@@ -175,47 +175,90 @@ const GameDisplayManager = {
     },
 
     toggleFullscreen(game) {
-        if (!game || !game.canvas) return;
+        if (!game || typeof document === 'undefined') return;
 
-        if (typeof Engine !== 'undefined' && Engine.System &&
-            Engine.System.supportsElementFullscreen &&
-            !Engine.System.supportsElementFullscreen()) {
-            game.pseudoFullscreenActive = !game.pseudoFullscreenActive;
-            document.body.classList.toggle('pseudo-fullscreen', game.pseudoFullscreenActive);
-            game.fullscreenEnabled = game.pseudoFullscreenActive;
+        const nativeActive = this.isNativeFullscreenActive();
+        const pseudoActive = !!(game && game.pseudoFullscreenActive);
+        const currentlyFullscreen = nativeActive || pseudoActive;
+
+        if (currentlyFullscreen) {
+            // EXIT FULLSCREEN (both native and pseudo)
+            if (pseudoActive) {
+                game.pseudoFullscreenActive = false;
+                if (document.body) document.body.classList.remove('pseudo-fullscreen');
+            }
+
+            if (nativeActive) {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen().catch(() => {});
+                } else if (document.webkitExitFullscreen) {
+                    document.webkitExitFullscreen();
+                } else if (document.webkitCancelFullScreen) {
+                    document.webkitCancelFullScreen();
+                } else if (document.mozCancelFullScreen) {
+                    document.mozCancelFullScreen();
+                } else if (document.msExitFullscreen) {
+                    document.msExitFullscreen();
+                }
+            }
+
+            game.fullscreenEnabled = false;
+            if (typeof SaveSystem !== 'undefined' && SaveSystem.setFullscreenPreference) {
+                SaveSystem.setFullscreenPreference(false);
+            }
             if (typeof game.setupResponsiveCanvas === 'function') {
                 game.setupResponsiveCanvas();
             }
-            if (typeof SaveSystem !== 'undefined') {
-                SaveSystem.setFullscreenPreference(game.fullscreenEnabled);
-            }
             if (typeof window.showToast === 'function') {
-                const msg = game.pseudoFullscreenActive
-                    ? 'Expanded to screen - add to Home Screen for true fullscreen on iOS'
-                    : 'Exited expanded view';
-                window.showToast(msg, 2500);
-            }
-            return;
-        }
-
-        const isFullscreen = this.isNativeFullscreenActive();
-
-        if (isFullscreen) {
-            if (document.exitFullscreen) {
-                document.exitFullscreen();
-            } else if (document.webkitExitFullscreen) {
-                document.webkitExitFullscreen();
-            } else if (document.mozCancelFullScreen) {
-                document.mozCancelFullScreen();
+                window.showToast('Exited fullscreen', 2000);
             }
         } else {
-            const element = document.documentElement;
+            // ENTER FULLSCREEN
+            const supportsNative = typeof Engine !== 'undefined' && Engine.System &&
+                Engine.System.supportsElementFullscreen &&
+                Engine.System.supportsElementFullscreen();
+
+            if (!supportsNative) {
+                // Fall back to pseudo-fullscreen (e.g. iOS Safari)
+                game.pseudoFullscreenActive = true;
+                if (document.body) document.body.classList.add('pseudo-fullscreen');
+                game.fullscreenEnabled = true;
+                if (typeof SaveSystem !== 'undefined' && SaveSystem.setFullscreenPreference) {
+                    SaveSystem.setFullscreenPreference(true);
+                }
+                if (typeof game.setupResponsiveCanvas === 'function') {
+                    game.setupResponsiveCanvas();
+                }
+                if (typeof window.showToast === 'function') {
+                    window.showToast('Expanded to screen - add to Home Screen for true fullscreen on iOS', 2500);
+                }
+                return;
+            }
+
+            const element = document.documentElement || (game.canvas ? game.canvas.parentElement : null) || document.body;
+            if (!element) return;
+
+            let promise = null;
             if (element.requestFullscreen) {
-                element.requestFullscreen();
+                promise = element.requestFullscreen();
             } else if (element.webkitRequestFullscreen) {
-                element.webkitRequestFullscreen();
+                promise = element.webkitRequestFullscreen();
             } else if (element.mozRequestFullScreen) {
-                element.mozRequestFullScreen();
+                promise = element.mozRequestFullScreen();
+            } else if (element.msRequestFullscreen) {
+                promise = element.msRequestFullscreen();
+            }
+
+            if (promise && typeof promise.catch === 'function') {
+                promise.catch((err) => {
+                    console.warn('[FULLSCREEN] Request rejected, falling back to pseudo-fullscreen:', err);
+                    game.pseudoFullscreenActive = true;
+                    if (document.body) document.body.classList.add('pseudo-fullscreen');
+                    game.fullscreenEnabled = true;
+                    if (typeof game.setupResponsiveCanvas === 'function') {
+                        game.setupResponsiveCanvas();
+                    }
+                });
             }
         }
     }

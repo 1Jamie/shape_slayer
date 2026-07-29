@@ -1875,67 +1875,6 @@ function performCurrentInteraction() {
             }
         } else if (Game && Game.state === 'NEXUS') {
             Game.pendingNexusInteract = true;
-            if (currentInteraction.type === 'portal') {
-                if (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.enterFromPortal) {
-                    GameModeCatalog.enterFromPortal({
-                        nexusRoom: typeof nexusRoom !== 'undefined' ? nexusRoom : null,
-                        hasResumeCheckpoint: currentInteraction.data && currentInteraction.data.resume
-                    });
-                } else if (typeof Game.tryResumeOrStartFromPortal === 'function') {
-                    Game.tryResumeOrStartFromPortal();
-                } else {
-                    Game.startGame();
-                }
-            } else if (currentInteraction.type === 'modeSwitcher') {
-                const inMultiplayerLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
-                if (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.cycleNext) {
-                    const next = GameModeCatalog.cycleNext(typeof nexusRoom !== 'undefined' ? nexusRoom : null, { inMultiplayer: !!inMultiplayerLobby });
-                    if (next) {
-                        if (typeof GameAudio !== 'undefined' && GameAudio.sounds && GameAudio.sounds.uiClick) {
-                            try { GameAudio.sounds.uiClick(); } catch (_) {}
-                        }
-                        if (inMultiplayerLobby && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
-                            if (multiplayerManager.isHost) multiplayerManager.sendGameState();
-                            else multiplayerManager.sendPlayerState();
-                        }
-                    }
-                    if (typeof Onboarding !== 'undefined' && Onboarding.notifyModeSwitchOpened) {
-                        Onboarding.notifyModeSwitchOpened();
-                    }
-                }
-            } else if (currentInteraction.type === 'class' && currentInteraction.data) {
-                const actor = (typeof getNexusActors === 'function' ? getNexusActors() : []).find(a => a.id === 'p1')
-                    || { id: 'p1', player: Game.player, classKey: Game.selectedClass };
-                if (typeof applyNexusClassSelection === 'function') {
-                    applyNexusClassSelection(actor, currentInteraction.data.key);
-                }
-                if (typeof Onboarding !== 'undefined' && Onboarding.notifyClassSelected) {
-                    Onboarding.notifyClassSelected();
-                }
-            } else if (currentInteraction.type === 'upgrade' && currentInteraction.data) {
-                if (typeof purchaseUpgrade === 'function' && Game.selectedClass) {
-                    purchaseUpgrade(Game.selectedClass, currentInteraction.data.key);
-                    if (typeof Onboarding !== 'undefined' && Onboarding.notifyClassUpgradeOpened) {
-                        Onboarding.notifyClassUpgradeOpened();
-                    }
-                }
-            } else if (currentInteraction.type === 'gearUpgrade') {
-                if (typeof window !== 'undefined' && typeof window.toggleGearUpgrades === 'function') {
-                    window.toggleGearUpgrades(true, currentInteraction.upgradeId);
-                }
-            } else if (currentInteraction.type === 'indexMachine') {
-                if (typeof window !== 'undefined' && window.UIIndexMachine && typeof window.UIIndexMachine.open === 'function') {
-                    window.UIIndexMachine.open();
-                }
-            }
-            if (Engine.Input && Engine.Input.keys) {
-                const originalGState = Engine.Input.keys['g'];
-                Engine.Input.keys['g'] = true;
-                Game.lastGKeyState = false;
-                setTimeout(() => {
-                    Engine.Input.keys['g'] = originalGState;
-                }, 50);
-            }
         }
 
     return true;

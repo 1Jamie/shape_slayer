@@ -63,8 +63,12 @@
 
         getSelectedId(nexusRoom) {
             const game = root.Game;
+            const saved = (typeof SaveSystem !== 'undefined' && SaveSystem.getSelectedModeId)
+                ? SaveSystem.getSelectedModeId()
+                : null;
             const raw = (nexusRoom && nexusRoom.portalMode)
                 || (game && game.selectedModeId)
+                || saved
                 || 'roguelike';
             const id = normalizeId(raw);
             return this.get(id) ? id : 'roguelike';
@@ -86,6 +90,9 @@
                 if (entry.contentGameMode) {
                     game.gameMode = entry.contentGameMode;
                 }
+            }
+            if (typeof SaveSystem !== 'undefined' && SaveSystem.setSelectedModeId) {
+                SaveSystem.setSelectedModeId(entry.id);
             }
             return entry;
         },

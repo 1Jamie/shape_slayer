@@ -296,6 +296,19 @@ const SaveSystem = {
         this.save(save);
     },
 
+    // Set selected game mode ID (persists per session / save)
+    setSelectedModeId(modeId) {
+        const save = this.load();
+        save.selectedModeId = modeId;
+        this.save(save);
+    },
+
+    // Get selected game mode ID
+    getSelectedModeId() {
+        const save = this.load();
+        return save.selectedModeId || 'roguelike';
+    },
+
     // Calculate upgrade cost (soft exponential: baseCost × 1.2^level)
     getUpgradeCost(statType, currentLevel) {
         const baseCosts = {

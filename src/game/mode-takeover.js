@@ -207,9 +207,12 @@
         }
 
         if (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.applySelection) {
+            const currentSelection = GameModeCatalog.getSelectedId(
+                typeof nexusRoom !== 'undefined' ? nexusRoom : null
+            );
             GameModeCatalog.applySelection(
                 (typeof nexusRoom !== 'undefined' ? nexusRoom : null),
-                'roguelike'
+                currentSelection
             );
         }
     }

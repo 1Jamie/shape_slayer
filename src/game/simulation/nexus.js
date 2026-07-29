@@ -92,7 +92,9 @@ class NexusRoom {
         };
 
         // Portal mode state — GameModeCatalog id (legacy 'gear' maps to roguelike)
-        this.portalMode = 'roguelike';
+        this.portalMode = (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.getSelectedId)
+            ? GameModeCatalog.getSelectedId(null)
+            : ((typeof Game !== 'undefined' && Game.selectedModeId) || 'roguelike');
 
         // Class selection area - left side of portal
         this.classArea = {
@@ -770,7 +772,12 @@ function updateNexus(ctx, deltaTime) {
                 }
                 interactionHandled = true;
             } else {
-                nexusRoom.portalMode = 'roguelike';
+                const activeMode = (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.getSelectedId)
+                    ? GameModeCatalog.getSelectedId(nexusRoom)
+                    : 'roguelike';
+                if (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.applySelection) {
+                    GameModeCatalog.applySelection(nexusRoom, activeMode);
+                }
                 if (actor.id === 'p1' && typeof Onboarding !== 'undefined' && Onboarding.notifyModeSwitchOpened) {
                     Onboarding.notifyModeSwitchOpened();
                 }
@@ -797,8 +804,10 @@ function updateNexus(ctx, deltaTime) {
                     hasResumeCheckpoint
                 });
             } else {
-                console.log(hasResumeCheckpoint ? '[Nexus] Resuming run from checkpoint' : '[Nexus] Entering Gear Mode portal');
-                nexusRoom.portalMode = 'roguelike';
+                console.log(hasResumeCheckpoint ? '[Nexus] Resuming run from checkpoint' : '[Nexus] Entering portal for mode: ' + (selectedMode ? selectedMode.id : 'roguelike'));
+                const activeId = selectedMode ? selectedMode.id : 'roguelike';
+                nexusRoom.portalMode = activeId;
+                Game.selectedModeId = activeId;
                 Game.gameMode = 'gear';
                 const inLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
                 if (inLobby) {

@@ -277,9 +277,17 @@
 			{ primary: true, datasetAction: 'resume' }
 		);
 		primary.appendChild(resumeBtn);
+		const isFs = typeof Game !== 'undefined' && Game && typeof Game.isFullscreenActive === 'function' ? Game.isFullscreenActive() : false;
 		primary.appendChild(makeActionButton(
-			'Fullscreen',
-			() => Game && Game.toggleFullscreen && Game.toggleFullscreen(),
+			isFs ? 'Exit Fullscreen' : 'Fullscreen',
+			() => {
+				if (Game && typeof Game.toggleFullscreen === 'function') {
+					Game.toggleFullscreen();
+					if (typeof PauseMenu !== 'undefined' && PauseMenu.refresh) {
+						setTimeout(() => PauseMenu.refresh(), 100);
+					}
+				}
+			},
 			{ datasetAction: 'fullscreen' }
 		));
 

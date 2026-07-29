@@ -597,16 +597,45 @@
 			toastClearTimer: 0,
 			lastVarietyToastAt: 0
 		};
-
 		return playerMeters[playerId];
 	}
 
+	function getMeterScaleAndPosition() {
+		const isMobileUi = (typeof Engine !== 'undefined' && Engine.Input && Engine.Input.isMobileUiMode)
+			? Engine.Input.isMobileUiMode()
+			: (typeof window !== 'undefined' && window.innerWidth <= 900);
+
+		const isDomTouchActive = (typeof MobileControlsDOM !== 'undefined' && MobileControlsDOM.layer && !MobileControlsDOM.layer.hidden);
+
+		let scale = 1.0;
+		let topPos = '16%';
+
+		if (isMobileUi) {
+			if (isDomTouchActive) {
+				scale = 0.58; // Compact scale when virtual touch controls are active on screen
+				topPos = '56px'; // Position right below top HUD chrome
+			} else {
+				scale = 0.72; // Moderate scale on mobile with Gamepad/Controller
+				topPos = '60px';
+			}
+		} else {
+			scale = 0.95; // Desktop/Laptop default scale
+			topPos = '16%';
+		}
+
+		return { scale, topPos, isMobileUi, isDomTouchActive };
+	}
+
 	function setVisible(meter, next) {
+		const { scale, topPos } = getMeterScaleAndPosition();
+		meter.rootEl.style.transformOrigin = 'top right';
+
 		if (next === meter.visible) {
 			if (next) {
 				meter.rootEl.style.display = 'block';
 				meter.rootEl.style.opacity = '1';
-				meter.rootEl.style.transform = 'translateX(0)';
+				meter.rootEl.style.top = topPos;
+				meter.rootEl.style.transform = `scale(${scale}) translateX(0px)`;
 			}
 			return;
 		}
@@ -615,11 +644,12 @@
 			meter.rootEl.style.display = 'block';
 			void meter.rootEl.offsetWidth;
 			meter.rootEl.style.opacity = '1';
-			meter.rootEl.style.transform = 'translateX(0)';
+			meter.rootEl.style.top = topPos;
+			meter.rootEl.style.transform = `scale(${scale}) translateX(0px)`;
 			meter.rootEl.setAttribute('aria-hidden', 'false');
 		} else {
 			meter.rootEl.style.opacity = '0';
-			meter.rootEl.style.transform = 'translateX(28px)';
+			meter.rootEl.style.transform = `scale(${scale}) translateX(28px)`;
 			meter.rootEl.setAttribute('aria-hidden', 'true');
 			if (meter.borderEl) {
 				meter.borderEl.style.opacity = '0';

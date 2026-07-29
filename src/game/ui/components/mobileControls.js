@@ -155,15 +155,15 @@
             if (Engine.Input.isGamepadMode && Engine.Input.isGamepadMode()) return false;
             if (this._editorMode) return true;
             if (typeof Game === 'undefined') return false;
-            if (Game.state === 'SESSION') return false;
-            if (typeof GameModeTakeover !== 'undefined' && GameModeTakeover.isSessionState
-                && GameModeTakeover.isSessionState(Game)) {
-                return false;
-            }
-            // Hide under blocking menus / title attract when not in gameplay-ish states
+
+            // Hide under blocking menus / title attract / pause / character sheet / death
             if (Game.state === 'TITLE' && !Game.nexusActive) return false;
+            if (Game.showPauseMenu || Game.state === 'PAUSED') return false;
             if (typeof CharacterSheet !== 'undefined' && CharacterSheet.isOpen) return false;
-            return true;
+            if (Game.player && Game.player.dead) return false;
+
+            // Show in Nexus, Playing, or active Session runs
+            return Game.state === 'NEXUS' || Game.state === 'PLAYING' || Game.state === 'SESSION' || Game.state === 'ENTERING_ROOM' || !!Game.activeSessionId;
         },
 
         refresh() {
