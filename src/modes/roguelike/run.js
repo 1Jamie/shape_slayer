@@ -36,7 +36,7 @@
             if (world.activeSessionId
                 && typeof root.AppHost !== 'undefined'
                 && typeof root.AppHost.endSession === 'function') {
-                return root.AppHost.endSession();
+                root.AppHost.endSession();
             }
             if (typeof root.PlayingHost !== 'undefined' && root.PlayingHost.end) {
                 root.PlayingHost.end(world);

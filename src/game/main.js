@@ -6980,6 +6980,13 @@ const Game = {
     },
 
     _returnToNexusImpl() {
+        // If an active session is running, end it first so AppHost tears it down
+        if (this.activeSessionId
+            && typeof AppHost !== 'undefined'
+            && typeof AppHost.endSession === 'function') {
+            AppHost.endSession();
+        }
+
         // Multiplayer clients: wait for host signal
         if (this.waitingForHostReturn && this.isMultiplayerClient()) {
             console.log('[Client] Waiting for host to signal return to nexus');
