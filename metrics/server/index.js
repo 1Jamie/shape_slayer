@@ -149,7 +149,7 @@ const telemetrySchema = {
             properties: {
                 runId: { type: 'string', minLength: 1 },
                 gameVersion: { type: 'string' },
-                mode: { type: 'string', enum: ['singleplayer', 'multiplayer'] },
+                mode: { type: 'string', enum: ['singleplayer', 'multiplayer', 'local-coop'] },
                 gameMode: { type: ['string', 'null'], enum: ['cards', 'gear', 'surge-arena', null] },
                 playerCount: { type: ['integer', 'null'], minimum: 1 },
                 hostPlayerId: { type: 'string', minLength: 1 },

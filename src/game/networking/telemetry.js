@@ -427,7 +427,7 @@
             const runId = generateRunId();
             const startedAt = nowIso();
             const {
-                mode = (typeof Game !== 'undefined' && Game.multiplayerEnabled ? 'multiplayer' : 'singleplayer'),
+                mode = (typeof Game !== 'undefined' && Game.multiplayerEnabled ? 'multiplayer' : (typeof Game !== 'undefined' && Game.localSplitEnabled ? 'local-coop' : 'singleplayer')),
                 gameMode = (typeof Game !== 'undefined' && Game.activeSessionId === 'surge-arena') ? 'surge-arena' : (typeof Game !== 'undefined' && Game.gameMode ? Game.gameMode : 'gear'),
                 hostPlayerId = (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local'),
                 difficulty = 'default',

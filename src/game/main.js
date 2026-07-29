@@ -1390,22 +1390,19 @@ const Game = {
             });
         }
 
-        if (
-            includeRemote &&
-            this.multiplayerEnabled &&
-            typeof this.isHost === 'function' &&
-            this.isHost() &&
-            this.remotePlayerInstances &&
-            this.remotePlayerInstances.size > 0
-        ) {
-            this.remotePlayerInstances.forEach((playerInstance, playerId) => {
-                if (playerInstance) {
-                    participants.push({
-                        player: playerInstance,
-                        playerId
-                    });
-                }
-            });
+        if (includeRemote && this.remotePlayerInstances && this.remotePlayerInstances.size > 0) {
+            const isMpHost = this.multiplayerEnabled && typeof this.isHost === 'function' && this.isHost();
+            const isLocalSplit = !this.multiplayerEnabled && this.localSplitEnabled;
+            if (isMpHost || isLocalSplit) {
+                this.remotePlayerInstances.forEach((playerInstance, playerId) => {
+                    if (playerInstance) {
+                        participants.push({
+                            player: playerInstance,
+                            playerId
+                        });
+                    }
+                });
+            }
         }
 
         return participants;
@@ -7444,7 +7441,7 @@ const Game = {
             const runPlayers = this.collectTelemetryParticipants(true);
 
             Telemetry.startRun({
-                mode: this.multiplayerEnabled ? 'multiplayer' : 'singleplayer',
+                mode: this.multiplayerEnabled ? 'multiplayer' : (this.localSplitEnabled ? 'local-coop' : 'singleplayer'),
                 gameMode: (this.activeSessionId === 'surge-arena') ? 'surge-arena' : (this.gameMode || 'gear'),
                 hostPlayerId: localPlayerId,
                 difficulty: this.difficulty || 'normal',
@@ -7653,7 +7650,7 @@ const Game = {
             const runPlayers = this.collectTelemetryParticipants(true);
 
             Telemetry.startRun({
-                mode: this.multiplayerEnabled ? 'multiplayer' : 'singleplayer',
+                mode: this.multiplayerEnabled ? 'multiplayer' : (this.localSplitEnabled ? 'local-coop' : 'singleplayer'),
                 gameMode: (this.activeSessionId === 'surge-arena') ? 'surge-arena' : (this.gameMode || 'gear'),
                 hostPlayerId: localPlayerId,
                 difficulty: this.difficulty || 'normal',
