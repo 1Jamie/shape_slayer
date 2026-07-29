@@ -627,6 +627,7 @@ class MultiplayerManager {
     
     // Leave current lobby
     leaveLobby() {
+        this._suppressDisconnectHandler = true;
         if (this.connected) {
             this.send({ type: 'leave_lobby' });
         }
@@ -4782,6 +4783,7 @@ class MultiplayerManager {
     
     // Disconnect
     disconnect() {
+        this._suppressDisconnectHandler = true;
         this.leaveLobby();
         this.cleanup();
     }
