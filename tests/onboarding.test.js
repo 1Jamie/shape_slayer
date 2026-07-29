@@ -48,9 +48,10 @@ function loadOnboardingSandbox(options = {}) {
             { key: 'attackSpeed', x: 400, y: 750 }
         ],
         nexusRoom: {
-            portalPos: { x: 900, y: 520, radius: 50 },
+            portalPos: { x: 900, y: 600, radius: 60 },
+            modeSwitcherPos: { x: 900, y: 350, width: 120, height: 80 },
             width: 1800,
-            height: 1080
+            height: 1100
         },
         SaveSystem: null,
         Onboarding: null
@@ -74,6 +75,7 @@ describe('Onboarding save flags', () => {
         assert.equal(ob.selectClassDone, false);
         assert.equal(ob.launchRunDone, false);
         assert.equal(ob.classUpgradesDone, false);
+        assert.equal(ob.modeSwitchDone, false);
         assert.equal(ob.complete, false);
     });
 
@@ -96,7 +98,7 @@ describe('Onboarding step progression', () => {
         assert.equal(Onboarding.getStep(), 'selectClass');
     });
 
-    it('advances selectClass → launchRun → classUpgrades → complete', () => {
+    it('advances selectClass → launchRun → classUpgrades → modeSwitch → complete', () => {
         const sandbox = loadOnboardingSandbox();
         const { Onboarding, SaveSystem, Game } = sandbox;
         SaveSystem.setPrivacyAcknowledged(true);
@@ -125,6 +127,12 @@ describe('Onboarding step progression', () => {
 
         Onboarding._classUpgradesArmedAt = Date.now() - 1;
         Onboarding.notifyClassUpgradeOpened();
+        assert.equal(Onboarding.getStep(), 'modeSwitch');
+        assert.equal(Onboarding.allowsInteraction('modeSwitcher'), true);
+        assert.equal(Onboarding.allowsInteraction('upgrade'), false);
+
+        Onboarding._modeSwitchArmedAt = Date.now() - 1;
+        Onboarding.notifyModeSwitchOpened();
         assert.equal(Onboarding.isComplete(), true);
         assert.equal(Onboarding.allowsInteraction('portal'), true);
     });
@@ -143,6 +151,7 @@ describe('Onboarding step progression', () => {
                     launchRunDone: true,
                     firstRunStarted: true,
                     classUpgradesDone: false,
+                    modeSwitchDone: false,
                     complete: false,
                     tutorialVersion: 0
                 }
@@ -157,7 +166,7 @@ describe('Onboarding step progression', () => {
         assert.equal(Onboarding.allowsInteraction('portal'), false);
     });
 
-    it('stages player away from upgrade stations and arms before completing', () => {
+    it('stages player away from upgrade stations/mode switcher and arms before completing', () => {
         const sandbox = loadOnboardingSandbox();
         const { Onboarding, SaveSystem, Game } = sandbox;
         SaveSystem.setPrivacyAcknowledged(true);
@@ -174,11 +183,25 @@ describe('Onboarding step progression', () => {
         assert.ok(Game.player.x > 500, 'player should be staged east of upgrade column');
         assert.equal(Onboarding.isClassUpgradesArmed(), false);
         Onboarding.notifyClassUpgradeOpened();
-        assert.equal(Onboarding.isComplete(), false);
+        assert.equal(Onboarding.getStep(), 'classUpgrades'); // Still not done because unarmed
 
         Onboarding._classUpgradesArmedAt = Date.now() - 1;
         assert.equal(Onboarding.isClassUpgradesArmed(), true);
         Onboarding.notifyClassUpgradeOpened();
+
+        // Now at modeSwitch
+        assert.equal(Onboarding.getStep(), 'modeSwitch');
+        Game.player.x = 300; // Reset player pos
+        Onboarding.prepareModeSwitchStep();
+        assert.equal(Game.player.x, 900, 'player should be staged below mode switcher');
+        assert.equal(Game.player.y, 480);
+        assert.equal(Onboarding.isModeSwitchArmed(), false);
+        Onboarding.notifyModeSwitchOpened();
+        assert.equal(Onboarding.isComplete(), false);
+
+        Onboarding._modeSwitchArmedAt = Date.now() - 1;
+        assert.equal(Onboarding.isModeSwitchArmed(), true);
+        Onboarding.notifyModeSwitchOpened();
         assert.equal(Onboarding.isComplete(), true);
     });
 
@@ -208,6 +231,7 @@ describe('Onboarding step progression', () => {
                     selectClassDone: true,
                     launchRunDone: true,
                     classUpgradesDone: true,
+                    modeSwitchDone: true,
                     firstRunStarted: true,
                     complete: true,
                     tutorialVersion: 0
@@ -229,12 +253,38 @@ describe('Onboarding step progression', () => {
             selectClassDone: true,
             launchRunDone: true,
             classUpgradesDone: true,
+            modeSwitchDone: true,
             firstRunStarted: true,
             complete: true,
             tutorialVersion: SaveSystem.ONBOARDING_TUTORIAL_VERSION
         });
         assert.equal(Onboarding.isComplete(), true);
         assert.equal(Onboarding.getStep(), 'complete');
+    });
+
+    it('grandfathers version 1 completed saves to only run mode switcher tutorial', () => {
+        const sandbox = loadOnboardingSandbox({
+            seedSave: {
+                privacyAcknowledged: true,
+                hasSeenLaunchModal: true,
+                onboarding: {
+                    selectClassDone: true,
+                    launchRunDone: true,
+                    firstRunStarted: true,
+                    classUpgradesDone: true,
+                    complete: true,
+                    tutorialVersion: 1
+                }
+            }
+        });
+        const { Onboarding, SaveSystem, Game } = sandbox;
+        Game.state = 'NEXUS';
+        assert.equal(Onboarding.isComplete(), false);
+        assert.equal(Onboarding.getStep(), 'modeSwitch');
+        assert.equal(SaveSystem.getOnboarding().selectClassDone, true);
+        assert.equal(SaveSystem.getOnboarding().launchRunDone, true);
+        assert.equal(SaveSystem.getOnboarding().classUpgradesDone, true);
+        assert.equal(SaveSystem.getOnboarding().modeSwitchDone, false);
     });
 });
 
@@ -277,9 +327,8 @@ describe('Onboarding camera override', () => {
     });
 });
 
-
 describe('Onboarding skip escape', () => {
-    it('skipGuide on classUpgrades completes only that step', () => {
+    it('skipGuide on classUpgrades advances to modeSwitch', () => {
         const sandbox = loadOnboardingSandbox({
             seedSave: {
                 privacyAcknowledged: true,
@@ -289,8 +338,9 @@ describe('Onboarding skip escape', () => {
                     launchRunDone: true,
                     firstRunStarted: true,
                     classUpgradesDone: false,
+                    modeSwitchDone: false,
                     complete: false,
-                    tutorialVersion: 1
+                    tutorialVersion: 2
                 }
             },
             Game: {
@@ -307,12 +357,42 @@ describe('Onboarding skip escape', () => {
         assert.equal(Onboarding.allowsInteraction('portal'), false);
 
         assert.equal(Onboarding.skipGuide(), true);
-        assert.equal(Onboarding.isComplete(), true);
+        assert.equal(Onboarding.getStep(), 'modeSwitch');
         assert.equal(SaveSystem.getOnboarding().classUpgradesDone, true);
-        assert.equal(Onboarding.isSpotlightActive(), false);
-        assert.equal(Onboarding.allowsInteraction('portal'), true);
-        assert.equal(Onboarding.canSkipGuide(), false);
-        assert.equal(Game.state, 'NEXUS');
+        assert.equal(SaveSystem.getOnboarding().modeSwitchDone, false);
+        assert.equal(Onboarding.allowsInteraction('modeSwitcher'), true);
+        assert.equal(Onboarding.allowsInteraction('portal'), false);
+    });
+
+    it('skipGuide on modeSwitch completes onboarding', () => {
+        const sandbox = loadOnboardingSandbox({
+            seedSave: {
+                privacyAcknowledged: true,
+                hasSeenLaunchModal: true,
+                onboarding: {
+                    selectClassDone: true,
+                    launchRunDone: true,
+                    firstRunStarted: true,
+                    classUpgradesDone: true,
+                    modeSwitchDone: false,
+                    complete: false,
+                    tutorialVersion: 2
+                }
+            },
+            Game: {
+                state: 'NEXUS',
+                selectedClass: 'square',
+                config: { width: 1920, height: 1080 },
+                nexusCamera: { x: 900, y: 500 },
+                baseZoom: 1,
+                player: { x: 900, y: 480, playerId: null }
+            }
+        });
+        const { Onboarding, SaveSystem } = sandbox;
+        assert.equal(Onboarding.getStep(), 'modeSwitch');
+        assert.equal(Onboarding.skipGuide(), true);
+        assert.equal(Onboarding.isComplete(), true);
+        assert.equal(SaveSystem.getOnboarding().modeSwitchDone, true);
     });
 
     it('skipGuide on selectClass advances only to launchRun', () => {
@@ -325,8 +405,9 @@ describe('Onboarding skip escape', () => {
                     launchRunDone: false,
                     firstRunStarted: false,
                     classUpgradesDone: false,
+                    modeSwitchDone: false,
                     complete: false,
-                    tutorialVersion: 1
+                    tutorialVersion: 2
                 }
             },
             Game: {
@@ -359,8 +440,9 @@ describe('Onboarding skip escape', () => {
                     launchRunDone: false,
                     firstRunStarted: false,
                     classUpgradesDone: false,
+                    modeSwitchDone: false,
                     complete: false,
-                    tutorialVersion: 1
+                    tutorialVersion: 2
                 }
             },
             Game: {
@@ -390,9 +472,10 @@ describe('Onboarding skip escape', () => {
                     selectClassDone: true,
                     launchRunDone: true,
                     firstRunStarted: true,
-                    classUpgradesDone: false,
+                    classUpgradesDone: true,
+                    modeSwitchDone: false,
                     complete: false,
-                    tutorialVersion: 1
+                    tutorialVersion: 2
                 }
             },
             Game: {
@@ -402,7 +485,7 @@ describe('Onboarding skip escape', () => {
                 config: { width: 1920, height: 1080 },
                 nexusCamera: { x: 900, y: 500 },
                 baseZoom: 1,
-                player: { x: 620, y: 600 }
+                player: { x: 900, y: 480 }
             }
         });
         const { Onboarding } = sandbox;

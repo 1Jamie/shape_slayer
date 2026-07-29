@@ -1,5 +1,5 @@
 // First-run nexus onboarding coach (forced once per save)
-// Steps: privacy → controls → selectClass → launchRun → (run) → classUpgrades → complete
+// Steps: privacy → controls → selectClass → launchRun → (run) → classUpgrades → modeSwitch → complete
 
 const Onboarding = {
     STEPS: {
@@ -8,6 +8,7 @@ const Onboarding = {
         SELECT_CLASS: 'selectClass',
         LAUNCH_RUN: 'launchRun',
         CLASS_UPGRADES: 'classUpgrades',
+        MODE_SWITCH: 'modeSwitch',
         COMPLETE: 'complete'
     },
 
@@ -23,6 +24,11 @@ const Onboarding = {
      */
     _classUpgradesArmedAt: 0,
 
+    /**
+     * Earliest time mode-switch interact may complete the coach.
+     */
+    _modeSwitchArmedAt: 0,
+
     getProgress() {
         if (typeof SaveSystem !== 'undefined' && SaveSystem.getOnboarding) {
             return SaveSystem.getOnboarding();
@@ -31,6 +37,7 @@ const Onboarding = {
             selectClassDone: false,
             launchRunDone: false,
             classUpgradesDone: false,
+            modeSwitchDone: false,
             firstRunStarted: false,
             complete: false,
             suspendedForMp: false
@@ -92,7 +99,15 @@ const Onboarding = {
             return null;
         }
 
-        if (p.selectClassDone && p.launchRunDone && p.classUpgradesDone) {
+        // modeSwitch after class upgrades
+        if (p.firstRunStarted && p.classUpgradesDone && !p.modeSwitchDone) {
+            if (typeof Game !== 'undefined' && Game.state === 'NEXUS') {
+                return this.STEPS.MODE_SWITCH;
+            }
+            return null;
+        }
+
+        if (p.selectClassDone && p.launchRunDone && p.classUpgradesDone && p.modeSwitchDone) {
             if (!p.complete) this.markComplete();
             return this.STEPS.COMPLETE;
         }
@@ -115,7 +130,8 @@ const Onboarding = {
         const step = this.getStep();
         return step === this.STEPS.SELECT_CLASS
             || step === this.STEPS.LAUNCH_RUN
-            || step === this.STEPS.CLASS_UPGRADES;
+            || step === this.STEPS.CLASS_UPGRADES
+            || step === this.STEPS.MODE_SWITCH;
     },
 
     /**
@@ -130,6 +146,9 @@ const Onboarding = {
         if (!p.launchRunDone) return this.STEPS.LAUNCH_RUN;
         if (p.firstRunStarted && !p.classUpgradesDone) {
             return this.STEPS.CLASS_UPGRADES;
+        }
+        if (p.firstRunStarted && p.classUpgradesDone && !p.modeSwitchDone) {
+            return this.STEPS.MODE_SWITCH;
         }
         return null;
     },
@@ -179,8 +198,33 @@ const Onboarding = {
             // Same completion as opening a station, without requiring interact arming
             const fromRect = this._targetSpotlightRect();
             this.patch({ classUpgradesDone: true });
-            this.markComplete();
             this._classUpgradesArmedAt = 0;
+            const nextStep = this.getStep();
+            if (nextStep === this.STEPS.MODE_SWITCH) {
+                this.prepareModeSwitchStep(fromRect);
+            } else {
+                this.markComplete();
+                let handedOff = false;
+                if (typeof FeatureTutorials !== 'undefined' && FeatureTutorials.continueFrom) {
+                    handedOff = !!FeatureTutorials.continueFrom(fromRect);
+                } else if (typeof FeatureTutorials !== 'undefined' && FeatureTutorials.onNexusEnter) {
+                    FeatureTutorials.onNexusEnter();
+                    handedOff = typeof FeatureTutorials.getCurrentId === 'function'
+                        && !!FeatureTutorials.getCurrentId();
+                }
+                if (!handedOff) {
+                    if (typeof CoachTransition !== 'undefined' && CoachTransition.clear) {
+                        CoachTransition.clear();
+                    }
+                    this.maybeShowDeferredUpdateModal();
+                }
+            }
+            console.log('[Onboarding] Skipped current step: classUpgrades');
+        } else if (step === this.STEPS.MODE_SWITCH) {
+            const fromRect = this._targetSpotlightRect();
+            this.patch({ modeSwitchDone: true });
+            this.markComplete();
+            this._modeSwitchArmedAt = 0;
             let handedOff = false;
             if (typeof FeatureTutorials !== 'undefined' && FeatureTutorials.continueFrom) {
                 handedOff = !!FeatureTutorials.continueFrom(fromRect);
@@ -195,7 +239,7 @@ const Onboarding = {
                 }
                 this.maybeShowDeferredUpdateModal();
             }
-            console.log('[Onboarding] Skipped current step: classUpgrades');
+            console.log('[Onboarding] Skipped current step: modeSwitch');
         } else {
             return false;
         }
@@ -234,6 +278,9 @@ const Onboarding = {
         if (step === this.STEPS.CLASS_UPGRADES) {
             return type === 'upgrade';
         }
+        if (step === this.STEPS.MODE_SWITCH) {
+            return type === 'modeSwitcher';
+        }
         return true;
     },
 
@@ -263,6 +310,15 @@ const Onboarding = {
                 body: `Walk left and open an UPGRADES station (${hint('upgrade')}). Opening continues - Credits optional. ${skipHint}`
             };
         }
+        if (step === this.STEPS.MODE_SWITCH) {
+            const skipHint = (Engine.Input && Engine.Input.controlMode === 'gamepad')
+                ? 'Stuck? Pause → Skip Guide'
+                : 'Stuck? Use Skip Guide';
+            return {
+                title: 'Mode Switcher',
+                body: `Walk to the Mode Switcher above the portal. ${hint('switch mode')}.`
+            };
+        }
         return null;
     },
 
@@ -286,6 +342,17 @@ const Onboarding = {
         }
         if (step === this.STEPS.CLASS_UPGRADES && typeof upgradeStations !== 'undefined') {
             return this._aabbFromPoints(upgradeStations.map(s => ({ x: s.x, y: s.y })), 78, 58, pad);
+        }
+        if (step === this.STEPS.MODE_SWITCH && typeof nexusRoom !== 'undefined' && nexusRoom && nexusRoom.modeSwitcherPos) {
+            const p = nexusRoom.modeSwitcherPos;
+            const halfW = (p.width || 120) / 2;
+            const halfH = (p.height || 80) / 2;
+            return {
+                x: p.x - halfW - pad,
+                y: p.y - halfH - pad - 20,
+                w: (halfW + pad) * 2,
+                h: (halfH + pad) * 2 + 40
+            };
         }
         return null;
     },
@@ -401,6 +468,13 @@ const Onboarding = {
         // Capture cutout BEFORE completing - next step needs a smooth handoff origin
         const fromRect = this._targetSpotlightRect();
         this.patch({ classUpgradesDone: true });
+
+        const nextStep = this.getStep();
+        if (nextStep === this.STEPS.MODE_SWITCH) {
+            this.prepareModeSwitchStep(fromRect);
+            return;
+        }
+
         this.markComplete();
         this._classUpgradesArmedAt = 0;
 
@@ -419,6 +493,44 @@ const Onboarding = {
         }
     },
 
+    /** True once the mode-switch coach has been visible long enough to accept completion. */
+    isModeSwitchArmed() {
+        if (this.getStep() !== this.STEPS.MODE_SWITCH) return true;
+        if (!this._modeSwitchArmedAt) return false;
+        return Date.now() >= this._modeSwitchArmedAt;
+    },
+
+    notifyModeSwitchOpened() {
+        if (this.isSuspended()) return;
+        const p = this.getProgress();
+        if (p.modeSwitchDone) return;
+        // Ignore accidental interact while still spawning / camera snapping into the step
+        if (!this.isModeSwitchArmed()) {
+            console.log('[Onboarding] Mode switch interact ignored until coach is armed');
+            return;
+        }
+        // Capture cutout BEFORE completing - next step needs a smooth handoff origin
+        const fromRect = this._targetSpotlightRect();
+        this.patch({ modeSwitchDone: true });
+        this.markComplete();
+        this._modeSwitchArmedAt = 0;
+
+        let handedOff = false;
+        if (typeof FeatureTutorials !== 'undefined' && FeatureTutorials.continueFrom) {
+            handedOff = !!FeatureTutorials.continueFrom(fromRect);
+        } else if (typeof FeatureTutorials !== 'undefined' && FeatureTutorials.onNexusEnter) {
+            setTimeout(() => FeatureTutorials.onNexusEnter(), 0);
+            handedOff = typeof FeatureTutorials.getCurrentId === 'function'
+                && !!FeatureTutorials.getCurrentId();
+        }
+
+        // Patch notes wait until feature-tutorial queue is also idle
+        if (!handedOff) {
+            this.maybeShowDeferredUpdateModal();
+        }
+        console.log('[Onboarding] Completed modeSwitch step');
+    },
+
     markComplete() {
         const version = (typeof SaveSystem !== 'undefined' && SaveSystem.ONBOARDING_TUTORIAL_VERSION)
             ? SaveSystem.ONBOARDING_TUTORIAL_VERSION
@@ -426,6 +538,7 @@ const Onboarding = {
         this.patch({
             complete: true,
             classUpgradesDone: true,
+            modeSwitchDone: true,
             tutorialVersion: version
         });
     },
@@ -517,7 +630,13 @@ const Onboarding = {
             this.resumeFromMultiplayer();
         }
         this.syncBootModals();
-        this.prepareClassUpgradesStep();
+        
+        const step = this.getStep();
+        if (step === this.STEPS.CLASS_UPGRADES) {
+            this.prepareClassUpgradesStep();
+        } else if (step === this.STEPS.MODE_SWITCH) {
+            this.prepareModeSwitchStep();
+        }
     },
 
     /**
@@ -541,14 +660,14 @@ const Onboarding = {
         const toRect = this._targetSpotlightRect();
         if (toRect && typeof CoachTransition !== 'undefined') {
             const armMs = CoachTransition.start(null, toRect, { snapCamera: false });
-            this._classUpgradesArmedAt = Date.now() + Math.max(armMs, 750);
+            this._classUpgradesArmedAt = Date.now() + Math.max(armMs, 150);
         } else {
             const cam = this.getCameraOverride();
             if (cam && Game.nexusCamera) {
                 Game.nexusCamera.targetX = cam.x;
                 Game.nexusCamera.targetY = cam.y;
             }
-            this._classUpgradesArmedAt = Date.now() + 750;
+            this._classUpgradesArmedAt = Date.now() + 150;
         }
 
         if (typeof Game.lastGKeyState !== 'undefined') {
@@ -556,6 +675,41 @@ const Onboarding = {
         }
 
         console.log('[Onboarding] Class upgrades coach armed');
+    },
+
+    /**
+     * Mode switcher coach: stage the player below the mode switcher machine
+     * (default nexus spawn sits inside it) and snap/pan the camera to the cutout.
+     */
+    prepareModeSwitchStep(fromRect = null) {
+        if (typeof Game === 'undefined' || Game.state !== 'NEXUS') return;
+        if (this.isSuspended() || this.isComplete()) return;
+        if (this.getStep() !== this.STEPS.MODE_SWITCH) return;
+
+        // Stage player just below the mode switcher / above the portal
+        if (!fromRect && Game.player) {
+            Game.player.x = 900;
+            Game.player.y = 480;
+        }
+
+        const toRect = this._targetSpotlightRect();
+        if (toRect && typeof CoachTransition !== 'undefined') {
+            const armMs = CoachTransition.start(fromRect || null, toRect, { snapCamera: false });
+            this._modeSwitchArmedAt = Date.now() + Math.max(armMs, 150);
+        } else {
+            const cam = this.getCameraOverride();
+            if (cam && Game.nexusCamera) {
+                Game.nexusCamera.targetX = cam.x;
+                Game.nexusCamera.targetY = cam.y;
+            }
+            this._modeSwitchArmedAt = Date.now() + 150;
+        }
+
+        if (typeof Game.lastGKeyState !== 'undefined') {
+            Game.lastGKeyState = true;
+        }
+
+        console.log('[Onboarding] Mode switch coach armed');
     },
 
     // --- Render ---

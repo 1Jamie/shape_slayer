@@ -688,6 +688,7 @@ const SaveSystem = {
             selectClassDone: false,
             launchRunDone: false,
             classUpgradesDone: false,
+            modeSwitchDone: false,
             firstRunStarted: false,
             complete: false,
             suspendedForMp: false,
@@ -697,7 +698,7 @@ const SaveSystem = {
     },
 
     /** Bump when the nexus coach flow changes and everyone must re-run it. */
-    ONBOARDING_TUTORIAL_VERSION: 1,
+    ONBOARDING_TUTORIAL_VERSION: 2,
 
     getOnboarding() {
         const save = this.load();
@@ -715,7 +716,20 @@ const SaveSystem = {
 
         // Old "complete" / pre-feature auto-skips do not count - all saves run this tutorial once.
         if (current.complete && !finishedThisVersion) {
-            current = Object.assign({}, defaults, { suspendedForMp: !!current.suspendedForMp });
+            if (Number(current.tutorialVersion) === 1) {
+                current = Object.assign({}, defaults, {
+                    selectClassDone: true,
+                    launchRunDone: true,
+                    firstRunStarted: true,
+                    classUpgradesDone: true,
+                    modeSwitchDone: false,
+                    complete: false,
+                    tutorialVersion: 2,
+                    room0TutorialDone: true
+                });
+            } else {
+                current = Object.assign({}, defaults, { suspendedForMp: !!current.suspendedForMp });
+            }
             save.onboarding = current;
             this.save(save);
             return current;
@@ -759,7 +773,20 @@ const SaveSystem = {
         const finishedThisVersion = current.complete
             && Number(current.tutorialVersion) >= required;
         if (current.complete && !finishedThisVersion) {
-            current = Object.assign({}, defaults, { suspendedForMp: !!current.suspendedForMp });
+            if (Number(current.tutorialVersion) === 1) {
+                current = Object.assign({}, defaults, {
+                    selectClassDone: true,
+                    launchRunDone: true,
+                    firstRunStarted: true,
+                    classUpgradesDone: true,
+                    modeSwitchDone: false,
+                    complete: false,
+                    tutorialVersion: 2,
+                    room0TutorialDone: true
+                });
+            } else {
+                current = Object.assign({}, defaults, { suspendedForMp: !!current.suspendedForMp });
+            }
         } else if (finishedThisVersion && !this._rawOnboardingHasRoom0Flag()
             && !(patch && Object.prototype.hasOwnProperty.call(patch, 'room0TutorialDone'))) {
             current.room0TutorialDone = true;

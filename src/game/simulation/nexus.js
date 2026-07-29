@@ -762,9 +762,15 @@ function updateNexus(ctx, deltaTime) {
                         }
                     }
                 }
+                if (actor.id === 'p1' && typeof Onboarding !== 'undefined' && Onboarding.notifyModeSwitchOpened) {
+                    Onboarding.notifyModeSwitchOpened();
+                }
                 interactionHandled = true;
             } else {
                 nexusRoom.portalMode = 'roguelike';
+                if (actor.id === 'p1' && typeof Onboarding !== 'undefined' && Onboarding.notifyModeSwitchOpened) {
+                    Onboarding.notifyModeSwitchOpened();
+                }
                 interactionHandled = true;
             }
         }

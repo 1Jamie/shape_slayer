@@ -19,6 +19,12 @@ function loadSandbox(options = {}) {
         removeItem(k) { delete this._data[k]; }
     };
     if (options.seedSave) {
+        if (options.seedSave.onboarding && options.seedSave.onboarding.complete) {
+            options.seedSave.onboarding = Object.assign({}, options.seedSave.onboarding, {
+                tutorialVersion: 2,
+                modeSwitchDone: true
+            });
+        }
         localStorage.setItem('shapeSlayerSave', JSON.stringify(options.seedSave));
     }
 

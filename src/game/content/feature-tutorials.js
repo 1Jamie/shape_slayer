@@ -440,7 +440,7 @@ const FeatureTutorials = {
             const armMs = CoachTransition.start(options.transitionFrom || null, toRect, {
                 snapCamera: options.snapCamera === true && !options.transitionFrom
             });
-            this._armedAt = Date.now() + Math.max(armMs, 750);
+            this._armedAt = Date.now() + Math.max(armMs, 150);
         } else {
             const cam = {
                 x: station.x,
@@ -454,7 +454,7 @@ const FeatureTutorials = {
                 Game.nexusCamera.targetX = cam.x;
                 Game.nexusCamera.targetY = cam.y;
             }
-            this._armedAt = Date.now() + 750;
+            this._armedAt = Date.now() + 150;
         }
 
         console.log(`[FeatureTutorials] Presenting ${id}${leavePlayer ? ' (leave player)' : ''}`);

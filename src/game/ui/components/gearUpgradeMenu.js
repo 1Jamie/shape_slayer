@@ -545,8 +545,12 @@ const GearUpgradeMenu = {
             this._modalEntry = GameUI.openModal(modal, {
                 closeOnEscape: false,
                 onClose: () => {
+                    const closingId = this.currentMachineId;
                     this.isOpen = false;
                     this._modalEntry = null;
+                    if (closingId && typeof FeatureTutorials !== 'undefined' && FeatureTutorials.notifyMachineOpened) {
+                        FeatureTutorials.notifyMachineOpened(closingId);
+                    }
                 }
             });
 
@@ -556,8 +560,12 @@ const GearUpgradeMenu = {
                 if (firstBtn) firstBtn.focus();
             }, 50);
         } else {
+            const closingId = this.currentMachineId;
             GameUI.closeModal(this._modalEntry || modal);
             this._modalEntry = null;
+            if (closingId && typeof FeatureTutorials !== 'undefined' && FeatureTutorials.notifyMachineOpened) {
+                FeatureTutorials.notifyMachineOpened(closingId);
+            }
         }
     },
 
