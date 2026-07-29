@@ -1747,8 +1747,16 @@ function renderInteractionButton(ctx) {
     // Position button (center-bottom, low on screen but above touch controls)
     const canvasWidth = Game ? Game.config.width : 1280;
     const canvasHeight = Game ? Game.config.height : 720;
-    const buttonWidth = 200;
     const buttonHeight = 60;
+
+    // Dynamically calculate width based on text length to avoid content overflow
+    ctx.save();
+    ctx.font = 'bold 17px Orbitron';
+    const textWidth = ctx.measureText(label).width;
+    ctx.restore();
+
+    // Standard width 200, but expand to textWidth + 40px padding if text is long
+    const buttonWidth = Math.max(200, Math.ceil(textWidth + 40));
     const buttonX = (canvasWidth - buttonWidth) / 2;
     // Position above touch controls
     // Touch controls are now at ~23% from bottom on mobile, so position button accordingly
@@ -1866,61 +1874,19 @@ function performCurrentInteraction() {
                 Game.toggleDoorReadyAtExit();
             }
         } else if (Game && Game.state === 'NEXUS') {
-            // Handle specific nexus interaction types
-            if (currentInteraction.type === 'modeSwitcher') {
-                if (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.cycleNext
-                    && typeof nexusRoom !== 'undefined' && nexusRoom) {
-                    const inMpLobby = !!(typeof multiplayerManager !== 'undefined'
-                        && multiplayerManager && multiplayerManager.lobbyCode);
-                    const next = GameModeCatalog.cycleNext(nexusRoom, { inMultiplayer: inMpLobby });
-                    console.log('[Nexus] Mode switcher →', next ? next.id : '(none)');
-                    if (next && inMpLobby && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
-                        if (multiplayerManager.isHost) multiplayerManager.sendGameState();
-                        else multiplayerManager.sendPlayerState();
-                    }
-                } else if (typeof nexusRoom !== 'undefined' && nexusRoom) {
-                    nexusRoom.portalMode = 'roguelike';
-                }
-            } else if (currentInteraction.type === 'portal') {
-                const hasResume = !!(currentInteraction.data && currentInteraction.data.resume);
-                if (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.enterFromPortal
-                    && typeof nexusRoom !== 'undefined' && nexusRoom) {
-                    GameModeCatalog.enterFromPortal({
-                        nexusRoom,
-                        hasResumeCheckpoint: hasResume
-                    });
-                } else if (Engine.Input && Engine.Input.keys) {
-                    const originalGState = Engine.Input.keys['g'];
-                    Engine.Input.keys['g'] = true;
-                    Game.lastGKeyState = false;
-                    setTimeout(() => {
-                        Engine.Input.keys['g'] = originalGState;
-                    }, 10);
-                }
-            } else if (currentInteraction.type === 'gearUpgrade') {
-                // Open gear upgrades
-                if (typeof window !== 'undefined' && typeof window.toggleGearUpgrades === 'function') {
-                    window.toggleGearUpgrades(true, currentInteraction.upgradeId);
-                }
-            } else if (currentInteraction.type === 'indexMachine') {
-                // Open index machine
-                if (typeof window !== 'undefined' && typeof window.UIIndexMachine !== 'undefined' && typeof window.UIIndexMachine.open === 'function') {
-                    window.UIIndexMachine.open();
-                }
-            } else {
-                // Fallback: Trigger nexus interaction by simulating G key press
-                // We need to use the existing interaction logic
-                if (Engine.Input && Engine.Input.keys) {
-                    const originalGState = Engine.Input.keys['g'];
-                    Engine.Input.keys['g'] = true;
-                    Game.lastGKeyState = false; // Force it to trigger
-                    // The updateNexus will handle it on next frame
-                    setTimeout(() => {
-                        Engine.Input.keys['g'] = originalGState;
-                    }, 10);
-                }
+            // Simply trigger nexus interaction by simulating G key press.
+            // This ensures all canonical nexus interaction paths in updateNexus (including
+            // onboarding notifications, multiplayer syncing, and state transitions) run
+            // perfectly in the game loop.
+            if (Engine.Input && Engine.Input.keys) {
+                const originalGState = Engine.Input.keys['g'];
+                Engine.Input.keys['g'] = true;
+                Game.lastGKeyState = false; // Force it to trigger
+                setTimeout(() => {
+                    Engine.Input.keys['g'] = originalGState;
+                }, 50);
             }
-    }
+        }
 
     return true;
 }
