@@ -39,6 +39,32 @@
                 this.stage.appendChild(this.nodes[id].el);
             }
 
+            this.interactEl = document.createElement('div');
+            this.interactEl.className = 'mc-interact';
+            this.interactEl.hidden = true;
+            this.interactEl.setAttribute('role', 'button');
+            this.interactEl.setAttribute('aria-label', 'interact');
+            this.stage.appendChild(this.interactEl);
+
+            const triggerInteract = (e) => {
+                if (e.button != null && e.button !== 0) return;
+                e.preventDefault();
+                e.stopPropagation();
+                this.interactEl.classList.add('mc-pressed');
+                if (typeof performCurrentInteraction === 'function') {
+                    performCurrentInteraction();
+                } else if (typeof window.performMobileInteraction === 'function') {
+                    window.performMobileInteraction();
+                }
+            };
+
+            this.interactEl.addEventListener('pointerdown', triggerInteract);
+            this.interactEl.addEventListener('touchstart', triggerInteract, { passive: false });
+            const releaseInteract = () => this.interactEl.classList.remove('mc-pressed');
+            this.interactEl.addEventListener('pointerup', releaseInteract);
+            this.interactEl.addEventListener('pointercancel', releaseInteract);
+            this.interactEl.addEventListener('touchend', releaseInteract);
+
             root.appendChild(this.layer);
             this._bindLifecycle();
             this._startLoop();
@@ -337,10 +363,34 @@
             }
         },
 
+        _updateInteractNode() {
+            if (!this.interactEl) return;
+            if (typeof updateInteractionState === 'function') {
+                updateInteractionState();
+            }
+            const activeInteraction = (typeof currentInteraction !== 'undefined')
+                ? currentInteraction
+                : ((typeof getMobileInteractionState === 'function' && getMobileInteractionState()) ? getMobileInteractionState().raw : null);
+
+            if (activeInteraction) {
+                const disabledReason = typeof getInteractionDisabledReason === 'function' ? getInteractionDisabledReason(activeInteraction) : null;
+                if (disabledReason) {
+                    this.interactEl.hidden = true;
+                    return;
+                }
+                const label = typeof getInteractionLabel === 'function' ? getInteractionLabel(activeInteraction) : 'INTERACT';
+                this.interactEl.textContent = label;
+                this.interactEl.hidden = false;
+            } else {
+                this.interactEl.hidden = true;
+            }
+        },
+
         _updateFrame() {
             if (!this.layer || this.layer.hidden) return;
             // Keep stage locked to canvas if it moved (address bar show/hide)
             this._syncCanvasRect();
+            this._updateInteractNode();
 
             const player = (typeof Game !== 'undefined') ? Game.player : null;
             const cooldowns = ((typeof Engine !== 'undefined' && Engine.Input) && GameInput.getMobileCooldownSnapshot)

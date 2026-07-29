@@ -1980,7 +1980,16 @@ Engine.Input = {
                 return;
             }
             this._activateNonGamepadInput('keyboardMouse', canvas);
-            if (e.button === 0) this.mouseLeft  = true;
+            if (e.button === 0) {
+                if (this.isMobileUiMode() || this.isTouchMode()) {
+                    const point = this._mapPointer(e.clientX, e.clientY, canvas);
+                    if (typeof this._hooks.onInteractionButtonClick === 'function' && this._hooks.onInteractionButtonClick(point.x, point.y)) {
+                        e.preventDefault();
+                        return;
+                    }
+                }
+                this.mouseLeft  = true;
+            }
             if (e.button === 2) this.mouseRight = true;
         });
         canvas.addEventListener('mouseup',      (e) => {

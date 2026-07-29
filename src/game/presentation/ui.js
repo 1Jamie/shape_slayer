@@ -1350,17 +1350,13 @@ function checkNexusInteractions() {
         const switcherDistance = Math.sqrt(switcherDx * switcherDx + switcherDy * switcherDy);
 
         if (switcherDistance < 60) {
-            // Check if in multiplayer lobby
-            const inMultiplayerLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
-            if (!inMultiplayerLobby) {
-                const selectedMode = (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.getSelected)
-                    ? GameModeCatalog.getSelected(nexusRoom)
-                    : null;
-                return {
-                    type: 'modeSwitcher',
-                    data: { mode: selectedMode ? selectedMode.id : 'roguelike' }
-                };
-            }
+            const selectedMode = (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.getSelected)
+                ? GameModeCatalog.getSelected(nexusRoom)
+                : null;
+            return {
+                type: 'modeSwitcher',
+                data: { mode: selectedMode ? selectedMode.id : 'roguelike' }
+            };
         }
     }
 
@@ -1735,8 +1731,12 @@ function renderInteractionButton(ctx) {
         return;
     }
 
-    // Update interaction state
-    updateInteractionState();
+    // When DOM mobile controls are active, MobileControlsDOM renders the DOM interaction button.
+    // Suppress drawing the old canvas button so there is no duplicate overlay.
+    if (typeof MobileControlsDOM !== 'undefined' && MobileControlsDOM.layer && !MobileControlsDOM.layer.hidden) {
+        updateInteractionState();
+        return;
+    }
 
     if (!currentInteraction) {
         return;
@@ -1874,14 +1874,64 @@ function performCurrentInteraction() {
                 Game.toggleDoorReadyAtExit();
             }
         } else if (Game && Game.state === 'NEXUS') {
-            // Simply trigger nexus interaction by simulating G key press.
-            // This ensures all canonical nexus interaction paths in updateNexus (including
-            // onboarding notifications, multiplayer syncing, and state transitions) run
-            // perfectly in the game loop.
+            Game.pendingNexusInteract = true;
+            if (currentInteraction.type === 'portal') {
+                if (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.enterFromPortal) {
+                    GameModeCatalog.enterFromPortal({
+                        nexusRoom: typeof nexusRoom !== 'undefined' ? nexusRoom : null,
+                        hasResumeCheckpoint: currentInteraction.data && currentInteraction.data.resume
+                    });
+                } else if (typeof Game.tryResumeOrStartFromPortal === 'function') {
+                    Game.tryResumeOrStartFromPortal();
+                } else {
+                    Game.startGame();
+                }
+            } else if (currentInteraction.type === 'modeSwitcher') {
+                const inMultiplayerLobby = typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+                if (typeof GameModeCatalog !== 'undefined' && GameModeCatalog.cycleNext) {
+                    const next = GameModeCatalog.cycleNext(typeof nexusRoom !== 'undefined' ? nexusRoom : null, { inMultiplayer: !!inMultiplayerLobby });
+                    if (next) {
+                        if (typeof GameAudio !== 'undefined' && GameAudio.sounds && GameAudio.sounds.uiClick) {
+                            try { GameAudio.sounds.uiClick(); } catch (_) {}
+                        }
+                        if (inMultiplayerLobby && typeof multiplayerManager !== 'undefined' && multiplayerManager) {
+                            if (multiplayerManager.isHost) multiplayerManager.sendGameState();
+                            else multiplayerManager.sendPlayerState();
+                        }
+                    }
+                    if (typeof Onboarding !== 'undefined' && Onboarding.notifyModeSwitchOpened) {
+                        Onboarding.notifyModeSwitchOpened();
+                    }
+                }
+            } else if (currentInteraction.type === 'class' && currentInteraction.data) {
+                const actor = (typeof getNexusActors === 'function' ? getNexusActors() : []).find(a => a.id === 'p1')
+                    || { id: 'p1', player: Game.player, classKey: Game.selectedClass };
+                if (typeof applyNexusClassSelection === 'function') {
+                    applyNexusClassSelection(actor, currentInteraction.data.key);
+                }
+                if (typeof Onboarding !== 'undefined' && Onboarding.notifyClassSelected) {
+                    Onboarding.notifyClassSelected();
+                }
+            } else if (currentInteraction.type === 'upgrade' && currentInteraction.data) {
+                if (typeof purchaseUpgrade === 'function' && Game.selectedClass) {
+                    purchaseUpgrade(Game.selectedClass, currentInteraction.data.key);
+                    if (typeof Onboarding !== 'undefined' && Onboarding.notifyClassUpgradeOpened) {
+                        Onboarding.notifyClassUpgradeOpened();
+                    }
+                }
+            } else if (currentInteraction.type === 'gearUpgrade') {
+                if (typeof window !== 'undefined' && typeof window.toggleGearUpgrades === 'function') {
+                    window.toggleGearUpgrades(true, currentInteraction.upgradeId);
+                }
+            } else if (currentInteraction.type === 'indexMachine') {
+                if (typeof window !== 'undefined' && window.UIIndexMachine && typeof window.UIIndexMachine.open === 'function') {
+                    window.UIIndexMachine.open();
+                }
+            }
             if (Engine.Input && Engine.Input.keys) {
                 const originalGState = Engine.Input.keys['g'];
                 Engine.Input.keys['g'] = true;
-                Game.lastGKeyState = false; // Force it to trigger
+                Game.lastGKeyState = false;
                 setTimeout(() => {
                     Engine.Input.keys['g'] = originalGState;
                 }, 50);
@@ -1893,6 +1943,7 @@ function performCurrentInteraction() {
 
 // Handle interaction button click
 function handleInteractionButtonClick(x, y) {
+    updateInteractionState();
     if (!interactionButton || !currentInteraction) {
         recordMobileInteractionEvent('mobileInteractionMiss', null, { reason: 'noCurrentInteraction' });
         return false;

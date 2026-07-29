@@ -637,7 +637,10 @@ function updateNexus(ctx, deltaTime) {
         : null;
 
     let p1InteractEdge = false;
-    if (Game.localSplitEnabled && seat0 && seat0.isInteractJustPressed) {
+    if (Game.pendingNexusInteract) {
+        p1InteractEdge = true;
+        Game.pendingNexusInteract = false;
+    } else if (Game.localSplitEnabled && seat0 && seat0.isInteractJustPressed) {
         p1InteractEdge = seat0.isInteractJustPressed();
     } else if (Engine.Input.getKeyState('g') && !Game.lastGKeyState) {
         p1InteractEdge = true;

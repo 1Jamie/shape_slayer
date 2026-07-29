@@ -34,6 +34,49 @@
   display: none !important;
 }
 
+.mc-interact {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 28%;
+  min-width: 220px;
+  max-width: 85%;
+  height: 54px;
+  padding: 0 24px;
+  border-radius: 27px;
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.3), rgba(255, 140, 0, 0.5));
+  border: 2px solid rgba(255, 215, 0, 0.9);
+  box-shadow: 0 0 20px rgba(255, 180, 0, 0.5), inset 0 0 12px rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+  font-family: Orbitron, sans-serif;
+  font-weight: 800;
+  font-size: 16px;
+  letter-spacing: 0.08em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-transform: uppercase;
+  pointer-events: auto;
+  touch-action: none;
+  z-index: 1200;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.1s ease, background 0.15s ease;
+}
+
+.mc-interact[hidden] {
+  display: none !important;
+}
+
+.mc-interact:active,
+.mc-interact.mc-pressed {
+  transform: translateX(-50%) scale(0.94);
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.6), rgba(255, 140, 0, 0.85));
+  box-shadow: 0 0 28px rgba(255, 215, 0, 0.9);
+}
+
 .mc-joystick,
 .mc-button {
   width: 100%;
