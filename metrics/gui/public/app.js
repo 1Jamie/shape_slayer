@@ -192,10 +192,12 @@ function renderRoomStatsDetails(rooms) {
             }
             const startTable = hasStart ? renderSnapshotTable(room.playerStatsStart) : '<p class="empty">No data</p>';
             const endTable = hasEnd ? renderSnapshotTable(room.playerStatsEnd) : '<p class="empty">No data</p>';
+            const isWave = room.roomId && room.roomId.startsWith('wave-');
+            const prefix = isWave ? 'Wave' : 'Room';
             const roomLabel = room.type ? ` (${escapeHtml(room.type)})` : '';
             return `
                 <details class="room-stats-detail">
-                    <summary>Room ${room.roomNumber}${roomLabel}</summary>
+                    <summary>${prefix} ${room.roomNumber}${roomLabel}</summary>
                     <div class="room-stats-grid">
                         <div>
                             <h4>Start</h4>
@@ -323,7 +325,9 @@ function renderRunDetail(detail) {
         : [];
     const finalStatsHtml = finalSnapshots.length ? renderSnapshotTable(finalSnapshots) : '';
 
-    container.innerHTML = `
+        const isSurge = run.game_mode === 'surge-arena';
+
+        container.innerHTML = `
         <div class="run-meta">
             <div>
                 <span>Run ID</span>
@@ -363,7 +367,7 @@ function renderRunDetail(detail) {
                             <th>Damage Dealt</th>
                             <th>Damage Taken</th>
                             <th>Hits Taken</th>
-                            <th>Rooms Cleared</th>
+                            <th>${isSurge ? 'Waves Cleared' : 'Rooms Cleared'}</th>
                             <th>Deaths</th>
                         </tr>
                     </thead>
@@ -375,7 +379,7 @@ function renderRunDetail(detail) {
         </div>
 
         <div>
-            <h3>Rooms</h3>
+            <h3>${isSurge ? 'Waves' : 'Rooms'}</h3>
             <div class="table-wrapper">
                 <table>
                     <thead>
@@ -392,7 +396,7 @@ function renderRunDetail(detail) {
                         </tr>
                     </thead>
                     <tbody>
-                        ${roomRows || '<tr><td colspan="9" class="empty">No rooms recorded.</td></tr>'}
+                        ${roomRows || `<tr><td colspan="9" class="empty">No ${isSurge ? 'waves' : 'rooms'} recorded.</td></tr>`}
                     </tbody>
                 </table>
             </div>
@@ -446,7 +450,8 @@ function renderRoomDamageChart(detail) {
         return;
     }
 
-    const labels = rooms.map(room => `Room ${room.roomNumber}`);
+    const isSurge = detail.run && detail.run.game_mode === 'surge-arena';
+    const labels = rooms.map(room => `${isSurge ? 'Wave' : 'Room'} ${room.roomNumber}`);
 
     const datasets = players.map((player, index) => {
         const color = COLORS[index % COLORS.length];

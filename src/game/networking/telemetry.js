@@ -357,9 +357,11 @@
     function ensureRoom(roomNumber) {
         if (!state.activeRun) return null;
         if (!state.activeRun.rooms.has(roomNumber)) {
+            const isSurge = state.activeRun.gameMode === 'surge-arena';
             state.activeRun.rooms.set(roomNumber, {
-                roomId: `room-${roomNumber}`,
+                roomId: isSurge ? `wave-${roomNumber}` : `room-${roomNumber}`,
                 roomNumber,
+                ...(isSurge ? { waveNumber: roomNumber } : {}),
                 type: 'normal',
                 biomeId: null,
                 archetype: null,
@@ -426,7 +428,7 @@
             const startedAt = nowIso();
             const {
                 mode = (typeof Game !== 'undefined' && Game.multiplayerEnabled ? 'multiplayer' : 'singleplayer'),
-                gameMode = (typeof Game !== 'undefined' && Game.gameMode ? Game.gameMode : 'gear'),
+                gameMode = (typeof Game !== 'undefined' && Game.activeSessionId === 'surge-arena') ? 'surge-arena' : (typeof Game !== 'undefined' && Game.gameMode ? Game.gameMode : 'gear'),
                 hostPlayerId = (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local'),
                 difficulty = 'default',
                 seed = null,
@@ -611,10 +613,14 @@
 
         recordRoomsCleared(roomsClearedByPlayer) {
             if (!state.activeRun || !this.shouldCapture()) return;
+            const isSurge = state.activeRun.gameMode === 'surge-arena';
             Object.entries(roomsClearedByPlayer || {}).forEach(([playerId, count]) => {
                 const playerSummary = ensurePlayerSummary(playerId);
                 if (playerSummary) {
                     playerSummary.roomsCleared = count;
+                    if (isSurge) {
+                        playerSummary.wavesCleared = count;
+                    }
                 }
             });
         },
@@ -743,6 +749,7 @@
         serialize() {
             if (!state.activeRun) return null;
 
+            const isSurge = state.activeRun.gameMode === 'surge-arena';
             const rooms = Array.from(state.activeRun.rooms.values()).map(room => {
                 if (!room.clearedAt && room.enteredAt) {
                     room.clearedAt = nowIso();
@@ -751,7 +758,7 @@
                         Date.now() - new Date(room.enteredAt).getTime()
                     );
                 }
-                return {
+                const entry = {
                     roomId: room.roomId,
                     roomNumber: room.roomNumber,
                     type: room.type,
@@ -767,30 +774,42 @@
                     playerStatsEnd: room.playerStatsEnd,
                     events: room.events
                 };
+                if (isSurge) {
+                    entry.waveNumber = room.roomNumber;
+                }
+                return entry;
             });
 
             const players = Array.from(state.activeRun.playerSummaries.values());
 
+            const runPayload = {
+                runId: state.activeRun.runId,
+                gameVersion: state.activeRun.gameVersion,
+                mode: state.activeRun.mode,
+                gameMode: state.activeRun.gameMode,
+                playerCount: state.activeRun.playerCount,
+                hostPlayerId: state.activeRun.hostPlayerId,
+                startedAt: state.activeRun.startedAt,
+                endedAt: state.activeRun.endedAt,
+                durationMs: state.activeRun.durationMs,
+                result: state.activeRun.result,
+                seed: state.activeRun.seed,
+                difficulty: state.activeRun.difficulty,
+                players,
+                affixPool: state.activeRun.affixPool,
+                bossEncounters: state.activeRun.bossEncounters,
+                metadata: state.activeRun.metadata
+            };
+
+            if (isSurge) {
+                runPayload.waves = rooms;
+                runPayload.rooms = [];
+            } else {
+                runPayload.rooms = rooms;
+            }
+
             return {
-                run: {
-                    runId: state.activeRun.runId,
-                    gameVersion: state.activeRun.gameVersion,
-                    mode: state.activeRun.mode,
-                    gameMode: state.activeRun.gameMode,
-                    playerCount: state.activeRun.playerCount,
-                    hostPlayerId: state.activeRun.hostPlayerId,
-                    startedAt: state.activeRun.startedAt,
-                    endedAt: state.activeRun.endedAt,
-                    durationMs: state.activeRun.durationMs,
-                    result: state.activeRun.result,
-                    seed: state.activeRun.seed,
-                    difficulty: state.activeRun.difficulty,
-                    players,
-                    affixPool: state.activeRun.affixPool,
-                    rooms,
-                    bossEncounters: state.activeRun.bossEncounters,
-                    metadata: state.activeRun.metadata
-                },
+                run: runPayload,
                 submittedAt: nowIso(),
                 clientVersion: state.activeRun.gameVersion,
                 authToken: getIngestAuthToken()

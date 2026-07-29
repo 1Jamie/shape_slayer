@@ -150,7 +150,7 @@ const telemetrySchema = {
                 runId: { type: 'string', minLength: 1 },
                 gameVersion: { type: 'string' },
                 mode: { type: 'string', enum: ['singleplayer', 'multiplayer'] },
-                gameMode: { type: ['string', 'null'], enum: ['cards', 'gear', null] },
+                gameMode: { type: ['string', 'null'], enum: ['cards', 'gear', 'surge-arena', null] },
                 playerCount: { type: ['integer', 'null'], minimum: 1 },
                 hostPlayerId: { type: 'string', minLength: 1 },
                 startedAt: { type: 'string', minLength: 1 },
@@ -199,6 +199,41 @@ const telemetrySchema = {
                         properties: {
                             roomId: { type: 'string', minLength: 1 },
                             roomNumber: { type: 'number' },
+                            type: { type: ['string', 'null'] },
+                            biomeId: { type: ['string', 'null'] },
+                            archetype: { type: ['string', 'null'] },
+                            enteredAt: { type: ['string', 'null'] },
+                            clearedAt: { type: ['string', 'null'] },
+                            durationMs: { type: ['number', 'null'] },
+                            damageDealtByPlayer: { type: 'object' },
+                            damageTakenByPlayer: { type: 'object' },
+                            hitsTakenByPlayer: { type: 'object' },
+                            events: {
+                                type: 'array',
+                                items: {
+                                    type: 'object',
+                                    properties: {
+                                        timestamp: { type: 'string' },
+                                        type: { type: 'string' },
+                                        playerId: { type: ['string', 'null'] },
+                                        targetId: { type: ['string', 'null'] },
+                                        value: { type: ['number', 'null'] },
+                                        metadata: { type: ['object', 'null'] }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                waves: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        required: ['roomId', 'roomNumber'],
+                        properties: {
+                            roomId: { type: 'string', minLength: 1 },
+                            roomNumber: { type: 'number' },
+                            waveNumber: { type: 'number' },
                             type: { type: ['string', 'null'] },
                             biomeId: { type: ['string', 'null'] },
                             archetype: { type: ['string', 'null'] },
@@ -538,7 +573,7 @@ function buildApp() {
             });
         });
 
-        (run.rooms || []).forEach(room => {
+        (run.rooms || run.waves || []).forEach(room => {
             insertRoomStmt.run({
                 run_id: run.runId,
                 room_id: room.roomId,

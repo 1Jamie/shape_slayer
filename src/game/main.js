@@ -1431,7 +1431,7 @@ const Game = {
 
     getTelemetryRoomContext(room = null) {
         const sourceRoom = room || (typeof currentRoom !== 'undefined' ? currentRoom : null);
-        const gameMode = this.gameMode || 'gear';
+        const gameMode = (this.activeSessionId === 'surge-arena') ? 'surge-arena' : (this.gameMode || 'gear');
         const playerCount = typeof getPlayerCount === 'function'
             ? getPlayerCount()
             : (this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.players
@@ -1476,7 +1476,7 @@ const Game = {
             result,
             metadata: {
                 reason,
-                gameMode: this.gameMode || 'gear',
+                gameMode: (this.activeSessionId === 'surge-arena') ? 'surge-arena' : (this.gameMode || 'gear'),
                 playerCount: participants.length,
                 difficulty: this.difficulty || 'normal'
             },
@@ -7445,13 +7445,13 @@ const Game = {
 
             Telemetry.startRun({
                 mode: this.multiplayerEnabled ? 'multiplayer' : 'singleplayer',
-                gameMode: this.gameMode || 'gear',
+                gameMode: (this.activeSessionId === 'surge-arena') ? 'surge-arena' : (this.gameMode || 'gear'),
                 hostPlayerId: localPlayerId,
                 difficulty: this.difficulty || 'normal',
                 seed: (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.seed) ? currentRoom.seed : null,
                 players: runPlayers,
                 metadata: {
-                    gameMode: this.gameMode || 'gear',
+                    gameMode: (this.activeSessionId === 'surge-arena') ? 'surge-arena' : (this.gameMode || 'gear'),
                     selectedClass: this.selectedClass || null,
                     playerCount: runPlayers.length,
                     difficulty: this.difficulty || 'normal'
@@ -7654,13 +7654,13 @@ const Game = {
 
             Telemetry.startRun({
                 mode: this.multiplayerEnabled ? 'multiplayer' : 'singleplayer',
-                gameMode: this.gameMode || 'gear',
+                gameMode: (this.activeSessionId === 'surge-arena') ? 'surge-arena' : (this.gameMode || 'gear'),
                 hostPlayerId: localPlayerId,
                 difficulty: this.difficulty || 'normal',
                 seed: (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.seed) ? currentRoom.seed : null,
                 players: runPlayers,
                 metadata: {
-                    gameMode: this.gameMode || 'gear',
+                    gameMode: (this.activeSessionId === 'surge-arena') ? 'surge-arena' : (this.gameMode || 'gear'),
                     selectedClass: this.selectedClass || null,
                     playerCount: runPlayers.length,
                     difficulty: this.difficulty || 'normal'
