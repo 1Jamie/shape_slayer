@@ -5,6 +5,7 @@
   "main": "static-server.js",
   "scripts": {
     "start": "node static-server.js",
+    "promote:release": "node tools/promote-dev-to-main.js",
     "server": "node harness/index.js",
     "balance:gear": "node tests/gear-mode-balance-sim.js",
     "balance:full-run": "node tests/full-run-balance-sim.js",
