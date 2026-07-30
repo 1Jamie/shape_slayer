@@ -1,3 +1,4 @@
 [submodule "src/engine"]
 	path = src/engine
 	url = git@github.com:1Jamie/shape_engine.git
+	branch = dev
