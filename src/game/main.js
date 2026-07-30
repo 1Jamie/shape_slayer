@@ -3037,49 +3037,53 @@ const Game = {
     },
 
     // Apply damage to remote player (host only)
-    damageRemotePlayer(playerId, damage) {
+    damageRemotePlayer(playerId, damage, sourceEnemy = null, options = {}) {
         const state = this.remotePlayerStates.get(playerId);
-        if (!state || state.invulnerable || state.dead) {
+        const playerInstance = this.remotePlayerInstances.get(playerId);
+        const targetEntity = playerInstance || state;
+
+        if (!targetEntity || targetEntity.invulnerable || targetEntity.dead || (state && (state.invulnerable || state.dead))) {
             return false; // Damage not applied (invuln or dead)
         }
 
-        // Track damage taken in stats
-        if (this.getPlayerStats) {
-            const stats = this.getPlayerStats(playerId);
-            stats.addStat('damageTaken', damage);
+        const oldHp = playerInstance ? playerInstance.hp : state.hp;
+
+        if (playerInstance && typeof playerInstance.takeDamage === 'function') {
+            // Take damage on the simulated Player instance to process defense, item shield, fortify shield & class reductions
+            playerInstance.takeDamage(damage, sourceEnemy, options);
+            state.hp = playerInstance.hp;
+            state.invulnerable = playerInstance.invulnerable;
+            state.invulnerabilityTime = playerInstance.invulnerabilityTime;
+        } else {
+            // Fallback for raw state objects
+            state.hp -= damage;
+            state.invulnerable = true;
+            state.invulnerabilityTime = 0.5;
         }
 
-        // Apply damage
-        state.hp -= damage;
+        const actualDamageDealt = Math.max(0, oldHp - state.hp);
 
-        if (typeof Telemetry !== 'undefined') {
+        // Track damage taken in stats
+        if (this.getPlayerStats && actualDamageDealt > 0) {
+            const stats = this.getPlayerStats(playerId);
+            if (stats) {
+                stats.addStat('damageTaken', actualDamageDealt);
+            }
+        }
+
+        if (typeof Telemetry !== 'undefined' && actualDamageDealt > 0) {
             Telemetry.recordPlayerHit({
                 playerId,
-                amount: damage,
+                amount: actualDamageDealt,
                 roomNumber: this.roomNumber,
-                sourceId: null,
-                sourceType: 'enemy'
+                sourceId: sourceEnemy && (sourceEnemy.id || sourceEnemy.enemyId) ? (sourceEnemy.id || sourceEnemy.enemyId) : null,
+                sourceType: sourceEnemy && sourceEnemy.isBoss ? 'boss' : 'enemy'
             });
         }
-        state.invulnerable = true;
-        state.invulnerabilityTime = 0.5; // Same as local player
 
-        // Also update the player instance HP
-        const playerInstance = this.remotePlayerInstances.get(playerId);
-        if (playerInstance) {
-            const oldHp = playerInstance.hp;
-            playerInstance.hp = state.hp;
-            playerInstance.invulnerable = true;
-            playerInstance.invulnerabilityTime = 0.5;
-
-            // Set lastDamageTime and lastDamageAmount for visual effects (chromatic aberration)
-            // Screen shake will be triggered on client side when HP syncs via applyState
-            // Only set if HP actually decreased (not just invulnerability refresh)
-            if (oldHp > state.hp) {
-                const damageAmount = oldHp - state.hp;
-                playerInstance.lastDamageTime = Date.now() / 1000;
-                playerInstance.lastDamageAmount = damageAmount; // Track damage amount for visual effects
-            }
+        if (playerInstance && oldHp > state.hp) {
+            playerInstance.lastDamageTime = Date.now() / 1000;
+            playerInstance.lastDamageAmount = actualDamageDealt;
         }
 
         // Check if dead

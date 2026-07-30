@@ -1515,7 +1515,7 @@ function checkEnemiesVsPlayer(player, enemies) {
                         // Remote player: use damageRemotePlayer to track on host
                         // HP syncs to clients via game_state, not individual damage events
                         if (typeof Game !== 'undefined' && Game.damageRemotePlayer) {
-                            Game.damageRemotePlayer(id, contactDmg);
+                            Game.damageRemotePlayer(id, contactDmg, enemy);
                         }
                     }
                     
