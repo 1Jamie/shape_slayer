@@ -1513,20 +1513,14 @@ function getInteractionLabel(interaction) {
         const isMp = Game.multiplayerEnabled || Game.localSplitEnabled;
         if (isMp) {
             const pylon = interaction.pylon;
-            const players = [];
-            if (Game.player && Game.player.alive && Game.player.hp > 0) players.push(Game.player);
-            if (Game.remotePlayerInstances) {
-                Game.remotePlayerInstances.forEach(p => {
-                    if (p && p.alive && p.hp > 0) players.push(p);
-                });
-            }
+            const players = typeof Game.getAllAlivePlayers === 'function' ? Game.getAllAlivePlayers() : [Game.player];
             const allInside = players.every(p => {
                 const dx = pylon.x - p.x;
                 const dy = pylon.y - p.y;
                 return Math.sqrt(dx * dx + dy * dy) < pylon.range;
             });
             if (!allInside) {
-                return 'Waiting for all players...';
+                return 'Waiting for other player';
             }
         }
         return 'Start Next Wave';
@@ -1869,13 +1863,7 @@ function performCurrentInteraction() {
             let allInside = true;
             if (isMp) {
                 const pylon = currentInteraction.pylon;
-                const players = [];
-                if (Game.player && Game.player.alive && Game.player.hp > 0) players.push(Game.player);
-                if (Game.remotePlayerInstances) {
-                    Game.remotePlayerInstances.forEach(p => {
-                        if (p && p.alive && p.hp > 0) players.push(p);
-                    });
-                }
+                const players = typeof Game.getAllAlivePlayers === 'function' ? Game.getAllAlivePlayers() : [Game.player];
                 allInside = players.every(p => {
                     const dx = pylon.x - p.x;
                     const dy = pylon.y - p.y;

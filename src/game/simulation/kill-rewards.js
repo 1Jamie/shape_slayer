@@ -191,18 +191,39 @@
 
             const killerId = (extra && extra.killerId) || (enemy && enemy.lastAttacker)
                 || (typeof world.getLocalPlayerId === 'function' ? world.getLocalPlayerId() : null);
-            if (killerId && typeof world.getPlayerStats === 'function') {
-                const stats = world.getPlayerStats(killerId);
-                if (stats && typeof stats.addStat === 'function') {
-                    stats.addStat('kills', 1);
-                }
+
+            const creditedPlayerIds = new Set();
+            if (killerId) {
+                creditedPlayerIds.add(killerId);
             }
+            if (enemy && enemy._damageContributors) {
+                Object.keys(enemy._damageContributors).forEach(id => {
+                    const pct = enemy._damageContributors[id] / Math.max(1, enemy.maxHp);
+                    if (pct >= 0.25) {
+                        creditedPlayerIds.add(id);
+                    }
+                });
+            }
+
+            creditedPlayerIds.forEach(playerId => {
+                if (typeof world.getPlayerStats === 'function') {
+                    const stats = world.getPlayerStats(playerId);
+                    if (stats && typeof stats.addStat === 'function') {
+                        stats.addStat('kills', 1);
+                    }
+                }
+            });
         }
 
         return GameBus.emit('combat:enemyKilled', Object.assign({
             enemy,
             world,
             killerId: enemy && enemy.lastAttacker,
+            contributors: enemy && enemy._damageContributors ? Object.keys(enemy._damageContributors).map(id => ({
+                id,
+                damage: enemy._damageContributors[id],
+                pct: enemy._damageContributors[id] / Math.max(1, enemy.maxHp)
+            })) : [],
             styleTag: (extra && extra.styleTag)
                 || (enemy && enemy.lastStyleTag)
                 || null,

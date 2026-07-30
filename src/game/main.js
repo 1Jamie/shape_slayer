@@ -2201,6 +2201,22 @@ const Game = {
         return this.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.isHost;
     },
 
+    getAllAlivePlayers() {
+        const list = [];
+        if (this.player && this.player.alive && !this.player.dead) {
+            list.push(this.player);
+        }
+        const remMap = this.isHost() ? this.remotePlayerInstances : this.remotePlayerShadowInstances;
+        if (remMap) {
+            remMap.forEach(p => {
+                if (p && p.alive && !p.dead) {
+                    list.push(p);
+                }
+            });
+        }
+        return list;
+    },
+
     getConnectedLocalSplitPads() {
         if (typeof navigator === 'undefined' || !navigator.getGamepads) return [];
         return Array.from(navigator.getGamepads())
@@ -3497,10 +3513,15 @@ const Game = {
         // Check collisions
         // Host: check collisions if ANY player alive (local or remote)
         // Client: check collisions if local player alive
-        const shouldCheckCollisions = this.player && (
-            this.player.alive ||
-            (this.isHost() && this.remotePlayers && this.remotePlayers.some(rp => rp.hp > 0))
-        );
+        let anyPlayerAlive = this.player && this.player.alive;
+        if (!anyPlayerAlive && this.remotePlayerInstances) {
+            this.remotePlayerInstances.forEach(pInst => {
+                if (pInst && pInst.alive) {
+                    anyPlayerAlive = true;
+                }
+            });
+        }
+        const shouldCheckCollisions = anyPlayerAlive;
 
         if (shouldCheckCollisions) {
             // Player attacks against enemies
@@ -6521,27 +6542,54 @@ const Game = {
         }
 
         if (opts.promptOnly && active && isNear) {
-            // drawInteractionPrompt inherits ctx.font — set an explicit world-space size
-            // (pad is ~170–190px; tiny leftover fonts from earlier draws make this unreadable).
-            ctx.fillStyle = '#F4FFFD';
-            ctx.font = 'bold 16px Orbitron, sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
-            ctx.shadowBlur = 6;
-            ctx.shadowOffsetX = 1;
-            ctx.shadowOffsetY = 1;
-            if (typeof Engine !== 'undefined' && Engine.Input && Engine.Input.drawInteractionPrompt) {
-                const promptOpts = typeof this.getInteractionPromptOptionsNear === 'function'
-                    ? this.getInteractionPromptOptionsNear(pylon.x, pylon.y, pylon.range)
-                    : null;
-                Engine.Input.drawInteractionPrompt(ctx, 'start next wave', pylon.x, pylon.y + 62, promptOpts);
+            // Check if all players are inside the pad range
+            const players = typeof this.getAllAlivePlayers === 'function' ? this.getAllAlivePlayers() : [this.player];
+            const allInside = players.every(p => {
+                const dx = pylon.x - p.x;
+                const dy = pylon.y - p.y;
+                return Math.sqrt(dx * dx + dy * dy) < pylon.range;
+            });
+            const isMp = this.multiplayerEnabled || this.localSplitEnabled;
+
+            ctx.save();
+            if (isMp && !allInside) {
+                // Dimmed state for waiting
+                ctx.globalAlpha = 0.5;
+                ctx.fillStyle = '#A0B0C0';
+                ctx.font = 'bold 15px Orbitron, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+                ctx.shadowBlur = 4;
+                ctx.shadowOffsetX = 1;
+                ctx.shadowOffsetY = 1;
+                if (typeof Engine !== 'undefined' && Engine.Input && Engine.Input.drawInteractionPrompt) {
+                    const promptOpts = typeof this.getInteractionPromptOptionsNear === 'function'
+                        ? this.getInteractionPromptOptionsNear(pylon.x, pylon.y, pylon.range)
+                        : null;
+                    Engine.Input.drawInteractionPrompt(ctx, 'waiting for other player', pylon.x, pylon.y + 62, promptOpts);
+                } else {
+                    ctx.fillText('Waiting for other player...', pylon.x, pylon.y + 62);
+                }
             } else {
-                ctx.fillText('Press [G] — next wave', pylon.x, pylon.y + 62);
+                ctx.fillStyle = '#F4FFFD';
+                ctx.font = 'bold 16px Orbitron, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+                ctx.shadowBlur = 6;
+                ctx.shadowOffsetX = 1;
+                ctx.shadowOffsetY = 1;
+                if (typeof Engine !== 'undefined' && Engine.Input && Engine.Input.drawInteractionPrompt) {
+                    const promptOpts = typeof this.getInteractionPromptOptionsNear === 'function'
+                        ? this.getInteractionPromptOptionsNear(pylon.x, pylon.y, pylon.range)
+                        : null;
+                    Engine.Input.drawInteractionPrompt(ctx, 'start next wave', pylon.x, pylon.y + 62, promptOpts);
+                } else {
+                    ctx.fillText('Press [G] — next wave', pylon.x, pylon.y + 62);
+                }
             }
-            ctx.shadowBlur = 0;
-            ctx.shadowOffsetX = 0;
-            ctx.shadowOffsetY = 0;
+            ctx.restore();
         }
         ctx.restore();
     },

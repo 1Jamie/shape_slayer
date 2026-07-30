@@ -2203,10 +2203,9 @@ class PlayerBase {
 
     // Add XP and check for level up
     addXP(amount) {
-        // 50% bonus XP for faster leveling (increased from 10% for balance)
-        // In Surge Arena, damp XP gains because there are many more enemies
+        // Surge Arena XP multiplier tuned up to 0.65x so player levels keep pace with wave scaling
         const isArena = typeof Game !== 'undefined' && (Game.gameMode === 'surge-arena' || Game.activeSessionId === 'surge-arena');
-        const mult = isArena ? 0.35 : 1.5;
+        const mult = isArena ? 0.65 : 1.5;
         const bonusXP = amount * mult;
         this.xp += bonusXP;
         this.totalXpEarned = (this.totalXpEarned || 0) + bonusXP;

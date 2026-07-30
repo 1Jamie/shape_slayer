@@ -104,12 +104,24 @@ const GameLootInteraction = {
                 const pylon = currentRoom.wavePylon;
                 const dist = Math.hypot(pylon.x - actor.player.x, pylon.y - actor.player.y);
                 if (dist < pylon.range) {
-                    if (typeof GameBus !== 'undefined' && GameBus.emit) {
-                        GameBus.emit('arena:startNextWave', {
-                            world: typeof Game !== 'undefined' ? Game : null
+                    const isMp = game.multiplayerEnabled || game.localSplitEnabled;
+                    let allInside = true;
+                    if (isMp) {
+                        const players = typeof game.getAllAlivePlayers === 'function' ? game.getAllAlivePlayers() : [game.player];
+                        allInside = players.every(p => {
+                            const dx = pylon.x - p.x;
+                            const dy = pylon.y - p.y;
+                            return Math.sqrt(dx * dx + dy * dy) < pylon.range;
                         });
-                    } else if (typeof GameArena !== 'undefined' && GameArena.triggerNextWave) {
-                        GameArena.triggerNextWave(typeof Game !== 'undefined' ? Game : null);
+                    }
+                    if (allInside) {
+                        if (typeof GameBus !== 'undefined' && GameBus.emit) {
+                            GameBus.emit('arena:startNextWave', {
+                                world: typeof game !== 'undefined' ? game : null
+                            });
+                        } else if (typeof GameArena !== 'undefined' && GameArena.triggerNextWave) {
+                            GameArena.triggerNextWave(typeof game !== 'undefined' ? game : null);
+                        }
                     }
                     continue;
                 }

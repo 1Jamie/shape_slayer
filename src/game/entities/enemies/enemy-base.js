@@ -2255,13 +2255,17 @@ class EnemyBase {
         this.recordDamage(damage);
 
         // Track who dealt the damage (for kill attribution and aggro)
+        this._damageContributors = this._damageContributors || {};
         if (attackerId) {
             this.lastAttacker = attackerId;
+            this._damageContributors[attackerId] = (this._damageContributors[attackerId] || 0) + damage;
             // Add threat for aggro system
             this.addThreat(attackerId, damage);
         } else if (typeof Game !== 'undefined' && Game.getLocalPlayerId) {
-            this.lastAttacker = Game.getLocalPlayerId();
-            this.addThreat(Game.getLocalPlayerId(), damage);
+            const localId = Game.getLocalPlayerId();
+            this.lastAttacker = localId;
+            this._damageContributors[localId] = (this._damageContributors[localId] || 0) + damage;
+            this.addThreat(localId, damage);
         }
 
         if (typeof storeKillContext === 'function') {
