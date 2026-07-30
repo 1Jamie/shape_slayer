@@ -1,5 +1,9 @@
 # Shape Slayer
 
+> [!IMPORTANT]
+> ### 🧪 Development Branch (`dev`)
+> You are viewing the **development branch** (`dev`). This branch is used for active feature integration and testing before being merged into the `main` branch (used for production releases).
+
 **Rogue-like geometry warfare you can launch in a browser. Dodge, dash, and demolish waves of hostile shapes solo or with friends.**
 
 Shape Slayer is a fast, skill-first top-down action roguelike. Pick a sentient shape, dive into procedurally generated arenas, stack gear affixes until the build gets weird, and see how far you can push a run. Gear Mode is the game now - Card Mode got deleted on purpose.
