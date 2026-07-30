@@ -154,8 +154,22 @@
 		const hpBarFill = document.createElement('div');
 		hpBarFill.style.height = '100%';
 		hpBarFill.style.width = '0%';
-		hpBarFill.style.transition = 'width 0.1s ease-out';
+		hpBarFill.style.position = 'absolute';
+		hpBarFill.style.left = '0';
+		hpBarFill.style.top = '0';
+		hpBarFill.style.transition = 'width 0.15s ease-out';
 		hpBar.appendChild(hpBarFill);
+
+		const scratchBarFill = document.createElement('div');
+		scratchBarFill.style.height = '100%';
+		scratchBarFill.style.width = '0%';
+		scratchBarFill.style.position = 'absolute';
+		scratchBarFill.style.left = '0';
+		scratchBarFill.style.top = '0';
+		scratchBarFill.style.background = 'linear-gradient(to bottom, #95a5a6, #7f8c8d)';
+		scratchBarFill.style.boxShadow = 'inset 0 0 4px rgba(255,255,255,0.2)';
+		scratchBarFill.style.transition = 'left 0.15s ease-out, width 0.15s ease-out';
+		hpBar.appendChild(scratchBarFill);
 
 		// HP text overlay
 		const hpText = document.createElement('div');
@@ -181,6 +195,7 @@
 		// Store references for updates
 		wrap._playerId = playerId;
 		wrap._hpBarFill = hpBarFill;
+		wrap._scratchBarFill = scratchBarFill;
 		wrap._hpText = hpText;
 		wrap._shieldBar = shieldBar;
 		wrap._shieldBarFill = shieldBarFill;
@@ -193,9 +208,9 @@
 	function updatePlayerBar(barElement, playerInstance, dead) {
 		if (!barElement || !playerInstance) return;
 
-		const hp = Math.max(0, playerInstance.hp || 0);
+		const rawHp = Math.max(0, playerInstance.hp || 0);
 		const maxHp = Math.max(1, playerInstance.maxHp || 1);
-		const hpPercent = Math.max(0, Math.min(100, (hp / maxHp) * 100));
+		const hpPercent = Math.max(0, Math.min(100, (rawHp / maxHp) * 100));
 
 		// Update HP bar
 		const hpBarFill = barElement._hpBarFill;
@@ -213,6 +228,25 @@
 			}
 
 			hpText.textContent = `${Math.floor(hp)}/${Math.floor(maxHp)}`;
+		}
+
+		// Update Scratch bar for remote player
+		const scratchBarFill = barElement._scratchBarFill;
+		if (scratchBarFill) {
+			const scratchVal = Math.max(0, playerInstance.scratch || 0);
+			const scratchPct = (scratchVal / maxHp) * 100;
+			const scratchWidth = Math.max(0, Math.min(scratchPct, 100 - hpPercent));
+
+			scratchBarFill.style.left = hpPercent + '%';
+			scratchBarFill.style.width = scratchWidth + '%';
+
+			if (playerInstance.scratchBurnTimer && playerInstance.scratchBurnTimer > 0) {
+				scratchBarFill.style.background = '#ffffff';
+			} else if (playerInstance.scratchPulseTimer && playerInstance.scratchPulseTimer > 0) {
+				scratchBarFill.style.background = 'linear-gradient(to bottom, #d0e0e0, #95a5a6)';
+			} else {
+				scratchBarFill.style.background = 'linear-gradient(to bottom, #95a5a6, #7f8c8d)';
+			}
 		}
 
 		// Update shield bar
@@ -358,6 +392,8 @@
 		remotePlayerMap.forEach((playerInstance, playerId) => {
 			// Skip local player
 			if (playerId === localPlayerId) return;
+			// Skip local split-screen P2 player (P2 has their own dedicated split-screen HUD)
+			if (Game.localSplitEnabled && Game.localSplitPlayerId && playerId === Game.localSplitPlayerId) return;
 
 			// Skip if no valid instance
 			if (!playerInstance) return;

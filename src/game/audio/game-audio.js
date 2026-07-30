@@ -232,6 +232,15 @@
 
             avatarDefeat() {
                 audio().playSweep(400, 100, 0.6, 'triangle', 0.3);
+            },
+
+            scratchGraceStart() {
+                audio().playChime(660, 0.2, 0.2);
+                setTimeout(() => audio().playBeep(880, 0.1, 'sine', 0.15), 50);
+            },
+
+            scratchBurn() {
+                audio().playZap(0.08, 0.6, 0.25);
             }
         }
     };

@@ -89,6 +89,11 @@ class PlayerBase {
         this.maxHp = 100;
         this.baseMaxHp = 100; // Store base max HP for gear calculations
         this.hp = 100;
+        this.anchorHp = 100; // Max recoverable HP anchor (HP before damage episode)
+        this.scratch = 0; // Renewable scratch damage buffer
+        this.scratchGraceTimer = 0; // Delay before scratch conversion starts (3.5s flat)
+        this.scratchPulseTimer = 0; // Visual cue duration when grace period begins
+        this.scratchBurnTimer = 0; // Visual cue duration when scratch is burned on re-hit
         this.level = 1;
 
         // XP system
@@ -416,6 +421,53 @@ class PlayerBase {
         return false;
     }
 
+    updateScratch(deltaTime) {
+        if (this.scratchBurnTimer > 0) {
+            this.scratchBurnTimer -= deltaTime;
+        }
+        if (this.scratchPulseTimer > 0) {
+            this.scratchPulseTimer -= deltaTime;
+        }
+
+        if (this.anchorHp == null || Number.isNaN(this.anchorHp) || this.anchorHp < this.hp) {
+            this.anchorHp = this.hp;
+        }
+
+        if (this.scratch <= 0) {
+            this.scratch = 0;
+            this.scratchGraceTimer = 0;
+            this.anchorHp = this.hp;
+            return;
+        }
+
+        // Grace period logic: flat 3.5s delay before conversion starts
+        if (this.scratchGraceTimer > 0) {
+            this.scratchGraceTimer -= deltaTime;
+            if (this.scratchGraceTimer <= 0) {
+                this.scratchGraceTimer = 0;
+                // Grace period ends, conversion begins! Pulse cue & audio chime
+                this.scratchPulseTimer = 0.5;
+                if (typeof GameAudio !== 'undefined' && GameAudio.sounds && typeof GameAudio.sounds.scratchGraceStart === 'function') {
+                    GameAudio.sounds.scratchGraceStart();
+                }
+            }
+        } else {
+            // Conversion rate: 20% of current scratch per second continuous
+            const drainAmount = Math.min(this.scratch, this.scratch * 0.20 * deltaTime);
+            this.scratch -= drainAmount;
+
+            // Heal Real HP up to anchorHp (capped at maxHp)
+            const targetCap = Math.min(this.maxHp, this.anchorHp || this.maxHp);
+            if (this.hp < targetCap) {
+                this.hp = Math.min(targetCap, this.hp + drainAmount);
+            }
+
+            if (this.scratch <= 0.001) {
+                this.scratch = 0;
+                this.anchorHp = this.hp;
+            }
+        }
+    }
 
     update(deltaTime, input) {
         // Don't update if dead
@@ -425,6 +477,7 @@ class PlayerBase {
         }
 
         this.updateEnemyDebuffs(deltaTime);
+        this.updateScratch(deltaTime);
 
         // Apply item HP regeneration
         if (this.itemHpRegenPercent > 0 && this.hp < this.maxHp) {
@@ -1887,8 +1940,32 @@ class PlayerBase {
             }
         }
 
-        // Subtract damage from HP
-        this.hp -= damage;
+        // Scratch damage mechanics:
+        // Initialize anchorHp to HP before taking damage if scratch is not active
+        if (this.scratch <= 0 || this.anchorHp == null || Number.isNaN(this.anchorHp)) {
+            this.anchorHp = this.hp;
+        }
+
+        // 1. Re-hit while scratch active: burn 20% of active scratch permanently (lowers max recoverable anchorHp)
+        if (this.scratch > 0) {
+            const burnAmount = this.scratch * 0.20;
+            this.anchorHp = Math.max(this.hp, this.anchorHp - burnAmount);
+            this.scratchBurnTimer = 0.3; // Brief flash on scratch burn
+            if (typeof GameAudio !== 'undefined' && GameAudio.sounds && typeof GameAudio.sounds.scratchBurn === 'function') {
+                GameAudio.sounds.scratchBurn();
+            }
+        }
+
+        // 2. Real HP takes 25% of post-defense damage permanently
+        const realHpDamage = damage * 0.25;
+        this.hp = Math.max(0, this.hp - realHpDamage);
+
+        // 3. Scratch buffer is the recoverable gap between anchorHp and Real HP
+        this.scratch = Math.max(0, this.anchorHp - this.hp);
+
+        // Reset grace period timer on hit (flat 3.5 seconds delay before conversion starts)
+        this.scratchGraceTimer = 3.5;
+
         this.lastDamageTime = Date.now() / 1000; // Track damage time for visual effects
         this.lastDamageAmount = damage; // Track damage amount from this hit for visual effects
 
@@ -4026,6 +4103,9 @@ class PlayerBase {
             // Health and progression
             hp: this.hp,
             maxHp: this.maxHp,
+            anchorHp: this.anchorHp,
+            scratch: this.scratch,
+            scratchGraceTimer: this.scratchGraceTimer,
             shieldHealth: this.shieldHealth,
             maxShieldHealth: this.maxShieldHealth,
             level: this.level,
@@ -4254,6 +4334,9 @@ class PlayerBase {
             // Host or solo: apply HP/XP directly
             if (state.hp !== undefined) this.hp = state.hp;
             if (state.maxHp !== undefined) this.maxHp = state.maxHp;
+            if (state.anchorHp !== undefined) this.anchorHp = state.anchorHp;
+            if (state.scratch !== undefined) this.scratch = state.scratch;
+            if (state.scratchGraceTimer !== undefined) this.scratchGraceTimer = state.scratchGraceTimer;
             
             const levelIncreased = state.level !== undefined && state.level > this.level;
             if (state.level !== undefined) this.level = state.level;
@@ -4276,6 +4359,9 @@ class PlayerBase {
             const oldHp = this.hp;
             if (state.hp !== undefined) this.hp = state.hp;
             if (state.maxHp !== undefined) this.maxHp = state.maxHp;
+            if (state.anchorHp !== undefined) this.anchorHp = state.anchorHp;
+            if (state.scratch !== undefined) this.scratch = state.scratch;
+            if (state.scratchGraceTimer !== undefined) this.scratchGraceTimer = state.scratchGraceTimer;
 
             // Detect damage taken (HP decreased) and trigger visual effects
             if (oldHp !== undefined && state.hp !== undefined && state.hp < oldHp) {
