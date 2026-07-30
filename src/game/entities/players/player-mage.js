@@ -316,7 +316,6 @@ class Mage extends PlayerBase {
         // Don't use base cooldown, use our charge system instead
         // Consume a charge
         this.beamCharges = Math.max(0, this.beamCharges - 1);
-        const longestActive = this.getLongestActiveCooldown(this.beamChargeCooldowns);
 
         // Find the first available charge slot and start its cooldown
         for (let i = 0; i < this.maxBeamCharges; i++) {
@@ -331,7 +330,7 @@ class Mage extends PlayerBase {
                     this.beamChargeCooldowns[i] = 0;
                     this.beamCharges++; // Refund the charge
                 } else {
-                    this.beamChargeCooldowns[i] = effectiveHeavyCooldown + longestActive;
+                    this.beamChargeCooldowns[i] = effectiveHeavyCooldown;
                 }
                 break;
             }
@@ -929,14 +928,28 @@ class Mage extends PlayerBase {
         }
 
         // Update beam charge cooldowns - follow EXACT same pattern as dodge charges in base class update()
-        // Tick down cooldowns for each charge
+        // Sequential cooldown ticking: only regenerate the charge closest to finishing
+        let minIndex = -1;
+        let minVal = Infinity;
+        for (let i = 0; i < this.maxBeamCharges; i++) {
+            const rawValue = this.beamChargeCooldowns[i];
+            const cooldown = Number.isFinite(rawValue) ? rawValue : 0;
+            if (cooldown > 0 && cooldown < minVal) {
+                minVal = cooldown;
+                minIndex = i;
+            }
+        }
+
+        // Decrement the single active charge
+        if (minIndex !== -1) {
+            this.beamChargeCooldowns[minIndex] = Math.max(0, this.beamChargeCooldowns[minIndex] - deltaTime);
+        }
+
+        // Sync other charges to 0 if they finished, or ensure they don't go negative
         for (let i = 0; i < this.maxBeamCharges; i++) {
             const rawValue = this.beamChargeCooldowns[i];
             let cooldown = Number.isFinite(rawValue) ? rawValue : 0;
-            if (cooldown > 0) {
-                cooldown = Math.max(0, cooldown - deltaTime);
-                this.beamChargeCooldowns[i] = cooldown;
-            } else {
+            if (cooldown <= 0) {
                 this.beamChargeCooldowns[i] = 0;
             }
         }

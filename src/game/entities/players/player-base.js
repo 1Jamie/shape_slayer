@@ -530,17 +530,31 @@ class PlayerBase {
         // Update dodge cooldowns (supports both single and multi-charge systems)
         const usesChargeDodge = this.usesChargeBasedDodge();
         if (usesChargeDodge) {
+            // Sequential cooldown ticking: only regenerate the charge closest to finishing
+            let minIndex = -1;
+            let minVal = Infinity;
+            for (let i = 0; i < this.dodgeChargeCooldowns.length; i++) {
+                const rawValue = this.dodgeChargeCooldowns[i];
+                const cooldown = Number.isFinite(rawValue) ? rawValue : 0;
+                if (cooldown > 0 && cooldown < minVal) {
+                    minVal = cooldown;
+                    minIndex = i;
+                }
+            }
+
+            // Decrement the single active charge
+            if (minIndex !== -1) {
+                const dec = deltaTime * (this.cooldownRegenMult || 1);
+                this.dodgeChargeCooldowns[minIndex] = Math.max(0, this.dodgeChargeCooldowns[minIndex] - dec);
+            }
+
+            // Sync other charges to 0 if they finished, or ensure they don't go negative
             let readyCharges = 0;
             for (let i = 0; i < this.dodgeChargeCooldowns.length; i++) {
                 const rawValue = this.dodgeChargeCooldowns[i];
                 let cooldown = Number.isFinite(rawValue) ? rawValue : 0;
-                if (cooldown > 0) {
-                    cooldown = Math.max(0, cooldown - deltaTime * (this.cooldownRegenMult || 1));
-                    this.dodgeChargeCooldowns[i] = cooldown;
-                } else {
-                    this.dodgeChargeCooldowns[i] = 0;
-                }
                 if (cooldown <= 0) {
+                    this.dodgeChargeCooldowns[i] = 0;
                     readyCharges++;
                 }
             }
@@ -1219,12 +1233,11 @@ class PlayerBase {
 
     consumeDodgeCharge() {
         if (this.usesChargeBasedDodge()) {
-            const longestActive = this.getLongestActiveCooldown(this.dodgeChargeCooldowns);
             const effectiveDodgeCooldown = this.dodgeCooldownTime;
             for (let i = 0; i < this.dodgeChargeCooldowns.length; i++) {
                 const cooldown = Number.isFinite(this.dodgeChargeCooldowns[i]) ? this.dodgeChargeCooldowns[i] : 0;
                 if (cooldown <= 0) {
-                    this.dodgeChargeCooldowns[i] = effectiveDodgeCooldown + longestActive;
+                    this.dodgeChargeCooldowns[i] = effectiveDodgeCooldown;
                     break;
                 }
             }
