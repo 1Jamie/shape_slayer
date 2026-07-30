@@ -390,6 +390,14 @@ class PlayerBase {
                 );
                 this.x = resolved.x;
                 this.y = resolved.y;
+
+                // Zero out velocity component along blocked axis so player slides smoothly
+                // without sticking or rubberbanding against walls at high move speeds
+                if (resolved.collided) {
+                    if (this.x === previousX && this.vx !== 0) this.vx = 0;
+                    if (this.y === previousY && this.vy !== 0) this.vy = 0;
+                }
+
                 if (this.thrustActive && resolved.collided) {
                     this.thrustActive = false;
                     this.thrustElapsed = 0;

@@ -595,7 +595,7 @@ class Mage extends PlayerBase {
             targetY = this.y + Math.sin(angle) * distance;
         } else {
             // Mouse mode: use world mouse position (accounts for camera)
-            const worldMouse = Engine.Input.getWorldMousePos ? Engine.Input.getWorldMousePos() : input.mouse;
+            const worldMouse = input.getWorldMousePos ? input.getWorldMousePos() : (input.mouse || { x: this.x, y: this.y });
             const mouseX = worldMouse.x || this.x;
             const mouseY = worldMouse.y || this.y;
             const dx = mouseX - this.x;
@@ -666,7 +666,7 @@ class Mage extends PlayerBase {
             }
         } else {
             // Mouse mode: blink toward world mouse position
-            const worldMouse = Engine.Input.getWorldMousePos ? Engine.Input.getWorldMousePos() : input.mouse;
+            const worldMouse = input.getWorldMousePos ? input.getWorldMousePos() : (input.mouse || { x: this.x, y: this.y });
             targetX = worldMouse.x || this.x;
             targetY = worldMouse.y || this.y;
         }

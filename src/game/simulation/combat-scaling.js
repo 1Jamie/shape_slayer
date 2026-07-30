@@ -35,8 +35,8 @@ const ENEMY_DAMAGE_GROWTH_PER_ROOM = 0.085;
 const ENEMY_DAMAGE_GROWTH_PER_ROOM_POST = 0.055;
 const ARENA_ENEMY_HP_GROWTH_PER_WAVE = 0.1196; // Increased 4% from 0.115
 const ARENA_ENEMY_HP_GROWTH_PER_WAVE_POST = 0.0884; // Increased 4% from 0.085
-const ARENA_ENEMY_DAMAGE_GROWTH_PER_WAVE = 0.145;
-const ARENA_ENEMY_DAMAGE_GROWTH_PER_WAVE_POST = 0.115;
+const ARENA_ENEMY_DAMAGE_GROWTH_PER_WAVE = 0.088; // Slowed down from 0.145 for manageable early wave ramp (was 0.145)
+const ARENA_ENEMY_DAMAGE_GROWTH_PER_WAVE_POST = 0.065; // Slowed down from 0.115
 const ENEMY_DEFENSE_GROWTH_PER_ROOM = 0.005;
 const ARENA_ENEMY_DEFENSE_GROWTH_PER_WAVE = 0.006;
 const BOSS_HP_GROWTH_PER_ROOM = 0.052;
@@ -82,21 +82,21 @@ const DIFFICULTY_PRESETS = {
 const MULTIPLAYER_SCALING = {
     gear: {
         1: { enemyCount: 1.0, enemyHP: 1.0, enemyDamage: 1.0, bossHP: 1.0, bossDamage: 1.0 },
-        2: { enemyCount: 1.5, enemyHP: 1.35, enemyDamage: 1.04, bossHP: 1.40, bossDamage: 1.10 },
-        3: { enemyCount: 2.0, enemyHP: 1.40, enemyDamage: 1.04, bossHP: 1.80, bossDamage: 1.15 },
-        4: { enemyCount: 2.5, enemyHP: 1.50, enemyDamage: 1.04, bossHP: 2.20, bossDamage: 1.18 }
+        2: { enemyCount: 1.5, enemyHP: 1.35, enemyDamage: 1.0, bossHP: 1.40, bossDamage: 1.10 },
+        3: { enemyCount: 2.0, enemyHP: 1.40, enemyDamage: 1.0, bossHP: 1.80, bossDamage: 1.15 },
+        4: { enemyCount: 2.5, enemyHP: 1.50, enemyDamage: 1.0, bossHP: 2.20, bossDamage: 1.18 }
     },
     cards: {
         1: { enemyCount: 1.0, enemyHP: 1.0, enemyDamage: 1.0, bossHP: 1.0, bossDamage: 1.0 },
-        2: { enemyCount: 1.6, enemyHP: 1.20, enemyDamage: 1.04, bossHP: 1.35, bossDamage: 1.10 },
-        3: { enemyCount: 2.1, enemyHP: 1.25, enemyDamage: 1.04, bossHP: 1.70, bossDamage: 1.15 },
-        4: { enemyCount: 2.6, enemyHP: 1.30, enemyDamage: 1.04, bossHP: 2.00, bossDamage: 1.18 }
+        2: { enemyCount: 1.6, enemyHP: 1.20, enemyDamage: 1.0, bossHP: 1.35, bossDamage: 1.10 },
+        3: { enemyCount: 2.1, enemyHP: 1.25, enemyDamage: 1.0, bossHP: 1.70, bossDamage: 1.15 },
+        4: { enemyCount: 2.6, enemyHP: 1.30, enemyDamage: 1.0, bossHP: 2.00, bossDamage: 1.18 }
     },
     'surge-arena': {
         1: { enemyCount: 1.0, enemyHP: 1.0, enemyDamage: 1.0, bossHP: 1.0, bossDamage: 1.0 },
-        2: { enemyCount: 1.5, enemyHP: 1.35, enemyDamage: 1.04, bossHP: 1.40, bossDamage: 1.10 },
-        3: { enemyCount: 2.0, enemyHP: 1.40, enemyDamage: 1.04, bossHP: 1.80, bossDamage: 1.15 },
-        4: { enemyCount: 2.5, enemyHP: 1.50, enemyDamage: 1.04, bossHP: 2.20, bossDamage: 1.18 }
+        2: { enemyCount: 1.5, enemyHP: 1.35, enemyDamage: 1.0, bossHP: 1.40, bossDamage: 1.10 },
+        3: { enemyCount: 2.0, enemyHP: 1.40, enemyDamage: 1.0, bossHP: 1.80, bossDamage: 1.15 },
+        4: { enemyCount: 2.5, enemyHP: 1.50, enemyDamage: 1.0, bossHP: 2.20, bossDamage: 1.18 }
     }
 };
 
