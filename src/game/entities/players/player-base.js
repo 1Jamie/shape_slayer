@@ -1806,8 +1806,10 @@ class PlayerBase {
 
         // Discrete physical hit for mode rules (combo bleed). DoT/status excluded.
         if (!isStatusDamage && typeof GameBus !== 'undefined' && GameBus.emit) {
+            const hitPlayerId = this.id || this.playerId || (typeof Game !== 'undefined' && Game.getLocalPlayerId ? Game.getLocalPlayerId() : 'local');
             GameBus.emit('combat:playerDamaged', {
                 player: this,
+                playerId: hitPlayerId,
                 damage,
                 sourceEnemy,
                 physical: true,

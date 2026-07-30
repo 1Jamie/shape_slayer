@@ -948,7 +948,8 @@ class MultiplayerManager {
             arenaWavePhase: Game.arenaWavePhase || null,
             waveDirector: Game.waveDirector ? {
                 complete: !!Game.waveDirector.complete,
-                pendingCount: Game.waveDirector.pending ? Math.max(0, Game.waveDirector.pending.length - (Game.waveDirector.pendingIndex || 0)) : 0
+                pendingCount: Game.waveDirector.pending ? Math.max(0, Game.waveDirector.pending.length - (Game.waveDirector.pendingIndex || 0)) : 0,
+                enemiesRemaining: (typeof WaveDirector !== 'undefined' && WaveDirector.getEnemiesRemaining) ? WaveDirector.getEnemiesRemaining(Game) : 0
             } : null,
             arenaPylonActive: (Game.state === 'PLAYING' && typeof currentRoom !== 'undefined' && currentRoom && currentRoom.wavePylon) ? !!currentRoom.wavePylon.active : false,
             arenaMachinesAccessible: (Game.state === 'PLAYING' && typeof currentRoom !== 'undefined' && currentRoom) ? !!currentRoom.machinesAccessible : false
@@ -4536,7 +4537,8 @@ class MultiplayerManager {
                         Game.waveDirector = {
                             complete: !!state.waveDirector.complete,
                             pending: new Array(state.waveDirector.pendingCount || 0),
-                            pendingIndex: 0
+                            pendingIndex: 0,
+                            enemiesRemaining: state.waveDirector.enemiesRemaining || 0
                         };
                     } else {
                         Game.waveDirector = null;

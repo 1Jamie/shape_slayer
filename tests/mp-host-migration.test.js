@@ -77,3 +77,15 @@ test('non-host host_migrated clears lastConfirmedState but can keep history', ()
     assert.ok(source.includes('Stayed client under a new host') || source.includes('lastConfirmedState = null'));
     assert.ok(source.includes('expectedSequence = null'));
 });
+
+test('host migration marks previous host disconnected and cleans combo', () => {
+    const main = fs.readFileSync(path.join(__dirname, '..', 'src', 'game', 'main.js'), 'utf-8');
+    assert.ok(main.includes('Marked previous host'));
+    assert.ok(main.includes('deleteComboState'));
+});
+
+test('host migration reconstructs waveDirector with pending count', () => {
+    const main = fs.readFileSync(path.join(__dirname, '..', 'src', 'game', 'main.js'), 'utf-8');
+    assert.ok(main.includes('Reconstructed WaveDirector'));
+    assert.ok(main.includes('enemiesPlanned: snapshot.waveDirector.pendingCount'));
+});

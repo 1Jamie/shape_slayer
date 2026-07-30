@@ -699,7 +699,7 @@
 					if (/resume/i.test(label) && modal.querySelector && modal.querySelector('.pause-menu')) {
 						return false;
 					}
-					return /close|cancel|back|no|×|✕/i.test(label);
+					return /\b(?:close|cancel|back|no)\b|×|✕/i.test(label);
 				});
 
 			if (closeButton) {

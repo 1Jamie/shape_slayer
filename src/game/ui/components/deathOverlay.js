@@ -547,7 +547,9 @@
 								timeAlive: statsData.timeAlive,
 								roomsCleared: statsData.roomsCleared,
 								wavesCleared: statsData.wavesCleared,
-								highestCombo: statsData.highestCombo
+								highestCombo: statsData.highestCombo,
+								shardsEarned: statsData.shardsEarned,
+								creditsEarned: statsData.creditsEarned
 							}
 						});
 					}
@@ -680,8 +682,12 @@
 			playerName.textContent = `${entry.playerName}${entry.playerId === localPlayerId ? ' (You)' : ''} - Rewards:`;
 			playerRewardSection.appendChild(playerName);
 
-			const shardsEarned = Game.calculateShardsForPlayer ? Game.calculateShardsForPlayer(entry.playerId) : 0;
-			const creditsEarned = Game.calculateCurrencyForPlayer ? Game.calculateCurrencyForPlayer(entry.playerId) : 0;
+			const shardsEarned = (entry.stats && typeof entry.stats.shardsEarned === 'number')
+				? entry.stats.shardsEarned
+				: (Game.calculateShardsForPlayer ? Game.calculateShardsForPlayer(entry.playerId) : 0);
+			const creditsEarned = (entry.stats && typeof entry.stats.creditsEarned === 'number')
+				? entry.stats.creditsEarned
+				: (Game.calculateCurrencyForPlayer ? Game.calculateCurrencyForPlayer(entry.playerId) : 0);
 
 			if (shardsEarned > 0) {
 				const shardsDiv = document.createElement('div');

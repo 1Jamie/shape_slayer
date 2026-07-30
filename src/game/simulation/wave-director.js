@@ -287,6 +287,11 @@
     function getEnemiesRemaining(world) {
         const w = resolveWorld(world);
         if (!w || !w.waveDirector) return 0;
+        const inMultiplayer = w.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && multiplayerManager.lobbyCode;
+        const isClient = inMultiplayer && !multiplayerManager.isHost;
+        if (isClient && typeof w.waveDirector.enemiesRemaining === 'number') {
+            return w.waveDirector.enemiesRemaining;
+        }
         const room = resolveRoom(w);
         const dir = w.waveDirector;
         const pendingCount = dir.pending ? Math.max(0, dir.pending.length - (dir.pendingIndex || 0)) : 0;
