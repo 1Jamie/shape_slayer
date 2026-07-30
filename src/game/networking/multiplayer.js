@@ -3512,8 +3512,9 @@ class MultiplayerManager {
         const { newCurrency, reason } = data;
         const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
         
-        // Only process if this is for the local player
-        if (data.playerId && data.playerId !== localPlayerId) return;
+        // Accept either targetPlayerId (sent by awardRunCredits) or playerId
+        const targetId = data.targetPlayerId || data.playerId;
+        if (targetId && targetId !== localPlayerId) return;
         
         // Update local currency
         const flooredCurrency = Math.floor(newCurrency);

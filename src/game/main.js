@@ -5837,9 +5837,12 @@ const Game = {
             }
         });
 
-        // Draw Projectile Glows (Culled)
+        // Draw Projectile Glows (Culled) with high-contrast pulsing aura for ground visibility
+        const projPulseTime = Date.now() * 0.008; // ~1.3Hz pulse frequency
+        const projPulseScale = 1.0 + Math.sin(projPulseTime) * 0.35; // Distinct 0.65x to 1.35x glow pulse
         frameLists.projectiles.forEach(projectile => {
-            const glowSize = projectile.glowSize || (projectile.size * 3.0);
+            const baseGlow = projectile.glowSize || (projectile.size * 4.5);
+            const glowSize = baseGlow * projPulseScale;
             const color = projectile.color || (projectile.type === 'knife' ? '#ff1493' : '#ffff00');
             drawGlow(projectile.x, projectile.y, glowSize, color);
         });
@@ -6088,6 +6091,7 @@ const Game = {
         }
 
         // Draw projectiles (Solid bodies)
+        const projPulseTime = Date.now() * 0.005;
         frameLists.projectiles.forEach(projectile => {
             if (projectile.trailLength && projectile.vx !== undefined && projectile.vy !== undefined) {
                 const trailLength = Math.min(6, Math.max(1, projectile.trailLength));
@@ -6136,10 +6140,30 @@ const Game = {
                 ctx.lineWidth = 2;
                 ctx.stroke();
             } else {
+                const pulseOffset = (projectile.x || 0) * 0.02 + (projectile.y || 0) * 0.02;
+                const pulseVal = Math.sin(projPulseTime * 1.5 + pulseOffset);
+                const drawRadius = (projectile.size || 6) * (1.1 + pulseVal * 0.28); // Dynamic pulse between 0.82x and 1.38x size
+
+                // High-contrast black outline border first (ensures pop over dark red/black viscera)
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 3.5;
+                ctx.beginPath();
+                ctx.arc(projectile.x, projectile.y, drawRadius + 1.5, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Bright base projectile core (yellow/custom)
                 ctx.fillStyle = projectile.color || '#ffff00';
                 ctx.beginPath();
-                ctx.arc(projectile.x, projectile.y, projectile.size, 0, Math.PI * 2);
+                ctx.arc(projectile.x, projectile.y, drawRadius, 0, Math.PI * 2);
                 ctx.fill();
+
+                // Vibrant pulsing white halo ring overlay
+                const haloAlpha = 0.5 + pulseVal * 0.35;
+                ctx.strokeStyle = `rgba(255, 255, 255, ${Math.max(0.2, Math.min(1, haloAlpha))})`;
+                ctx.lineWidth = 2.0;
+                ctx.beginPath();
+                ctx.arc(projectile.x, projectile.y, drawRadius * 1.35, 0, Math.PI * 2);
+                ctx.stroke();
             }
         });
 

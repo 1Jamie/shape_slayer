@@ -40,7 +40,7 @@ const OCTAGON_CONFIG = {
     projectileSize: 6,             // Size of projectiles (pixels)
     projectileLifetime: 2.2,       // How long projectiles live (seconds)
     projectileSpread: 0.2,         // Spread angle between projectiles (radians)
-    projectileDamageMultiplier: 0.7, // Damage multiplier for projectiles
+    projectileDamageMultiplier: 0.55, // Damage multiplier for projectiles (moderated for combat clarity)
 
     // Movement Behavior
     separationRadius: 50,          // Minimum distance from other enemies (pixels)

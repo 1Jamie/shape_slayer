@@ -53,7 +53,7 @@
                 ? GameRunRewards.isArenaMode(w)
                 : (w && (w.gameMode === 'arena' || w.activeSessionId === 'surge-arena' || (w.modeProfile && w.modeProfile.id === 'surge-arena')));
             const arenaScale = isArena
-                ? ((typeof GameRunRewards !== 'undefined' && GameRunRewards.ARENA_CREDIT_SCALE) ? GameRunRewards.ARENA_CREDIT_SCALE : 0.35)
+                ? ((typeof GameRunRewards !== 'undefined' && GameRunRewards.ARENA_CREDIT_SCALE) ? GameRunRewards.ARENA_CREDIT_SCALE : 0.75)
                 : 1;
             w.awardRunCredits(Math.floor(amount * mult * arenaScale), reason);
         }
