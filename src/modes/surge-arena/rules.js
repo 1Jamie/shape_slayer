@@ -323,7 +323,7 @@
         return cleared;
     }
 
-    function spawnStyleCrashShards(world, count) {
+    function spawnStyleCrashShards(world, count, comboLost = 0, playerId = 'local') {
         const w = world || root.Game;
         const player = w && w.player;
         if (!player || typeof w.awardRunCredits !== 'function') return;
@@ -339,6 +339,8 @@
                 x: player.x + Math.cos(ang) * dist,
                 y: player.y + Math.sin(ang) * dist,
                 credits: 1 + Math.floor(Math.random() * 2),
+                comboRestore: Math.max(1, Math.floor(comboLost / eject)),
+                playerId: playerId,
                 life: 8,
                 radius: 14,
                 vx: Math.cos(ang) * (80 + Math.random() * 60),
@@ -690,13 +692,16 @@
                 if (prevTier < 4) return false;
                 const nextTier = Math.max(0, prevTier - 2);
                 const floorCount = minKillsForTier(nextTier);
+                const beforeCount = this.comboCount;
                 this.comboCount = Math.min(this.comboCount, Math.max(floorCount, minKillsForTier(nextTier + 1) - 1));
                 if (this.comboCount < floorCount) this.comboCount = floorCount;
+                const comboLost = beforeCount - this.comboCount;
+
                 this.comboTimer = COMBO_TIMER;
                 this.decayHold = 0;
                 this.apexHoldTimer = 0;
                 this.setTier(nextTier, world);
-                spawnStyleCrashShards(world, STYLE_CRASH_SHARD_COUNT);
+                spawnStyleCrashShards(world, STYLE_CRASH_SHARD_COUNT, comboLost, this.playerId);
                 
                 const w = world || root.Game;
                 const localId = w && w.getLocalPlayerId ? w.getLocalPlayerId() : 'local';
@@ -958,6 +963,15 @@
                 if (typeof w.awardRunCredits === 'function') {
                     w.awardRunCredits(p.credits || 1, 'style-crash');
                 }
+                if (p.comboRestore && p.comboRestore > 0) {
+                    const pc = getOrCreatePlayerCombo(w, p.playerId);
+                    if (pc) {
+                        pc.comboCount = (pc.comboCount || 0) + p.comboRestore;
+                        pc.comboTimer = COMBO_TIMER;
+                        pc.recomputeTier(w);
+                        syncComboToWorld(w, p.playerId, pc);
+                    }
+                }
             }
             if (typeof createParticleBurst === 'function') {
                 createParticleBurst(p.x, p.y, '#ffd76a', 10);
@@ -1031,6 +1045,15 @@
                     if (!isClient) {
                         if (typeof w.awardRunCredits === 'function') {
                             w.awardRunCredits(p.credits || 1, 'style-crash');
+                        }
+                        if (p.comboRestore && p.comboRestore > 0) {
+                            const pc = getOrCreatePlayerCombo(w, p.playerId);
+                            if (pc) {
+                                pc.comboCount = (pc.comboCount || 0) + p.comboRestore;
+                                pc.comboTimer = COMBO_TIMER;
+                                pc.recomputeTier(w);
+                                syncComboToWorld(w, p.playerId, pc);
+                            }
                         }
                     }
                     if (typeof createParticleBurst === 'function') {
