@@ -118,7 +118,23 @@
 		hpBarFill.style.height = '100%';
 		hpBarFill.style.width = '0%';
 		hpBarFill.style.background = '#e74c3c';
+		hpBarFill.style.position = 'absolute';
+		hpBarFill.style.left = '0';
+		hpBarFill.style.top = '0';
+		hpBarFill.style.transition = 'width 0.15s ease-out';
 		hpBar.appendChild(hpBarFill);
+
+		const scratchBarFill = document.createElement('div');
+		scratchBarFill.id = 'dom-hp-bar-scratch';
+		scratchBarFill.style.height = '100%';
+		scratchBarFill.style.width = '0%';
+		scratchBarFill.style.position = 'absolute';
+		scratchBarFill.style.left = '0';
+		scratchBarFill.style.top = '0';
+		scratchBarFill.style.background = 'linear-gradient(to bottom, #95a5a6, #7f8c8d)';
+		scratchBarFill.style.boxShadow = 'inset 0 0 4px rgba(255,255,255,0.2)';
+		scratchBarFill.style.transition = 'left 0.15s ease-out, width 0.15s ease-out';
+		hpBar.appendChild(scratchBarFill);
 		const hpBarText = document.createElement('div');
 		hpBarText.id = 'dom-hp-bar-text';
 		hpBarText.style.position = 'absolute';
@@ -407,10 +423,32 @@
 			}
 		}
 
-		const hp = Math.max(0, Math.floor(player.hp || 0));
+		const rawHp = Math.max(0, player.hp || 0);
+		const hp = Math.floor(rawHp);
 		const maxHp = Math.max(1, Math.floor(player.maxHp || 1));
-		const hpPct = Math.max(0, Math.min(100, Math.round((hp / maxHp) * 100)));
+		const hpPct = Math.max(0, Math.min(100, (rawHp / maxHp) * 100));
 		hpBarFill.style.width = hpPct + '%';
+
+		const scratchBarFill = document.getElementById('dom-hp-bar-scratch');
+		if (scratchBarFill) {
+			const scratchVal = Math.max(0, player.scratch || 0);
+			const scratchPct = (scratchVal / maxHp) * 100;
+			const scratchWidth = Math.max(0, Math.min(scratchPct, 100 - hpPct));
+
+			scratchBarFill.style.left = hpPct + '%';
+			scratchBarFill.style.width = scratchWidth + '%';
+
+			if (player.scratchBurnTimer && player.scratchBurnTimer > 0) {
+				scratchBarFill.style.background = '#ffffff';
+				scratchBarFill.style.boxShadow = '0 0 10px #ffffff, inset 0 0 6px #ff4444';
+			} else if (player.scratchPulseTimer && player.scratchPulseTimer > 0) {
+				scratchBarFill.style.background = 'linear-gradient(to bottom, #d0e0e0, #95a5a6)';
+				scratchBarFill.style.boxShadow = '0 0 8px rgba(180,240,255,0.9), inset 0 0 6px #ffffff';
+			} else {
+				scratchBarFill.style.background = 'linear-gradient(to bottom, #95a5a6, #7f8c8d)';
+				scratchBarFill.style.boxShadow = 'inset 0 0 4px rgba(255,255,255,0.2)';
+			}
+		}
 
 		// Update HP bar text
 		const hpBarText = document.getElementById('dom-hp-bar-text');
@@ -852,7 +890,23 @@
 		hpFill.style.height = '100%';
 		hpFill.style.width = '100%';
 		hpFill.style.background = 'linear-gradient(to bottom, #66ff99, #22aa55)';
+		hpFill.style.position = 'absolute';
+		hpFill.style.left = '0';
+		hpFill.style.top = '0';
+		hpFill.style.transition = 'width 0.15s ease-out';
 		hpBar.appendChild(hpFill);
+
+		const scratchFillP2 = document.createElement('div');
+		scratchFillP2.id = 'dom-hud-p2-hp-scratch';
+		scratchFillP2.style.height = '100%';
+		scratchFillP2.style.width = '0%';
+		scratchFillP2.style.position = 'absolute';
+		scratchFillP2.style.left = '0';
+		scratchFillP2.style.top = '0';
+		scratchFillP2.style.background = 'linear-gradient(to bottom, #95a5a6, #7f8c8d)';
+		scratchFillP2.style.boxShadow = 'inset 0 0 4px rgba(255,255,255,0.2)';
+		scratchFillP2.style.transition = 'left 0.15s ease-out, width 0.15s ease-out';
+		hpBar.appendChild(scratchFillP2);
 		const hpText = document.createElement('div');
 		hpText.id = 'dom-hud-p2-hp-text';
 		hpText.style.position = 'absolute';
@@ -946,20 +1000,43 @@
 			p2.style.display = 'none';
 			return;
 		}
-		const second = Game.remotePlayerInstances
-			&& Game.localSplitPlayerId
-			&& Game.remotePlayerInstances.get(Game.localSplitPlayerId);
+		const second = (Game.remotePlayerInstances && Game.localSplitPlayerId && Game.remotePlayerInstances.get(Game.localSplitPlayerId))
+			|| (Game.remotePlayerShadowInstances && Game.localSplitPlayerId && Game.remotePlayerShadowInstances.get(Game.localSplitPlayerId))
+			|| (Game.players && Game.players[1]);
 		if (!second || second.dead) {
 			p2.style.display = 'none';
 			return;
 		}
 		p2.style.display = 'block';
-		const hp = Math.max(0, Math.floor(second.hp || 0));
+		const rawHpP2 = Math.max(0, second.hp || 0);
+		const hp = Math.floor(rawHpP2);
 		const maxHp = Math.max(1, Math.floor(second.maxHp || 1));
 		const hpFill = document.getElementById('dom-hud-p2-hp-fill');
 		const hpText = document.getElementById('dom-hud-p2-hp-text');
-		if (hpFill) hpFill.style.width = `${Math.max(0, Math.min(100, Math.round((hp / maxHp) * 100)))}%`;
+		const hpPctP2 = Math.max(0, Math.min(100, (rawHpP2 / maxHp) * 100));
+		if (hpFill) hpFill.style.width = `${hpPctP2}%`;
 		if (hpText) hpText.textContent = `${hp}/${maxHp}`;
+
+		const scratchFillP2 = document.getElementById('dom-hud-p2-hp-scratch');
+		if (scratchFillP2) {
+			const scratchValP2 = Math.max(0, second.scratch || 0);
+			const scratchPctP2 = (scratchValP2 / maxHp) * 100;
+			const scratchWidthP2 = Math.max(0, Math.min(scratchPctP2, 100 - hpPctP2));
+
+			scratchFillP2.style.left = `${hpPctP2}%`;
+			scratchFillP2.style.width = `${scratchWidthP2}%`;
+
+			if (second.scratchBurnTimer && second.scratchBurnTimer > 0) {
+				scratchFillP2.style.background = '#ffffff';
+				scratchFillP2.style.boxShadow = '0 0 10px #ffffff, inset 0 0 6px #ff4444';
+			} else if (second.scratchPulseTimer && second.scratchPulseTimer > 0) {
+				scratchFillP2.style.background = 'linear-gradient(to bottom, #d0e0e0, #95a5a6)';
+				scratchFillP2.style.boxShadow = '0 0 8px rgba(180,240,255,0.9), inset 0 0 6px #ffffff';
+			} else {
+				scratchFillP2.style.background = 'linear-gradient(to bottom, #95a5a6, #7f8c8d)';
+				scratchFillP2.style.boxShadow = 'inset 0 0 4px rgba(255,255,255,0.2)';
+			}
+		}
 
 		const xp = Math.max(0, second.xp || 0);
 		const xpToNext = Math.max(1, second.xpToNext || 100);
