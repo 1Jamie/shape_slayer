@@ -1542,12 +1542,19 @@ const Game = {
         // Serialize stats for all players (using frozen values)
         const statsObject = {};
         this.playerStats.forEach((stats, playerId) => {
+            const shardsEarned = typeof this.calculateShardsForPlayer === 'function' ? this.calculateShardsForPlayer(playerId) : 0;
+            const creditsEarned = typeof this.calculateCurrencyForPlayer === 'function' ? this.calculateCurrencyForPlayer(playerId) : 0;
+
             statsObject[playerId] = {
                 damageDealt: stats.damageDealt,
                 kills: stats.kills,
                 damageTaken: stats.damageTaken,
                 roomsCleared: Math.max(0, this.roomNumber - 1),
-                timeAlive: stats.getTimeAlive() // This will return frozen value since timer is stopped
+                wavesCleared: Math.max(0, (this.waveNumber || this.roomNumber || 1) - 1),
+                highestCombo: stats.highestCombo || this.highestCombo || 0,
+                timeAlive: stats.getTimeAlive(), // This will return frozen value since timer is stopped
+                shardsEarned,
+                creditsEarned
             };
         });
 
@@ -2667,6 +2674,23 @@ const Game = {
 
         if (isHost && !wasHost) {
             console.log(`[Host Migration] Promoted to host (was ${previousHostId || 'unknown'})`);
+            
+            // Mark previous host as disconnected in multiplayer manager so that 
+            // hydrateHostAuthorityFromSnapshot doesn't recreate them as a live remote player.
+            if (previousHostId) {
+                const oldHostEntry = (multiplayerManager.players || []).find(p => p.id === previousHostId);
+                if (oldHostEntry) {
+                    oldHostEntry.disconnected = true;
+                    console.log(`[Host Migration] Marked previous host ${previousHostId} as disconnected in lobby`);
+                }
+                
+                // Clean up their combo state to prevent stuck/frozen combo meter
+                if (typeof SurgeArenaRules !== 'undefined' && typeof SurgeArenaRules.deleteComboState === 'function') {
+                    SurgeArenaRules.deleteComboState(previousHostId);
+                    console.log(`[Host Migration] Cleaned up combo state for previous host ${previousHostId}`);
+                }
+            }
+
             this.hydrateHostAuthorityFromSnapshot(multiplayerManager.latestGameState);
             multiplayerManager.forceFullState = true;
             multiplayerManager.lastSentGameState = null;
@@ -2805,6 +2829,65 @@ const Game = {
         // Ensure projectile array keeps stable-id push wrapper
         if (typeof createProjectileList === 'function' && this.projectiles && !this.projectiles._isProjectileList) {
             this.projectiles = createProjectileList(this.projectiles);
+        }
+
+        // Reconstruct WaveDirector and pylon/machines if in Surge Arena and was client
+        if (this.activeSessionId === 'surge-arena' && snapshot) {
+            const wave = snapshot.waveNumber || this.waveNumber || 1;
+            this.waveNumber = wave;
+            this.roomNumber = wave;
+
+            if (snapshot.waveDirector) {
+                const plan = (typeof SurgeArenaRules !== 'undefined' && typeof SurgeArenaRules.computeWavePlan === 'function')
+                    ? SurgeArenaRules.computeWavePlan(this, { wave })
+                    : { allowedEnemyTiers: ['basic'] };
+                
+                const allowed = plan.allowedEnemyTiers || ['basic'];
+                
+                // Reconstruct the full director state
+                this.waveDirector = {
+                    wave: wave,
+                    budgetTotal: plan.spawnBudget || 70,
+                    budgetRemaining: 0,
+                    budgetSpent: plan.spawnBudget || 70,
+                    allowedEnemyTiers: allowed,
+                    pending: [],
+                    pendingIndex: 0,
+                    enemiesPlanned: snapshot.waveDirector.pendingCount || 0,
+                    maxActive: (typeof WaveDirector !== 'undefined' && WaveDirector.computeMaxActive) ? WaveDirector.computeMaxActive(wave) : 15,
+                    baseMaxActive: (typeof WaveDirector !== 'undefined' && WaveDirector.computeMaxActive) ? WaveDirector.computeMaxActive(wave) : 15,
+                    styleSpawnFloor: null,
+                    spawnTimer: 0.5,
+                    active: !snapshot.waveDirector.complete,
+                    complete: !!snapshot.waveDirector.complete,
+                    pausedForCap: false,
+                    spawnFailStreak: 0
+                };
+                
+                // Populate pending with random allowed tiers to match the remaining count
+                const count = snapshot.waveDirector.pendingCount || 0;
+                for (let i = 0; i < count; i++) {
+                    const tier = allowed[Math.floor(Math.random() * allowed.length)];
+                    this.waveDirector.pending.push(tier);
+                }
+                console.log(`[Host Migration] Reconstructed WaveDirector for wave ${wave} with ${count} pending enemies`);
+            }
+
+            if (typeof currentRoom !== 'undefined' && currentRoom) {
+                if (snapshot.arenaPylonActive !== undefined && currentRoom.wavePylon) {
+                    currentRoom.wavePylon.active = snapshot.arenaPylonActive;
+                }
+                if (snapshot.arenaMachinesAccessible !== undefined) {
+                    currentRoom.machinesAccessible = snapshot.arenaMachinesAccessible;
+                }
+            }
+
+            if (snapshot.arenaPhase !== undefined) {
+                this.arenaPhase = snapshot.arenaPhase;
+            }
+            if (snapshot.arenaWavePhase !== undefined) {
+                this.arenaWavePhase = snapshot.arenaWavePhase;
+            }
         }
 
         console.log(`[Host Migration] Hydrated ${this.remotePlayerInstances.size} remote instances from snapshot`);

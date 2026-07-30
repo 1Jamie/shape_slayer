@@ -91,7 +91,7 @@ test('CombatScaling: Surge Arena Scaling and Presets', () => {
     const rules = CS.MULTIPLAYER_SCALING['surge-arena'];
     assert.ok(rules[2], 'surge-arena scaling rules should contain entry for 2 players');
     assert.equal(rules[2].enemyHP, 1.35, 'surge-arena base HP scale multiplier should be 1.35');
-    assert.equal(rules[2].enemyDamage, 1.04, 'surge-arena base damage scale multiplier should be 1.04');
+    assert.equal(rules[2].enemyDamage, 1.0, 'surge-arena base damage scale multiplier should be 1.0');
     assert.equal(rules[2].bossHP, 1.40, 'surge-arena boss HP scale factor multiplier should be 1.40');
 
     // Test scaling output

@@ -6,7 +6,7 @@
 const GameRunRewards = {
     ELITE_CREDIT_REWARD: 15,
     BOSS_CREDIT_REWARD: 50,
-    ARENA_CREDIT_SCALE: 0.75,
+    ARENA_CREDIT_SCALE: 0.5625,
 
     isArenaMode(game) {
         if (!game) return false;

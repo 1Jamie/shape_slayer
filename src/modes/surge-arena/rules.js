@@ -1175,6 +1175,11 @@
             const localId = world && world.getLocalPlayerId ? world.getLocalPlayerId() : 'local';
             return getOrCreatePlayerCombo(world, localId);
         },
+        deleteComboState(playerId) {
+            if (playerId) {
+                playerCombos.delete(playerId);
+            }
+        },
         syncComboFromNetwork(playerId, data) {
             syncComboFromNetwork(playerId, data);
         },
@@ -1237,7 +1242,7 @@
                     if (!payload || payload.physical === false) return;
                     if (payload.physical !== true && payload.physical !== undefined) return;
                     const world = resolveWorld(payload);
-                    const playerId = payload.playerId || (world && world.getLocalPlayerId ? world.getLocalPlayerId() : 'local');
+                    const playerId = payload.playerId || (payload.player && (payload.player.id || payload.player.playerId)) || (world && world.getLocalPlayerId ? world.getLocalPlayerId() : 'local');
                     const pc = getOrCreatePlayerCombo(world, playerId);
                     pc.onPhysicalDamage(world);
                 },
