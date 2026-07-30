@@ -132,7 +132,13 @@ const GameCombatProjectiles = {
 
     // Check projectiles vs player and player projectiles vs enemies
     checkProjectilesVsPlayer() {
-        if (!this.player || !this.player.alive) return;
+        let anyPlayerAlive = this.player && this.player.alive;
+        if (!anyPlayerAlive && this.remotePlayerInstances) {
+            this.remotePlayerInstances.forEach(p => {
+                if (p && p.alive) anyPlayerAlive = true;
+            });
+        }
+        if (!anyPlayerAlive) return;
 
         const projectilesToRemove = [];
 

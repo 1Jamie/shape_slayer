@@ -1198,21 +1198,38 @@
                         GameKillRewards.grantStandardKill(payload);
                     }
                     const world = resolveWorld(payload);
-                    const attackerId = payload.attackerId || (payload.projectile && payload.projectile.attackerId) || (world && world.getLocalPlayerId ? world.getLocalPlayerId() : 'local');
-                    const pc = getOrCreatePlayerCombo(world, attackerId);
-                    pc.onKill(world, payload);
+                    
+                    const creditedPlayerIds = new Set();
+                    const killerId = payload.killerId || payload.attackerId || (payload.projectile && payload.projectile.attackerId) || (world && world.getLocalPlayerId ? world.getLocalPlayerId() : 'local');
+                    if (killerId) {
+                        creditedPlayerIds.add(killerId);
+                    }
+                    if (payload.contributors && Array.isArray(payload.contributors)) {
+                        payload.contributors.forEach(c => {
+                            if (c.pct >= 0.25) {
+                                creditedPlayerIds.add(c.id);
+                            }
+                        });
+                    }
+
+                    creditedPlayerIds.forEach(playerId => {
+                        const pc = getOrCreatePlayerCombo(world, playerId);
+                        if (pc) {
+                            pc.onKill(world, payload);
+                        }
+                    });
                 },
                 'combat:enemyDamaged': (payload) => {
                     if (!payload || !payload.enemy) return;
                     const world = resolveWorld(payload);
-                    const attackerId = payload.attackerId || (payload.projectile && payload.projectile.attackerId) || (world && world.getLocalPlayerId ? world.getLocalPlayerId() : 'local');
+                    const attackerId = payload.killerId || payload.attackerId || (payload.projectile && payload.projectile.attackerId) || (world && world.getLocalPlayerId ? world.getLocalPlayerId() : 'local');
                     const pc = getOrCreatePlayerCombo(world, attackerId);
                     pc.onEnemyDamaged(payload, world);
                 },
                 'combat:bossThresholdReached': (payload) => {
                     if (!payload || !payload.enemy) return;
                     const world = resolveWorld(payload);
-                    const attackerId = payload.attackerId || (payload.projectile && payload.projectile.attackerId) || (world && world.getLocalPlayerId ? world.getLocalPlayerId() : 'local');
+                    const attackerId = payload.killerId || payload.attackerId || (payload.projectile && payload.projectile.attackerId) || (world && world.getLocalPlayerId ? world.getLocalPlayerId() : 'local');
                     const pc = getOrCreatePlayerCombo(world, attackerId);
                     pc.onBossThreshold(world, payload);
                 },
