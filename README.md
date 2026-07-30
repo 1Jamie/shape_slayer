@@ -669,11 +669,11 @@ running a load test.
 
 ## Architecture (engine → game → modes)
 
-Shape Slayer is pieces on the engine, plus modes that consume those pieces.
+Shape Slayer is built on top of [**`shape_engine`**](https://github.com/1Jamie/shape_engine) (`src/engine/`, included as a Git submodule from [`git@github.com:1Jamie/shape_engine.git`](https://github.com/1Jamie/shape_engine)). The game is composed of reusable game packages and modes that consume engine primitives.
 
 | Layer | Owns | Must not own |
 | --- | --- | --- |
-| **`src/engine/`** | Proc/physics/sim loop, Canvas2D host/pipeline, input hardware, FX, audio/music transport, saves storage, net helpers, DOM UI shell | Bosses, gear, biomes, Nexus, class kits, lobby schemas, mode boot |
+| **`src/engine/`** | Proc/physics/sim loop, Canvas2D host/pipeline, input hardware, FX, audio/music transport, saves storage, net helpers, DOM UI shell (Git submodule: [shape_engine](https://github.com/1Jamie/shape_engine)) | Bosses, gear, biomes, Nexus, class kits, lobby schemas, mode boot |
 | **`src/game/`** | Reusable Shape Slayer packages: combat, entities, rooms, telegraphs, content, shared presentation/audio, world piece (`main.js`) | Mode state machines, “which mode is active”, reimplementing engine primitives |
 | **`src/modes/`** | Mode contract (`Modes.<id>.create`), scene/state wiring, package selection, product shell for that mode | Forking combat/entity bases; engine primitives |
 
@@ -699,7 +699,7 @@ shape_slayer/
 ├── sw.js / manifest.json      # Service worker + PWA bits
 ├── src/                       # Playable client code only
 │   ├── css/                   # Hand-edited UI CSS (no Sass)
-│   ├── engine/                # Canvas2D procedural engine (see src/engine/README.md)
+│   ├── engine/                # Canvas2D procedural engine (Git submodule: https://github.com/1Jamie/shape_engine)
 │   │   ├── boot.js            # Probe → initialize → cover → handoff
 │   │   ├── loop.js            # Fixed timestep + frame-budget governor (Engine.Core)
 │   │   ├── input.js / touch.js / split.js
