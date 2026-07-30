@@ -470,7 +470,7 @@ const GameCombatProjectiles = {
                                 if (isLocal && this.player) {
                                     this.player.takeDamage(projectile.damage);
                                 } else if (!isLocal) {
-                                    this.damageRemotePlayer(id, projectile.damage);
+                                    this.damageRemotePlayer(id, projectile.damage, projectile);
                                 }
 
                                 // Visual feedback
@@ -592,7 +592,7 @@ const GameCombatProjectiles = {
                             } else {
                                 // Remote player - apply damage to host's state tracking
                                 // HP syncs to clients via game_state, not individual damage events
-                                this.damageRemotePlayer(id, projectile.damage);
+                                this.damageRemotePlayer(id, projectile.damage, projectile);
                             }
                             projectilesToRemove.push(index);
                             projectileHit = true;
