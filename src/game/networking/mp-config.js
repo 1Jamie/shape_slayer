@@ -16,7 +16,10 @@ function hostUsesSameOriginMultiplayer(hostname) {
     if (SAME_ORIGIN_MP_HOSTS.has(hostname)) {
         return true;
     }
-    return hostname.endsWith('.gpe.pet') && !hostname.startsWith('metrics.');
+    return hostname.endsWith('.gpe.pet') && 
+           !hostname.startsWith('metrics.') && 
+           !hostname.startsWith('shapes-dev.') && 
+           !hostname.includes('-dev.');
 }
 
 function resolveMultiplayerServerUrl() {
