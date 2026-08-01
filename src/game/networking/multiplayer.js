@@ -2140,7 +2140,8 @@ class MultiplayerManager {
 
         const authX = hostState.x;
         const authY = hostState.y;
-        if (typeof authX !== 'number' || typeof authY !== 'number') return;
+        // typeof NaN === 'number', so require finite coords to avoid poisoning local pose.
+        if (!Number.isFinite(authX) || !Number.isFinite(authY)) return;
 
         // Align movement flags with host before measuring error / replaying
         if (typeof Game.player.syncPredictedMovementFromHost === 'function') {

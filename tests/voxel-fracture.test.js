@@ -52,6 +52,7 @@ function loadVoxelFractureModule() {
             }
         },
         Math,
+        Number,
         Uint8Array,
         Float32Array,
         Int16Array,
@@ -323,6 +324,53 @@ test('God-Tier Multi-Variable Voxel Disintegration Engine', async (t) => {
 
         const far = { x: 20, y: 20, size: 20 };
         assert.ok(env.getCombatClarityIntensity(far) < peak * 0.5, 'far entities should get weaker shield');
+    });
+
+    await t.test('combat clarity ignores NaN particle coords and never feeds non-finite gradients', () => {
+        const env = loadVoxelFractureModule();
+        env.resetVoxelStaticCanvas(400, 300);
+
+        const player = { x: 200, y: 150, size: 25, sizeMultiplier: 1 };
+        // Inject a corrupted fluid particle — previously this made d2 > r2 false and
+        // permanently poisoned intensity to NaN (createRadialGradient then threw).
+        const slot = 0;
+        env.VoxelParticlePool.alive[slot] = 1;
+        env.VoxelParticlePool.type[slot] = 1;
+        env.VoxelParticlePool.px[slot] = NaN;
+        env.VoxelParticlePool.py[slot] = NaN;
+        env.VoxelParticlePool.vx[slot] = 0;
+        env.VoxelParticlePool.vy[slot] = 0;
+        env.VoxelParticlePool.cr[slot] = 1;
+        env.VoxelParticlePool.cg[slot] = 0;
+        env.VoxelParticlePool.cb[slot] = 0;
+        env.VoxelParticlePool._activeCount = 1;
+        env.VoxelParticlePool._activeIndices[0] = slot;
+
+        const sample = env.sampleCombatDebrisVolume(200, 150, 80);
+        assert.equal(sample.intensity, 0);
+        assert.ok(Number.isFinite(sample.intensity));
+
+        player._clarityShield = NaN;
+        const intensity = env.getCombatClarityIntensity(player);
+        assert.equal(intensity, 0);
+        assert.ok(Number.isFinite(player._clarityShield));
+
+        let gradientCalls = 0;
+        const ctx = createMockCtx();
+        ctx.createRadialGradient = (x0, y0, r0, x1, y1, r1) => {
+            gradientCalls++;
+            for (const v of [x0, y0, r0, x1, y1, r1]) {
+                if (!Number.isFinite(v)) {
+                    throw new TypeError('The provided double value is non-finite.');
+                }
+            }
+            return { addColorStop: () => {} };
+        };
+        assert.doesNotThrow(() => env.drawCombatClarityBoost(ctx, player));
+        assert.equal(gradientCalls, 0, 'non-finite shield should skip draw entirely');
+
+        // Entity with NaN pose must also no-op instead of throwing.
+        assert.doesNotThrow(() => env.drawCombatClarityBoost(ctx, { x: NaN, y: NaN, size: 25 }));
     });
 
     await t.test('clarity body tint shifts more when spray matches body than when colors already contrast', () => {

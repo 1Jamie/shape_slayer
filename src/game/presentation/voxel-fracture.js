@@ -106,6 +106,11 @@
     }
 
     function _pushCircleFromCircle(px, py, particleRadius, cx, cy, colliderRadius) {
+        if (!Number.isFinite(px) || !Number.isFinite(py) ||
+            !Number.isFinite(cx) || !Number.isFinite(cy) ||
+            !Number.isFinite(particleRadius) || !Number.isFinite(colliderRadius)) {
+            return { x: px, y: py, hit: false };
+        }
         const dx = px - cx;
         const dy = py - cy;
         const dist = Math.hypot(dx, dy);
@@ -371,10 +376,23 @@
     }
 
     function _clampParticleToRoom(x, y, radius) {
-        if (typeof currentRoom === 'undefined' || !currentRoom) return { x, y, hitEdge: false };
-        const min = radius;
-        const maxX = currentRoom.width - radius;
-        const maxY = currentRoom.height - radius;
+        if (typeof currentRoom === 'undefined' || !currentRoom) {
+            if (!Number.isFinite(x) || !Number.isFinite(y)) {
+                return { x: 0, y: 0, hitEdge: true };
+            }
+            return { x, y, hitEdge: false };
+        }
+        const min = Number.isFinite(radius) ? radius : 0;
+        const maxX = currentRoom.width - min;
+        const maxY = currentRoom.height - min;
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+            // NaN/Infinity cannot be Math.min/max clamped — park at room center and mark dirty.
+            return {
+                x: currentRoom.width * 0.5,
+                y: currentRoom.height * 0.5,
+                hitEdge: true
+            };
+        }
         const nx = Math.max(min, Math.min(maxX, x));
         const ny = Math.max(min, Math.min(maxY, y));
         return { x: nx, y: ny, hitEdge: nx !== x || ny !== y };
@@ -1910,6 +1928,7 @@
     let _stampTrailFilled = 0;
 
     function _recordDebrisStampTrail(x, y, r, g, b) {
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return;
         _stampTrailX[_stampTrailHead] = x;
         _stampTrailY[_stampTrailHead] = y;
         _stampTrailR[_stampTrailHead] = r != null ? r : 1;
@@ -1926,6 +1945,17 @@
 
     globalThis.sampleCombatDebrisVolume = function(x, y, radius) {
         radius = radius != null ? radius : 54;
+        if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(radius) || radius <= 0) {
+            return {
+                intensity: 0,
+                score: 0,
+                samples: 0,
+                sprayR: 0,
+                sprayG: 0,
+                sprayB: 0,
+                sprayWeight: 0
+            };
+        }
         const r2 = radius * radius;
         let score = 0;
         let checked = 0;
@@ -1941,8 +1971,12 @@
         for (let n = 0; n < maxCheck; n++) {
             const i = indices[n];
             if (!VoxelParticlePool.alive[i]) continue;
-            const dx = VoxelParticlePool.px[i] - x;
-            const dy = VoxelParticlePool.py[i] - y;
+            const px = VoxelParticlePool.px[i];
+            const py = VoxelParticlePool.py[i];
+            // NaN coords make d2 > r2 false and permanently poison score/intensity.
+            if (!Number.isFinite(px) || !Number.isFinite(py)) continue;
+            const dx = px - x;
+            const dy = py - y;
             const d2 = dx * dx + dy * dy;
             if (d2 > r2) continue;
             checked++;
@@ -1963,8 +1997,11 @@
             const cap = Math.min(ShardPool.capacity, 160);
             for (let i = 0; i < cap; i++) {
                 if (ShardPool.data[i * 20 + 15] !== 1) continue;
-                const dx = ShardPool.data[i * 20] - x;
-                const dy = ShardPool.data[i * 20 + 1] - y;
+                const sx = ShardPool.data[i * 20];
+                const sy = ShardPool.data[i * 20 + 1];
+                if (!Number.isFinite(sx) || !Number.isFinite(sy)) continue;
+                const dx = sx - x;
+                const dy = sy - y;
                 const d2 = dx * dx + dy * dy;
                 if (d2 > r2) continue;
                 checked++;
@@ -1980,8 +2017,11 @@
 
         // Settled puddles keep score + spray hue after airborne particles die.
         for (let i = 0; i < _stampTrailFilled; i++) {
-            const dx = _stampTrailX[i] - x;
-            const dy = _stampTrailY[i] - y;
+            const tx = _stampTrailX[i];
+            const ty = _stampTrailY[i];
+            if (!Number.isFinite(tx) || !Number.isFinite(ty)) continue;
+            const dx = tx - x;
+            const dy = ty - y;
             const d2 = dx * dx + dy * dy;
             if (d2 > r2) continue;
             checked++;
@@ -1993,27 +2033,34 @@
             sprayB += _stampTrailB[i] * falloff * 1.15;
         }
 
-        const intensity = Math.max(0, Math.min(1, score / 9));
+        const intensity = Number.isFinite(score) ? Math.max(0, Math.min(1, score / 9)) : 0;
         const inv = sprayW > 1e-4 ? 1 / sprayW : 0;
         return {
             intensity,
-            score,
+            score: Number.isFinite(score) ? score : 0,
             samples: checked,
-            sprayR: sprayR * inv,
-            sprayG: sprayG * inv,
-            sprayB: sprayB * inv,
-            sprayWeight: sprayW
+            sprayR: Number.isFinite(sprayR * inv) ? sprayR * inv : 0,
+            sprayG: Number.isFinite(sprayG * inv) ? sprayG * inv : 0,
+            sprayB: Number.isFinite(sprayB * inv) ? sprayB * inv : 0,
+            sprayWeight: Number.isFinite(sprayW) ? sprayW : 0
         };
     };
 
     globalThis.getCombatClarityIntensity = function(entity) {
         if (!entity) return 0;
-        const size = Math.max(10, (entity.size || 20) * (entity.sizeMultiplier || 1));
+        if (!Number.isFinite(entity.x) || !Number.isFinite(entity.y)) {
+            entity._clarityShield = 0;
+            entity._claritySprayR = null;
+            return 0;
+        }
+        const sizeMult = Number.isFinite(entity.sizeMultiplier) ? entity.sizeMultiplier : 1;
+        const baseSize = Number.isFinite(entity.size) ? entity.size : 20;
+        const size = Math.max(10, baseSize * sizeMult);
         const sample = sampleCombatDebrisVolume(entity.x, entity.y, size * 3.0 + 32);
-        const prev = entity._clarityShield != null ? entity._clarityShield : 0;
+        const prev = Number.isFinite(entity._clarityShield) ? entity._clarityShield : 0;
         const rate = sample.intensity >= prev ? 0.32 : 0.14;
         const eased = prev + (sample.intensity - prev) * rate;
-        entity._clarityShield = eased < 0.01 ? 0 : eased;
+        entity._clarityShield = (!Number.isFinite(eased) || eased < 0.01) ? 0 : Math.min(1, eased);
         // Cache spray average for contrast-aware body tint (same sample).
         if (sample.sprayWeight > 0.15) {
             entity._claritySprayR = sample.sprayR;
@@ -2194,6 +2241,7 @@
 
     function _spawnImpactFluidBurst(enemy, hitX, hitY, damage, archetype, opts) {
         opts = opts || {};
+        if (!enemy || !Number.isFinite(hitX) || !Number.isFinite(hitY)) return;
         const rng = _resolveFxRng(opts);
         const isDeath = !!opts.isDeath;
         const normX = opts.normX != null ? opts.normX : resolveImpactNormal(enemy, hitX, hitY).normX;
@@ -2412,7 +2460,8 @@
 
     globalThis.triggerVoxelHitJuice = function(enemy, damage, hitX, hitY, opts) {
         opts = opts || {};
-        if (typeof Game === 'undefined') return;
+        if (typeof Game === 'undefined' || !enemy) return;
+        if (!Number.isFinite(hitX) || !Number.isFinite(hitY)) return;
 
         const maxHp = Math.max(1, enemy.maxHp || 30);
         const damageFraction = Math.min(1.0, damage / maxHp);
@@ -2672,6 +2721,7 @@
     };
 
     globalThis.flagVoxelDamage = function(enemy, damage, impactX, impactY, weaponArchetype) {
+        if (!enemy || !Number.isFinite(impactX) || !Number.isFinite(impactY)) return;
         const g = _ensureValidVoxelGrid(enemy);
         if (!g || g.destroyedCount >= g.maxDestroyable) return;
 
@@ -2831,6 +2881,13 @@
             if (!VoxelParticlePool.alive[i]) continue;
             if (VoxelParticlePool.linkLeader[i] >= 0) continue;
 
+            // Drop corrupted particles so NaN/Infinity cannot poison clarity sampling or canvas draws.
+            if (!Number.isFinite(VoxelParticlePool.px[i]) || !Number.isFinite(VoxelParticlePool.py[i]) ||
+                !Number.isFinite(VoxelParticlePool.vx[i]) || !Number.isFinite(VoxelParticlePool.vy[i])) {
+                deactivateSlot(i);
+                continue;
+            }
+
             VoxelParticlePool.age[i] += dt;
             const particleType = VoxelParticlePool.type[i];
             const isFluid = particleType === 1;
@@ -2848,6 +2905,11 @@
 
                 VoxelParticlePool.px[i] += VoxelParticlePool.vx[i] * subDt;
                 VoxelParticlePool.py[i] += VoxelParticlePool.vy[i] * subDt;
+                if (!Number.isFinite(VoxelParticlePool.px[i]) || !Number.isFinite(VoxelParticlePool.py[i])) {
+                    deactivateSlot(i);
+                    splattered = true;
+                    break;
+                }
 
                 const terrain = _resolveParticleTerrain(i, prevX, prevY, {
                     isFluid, isSprite, isChip, dt: subDt
@@ -3149,20 +3211,28 @@
     globalThis.drawCombatClarityBoost = function(ctx, entity, opts) {
         if (!ctx || !entity) return;
         opts = opts || {};
-        const intensity = opts.intensity != null
+        const rawIntensity = opts.intensity != null
             ? opts.intensity
             : (typeof getCombatClarityIntensity === 'function'
                 ? getCombatClarityIntensity(entity)
                 : 0);
-        if (intensity < 0.04) return;
+        // Canvas gradients reject NaN/Infinity; also treat poisoned shields as off.
+        if (!Number.isFinite(rawIntensity) || rawIntensity < 0.04) return;
+        const intensity = Math.min(1, rawIntensity);
 
-        const size = Math.max(10, (entity.size || 20) * (entity.sizeMultiplier || 1));
+        const sizeMult = Number.isFinite(entity.sizeMultiplier) ? entity.sizeMultiplier : 1;
+        const baseSize = Number.isFinite(entity.size) ? entity.size : 20;
+        const size = Math.max(10, baseSize * sizeMult);
         const x = entity.x;
         const y = entity.y;
         // Soft dark pocket — readable without a white shield rim.
         const underAlpha = (opts.underAlpha != null ? opts.underAlpha : 0.5) * intensity;
         const innerR = size * 0.48;
         const outerR = size * (1.6 + intensity * 0.45);
+        if (!Number.isFinite(x) || !Number.isFinite(y) ||
+            !Number.isFinite(innerR) || !Number.isFinite(outerR) || outerR <= 0) {
+            return;
+        }
 
         ctx.save();
         ctx.globalCompositeOperation = 'source-over';

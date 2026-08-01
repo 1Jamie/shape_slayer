@@ -4244,7 +4244,8 @@ class PlayerBase {
         const prevDashAnimActive = this.dashAnimActive;
 
         // Position and movement - use interpolation for clients, direct update for host/solo
-        if (!skipTransform && state.x !== undefined && state.y !== undefined) {
+        if (!skipTransform && state.x !== undefined && state.y !== undefined &&
+            Number.isFinite(state.x) && Number.isFinite(state.y)) {
             if (isMultiplayerClient) {
                 // Add state to interpolation buffer for smooth rendering
                 if (typeof interpolationManager !== 'undefined' && interpolationManager && this.playerId) {

@@ -12,6 +12,9 @@ const SCRIPT_EXPORTS = {
     'src/game/content/gear.js': [
         'getGearScaling',
         'calculateTierProbabilities',
+        'calculateArenaTierProbabilities',
+        'getArenaLootScalingRoom',
+        'isSurgeArenaLootContext',
         'generateGear',
         'FLAT_STAT_RANGES',
         'WEAPON_TYPES',
@@ -383,7 +386,7 @@ function createBalanceRuntime(options = {}) {
         star: 'star',
         diamond: 'diamond',
         rectangle: 'basic',
-        octagon: 'elite'
+        octagon: 'octagon'
     };
 
     function scaleEnemyStats(config, roomNumber, scalingOptions = {}) {

@@ -159,8 +159,94 @@ const groundLoot = [];
 // Expose globally for DOM components
 window.groundLoot = groundLoot;
 
-// Get gear scaling based on room number
+// Surge Arena uses contentGameMode 'gear', so loot must key off session — not Game.gameMode.
+function isSurgeArenaLootContext() {
+    if (typeof Game === 'undefined' || !Game) return false;
+    return Game.activeSessionId === 'surge-arena'
+        || Game.modeId === 'surge-arena'
+        || !!(Game.modeProfile && Game.modeProfile.id === 'surge-arena');
+}
+
+// Same remap as GameArena.arenaBossScalingRoom — keep loot power aligned with combat.
+function getArenaLootScalingRoom(wave) {
+    const w = Math.max(1, wave || 1);
+    if (w <= 15) return w;
+    const extra = w - 15;
+    return Math.floor(15 + extra * 1.2 + Math.pow(extra, 1.3) * 0.4);
+}
+
+function lerpArenaLoot(a, b, t) {
+    return a + (b - a) * t;
+}
+
+function smoothstep01(t) {
+    const x = Math.max(0, Math.min(1, t));
+    return x * x * (3 - 2 * x);
+}
+
+// Wave-progress rarity for Surge Arena only (Gear Mode keeps the slow room curve).
+// Targets: early gray-heavy; W15 blue showing; W25 blue common; W40 blue/purple heavy.
+function calculateArenaTierProbabilities(wave, enemyDifficulty = 'basic') {
+    const difficultyData = ENEMY_DIFFICULTY[enemyDifficulty] || ENEMY_DIFFICULTY.basic;
+    const isBoss = difficultyData.name === 'boss';
+    const diffBoostByKey = {
+        basic: 0,
+        diamond: 0.08,
+        star: 0.08,
+        octagon: 0.18,
+        boss: 0.35
+    };
+    const diffBoost = diffBoostByKey[enemyDifficulty] != null
+        ? diffBoostByKey[enemyDifficulty]
+        : (isBoss ? 0.35 : 0);
+
+    const t = Math.max(0, Math.min(1, ((wave || 1) - 1) / 39));
+    const s = smoothstep01(Math.max(0, Math.min(1, t + diffBoost)));
+
+    let weights = {
+        gray: lerpArenaLoot(70, 18, s),
+        green: lerpArenaLoot(25, 28, s),
+        blue: lerpArenaLoot(4, 32, s),
+        purple: lerpArenaLoot(0.8, 18, s),
+        orange: lerpArenaLoot(0.2, 4, s)
+    };
+    if (isBoss) {
+        weights.gray = 0;
+    }
+
+    const upgrades = (typeof SaveSystem !== 'undefined' && SaveSystem.getGearUpgrades)
+        ? SaveSystem.getGearUpgrades()
+        : { rarityChanceGreen: 0, rarityChanceBlue: 0, rarityChancePurple: 0, rarityChanceOrange: 0 };
+
+    const preTotal = Object.values(weights).reduce((sum, w) => sum + w, 0);
+    let probs = {};
+    for (const tier in weights) {
+        probs[tier] = weights[tier] / preTotal;
+    }
+
+    probs.green *= (1 + (upgrades.rarityChanceGreen || 0) * 0.10);
+    probs.blue *= (1 + (upgrades.rarityChanceBlue || 0) * 0.08);
+    probs.purple *= (1 + (upgrades.rarityChancePurple || 0) * 0.06);
+    probs.orange *= (1 + (upgrades.rarityChanceOrange || 0) * 0.04);
+
+    const minGray = isBoss ? 0.0 : 0.05;
+    const totalHigherTiers = probs.green + probs.blue + probs.purple + probs.orange;
+    probs.gray = Math.max(minGray, 1.0 - totalHigherTiers);
+
+    const newTotal = probs.gray + totalHigherTiers;
+    const probabilities = {};
+    for (const key in probs) {
+        probabilities[key] = probs[key] / newTotal;
+    }
+    return probabilities;
+}
+
+// Get gear scaling based on room number (or Surge Arena wave)
 function getGearScaling(roomNumber) {
+    if (isSurgeArenaLootContext()) {
+        // +4.5%/loot-room after combat-style remap — keeps pace with arena enemies
+        return 1 + (getArenaLootScalingRoom(roomNumber) * 0.045);
+    }
     // +3.5%/room - stretched for the 50-room gear run (was +4% for a 30-room end)
     return 1 + (roomNumber * 0.035);
 }
@@ -664,6 +750,10 @@ function rollBossTrophyTier(roomNumber, rng = Math.random) {
 // Calculate tier probabilities based on room number and enemy difficulty
 // Uses gradual curve: slow early progression, accelerates in later rooms
 function calculateTierProbabilities(roomNumber, enemyDifficulty = 'basic') {
+    if (isSurgeArenaLootContext()) {
+        return calculateArenaTierProbabilities(roomNumber, enemyDifficulty);
+    }
+
     // Get difficulty multiplier
     const difficultyData = ENEMY_DIFFICULTY[enemyDifficulty] || ENEMY_DIFFICULTY.basic;
     const diffMultiplier = difficultyData.multiplier;
@@ -1926,6 +2016,11 @@ if (typeof module !== 'undefined' && module.exports) {
         getNextGearTier,
         getRarityUpgradeBaseCost,
         clearAllGearRarityVisitFlags,
+        isSurgeArenaLootContext,
+        getArenaLootScalingRoom,
+        getGearScaling,
+        calculateTierProbabilities,
+        calculateArenaTierProbabilities,
         GEAR_TIER_ORDER,
         RARITY_UPGRADE_BASE_COSTS,
         FLAT_STAT_RANGES,
