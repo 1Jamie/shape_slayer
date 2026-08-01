@@ -3,6 +3,8 @@
 > [!IMPORTANT]
 > ### 🧪 Development Branch (`dev`)
 > You are viewing the **development branch** (`dev`). This branch is used for active feature integration and testing before being merged into the `main` branch (used for production releases).
+>
+> ⚡ **Play Live Dev Build:** [https://shapes-dev.gpe.pet/](https://shapes-dev.gpe.pet/) *(Auto-synced staging environment - expect active experimentation & floating bugs!)*
 
 **Rogue-like geometry warfare you can launch in a browser. Dodge, dash, and demolish waves of hostile shapes solo or with friends.**
 
