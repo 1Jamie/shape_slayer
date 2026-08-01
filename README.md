@@ -8,13 +8,17 @@
 
 Shape Slayer is a fast, skill-first top-down action roguelike. Pick a sentient shape, dive into procedurally generated arenas, stack gear affixes until the build gets weird, and see how far you can push a run. Gear Mode is the game now - Card Mode got deleted on purpose.
 
-> [!TIP]
-> ### 🎮 Play Right in Your Browser
-> [![Play Shape Slayer Now](https://img.shields.io/badge/▶_PLAY_NOW-1jamie.github.io%2Fshape_slayer-2ea44f?style=for-the-badge&logo=googlechrome&logoColor=white)](https://1jamie.github.io/shape_slayer)
-> 
-> Direct link: **[https://1jamie.github.io/shape_slayer](https://1jamie.github.io/shape_slayer)** *(No download or setup required - interactive tutorial included!)*
-
 Current version: **0.9.0** (see in-game patch notes / `src/game/content/version.js`).
+
+> [!TIP]
+> ### 🎮 Play Right in Your Browser & Join the Community
+> [![Play Shape Slayer Now](https://img.shields.io/badge/▶_PLAY_NOW-1jamie.github.io%2Fshape_slayer-2ea44f?style=for-the-badge&logo=googlechrome&logoColor=white)](https://1jamie.github.io/shape_slayer) 
+>
+> [![Join Discord](https://img.shields.io/badge/💬_DISCORD-Join_Community-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/kwgJDhz5w8)
+> 
+> * **Game Link:** [1jamie.github.io/shape_slayer](https://1jamie.github.io/shape_slayer) (No download required)
+> * **Community Link:** [discord.gg/kwgJDhz5w8](https://discord.gg/kwgJDhz5w8) (Dev updates, testing & bug reports)
+
 
 ## Why You’ll Love It
 
