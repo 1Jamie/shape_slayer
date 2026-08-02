@@ -173,6 +173,37 @@ test('God-Tier Multi-Variable Voxel Disintegration Engine', async (t) => {
             'should preserve multi-cell assembled pieces, not only 1x1 cubes');
     });
 
+    await t.test('renderVoxelDamage skips pristine enemies without allocating a grid', () => {
+        const env = loadVoxelFractureModule();
+        let canvasCreates = 0;
+        const prevCreate = env.Engine.Graphics.createCanvas;
+        env.Engine.Graphics.createCanvas = (w, h) => {
+            canvasCreates++;
+            return prevCreate(w, h);
+        };
+
+        const enemy = {
+            shape: 'diamond',
+            size: 30,
+            maxHp: 100,
+            x: 100,
+            y: 100,
+            color: '#ff00aa',
+            _voxelGrid: null,
+            _voxelHitSeq: 0
+        };
+        const ctx = createMockCtx();
+        const drawn = env.renderVoxelDamage(ctx, enemy, enemy.color, () => {});
+        assert.equal(drawn, false);
+        assert.equal(enemy._voxelGrid, null);
+        assert.equal(canvasCreates, 0, 'pristine render must not allocate offscreen canvases');
+
+        env.flagVoxelDamage(enemy, 20, 100, 100, 'slash');
+        assert.ok(enemy._voxelGrid, 'first hit should lazy-create the voxel grid');
+        assert.ok(enemy._voxelGrid.destroyedCount > 0);
+        assert.ok(canvasCreates > 0);
+    });
+
     await t.test('flagVoxelDamage triggers multi-variable disintegration flight and settling', () => {
         const env = loadVoxelFractureModule();
         const enemy = {
@@ -866,6 +897,54 @@ test('God-Tier Multi-Variable Voxel Disintegration Engine', async (t) => {
         };
         env.renderVoxelStaticLayer(ctx);
         assert.equal(drew, true, 'dirty static layer must blit to the world');
+    });
+
+    await t.test('renderVoxelStaticLayer viewport-clips when camera is present', () => {
+        const env = loadVoxelFractureModule();
+        env.resetVoxelStaticCanvas(2400, 1350);
+        env.VoxelStaticCanvas.dirty = true;
+        env.Game = {
+            camera: { x: 400, y: 300 },
+            config: { width: 1280, height: 720 },
+            getViewZoom: () => 1,
+            screenShakeOffset: { x: 0, y: 0 }
+        };
+        let lastArgs = null;
+        const ctx = {
+            imageSmoothingEnabled: false,
+            drawImage: (...args) => { lastArgs = args; }
+        };
+        env.renderVoxelStaticLayer(ctx);
+        assert.ok(lastArgs, 'must blit');
+        // 9-arg source-rect form: canvas, sx, sy, sw, sh, dx, dy, dw, dh
+        assert.equal(lastArgs.length, 9, 'camera path must use source-rect drawImage');
+        const [, sx, sy, sw, sh, dx, dy, dw, dh] = lastArgs;
+        assert.ok(sx >= 0 && sy >= 0);
+        assert.ok(sw > 0 && sh > 0);
+        assert.ok(dw < 2400 || dh < 1350, 'clipped blit should be smaller than full room');
+        assert.ok(dx >= 0 && dy >= 0);
+    });
+
+    await t.test('drawCombatClarityBoost uses a baked soft sprite instead of live gradients', () => {
+        const env = loadVoxelFractureModule();
+        let gradientCalls = 0;
+        let drewSprite = false;
+        const ctx = createMockCtx();
+        ctx.createRadialGradient = () => {
+            gradientCalls++;
+            return { addColorStop: () => {} };
+        };
+        ctx.drawImage = () => { drewSprite = true; };
+
+        const entity = {
+            x: 100,
+            y: 80,
+            size: 24,
+            _clarityShield: 0.8
+        };
+        env.drawCombatClarityBoost(ctx, entity, { intensity: 0.8 });
+        assert.equal(drewSprite, true, 'clarity should blit soft sprite');
+        assert.equal(gradientCalls, 0, 'main ctx must not build live radials');
     });
 
     await t.test('ShardPool grounded shards stay flat 2D without height bounce', () => {

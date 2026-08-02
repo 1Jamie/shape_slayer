@@ -30,6 +30,16 @@ function loadRenderQuality() {
     return sandbox.GameRenderQuality;
 }
 
+test('LOW quality skips ambient worldGlow via heavy preset flags', () => {
+    const source = require('node:fs').readFileSync(
+        require('node:path').join(__dirname, '..', 'src', 'game', 'presentation', 'render-pipeline.js'),
+        'utf8'
+    );
+    assert.match(source, /remoteFullRender === false/);
+    assert.match(source, /gearRingPoints <= 24/);
+    assert.doesNotMatch(source, /frame\.quality === 2/);
+});
+
 test('HIGH + fxBoost raises voxel/shard caps and damageFxScale', () => {
     const RQ = loadRenderQuality();
     const base = RQ.getRenderQualityForTier(0, null, 0);

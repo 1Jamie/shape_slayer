@@ -1822,7 +1822,13 @@ class BossVortex extends BossBase {
             radius: lightRadius + Math.min(140, run.length * (layout.cellSize || 60) * 0.25),
             type: 'scenery'
         }));
-        const merged = sceneryEmitters.concat(nonSceneryEmitters);
+        let merged = sceneryEmitters.concat(nonSceneryEmitters);
+        if (typeof GameRenderQuality !== 'undefined'
+            && typeof GameRenderQuality.clusterSceneryLightEmitters === 'function') {
+            merged = GameRenderQuality.clusterSceneryLightEmitters(merged, {
+                cellSize: layout.cellSize || 60
+            });
+        }
         for (let i = 0; i < merged.length; i++) {
             const emitter = merged[i];
             if (!emitter || emitter.id != null) continue;

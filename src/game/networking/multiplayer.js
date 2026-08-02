@@ -954,8 +954,14 @@ class MultiplayerManager {
             arenaPylonActive: (Game.state === 'PLAYING' && typeof currentRoom !== 'undefined' && currentRoom && currentRoom.wavePylon) ? !!currentRoom.wavePylon.active : false,
             arenaMachinesAccessible: (Game.state === 'PLAYING' && typeof currentRoom !== 'undefined' && currentRoom) ? !!currentRoom.machinesAccessible : false
         };
-        
-        return this.roundDeep(state, 2);
+
+        // roundDeep mutates path/zone floats and invalidates layout.hash. Keep the
+        // serialized layout exact so clients can verify and reuse host walkability.
+        const roomLayout = state.roomLayout;
+        state.roomLayout = null;
+        const rounded = this.roundDeep(state, 2);
+        rounded.roomLayout = roomLayout;
+        return rounded;
     }
     
     buildGameStatePayload(state, now) {
@@ -3698,10 +3704,10 @@ class MultiplayerManager {
             console.warn('[Client] createDamageNumber function not available!');
         }
 
-        // Trigger local visual voxel fracture on clients
+        // Trigger local visual voxel fracture on clients (lazy-creates grid on first hit)
         if (enemyId && typeof Game !== 'undefined' && Game.enemies) {
             const enemy = Game.enemies.find(e => e.id === enemyId);
-            if (enemy && enemy._voxelGrid) {
+            if (enemy) {
                 const mpArchetype = isWeakPoint ? 'pierce' : (isCrit ? 'blast' : 'slash');
                 if (typeof storeKillContext === 'function') {
                     storeKillContext(enemy, damage, displayX, displayY, mpArchetype, { isCrit, isWeakPoint });

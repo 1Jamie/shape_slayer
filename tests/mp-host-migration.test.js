@@ -53,6 +53,8 @@ test('host saves snapshot on disconnect and restores on reconnect', () => {
     assert.ok(main.includes('handlePlayerReconnectedMidRun'));
     assert.ok(main.includes('isPlayerConnectedForMp'));
     assert.ok(main.includes('reviveDisconnectedSnapshots'));
+    // Reconnect restore must not re-fire level-up heal/VFX on a fresh instance
+    assert.ok(main.includes('skipLevelUp: true'));
 });
 
 test('door quorum excludes disconnected players', () => {

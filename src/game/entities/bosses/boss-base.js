@@ -772,7 +772,7 @@ class BossBase extends EnemyBase {
         if (typeof storeKillContext === 'function') {
             storeKillContext(this, finalDamage, hitX, hitY, arch, { isWeakPoint: !!weakPointHit });
         }
-        if (typeof flagVoxelDamage === 'function' && this._voxelGrid) {
+        if (typeof flagVoxelDamage === 'function') {
             flagVoxelDamage(this, finalDamage, hitX, hitY, arch);
         }
 

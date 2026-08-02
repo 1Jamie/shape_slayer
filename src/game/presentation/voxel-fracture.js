@@ -3203,10 +3203,73 @@
 
     globalThis.renderVoxelStaticLayer = function(ctx) {
         if (!ctx || !VoxelStaticCanvas.canvas || !VoxelStaticCanvas.dirty) return;
-        const destW = VoxelStaticCanvas.logicalWidth || VoxelStaticCanvas.width || VoxelStaticCanvas.canvas.width;
-        const destH = VoxelStaticCanvas.logicalHeight || VoxelStaticCanvas.height || VoxelStaticCanvas.canvas.height;
-        ctx.drawImage(VoxelStaticCanvas.canvas, 0, 0, destW, destH);
+        const canvas = VoxelStaticCanvas.canvas;
+        const destW = VoxelStaticCanvas.logicalWidth || VoxelStaticCanvas.width || canvas.width;
+        const destH = VoxelStaticCanvas.logicalHeight || VoxelStaticCanvas.height || canvas.height;
+        if (!(destW > 0) || !(destH > 0)) return;
+
+        // Full-room drawImage of settled gore dominates Gecko once anything has stamped.
+        // Blit only the camera view (plus margin) — canvas stays fully stored.
+        const game = (typeof Game !== 'undefined') ? Game : null;
+        const camera = (game && (game._activeRenderCamera || game.camera)) || null;
+        if (!camera || !game) {
+            ctx.drawImage(canvas, 0, 0, destW, destH);
+            return;
+        }
+
+        const zoom = (typeof game.getViewZoom === 'function') ? game.getViewZoom() : 1;
+        const viewport = game._activeRenderViewport || null;
+        const viewW = viewport ? viewport.w : ((game.config && game.config.width) || 1280);
+        const viewH = viewport ? viewport.h : ((game.config && game.config.height) || 720);
+        const margin = 96;
+        const halfW = (viewW * 0.5) / Math.max(0.001, zoom);
+        const halfH = (viewH * 0.5) / Math.max(0.001, zoom);
+        const shakeX = (game.screenShakeOffset && game.screenShakeOffset.x) || 0;
+        const shakeY = (game.screenShakeOffset && game.screenShakeOffset.y) || 0;
+
+        let left = camera.x - halfW - margin - Math.abs(shakeX) / Math.max(0.001, zoom);
+        let top = camera.y - halfH - margin - Math.abs(shakeY) / Math.max(0.001, zoom);
+        let right = camera.x + halfW + margin + Math.abs(shakeX) / Math.max(0.001, zoom);
+        let bottom = camera.y + halfH + margin + Math.abs(shakeY) / Math.max(0.001, zoom);
+
+        left = Math.max(0, left);
+        top = Math.max(0, top);
+        right = Math.min(destW, right);
+        bottom = Math.min(destH, bottom);
+        const blitW = right - left;
+        const blitH = bottom - top;
+        if (blitW <= 1 || blitH <= 1) return;
+
+        const scale = VoxelStaticCanvas.scale
+            || (canvas.width / Math.max(1, destW));
+        const sx = Math.max(0, Math.floor(left * scale));
+        const sy = Math.max(0, Math.floor(top * scale));
+        const sw = Math.max(1, Math.min(canvas.width - sx, Math.ceil(blitW * scale)));
+        const sh = Math.max(1, Math.min(canvas.height - sy, Math.ceil(blitH * scale)));
+
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(canvas, sx, sy, sw, sh, left, top, blitW, blitH);
     };
+
+    let _claritySoftSprite = null;
+    function _ensureClaritySoftSprite() {
+        if (_claritySoftSprite) return _claritySoftSprite;
+        const size = 64;
+        const canvas = _createOffscreenCanvas(size, size);
+        const c = canvas.getContext('2d');
+        if (!c) return null;
+        const mid = size * 0.5;
+        const grad = c.createRadialGradient(mid, mid, size * 0.15, mid, mid, mid);
+        grad.addColorStop(0, 'rgba(0, 0, 0, 1)');
+        grad.addColorStop(0.42, 'rgba(0, 0, 0, 0.45)');
+        grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        c.fillStyle = grad;
+        c.beginPath();
+        c.ellipse(mid, mid, mid, mid * 0.92, 0, 0, Math.PI * 2);
+        c.fill();
+        _claritySoftSprite = canvas;
+        return _claritySoftSprite;
+    }
 
     globalThis.drawCombatClarityBoost = function(ctx, entity, opts) {
         if (!ctx || !entity) return;
@@ -3227,26 +3290,24 @@
         const y = entity.y;
         // Soft dark pocket — readable without a white shield rim.
         const underAlpha = (opts.underAlpha != null ? opts.underAlpha : 0.5) * intensity;
-        const innerR = size * 0.48;
         const outerR = size * (1.6 + intensity * 0.45);
         if (!Number.isFinite(x) || !Number.isFinite(y) ||
-            !Number.isFinite(innerR) || !Number.isFinite(outerR) || outerR <= 0) {
+            !Number.isFinite(underAlpha) || !Number.isFinite(outerR) || outerR <= 0) {
             return;
         }
 
-        ctx.save();
+        const sprite = _ensureClaritySoftSprite();
+        if (!sprite) return;
+
+        const prevAlpha = ctx.globalAlpha;
+        const prevComp = ctx.globalCompositeOperation;
         ctx.globalCompositeOperation = 'source-over';
-
-        const grad = ctx.createRadialGradient(x, y, innerR, x, y, outerR);
-        grad.addColorStop(0, `rgba(0, 0, 0, ${underAlpha})`);
-        grad.addColorStop(0.42, `rgba(0, 0, 0, ${underAlpha * 0.45})`);
-        grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.ellipse(x, y, outerR, outerR * 0.92, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.restore();
+        ctx.globalAlpha = underAlpha;
+        // Baked soft circle — same silhouette as the old live radial, without per-entity
+        // createRadialGradient (Gecko Canvas2D tax on every visible body).
+        ctx.drawImage(sprite, x - outerR, y - outerR * 0.92, outerR * 2, outerR * 1.84);
+        ctx.globalAlpha = prevAlpha;
+        ctx.globalCompositeOperation = prevComp;
     };
 
     globalThis.shouldBoostCombatClarity = function() {
@@ -3376,16 +3437,21 @@
     };
 
     globalThis.renderVoxelDamage = function(ctx, enemy, drawColor, drawBodyFn) {
+        // Pristine enemies must NOT touch the voxel path. Historically this called
+        // _ensureValidVoxelGrid from render, which allocated a full offscreen canvas
+        // per enemy on first draw — catastrophic on Gecko with wave-sized crowds.
+        // Grids are created on damage/death shatter instead.
+        const existing = enemy && enemy._voxelGrid;
+        if (!existing || existing.destroyedCount === 0) return false;
+
         const g = _ensureValidVoxelGrid(enemy);
-        if (!g) return false;
+        if (!g || g.destroyedCount === 0) return false;
 
         // Stable cache key — never per-frame flash/clarity strings (those forced
         // hot-seam strokeRect rebuilds and looked like flickering boxes).
         const baseColor = enemy.color || drawColor;
         enemy._voxelLastDrawBodyFn = drawBodyFn;
         enemy._voxelLastDrawColor = baseColor;
-
-        if (g.destroyedCount === 0) return false;
 
         const colorChanged = g.cachedColor !== baseColor;
         const mask = buildShapeMask(g, enemy);

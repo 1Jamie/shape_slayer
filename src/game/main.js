@@ -1108,7 +1108,8 @@ const Game = {
         }
 
         if (typeof renderCachedRoomStaticLayer === 'function' && renderCachedRoomStaticLayer(ctx, this.roomNumber)) {
-            if (typeof renderRoomAmbientLife === 'function') {
+            const heavy = this.renderQuality && this.renderQuality.remoteFullRender === false;
+            if (!heavy && typeof renderRoomAmbientLife === 'function') {
                 renderRoomAmbientLife(ctx, this.roomNumber);
             }
         } else {
@@ -2775,7 +2776,11 @@ const Game = {
             this.initializeRemotePlayerInstance(playerId, className);
             const remoteInstance = this.remotePlayerInstances.get(playerId);
             if (remoteInstance && stateData && remoteInstance.applyState) {
-                remoteInstance.applyState(stateData);
+                // Fresh instance starts at level 1; snapshot restore must not trigger level-up heals
+                if (stateData.level != null && stateData.lastLevelBonusesApplied == null) {
+                    stateData.lastLevelBonusesApplied = stateData.level;
+                }
+                remoteInstance.applyState(stateData, { skipLevelUp: true });
                 if (stateData.lastProcessedInputSeq != null) {
                     remoteInstance.lastProcessedInputSeq = stateData.lastProcessedInputSeq;
                 }
@@ -2994,7 +2999,11 @@ const Game = {
             if (!restore.hp || restore.hp <= 0) {
                 restore.hp = (restore.maxHp || inst.maxHp || 100) * 0.5;
             }
-            inst.applyState(restore);
+            // Snapshot already includes leveled stats/HP — do not re-fire level-up heal/VFX
+            if (restore.level != null && restore.lastLevelBonusesApplied == null) {
+                restore.lastLevelBonusesApplied = restore.level;
+            }
+            inst.applyState(restore, { skipLevelUp: true });
             inst.dead = false;
             inst.alive = true;
         } else {
@@ -5087,15 +5096,28 @@ const Game = {
     },
 
     isGeckoFamilyEngine() {
-        return window.engine ? window.engine.isGeckoFamilyEngine() : false;
+        if (window.engine && typeof window.engine.isGeckoFamilyEngine === 'function') {
+            return window.engine.isGeckoFamilyEngine();
+        }
+        // Don't require Core — canvas DPR / base quality need this during init too.
+        return !!(typeof Engine !== 'undefined'
+            && Engine.System
+            && typeof Engine.System.isGeckoFamily === 'function'
+            && Engine.System.isGeckoFamily());
     },
 
     preferSpriteShadows() {
-        return window.engine ? window.engine.preferSpriteShadows() : false;
+        if (window.engine && typeof window.engine.preferSpriteShadows === 'function') {
+            return window.engine.preferSpriteShadows();
+        }
+        return this.isGeckoFamilyEngine();
     },
 
     getDprCap() {
-        return window.engine ? window.engine.getDprCap() : 2;
+        if (window.engine && typeof window.engine.getDprCap === 'function') {
+            return window.engine.getDprCap();
+        }
+        return this.isGeckoFamilyEngine() ? 1.5 : 2;
     },
 
     getBaseRenderQuality() {
@@ -5437,7 +5459,9 @@ const Game = {
 
         // Stage 2: Draw static settled voxel/fluid canvas to punch through vignette using normalized lighten clamping.
         // Single blit with globalAlpha = 0.65 and 'lighten' composite prevents multiplicative compounding/blown-out white holes.
-        if (typeof VoxelStaticCanvas !== 'undefined' && VoxelStaticCanvas.dirty && VoxelStaticCanvas.canvas && VoxelStaticCanvas.canvas.width > 0 && VoxelStaticCanvas.canvas.height > 0) {
+        // Heavy/Gecko skips this — gore still draws in the world pass; the mask blit is a large FF cost.
+        const skipGorePunch = adaptiveEnabled && this.renderQuality && this.renderQuality.skipVignetteGorePunch;
+        if (!skipGorePunch && typeof VoxelStaticCanvas !== 'undefined' && VoxelStaticCanvas.dirty && VoxelStaticCanvas.canvas && VoxelStaticCanvas.canvas.width > 0 && VoxelStaticCanvas.canvas.height > 0) {
             vCtx.save();
             vCtx.translate(centerX + this.screenShakeOffset.x, centerY + this.screenShakeOffset.y);
             vCtx.scale(currentZoom, currentZoom);
@@ -5483,12 +5507,16 @@ const Game = {
                 : null;
             let sceneryLightsToDraw = emitters;
             if (selectFn) {
+                const geckoSticky = typeof this.isGeckoFamilyEngine === 'function' && this.isGeckoFamilyEngine();
                 const picked = selectFn(emitters, {
                     maxLights: maxSceneryLights,
                     camX: activeCamera.x,
                     camY: activeCamera.y,
                     isVisible: isVisibleInVignette,
                     prevIds: this._sceneryLightStickyIds,
+                    hysteresis: geckoSticky
+                        ? (GameRenderQuality.SCENERY_LIGHT_HYSTERESIS_GECKO || 1.85)
+                        : undefined,
                     out: this._sceneryLightSelectOut,
                     scratch: this._sceneryLightSelectScratch
                 });
@@ -5712,29 +5740,31 @@ const Game = {
         // --- PHASE 3.5: BACKGROUND GRID GLOW ---
         // Draw the background grid onto the light mask so it glows through the darkness
         // We need to apply the camera transform to match the world space rendering
-        vCtx.save();
+        // Heavy/Gecko skips biome-grid mask punch — soft lights already read the room.
+        const skipBiomeGrid = adaptiveEnabled && this.renderQuality && this.renderQuality.skipVignetteBiomeGrid;
+        if (!skipBiomeGrid && typeof drawBiomeGrid === 'function') {
+            vCtx.save();
 
-        // Apply camera transform (same as main render loop)
-        // Center camera
-        // Note: We use logicalWidth/Height which should match config.width/height used in renderGameWorld
-        vCtx.translate(
-            logicalWidth / 2 + this.screenShakeOffset.x,
-            logicalHeight / 2 + this.screenShakeOffset.y
-        );
+            // Apply camera transform (same as main render loop)
+            // Center camera
+            // Note: We use logicalWidth/Height which should match config.width/height used in renderGameWorld
+            vCtx.translate(
+                logicalWidth / 2 + this.screenShakeOffset.x,
+                logicalHeight / 2 + this.screenShakeOffset.y
+            );
 
-        vCtx.scale(currentZoom, currentZoom);
-        vCtx.translate(-activeCamera.x, -activeCamera.y);
+            vCtx.scale(currentZoom, currentZoom);
+            vCtx.translate(-activeCamera.x, -activeCamera.y);
 
-        // Draw grid lines (using lighten to add to light mask)
-        // The pattern has the glow "baked in" (wide lines with alpha)
-        if (typeof drawBiomeGrid === 'function') {
+            // Draw grid lines (using lighten to add to light mask)
+            // The pattern has the glow "baked in" (wide lines with alpha)
             const prevAlpha = vCtx.globalAlpha;
             vCtx.globalAlpha = (typeof VoxelStaticCanvas !== 'undefined' && VoxelStaticCanvas.dirty) ? 0.35 : 1.0;
             drawBiomeGrid(vCtx, this.roomNumber, true); // true = isVignetteMask
             vCtx.globalAlpha = prevAlpha;
-        }
 
-        vCtx.restore();
+            vCtx.restore();
+        }
 
         // Boss hazard beams cut through darkness (light cage, refraction lasers, etc.)
         const bossVignetteCandidates = visibleLists && Array.isArray(visibleLists.enemies)
@@ -6151,7 +6181,12 @@ const Game = {
         }
 
         // Solid silhouettes punch through settled viscera so spray hugs biome shapes.
-        if (typeof renderRoomObstacles === 'function') {
+        // With no settled gore, this is a full duplicate of the baked static layer — skip it.
+        const needsGoreOcclude = typeof VoxelStaticCanvas !== 'undefined'
+            && VoxelStaticCanvas.dirty
+            && VoxelStaticCanvas.canvas
+            && VoxelStaticCanvas.canvas.width > 0;
+        if (needsGoreOcclude && typeof renderRoomObstacles === 'function') {
             renderRoomObstacles(ctx, this.roomNumber, { occlude: true });
         }
 

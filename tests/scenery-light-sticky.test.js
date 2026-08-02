@@ -170,3 +170,40 @@ test('fixture bias prefers lamps over equally distant scenery', () => {
     });
     assert.equal(picked.selected[0].id, 'f0');
 });
+
+test('clusterSceneryLightEmitters collapses a vertical diamond column', () => {
+    const RQ = loadRenderQuality();
+    const column = [];
+    for (let i = 0; i < 4; i++) {
+        column.push({
+            id: `diamond:${i}`,
+            x: 400,
+            y: 200 + i * 60,
+            radius: 110,
+            type: 'scenery'
+        });
+    }
+    const clustered = RQ.clusterSceneryLightEmitters(column, { cellSize: 60 });
+    assert.equal(clustered.length, 1);
+    assert.equal(clustered[0].clustered, 4);
+    assert.ok(clustered[0].radius >= 110);
+    // Centroid should sit mid-column
+    assert.ok(Math.abs(clustered[0].y - (200 + 200 + 60 * 3) / 2) < 40);
+});
+
+test('clusterSceneryLightEmitters keeps distant groups separate and does not mix fixtures', () => {
+    const RQ = loadRenderQuality();
+    const emitters = [
+        { id: 'a0', x: 0, y: 0, radius: 100, type: 'scenery' },
+        { id: 'a1', x: 0, y: 50, radius: 100, type: 'scenery' },
+        { id: 'b0', x: 800, y: 0, radius: 100, type: 'scenery' },
+        { id: 'f0', x: 0, y: 25, radius: 100, type: 'fixture' },
+        { id: 'f1', x: 0, y: 70, radius: 100, type: 'fixture' }
+    ];
+    const clustered = RQ.clusterSceneryLightEmitters(emitters, { cellSize: 60 });
+    const scenery = clustered.filter((e) => e.type === 'scenery');
+    const fixtures = clustered.filter((e) => e.type === 'fixture');
+    assert.equal(scenery.length, 2);
+    assert.equal(fixtures.length, 1);
+    assert.equal(fixtures[0].clustered, 2);
+});

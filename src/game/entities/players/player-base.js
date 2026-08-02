@@ -4144,6 +4144,10 @@ class PlayerBase {
             level: this.level,
             xp: this.xp,
             xpToNext: this.xpToNext, // Fixed: was xpToNextLevel
+            // So reconnect/restore can rehydrate without re-firing level-up heals
+            lastLevelBonusesApplied: this.lastLevelBonusesApplied != null
+                ? this.lastLevelBonusesApplied
+                : this.level,
 
             // Equipped gear (full objects with all affix system properties)
             weapon: this.weapon ? this.serializeEquippedGear(this.weapon) : null,
@@ -4257,8 +4261,10 @@ class PlayerBase {
 
     // Apply state from host/network (base properties)
     // options.skipTransform: when true, do not overwrite x/y/rotation/vx/vy (prediction owns pose)
+    // options.skipLevelUp: when true, restore level/XP without level-up heal/VFX (reconnect, hydrate)
     applyState(state, options = {}) {
         const skipTransform = !!options.skipTransform;
+        const skipLevelUp = !!options.skipLevelUp;
 
         // Check if we're a multiplayer client (not host, not solo)
         const isMultiplayerClient = typeof Game !== 'undefined' &&
@@ -4349,7 +4355,6 @@ class PlayerBase {
         }
 
         // Health and progression (with level up detection)
-        const oldLevel = this.level;
 
         // Shield data should always be applied (for both local and remote players)
         // Apply even if 0 to ensure updates are received when shield is picked up
@@ -4372,20 +4377,25 @@ class PlayerBase {
             if (state.scratch !== undefined) this.scratch = state.scratch;
             if (state.scratchGraceTimer !== undefined) this.scratchGraceTimer = state.scratchGraceTimer;
             
-            const levelIncreased = state.level !== undefined && state.level > this.level;
+            const levelIncreased = !skipLevelUp && state.level !== undefined && state.level > this.level;
             if (state.level !== undefined) this.level = state.level;
             if (state.xp !== undefined) this.xp = state.xp;
             if (state.xpToNext !== undefined) this.xpToNext = state.xpToNext; // Fixed property name
-
-            // Apply level up bonuses on host if level increased
-            if (levelIncreased && typeof this.applyLevelUpBonuses === 'function') {
-                console.log(`[Host/Solo] Level increased to ${this.level}, applying bonuses`);
-                this.applyLevelUpBonuses();
+            if (state.lastLevelBonusesApplied !== undefined) {
+                this.lastLevelBonusesApplied = state.lastLevelBonusesApplied;
+            } else if (skipLevelUp && state.level !== undefined) {
+                // Restore path with legacy snapshot: bonuses already baked into stats/HP
+                this.lastLevelBonusesApplied = state.level;
             }
 
-            // Trigger level up message if level increased
-            if (state.level !== undefined && state.level > oldLevel && typeof showLevelUpMessage === 'function') {
-                showLevelUpMessage(this.level);
+            // Apply level up bonuses on host if level increased (not on reconnect/hydrate restore)
+            if (levelIncreased && this.lastLevelBonusesApplied < this.level &&
+                typeof this.applyLevelUpBonuses === 'function') {
+                console.log(`[Host/Solo] Level increased to ${this.level}, applying bonuses`);
+                this.applyLevelUpBonuses();
+                if (typeof showLevelUpMessage === 'function') {
+                    showLevelUpMessage(this.level);
+                }
             }
         } else {
             // Client: Accept HP from host (authoritative) to avoid damage desync
@@ -4430,20 +4440,26 @@ class PlayerBase {
             if (state.xp !== undefined) this.xp = state.xp;
             if (state.xpToNext !== undefined) this.xpToNext = state.xpToNext;
 
+            // Sync bonus tracker before level-up detection so reconnect/full snapshots
+            // do not re-apply heals that were already applied on the host.
+            if (state.lastLevelBonusesApplied !== undefined) {
+                this.lastLevelBonusesApplied = state.lastLevelBonusesApplied;
+            }
+
             // Only update level if it actually increased (from our own leveling)
             if (state.level !== undefined && state.level > this.level) {
-                const levelIncreased = state.level > this.level;
                 this.level = state.level;
 
                 // Apply level up bonuses when level increases (for multiplayer clients)
-                // This ensures bonuses are applied even if player_leveled_up event arrives out of order
-                if (levelIncreased && typeof this.applyLevelUpBonuses === 'function') {
+                // This ensures bonuses are applied even if player_leveled_up event arrives out of order.
+                // Skip when restoring (skipLevelUp) or when host already applied bonuses for this level.
+                if (!skipLevelUp && this.lastLevelBonusesApplied < this.level &&
+                    typeof this.applyLevelUpBonuses === 'function') {
                     console.log(`[Client] Level increased to ${this.level}, applying bonuses via applyState`);
                     this.applyLevelUpBonuses();
-                }
-
-                if (typeof showLevelUpMessage === 'function') {
-                    showLevelUpMessage(this.level);
+                    if (typeof showLevelUpMessage === 'function') {
+                        showLevelUpMessage(this.level);
+                    }
                 }
             }
 

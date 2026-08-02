@@ -25,8 +25,12 @@ const GameRenderQuality = {
     // Keep previously selected scenery lights until they fall outside top N*hysteresis.
     // Hard nearest-N thrashing on Gecko soft-caps reads as vignette cutout flicker.
     SCENERY_LIGHT_HYSTERESIS: 1.4,
+    SCENERY_LIGHT_HYSTERESIS_GECKO: 1.85,
     // Fixtures (lamps) score closer so they win slots over soft blocked-run glows.
     SCENERY_FIXTURE_SCORE_BIAS: 0.7,
+    // Merge centers closer than ~2.25 cells (diamond columns / wall runs).
+    SCENERY_CLUSTER_CELL_MULT: 2.25,
+    SCENERY_CLUSTER_MAX_MEMBERS: 14,
 
     getBaseRenderQuality(game) {
         const gecko = (game && typeof game.isGeckoFamilyEngine === 'function')
@@ -34,7 +38,8 @@ const GameRenderQuality = {
             : (typeof window !== 'undefined' && window.engine ? window.engine.isGeckoFamilyEngine() : false);
         return {
             vignetteScale: 0.5,
-            maxSceneryLights: gecko ? 96 : Infinity,
+            // Soft-cap only — clustering already collapses wall runs / columns.
+            maxSceneryLights: gecko ? 128 : Infinity,
             gearRingPoints: 64,
             groundLootAnimatedRing: true,
             remoteFullRender: true,
@@ -51,37 +56,49 @@ const GameRenderQuality = {
      * @param {number} [fxBoost] 0..1 headroom intensity (HIGH only)
      */
     getRenderQualityForTier(tier, game, fxBoost) {
-        const tiers = typeof Engine !== 'undefined' && Engine.Render ? Engine.Render.QualityTier : { LOW: 'low', MEDIUM: 'medium', HIGH: 'high' };
+        const tiers = (typeof Engine !== 'undefined' && Engine.Render && Engine.Render.QualityTier)
+            ? Engine.Render.QualityTier
+            : { HIGH: 0, MEDIUM: 1, LOW: 2 };
         const thresholds = this.getFrameBudgetThresholds();
         const preset = (typeof Engine !== 'undefined' && Engine.Render && Engine.Render.Quality && typeof Engine.Render.Quality.preset === 'function')
             ? Engine.Render.Quality.preset(tier)
             : {};
         const boost = Math.max(0, Math.min(1, Number(fxBoost) || 0));
+        const gecko = (game && typeof game.isGeckoFamilyEngine === 'function')
+            ? game.isGeckoFamilyEngine()
+            : (typeof window !== 'undefined' && window.engine ? window.engine.isGeckoFamilyEngine() : false);
 
         if (tier === tiers.LOW) {
             return Object.assign({}, preset, {
                 vignetteScale: thresholds.heavyVignetteScale,
-                maxSceneryLights: Math.min(36, preset.maxLights || 36),
+                // Match MEDIUM light count on purpose: heavy↔medium thrashing is
+                // expected near the budget line, but a count delta makes machines
+                // flicker as emitters drop in/out of the soft-cap set.
+                maxSceneryLights: gecko ? 112 : Math.min(64, preset.maxLights || 64),
                 gearRingPoints: 24,
                 groundLootAnimatedRing: false,
                 remoteFullRender: false,
-                maxBeamLights: 4,
+                maxBeamLights: gecko ? 4 : 4,
                 damageFxScale: 0.5,
                 voxelParticleCap: 64,
-                shardParticleCap: 64
+                shardParticleCap: 64,
+                skipVignetteBiomeGrid: true,
+                skipVignetteGorePunch: !!gecko
             });
         }
         if (tier === tiers.MEDIUM) {
             return Object.assign({}, preset, {
                 vignetteScale: thresholds.mediumVignetteScale,
-                maxSceneryLights: Math.min(64, preset.maxLights || 64),
+                maxSceneryLights: gecko ? 112 : Math.min(96, preset.maxLights || 96),
                 gearRingPoints: 32,
                 groundLootAnimatedRing: false,
                 remoteFullRender: true,
                 maxBeamLights: 4,
                 damageFxScale: 0.75,
                 voxelParticleCap: 192,
-                shardParticleCap: 192
+                shardParticleCap: 192,
+                skipVignetteBiomeGrid: !!gecko,
+                skipVignetteGorePunch: false
             });
         }
 
@@ -121,6 +138,115 @@ const GameRenderQuality = {
                 boostExitFrame: 12,
                 boostExitRender: 9
             };
+    },
+
+    /**
+     * Merge heavily-overlapping scenery/fixture lights into fewer equivalent emitters.
+     * Vertical diamond columns and adjacent wall runs collapse to one punch-through
+     * light each — same silhouette under 'lighten', far fewer drawImage calls.
+     *
+     * @param {Array<{id?: string|number, x: number, y: number, radius: number, type?: string}>} emitters
+     * @param {{ cellSize?: number, mergeDistance?: number, maxPerCluster?: number }} [options]
+     * @returns {Array}
+     */
+    clusterSceneryLightEmitters(emitters, options = {}) {
+        if (!Array.isArray(emitters) || emitters.length <= 1) {
+            return Array.isArray(emitters) ? emitters.slice() : [];
+        }
+
+        const cellSize = Math.max(1, Number(options.cellSize) || 60);
+        const mergeDistance = Number(options.mergeDistance) > 0
+            ? Number(options.mergeDistance)
+            : cellSize * this.SCENERY_CLUSTER_CELL_MULT;
+        const maxPerCluster = Math.max(2, Number(options.maxPerCluster) || this.SCENERY_CLUSTER_MAX_MEMBERS);
+
+        const scenery = [];
+        const fixtures = [];
+        const other = [];
+        for (let i = 0; i < emitters.length; i++) {
+            const emitter = emitters[i];
+            if (!emitter) continue;
+            if (emitter.type === 'fixture') fixtures.push(emitter);
+            else if (emitter.type === 'scenery' || emitter.type == null) scenery.push(emitter);
+            else other.push(emitter);
+        }
+
+        const clusterList = (list, type) => {
+            if (list.length <= 1) return list.slice();
+            const used = new Uint8Array(list.length);
+            const out = [];
+
+            for (let i = 0; i < list.length; i++) {
+                if (used[i]) continue;
+                used[i] = 1;
+                const members = [list[i]];
+                let cx = list[i].x;
+                let cy = list[i].y;
+
+                let grew = true;
+                while (grew && members.length < maxPerCluster) {
+                    grew = false;
+                    let bestJ = -1;
+                    let bestD2 = Infinity;
+                    for (let j = 0; j < list.length; j++) {
+                        if (used[j]) continue;
+                        const candidate = list[j];
+                        const dx = candidate.x - cx;
+                        const dy = candidate.y - cy;
+                        const d2 = dx * dx + dy * dy;
+                        // Merge when centers are close OR strongly overlapping.
+                        const overlapThresh = Math.max(
+                            mergeDistance,
+                            Math.min(candidate.radius || 0, members[0].radius || 0) * 0.9
+                        );
+                        if (d2 <= overlapThresh * overlapThresh && d2 < bestD2) {
+                            bestD2 = d2;
+                            bestJ = j;
+                        }
+                    }
+                    if (bestJ < 0) break;
+                    used[bestJ] = 1;
+                    members.push(list[bestJ]);
+                    let wx = 0;
+                    let wy = 0;
+                    let ww = 0;
+                    for (let m = 0; m < members.length; m++) {
+                        const member = members[m];
+                        const w = Math.max(1, member.radius || 1);
+                        wx += member.x * w;
+                        wy += member.y * w;
+                        ww += w;
+                    }
+                    cx = wx / ww;
+                    cy = wy / ww;
+                    grew = true;
+                }
+
+                let radius = 0;
+                for (let m = 0; m < members.length; m++) {
+                    const member = members[m];
+                    const extent = Math.hypot(member.x - cx, member.y - cy) + (member.radius || 0);
+                    if (extent > radius) radius = extent;
+                }
+
+                const seed = members[0];
+                out.push({
+                    id: members.length === 1
+                        ? (seed.id != null ? seed.id : `${type}:${cx | 0}:${cy | 0}`)
+                        : `cluster:${type}:${cx | 0}:${cy | 0}:${members.length}`,
+                    x: cx,
+                    y: cy,
+                    radius,
+                    type,
+                    clustered: members.length
+                });
+            }
+            return out;
+        };
+
+        return clusterList(scenery, 'scenery')
+            .concat(clusterList(fixtures, 'fixture'))
+            .concat(other);
     },
 
     /**

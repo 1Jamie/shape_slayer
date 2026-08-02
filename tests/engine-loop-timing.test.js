@@ -61,6 +61,9 @@ test('simulating 360 frames at 16.66666ms results in exactly 360 updates and nea
 });
 
 test('frame-budget governor emits abstract quality tiers', () => {
+    globalThis.Engine = globalThis.Engine || {};
+    globalThis.Engine.System = { isGeckoFamily: () => false };
+
     let emittedTier = null;
     const engine = new Core({
         onUpdate() {},
@@ -76,6 +79,62 @@ test('frame-budget governor emits abstract quality tiers', () => {
 
     assert.equal(engine.qualityTier, Render.QualityTier.LOW);
     assert.equal(emittedTier, Render.QualityTier.LOW);
+});
+
+test('resetQualityForNewScene re-emits HIGH so consumers resync', () => {
+    globalThis.Engine = globalThis.Engine || {};
+    globalThis.Engine.System = { isGeckoFamily: () => false };
+
+    let lastTier = null;
+    let emitCount = 0;
+    const engine = new Core({
+        onUpdate() {},
+        onRender() {},
+        onQualityChange(tier) {
+            lastTier = tier;
+            emitCount++;
+        }
+    });
+
+    for (let i = 0; i < 30; i++) {
+        engine.updateFrameBudgetGovernor(40, 30);
+    }
+    assert.equal(engine.qualityTier, Render.QualityTier.LOW);
+    const afterDegrade = emitCount;
+
+    engine.resetQualityForNewScene();
+    assert.equal(engine.qualityTier, Render.QualityTier.HIGH);
+    assert.equal(lastTier, Render.QualityTier.HIGH);
+    assert.ok(emitCount > afterDegrade);
+    assert.equal(engine._sampleCount, 0);
+});
+
+test('degraded tier periodically re-emits for Game-side resync', () => {
+    globalThis.Engine = globalThis.Engine || {};
+    globalThis.Engine.System = { isGeckoFamily: () => false };
+
+    let emitCount = 0;
+    const engine = new Core({
+        onUpdate() {},
+        onRender() {},
+        onQualityChange() {
+            emitCount++;
+        }
+    });
+
+    let mockTime = 1000;
+    global.performance = { now: () => mockTime };
+
+    for (let i = 0; i < 30; i++) {
+        mockTime += 16;
+        engine.updateFrameBudgetGovernor(40, 30);
+    }
+    const afterFirst = emitCount;
+
+    // Same tier, but 1s later should force another emit for consumer resync.
+    mockTime += 1100;
+    engine.updateFrameBudgetGovernor(40, 30);
+    assert.ok(emitCount > afterFirst, 'expected periodic degraded resync emit');
 });
 
 test('fxBoost rises under sustained headroom and clears when tier drops', () => {
@@ -129,6 +188,54 @@ test('fxBoost stays zero until enough samples accumulate', () => {
     }
 
     assert.equal(engine.fxBoost, 0, 'boost must wait for ~1s of samples');
+});
+
+test('wall-frame pressure degrades even when CPU averages look fine', () => {
+    globalThis.Engine = globalThis.Engine || {};
+    globalThis.Engine.System = { isGeckoFamily: () => true };
+    globalThis.Engine.Render = Render;
+
+    const engine = new Core({
+        onUpdate() {},
+        onRender() {},
+        onQualityChange() {}
+    });
+
+    let mockTime = 20000;
+    global.performance = { now: () => mockTime };
+
+    // Cheap JS work (~2ms) but ~60ms presentation — classic Gecko composite stall.
+    for (let i = 0; i < 40; i++) {
+        mockTime += 16;
+        engine.updateFrameBudgetGovernor(2.0, 1.5, 60);
+    }
+
+    assert.equal(engine.qualityTier, Render.QualityTier.LOW);
+    assert.ok(engine.debugFrameBudget.wallAvg > 50);
+    assert.equal(engine.fxBoost, 0);
+});
+
+test('healthy vsync wall clocks do not block fxBoost when CPU has headroom', () => {
+    globalThis.Engine = globalThis.Engine || {};
+    globalThis.Engine.System = { isGeckoFamily: () => false };
+    globalThis.Engine.Render = Render;
+
+    const engine = new Core({
+        onUpdate() {},
+        onRender() {},
+        onQualityChange() {}
+    });
+
+    let mockTime = 30000;
+    global.performance = { now: () => mockTime };
+
+    for (let i = 0; i < 120; i++) {
+        mockTime += 16;
+        engine.updateFrameBudgetGovernor(2.0, 1.2, 16.7);
+    }
+
+    assert.equal(engine.qualityTier, Render.QualityTier.HIGH);
+    assert.ok(engine.fxBoost > 0.08, `expected fxBoost under CPU headroom (got ${engine.fxBoost})`);
 });
 
 test('fxBoost ignores vsync-sized wall intervals and needs real CPU headroom', () => {

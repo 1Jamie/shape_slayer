@@ -324,10 +324,10 @@ class EnemyBase {
         // Stealth enemy system (room 11+: 25% → room 21+: 50%)
         this.stealthEnemy = this.calculateStealthChance();
 
-        // Voxel fracture system - purely visual, physics-independent
-        if (typeof initVoxelGrid === 'function') {
-            this._voxelGrid = initVoxelGrid(this.size, !!this.isBoss);
-        }
+        // Voxel fracture is purely visual — allocate the offscreen grid lazily on
+        // first damage/death shatter instead of at spawn (wave-sized canvas allocs
+        // crush Gecko even for pristine enemies that never get hit).
+        this._voxelGrid = null;
         this._voxelHitSeq = 0;
         this.damageFlashUntil = 0;
         this.damageFlashAlpha = 0.6;
@@ -2274,8 +2274,8 @@ class EnemyBase {
             });
         }
 
-        // Voxel damage hook - visual response
-        if (typeof flagVoxelDamage === 'function' && this._voxelGrid) {
+        // Voxel damage hook - visual response (lazy-creates grid on first hit)
+        if (typeof flagVoxelDamage === 'function') {
             flagVoxelDamage(this, damage, impactX, impactY, weaponArchetype);
         }
 
