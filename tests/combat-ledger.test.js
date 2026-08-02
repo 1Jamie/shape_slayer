@@ -437,3 +437,117 @@ describe('Surge Arena stat tracking', () => {
         assert.equal(records.coopArenaHighestWave, 4);
     });
 });
+
+describe('Multiplayer feat attribution', () => {
+    function loadMpHostHarness() {
+        const harness = loadLedgerHarness();
+        const sent = [];
+        harness.Game.multiplayerEnabled = true;
+        harness.Game.getLocalPlayerId = () => 'host-1';
+        harness.Game.player = {
+            playerId: 'host-1',
+            playerClass: 'square',
+            maxHp: 100,
+            hp: 100
+        };
+        harness.Game.collectTelemetryParticipants = () => ([
+            { player: harness.Game.player, playerId: 'host-1' },
+            {
+                player: {
+                    playerId: 'client-2',
+                    playerClass: 'triangle',
+                    maxHp: 100,
+                    hp: 3
+                },
+                playerId: 'client-2'
+            }
+        ]);
+        harness.sandbox.multiplayerManager = {
+            isHost: true,
+            send(msg) { sent.push(msg); }
+        };
+        return { ...harness, sent };
+    }
+
+    it('does not unlock feats on the host save when a remote player earns them', () => {
+        const { LedgerManager, SaveSystem, sent } = loadMpHostHarness();
+        const remote = {
+            playerId: 'client-2',
+            playerClass: 'triangle'
+        };
+        for (let i = 0; i < 3; i++) {
+            LedgerManager.recordEvent('perfectDodge', {
+                player: remote,
+                now: 1000 + i * 100
+            });
+        }
+        assert.equal(SaveSystem.hasFeat('shadow_step'), false);
+        assert.equal(sent.length, 1);
+        assert.equal(sent[0].type, 'shards_update');
+        assert.equal(sent[0].data.targetPlayerId, 'client-2');
+        assert.equal(sent[0].data.featId, 'shadow_step');
+        assert.equal(sent[0].data.shardsEarned, 0);
+    });
+
+    it('still unlocks feats on the host save when the host earns them', () => {
+        const { LedgerManager, SaveSystem, Game, sent } = loadMpHostHarness();
+        for (let i = 0; i < 3; i++) {
+            LedgerManager.recordEvent('perfectDodge', {
+                player: Game.player,
+                now: 1000 + i * 100
+            });
+        }
+        assert.equal(SaveSystem.hasFeat('shadow_step'), true);
+        assert.equal(sent.length, 0);
+    });
+
+    it('tracks block progress per player so remotes cannot fill the host streak', () => {
+        const { LedgerManager, SaveSystem, Game, sent } = loadMpHostHarness();
+        const remote = { playerId: 'client-2', playerClass: 'square' };
+        for (let i = 0; i < 14; i++) {
+            LedgerManager.recordEvent('block', { player: remote });
+        }
+        for (let i = 0; i < 14; i++) {
+            LedgerManager.recordEvent('block', { player: Game.player });
+        }
+        assert.equal(SaveSystem.hasFeat('immovable_object'), false);
+        assert.equal(sent.length, 0);
+
+        LedgerManager.recordEvent('block', { player: remote });
+        assert.equal(SaveSystem.hasFeat('immovable_object'), false);
+        assert.equal(sent.length, 1);
+        assert.equal(sent[0].data.featId, 'immovable_object');
+        assert.equal(sent[0].data.targetPlayerId, 'client-2');
+
+        LedgerManager.recordEvent('block', { player: Game.player });
+        assert.equal(SaveSystem.hasFeat('immovable_object'), true);
+    });
+
+    it('grants close_call to the low-HP remote without unlocking on the host', () => {
+        const { LedgerManager, SaveSystem, Game, sent } = loadMpHostHarness();
+        LedgerManager.recordEvent('roomCleared', {
+            roomNumber: 5,
+            hpPct: 1,
+            biomeName: 'Swarm',
+            isCombat: true,
+            player: Game.player
+        });
+        assert.equal(SaveSystem.hasFeat('close_call'), false);
+        assert.equal(sent.length, 1);
+        assert.equal(sent[0].data.featId, 'close_call');
+        assert.equal(sent[0].data.targetPlayerId, 'client-2');
+    });
+
+    it('applyFeatGrant works on clients (host gate bypass)', () => {
+        const { LedgerManager, SaveSystem, Game } = loadLedgerHarness();
+        Game.isMultiplayerClient = () => true;
+        // completeFeat is host-gated
+        assert.equal(LedgerManager.completeFeat('close_call'), false);
+        assert.equal(SaveSystem.hasFeat('close_call'), false);
+        // grant path still applies locally
+        const result = LedgerManager.applyFeatGrant('close_call');
+        assert.equal(result.ok, true);
+        assert.equal(SaveSystem.hasFeat('close_call'), true);
+        assert.equal(SaveSystem.getCurrency(), 150);
+    });
+});

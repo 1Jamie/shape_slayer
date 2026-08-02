@@ -127,7 +127,18 @@
         layout.barrierRevision = (layout.barrierRevision || 0) + 1;
         // Bust prepareRoomRenderData early-out keyed on hash:biomeId
         layout.renderDataKey = null;
-        layout.hash = `${layout.hash || 'arena'}:b${layout.barrierRevision}`;
+        // Recompute a content hash so multiplayer integrity checks and sameLayout
+        // diffs stay valid. Never stack ":bN" suffixes onto an already-tagged hash —
+        // that produced permanent client mismatches (e.g. a239ea1:b1:b2).
+        if (typeof RoomLayoutGenerator !== 'undefined'
+            && RoomLayoutGenerator
+            && typeof RoomLayoutGenerator.computeLayoutHash === 'function') {
+            layout.hash = RoomLayoutGenerator.computeLayoutHash(layout);
+        } else {
+            const base = String(layout.hash || 'arena').replace(/(:b\d+)+$/g, '') || 'arena';
+            layout.hash = `${base}:b${layout.barrierRevision}`;
+        }
+        if (room) room.layoutHash = layout.hash;
         if (typeof releaseRoomRenderCaches === 'function') {
             try { releaseRoomRenderCaches(room); } catch (_) { /* ignore */ }
         }

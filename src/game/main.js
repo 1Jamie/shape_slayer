@@ -4632,9 +4632,20 @@ const Game = {
                 console.log(`Advanced to Room ${this.roomNumber}${newRoom.type === 'boss' ? ' (BOSS ROOM)' : ''}`);
                 this.updateMusicForCurrentRoom();
 
-                if (newRoom.type === 'boss' && this.player && typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
-                    const hpPct = this.player.maxHp > 0 ? this.player.hp / this.player.maxHp : 1;
-                    LedgerManager.recordEvent('bossRoomEnter', { hpPct, player: this.player });
+                if (newRoom.type === 'boss' && typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
+                    const participants = typeof this.collectTelemetryParticipants === 'function'
+                        ? this.collectTelemetryParticipants(true)
+                        : (this.player ? [{ player: this.player, playerId: this.getLocalPlayerId ? this.getLocalPlayerId() : 'local' }] : []);
+                    participants.forEach((entry) => {
+                        if (!entry || !entry.player) return;
+                        const p = entry.player;
+                        const hpPct = p.maxHp > 0 ? p.hp / p.maxHp : 1;
+                        LedgerManager.recordEvent('bossRoomEnter', {
+                            hpPct,
+                            player: p,
+                            playerId: entry.playerId
+                        });
+                    });
                 }
 
                 if (typeof Telemetry !== 'undefined') {

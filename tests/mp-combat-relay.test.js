@@ -99,6 +99,13 @@ test('applySyncedRoomLayout skips re-enter when layout hash unchanged', () => {
     assert.ok(source.includes("Game.state === 'ENTERING_ROOM'"));
 });
 
+test('applySyncedRoomLayout does not re-stamp arena barriers from host layout', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'game', 'networking', 'multiplayer.js'), 'utf-8');
+    assert.ok(source.includes('applyBarriers: false'));
+    assert.ok(source.includes('legacyBarrierTag'));
+    assert.ok(source.includes('prevMachinesAccessible'));
+});
+
 test('server player_state_batch updates lobby player class', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'multiplayer', 'mp-server-worker.js'), 'utf-8');
     assert.ok(source.includes('handlePlayerStateBatch'));

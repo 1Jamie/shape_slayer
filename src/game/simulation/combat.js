@@ -1475,12 +1475,14 @@ function checkEnemiesVsPlayer(player, enemies) {
                     return; // Skip to next player
                 }
 
-                // Artillery Barrage proximity tracking
+                // Artillery Barrage proximity tracking (per-player)
                 if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
                     const pdx = enemy.x - p.x;
                     const pdy = enemy.y - p.y;
                     LedgerManager.recordEvent('enemyProximity', {
-                        dist: Math.sqrt(pdx * pdx + pdy * pdy)
+                        dist: Math.sqrt(pdx * pdx + pdy * pdy),
+                        player: p,
+                        playerId: id
                     });
                 }
                 

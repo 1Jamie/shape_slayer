@@ -189,6 +189,109 @@ test('GameArena displaceLootFromWavePad pushes gear outside the trigger plaza', 
     assert.equal(alreadyOut.y, 400);
 });
 
+test('barrier refresh recomputes content hash instead of stacking :bN suffixes', () => {
+    const env = loadBarriers();
+    env.RoomLayoutGenerator = {
+        computeLayoutHash(layout) {
+            const blocked = layout.grid.filter((c) => c === 1).length;
+            return `content-${blocked}-${layout.obstacles.length}`;
+        },
+        stampRect(layout, x, y, w, h, opts) {
+            layout.obstacles.push(Object.assign({ shape: 'rect', x, y, width: w, height: h }, opts || {}));
+            const cs = layout.cellSize || 40;
+            const cols = layout.cols;
+            const rows = layout.rows;
+            const x0 = Math.floor(x / cs);
+            const y0 = Math.floor(y / cs);
+            const x1 = Math.ceil((x + w) / cs);
+            const y1 = Math.ceil((y + h) / cs);
+            for (let gy = y0; gy < y1; gy++) {
+                for (let gx = x0; gx < x1; gx++) {
+                    if (gy >= 0 && gy < rows && gx >= 0 && gx < cols) {
+                        layout.grid[gy * cols + gx] = 1;
+                    }
+                }
+            }
+        },
+        clearRect(layout, x, y, w, h) {
+            const cs = layout.cellSize || 40;
+            const cols = layout.cols;
+            const rows = layout.rows;
+            const x0 = Math.floor(x / cs);
+            const y0 = Math.floor(y / cs);
+            const x1 = Math.ceil((x + w) / cs);
+            const y1 = Math.ceil((y + h) / cs);
+            for (let gy = y0; gy < y1; gy++) {
+                for (let gx = x0; gx < x1; gx++) {
+                    if (gy >= 0 && gy < rows && gx >= 0 && gx < cols) {
+                        layout.grid[gy * cols + gx] = 0;
+                    }
+                }
+            }
+        }
+    };
+    const room = {
+        number: 1,
+        layout: {
+            cellSize: 40,
+            width: 800,
+            height: 600,
+            cols: 20,
+            rows: 15,
+            grid: Array.from({ length: 15 * 20 }, () => 0),
+            obstacles: [],
+            hash: 'a239ea1'
+        }
+    };
+    env.GameBarriers.create(room, { id: 'gate', x: 100, y: 100, w: 80, h: 40, closed: true });
+    const afterCreate = room.layout.hash;
+    assert.equal(afterCreate, env.RoomLayoutGenerator.computeLayoutHash(room.layout));
+    assert.ok(!String(afterCreate).includes(':b'));
+    env.GameBarriers.setOpen(room, 'gate', true);
+    env.GameBarriers.setOpen(room, 'gate', false);
+    assert.equal(room.layout.hash, env.RoomLayoutGenerator.computeLayoutHash(room.layout));
+    assert.ok(!/:b\d+/.test(String(room.layout.hash)));
+    assert.equal(room.layoutHash, room.layout.hash);
+});
+
+test('attachArenaFixtures applyBarriers:false does not re-stamp host gate', () => {
+    const env = loadArena();
+    const room = {
+        number: 1,
+        width: 1600,
+        height: 800,
+        machinesAccessible: true,
+        layout: {
+            cellSize: 40,
+            width: 1600,
+            height: 800,
+            cols: 40,
+            rows: 20,
+            grid: Array.from({ length: 40 * 20 }, () => 0),
+            obstacles: [{ motif: 'barrier', barrierId: 'machineBayGate', x: 1, y: 2, width: 3, height: 4 }],
+            hash: 'host-stamped',
+            spawnZone: { x: 500, y: 400, radius: 200 },
+            topologyId: 'topo-1'
+        }
+    };
+    const obstacleCount = room.layout.obstacles.length;
+    const spawnBefore = { ...room.layout.spawnZone };
+    env.GameArena.attachArenaFixtures(room, {
+        machineBay: { x: 200, y: 40, w: 400, h: 160 },
+        pylon: { x: 500, y: 400, clearRadius: 200 },
+        arenaFloor: { x: 0, y: 0, w: 1600, h: 800 }
+    }, { applyBarriers: false });
+
+    assert.equal(room.layout.obstacles.length, obstacleCount);
+    assert.equal(env.GameBarriers.get(room, env.GameArena.MACHINE_GATE_ID), null);
+    assert.equal(room.machinesAccessible, true);
+    assert.equal(room.layout.spawnZone.x, spawnBefore.x);
+    assert.equal(room.layout.spawnZone.y, spawnBefore.y);
+    assert.ok(room.safeRoomMachines && room.safeRoomMachines.length === 2);
+    assert.ok(room.wavePylon);
+    assert.equal(room.wavePylon.active, false);
+});
+
 test('locking machines seals bay volume and ejects player from mouth', () => {
     const env = loadArena();
     const cols = 40;

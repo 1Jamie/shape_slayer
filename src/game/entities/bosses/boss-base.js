@@ -810,6 +810,8 @@ class BossBase extends EnemyBase {
                 if (typeof Game !== 'undefined') {
                     if (Game.player && (Game.player.playerId === this.lastAttacker || Game.getLocalPlayerId && Game.getLocalPlayerId() === this.lastAttacker)) {
                         killer = Game.player;
+                    } else if (Game.remotePlayerInstances && Game.remotePlayerInstances.get) {
+                        killer = Game.remotePlayerInstances.get(this.lastAttacker) || null;
                     } else if (Game.players) {
                         killer = Game.players.get ? Game.players.get(this.lastAttacker) : null;
                     }

@@ -3573,16 +3573,25 @@ class MultiplayerManager {
         console.log(`[Multiplayer] Currency updated: ${flooredCurrency} (reason: ${reason || 'unknown'})`);
     }
     
-    // Handle shards update (from host)
+    // Handle shards update (from host). Also carries feat grants (featId) without a new relay message.
     handleShardsUpdate(data) {
         if (typeof Game === 'undefined' || typeof SaveSystem === 'undefined') return;
-        
-        const { shardsEarned, reason } = data;
+
         const localPlayerId = Game.getLocalPlayerId ? Game.getLocalPlayerId() : null;
-        
+
         // Only process if this is for the local player
         if (data.targetPlayerId && data.targetPlayerId !== localPlayerId) return;
-        
+
+        // Feat grant: client applies unlock + payout locally (shardsEarned stays 0 to avoid double-pay)
+        if (data.featId && typeof LedgerManager !== 'undefined' && LedgerManager.applyFeatGrant) {
+            const result = LedgerManager.applyFeatGrant(data.featId);
+            if (result && result.ok) {
+                console.log(`[Multiplayer] Feat granted: ${data.featId} (reason: ${data.reason || 'feat'})`);
+            }
+            return;
+        }
+
+        const { shardsEarned, reason } = data;
         // Award shards
         if (shardsEarned > 0 && SaveSystem.addCardShards) {
             SaveSystem.addCardShards(shardsEarned);
@@ -4011,7 +4020,10 @@ class MultiplayerManager {
 
         if (layout.hash && typeof RoomLayoutGenerator.computeLayoutHash === 'function') {
             const localHash = RoomLayoutGenerator.computeLayoutHash(layout);
-            if (localHash !== layout.hash) {
+            // Legacy barrier tags (:bN) are cache-bust suffixes, not content hashes.
+            // Skip integrity warn for those; content hashes must still match.
+            const legacyBarrierTag = /:b\d+/.test(String(layout.hash));
+            if (!legacyBarrierTag && localHash !== layout.hash) {
                 console.warn(`[Multiplayer] Room layout hash mismatch for room ${roomNumber}; using host layout (${layout.hash})`);
             }
         }
@@ -4028,6 +4040,11 @@ class MultiplayerManager {
         if (sameLayout) {
             return;
         }
+
+        const prevMachinesAccessible = sameRoom && existing ? existing.machinesAccessible : undefined;
+        const prevPylonActive = sameRoom && existing && existing.wavePylon
+            ? !!existing.wavePylon.active
+            : undefined;
 
         let room = sameRoom ? existing : new Room(targetRoomNumber);
 
@@ -4054,8 +4071,15 @@ class MultiplayerManager {
         room.archetype = layout.archetype || null;
         room.entranceVariant = layout.entranceVariant || null;
 
+        // Host layout already includes barrier/bay stamps — only attach soft fixtures.
         if (layout.anchors && typeof GameArena !== 'undefined' && GameArena.attachArenaFixtures) {
-            GameArena.attachArenaFixtures(room, layout.anchors);
+            GameArena.attachArenaFixtures(room, layout.anchors, { applyBarriers: false });
+        }
+        if (prevMachinesAccessible !== undefined) {
+            room.machinesAccessible = prevMachinesAccessible;
+        }
+        if (prevPylonActive !== undefined && room.wavePylon) {
+            room.wavePylon.active = prevPylonActive;
         }
 
         if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom !== room && typeof releaseRoomRenderCaches === 'function') {
