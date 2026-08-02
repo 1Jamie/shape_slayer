@@ -224,9 +224,13 @@ const Game = {
     autoPausedForBackground: false,
     isMobileDevice: false,
 
-    // Level up message
+    // Level up / boss surge / machines-open center banners
     levelUpMessageActive: false,
     levelUpMessageTime: 0,
+    bossSurgeMessageActive: false,
+    bossSurgeMessageTime: 0,
+    machinesOpenMessageActive: false,
+    machinesOpenMessageTime: 0,
 
     // Boss intro system
     bossIntroActive: false,
@@ -3374,11 +3378,23 @@ const Game = {
             updateItemVisuals(deltaTime);
         }
 
-        // Update level up message
+        // Update center banners (level up / boss surge / machines open)
         if (this.levelUpMessageTime > 0) {
             this.levelUpMessageTime -= deltaTime;
             if (this.levelUpMessageTime <= 0) {
                 this.levelUpMessageActive = false;
+            }
+        }
+        if (this.bossSurgeMessageTime > 0) {
+            this.bossSurgeMessageTime -= deltaTime;
+            if (this.bossSurgeMessageTime <= 0) {
+                this.bossSurgeMessageActive = false;
+            }
+        }
+        if (this.machinesOpenMessageTime > 0) {
+            this.machinesOpenMessageTime -= deltaTime;
+            if (this.machinesOpenMessageTime <= 0) {
+                this.machinesOpenMessageActive = false;
             }
         }
 
@@ -7736,6 +7752,10 @@ const Game = {
         this.hitPauseTime = 0;
         this.levelUpMessageActive = false;
         this.levelUpMessageTime = 0;
+        this.bossSurgeMessageActive = false;
+        this.bossSurgeMessageTime = 0;
+        this.machinesOpenMessageActive = false;
+        this.machinesOpenMessageTime = 0;
 
         // Clear ground loot
         if (typeof groundLoot !== 'undefined') {
@@ -7846,6 +7866,10 @@ const Game = {
         this.hitPauseTime = 0;
         this.levelUpMessageActive = false;
         this.levelUpMessageTime = 0;
+        this.bossSurgeMessageActive = false;
+        this.bossSurgeMessageTime = 0;
+        this.machinesOpenMessageActive = false;
+        this.machinesOpenMessageTime = 0;
 
         // Clear ground loot
         if (typeof groundLoot !== 'undefined') {

@@ -85,7 +85,7 @@ test('ComboMeterUI rank table covers DMC-style Surge tiers', () => {
     );
     assert.ok(sandbox.ComboMeterUI);
     assert.equal(sandbox.ComboMeterUI.RANKS[0].name, 'DUST');
-    assert.equal(sandbox.ComboMeterUI.RANKS[0].countSize, '48px');
+    assert.equal(sandbox.ComboMeterUI.RANKS[0].countSize, '36px');
     assert.equal(sandbox.ComboMeterUI.RANKS[0].corners, 'none');
 
     assert.equal(sandbox.ComboMeterUI.RANKS[1].name, 'SLAYER');
@@ -99,7 +99,7 @@ test('ComboMeterUI rank table covers DMC-style Surge tiers', () => {
 
     assert.equal(sandbox.ComboMeterUI.RANKS[4].name, 'APOCALYPSE');
     assert.equal(sandbox.ComboMeterUI.RANKS[4].color, '#ffcc00');
-    assert.equal(sandbox.ComboMeterUI.RANKS[4].countSize, '74px');
+    assert.equal(sandbox.ComboMeterUI.RANKS[4].countSize, '52px');
     assert.equal(sandbox.ComboMeterUI.RANKS[4].corners, '4-gold-crown');
 });
 

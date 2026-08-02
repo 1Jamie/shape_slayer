@@ -17,10 +17,10 @@
 			panelGlow: '0 0 0px transparent',
 			timerBg: 'linear-gradient(90deg, #485566, #7a8ba3)',
 			timerGlow: 'none',
-			countSize: '48px',
+			countSize: '36px',
 			countColor: '#9ab0cc',
 			countShadow: 'none',
-			rankSize: '13px',
+			rankSize: '11px',
 			rankShadow: 'none',
 			corners: 'none',
 			anim: 'none',
@@ -38,10 +38,10 @@
 			panelGlow: '0 0 12px rgba(0,229,255,0.35), inset 0 0 8px rgba(0,229,255,0.15)',
 			timerBg: 'linear-gradient(90deg, #0088cc, #00e5ff, #ffffff)',
 			timerGlow: '0 0 10px rgba(0,229,255,0.75)',
-			countSize: '54px',
+			countSize: '40px',
 			countColor: '#e0f7ff',
 			countShadow: '0 0 10px rgba(0,229,255,0.7), 2px 2px 0 #000',
-			rankSize: '15px',
+			rankSize: '12px',
 			rankShadow: '0 0 12px rgba(0,229,255,0.8), 1px 1px 0 #000',
 			corners: '2-cyan',
 			anim: 'none',
@@ -59,10 +59,10 @@
 			panelGlow: '0 0 20px rgba(0,255,136,0.45), inset 0 0 12px rgba(0,255,136,0.2)',
 			timerBg: 'linear-gradient(90deg, #00b359, #00ff88, #b3ffda)',
 			timerGlow: '0 0 12px rgba(0,255,136,0.85)',
-			countSize: '60px',
+			countSize: '44px',
 			countColor: '#e6fffa',
 			countShadow: '0 0 14px rgba(0,255,136,0.85), 0 0 24px rgba(0,255,136,0.4), 2px 2px 0 #000',
-			rankSize: '16px',
+			rankSize: '13px',
 			rankShadow: '0 0 14px rgba(0,255,136,0.9), 1px 1px 0 #000',
 			corners: '2-emerald',
 			anim: 'none',
@@ -80,10 +80,10 @@
 			panelGlow: '0 0 28px rgba(255,0,127,0.65), 0 0 45px rgba(255,0,127,0.3), inset 0 0 16px rgba(255,0,127,0.25)',
 			timerBg: 'linear-gradient(90deg, #d500f9, #ff007f, #ff80ab)',
 			timerGlow: '0 0 14px rgba(255,0,127,0.9)',
-			countSize: '66px',
+			countSize: '48px',
 			countColor: '#ffe6f2',
 			countShadow: '0 0 18px rgba(255,0,127,0.9), 0 0 32px rgba(255,0,127,0.5), 2px 2px 0 #000',
-			rankSize: '18px',
+			rankSize: '14px',
 			rankShadow: '0 0 18px rgba(255,0,127,1), 0 0 30px rgba(255,0,127,0.6), 1px 1px 0 #000',
 			corners: '4-magenta',
 			anim: 'comboMeterApexPulse 1.2s ease-in-out infinite',
@@ -101,10 +101,10 @@
 			panelGlow: '0 0 35px rgba(255,204,0,0.8), 0 0 65px rgba(255,23,68,0.6), inset 0 0 24px rgba(255,204,0,0.35)',
 			timerBg: 'linear-gradient(90deg, #ff1744, #ffaa00, #ffff55, #ffffff)',
 			timerGlow: '0 0 16px rgba(255,204,0,0.95), 0 0 28px rgba(255,23,68,0.7)',
-			countSize: '74px',
+			countSize: '52px',
 			countColor: '#ffffff',
 			countShadow: '0 0 22px #ffcc00, 0 0 45px #ff1744, 0 0 70px #ffcc00, 2px 2px 0 #000',
-			rankSize: '20px',
+			rankSize: '15px',
 			rankShadow: '0 0 20px #ffcc00, 0 0 35px #ff1744, 1px 1px 0 #000',
 			corners: '4-gold-crown',
 			anim: 'comboMeterApocalypseCrown 0.9s ease-in-out infinite alternate',
@@ -122,10 +122,10 @@
 			panelGlow: '0 0 45px rgba(255,85,0,0.85), 0 0 80px rgba(255,0,0,0.65), inset 0 0 28px rgba(255,85,0,0.4)',
 			timerBg: 'linear-gradient(90deg, #ff0000, #ff5500, #ffcc00, #ffffff)',
 			timerGlow: '0 0 20px rgba(255,85,0,0.95)',
-			countSize: '82px',
+			countSize: '56px',
 			countColor: '#ffffff',
 			countShadow: '0 0 28px #ff5500, 0 0 55px #ff0000, 2px 2px 0 #000',
-			rankSize: '22px',
+			rankSize: '16px',
 			rankShadow: '0 0 25px #ff5500, 0 0 40px #ff0000, 1px 1px 0 #000',
 			corners: '4-calamity',
 			anim: 'comboMeterCalamityPulse 0.7s ease-in-out infinite alternate',
@@ -143,10 +143,10 @@
 			panelGlow: '0 0 60px rgba(255,0,60,0.95), 0 0 110px rgba(255,204,0,0.85), inset 0 0 35px rgba(255,0,60,0.5)',
 			timerBg: 'linear-gradient(90deg, #ff003c, #ffcc00, #ffffff, #ff003c)',
 			timerGlow: '0 0 25px rgba(255,0,60,0.95)',
-			countSize: '90px',
+			countSize: '60px',
 			countColor: '#ffffff',
 			countShadow: '0 0 35px #ff003c, 0 0 75px #ffcc00, 0 0 120px #ffffff, 2px 2px 0 #000',
-			rankSize: '24px',
+			rankSize: '17px',
 			rankShadow: '0 0 30px #ff003c, 0 0 50px #ffcc00, 1px 1px 0 #000',
 			corners: '4-armageddon',
 			anim: 'comboMeterArmageddonSpin 0.5s linear infinite alternate',
@@ -226,7 +226,7 @@
 		rootEl.style.cssText = [
 			'position:fixed',
 			`right:${rightPos}`,
-			'top:18%',
+			'top:72px',
 			'z-index:3200',
 			'pointer-events:none',
 			'user-select:none',
@@ -241,9 +241,9 @@
 		panelEl.className = 'combo-meter__panel';
 		panelEl.style.cssText = [
 			'position:relative',
-			'min-width:210px',
-			'max-width:260px',
-			'padding:14px 18px 12px',
+			'min-width:156px',
+			'max-width:196px',
+			'padding:9px 12px 8px',
 			'text-align:right',
 			'background:linear-gradient(165deg, rgba(30,30,55,0.94), rgba(12,12,28,0.92))',
 			'border:2px solid rgba(120,160,255,0.65)',
@@ -329,20 +329,20 @@
 		label.className = 'combo-meter__label';
 		label.textContent = isP2 ? 'P2 STYLE' : 'STYLE';
 		label.style.cssText = [
-			'font-size:10px',
+			'font-size:8px',
 			'font-weight:700',
-			'letter-spacing:0.35em',
+			'letter-spacing:0.28em',
 			'color:rgba(170,190,255,0.75)',
-			'margin-bottom:2px',
+			'margin-bottom:1px',
 			'text-transform:uppercase'
 		].join(';');
 
 		const countEl = document.createElement('div');
 		countEl.className = 'combo-meter__count';
 		countEl.style.cssText = [
-			'font-size:64px',
+			'font-size:42px',
 			'font-weight:900',
-			'line-height:0.92',
+			'line-height:0.9',
 			'letter-spacing:-1px',
 			'color:#ffffff',
 			'text-shadow:0 0 10px rgba(120,200,255,0.85), 0 0 22px rgba(100,150,255,0.55), 2px 2px 0 #000',
@@ -353,11 +353,11 @@
 		const rankEl = document.createElement('div');
 		rankEl.className = 'combo-meter__rank';
 		rankEl.style.cssText = [
-			'font-size:16px',
+			'font-size:12px',
 			'font-weight:800',
-			'letter-spacing:0.22em',
-			'margin-top:2px',
-			'margin-right:-0.22em',
+			'letter-spacing:0.16em',
+			'margin-top:1px',
+			'margin-right:-0.16em',
 			'color:#88ccff',
 			'text-shadow:0 0 12px rgba(100,180,255,0.85), 1px 1px 0 #000'
 		].join(';');
@@ -366,15 +366,16 @@
 		const bonusEl = document.createElement('div');
 		bonusEl.className = 'combo-meter__bonus';
 		bonusEl.style.cssText = [
-			'font-size:12px',
+			'font-size:10px',
 			'font-weight:700',
-			'letter-spacing:0.04em',
-			'margin-top:8px',
-			'min-height:16px',
-			'line-height:1.25',
+			'letter-spacing:0.03em',
+			'margin-top:5px',
+			'min-height:0',
+			'line-height:1.2',
 			'color:#ffd76a',
 			'text-shadow:0 0 8px rgba(255,200,80,0.7), 1px 1px 0 #000',
 			'opacity:0',
+			'display:none',
 			'transition:opacity 0.18s ease'
 		].join(';');
 		bonusEl.textContent = '';
@@ -382,15 +383,16 @@
 		const foeEl = document.createElement('div');
 		foeEl.className = 'combo-meter__foe';
 		foeEl.style.cssText = [
-			'font-size:11px',
+			'font-size:9px',
 			'font-weight:700',
-			'letter-spacing:0.06em',
-			'margin-top:4px',
-			'min-height:14px',
-			'line-height:1.25',
+			'letter-spacing:0.04em',
+			'margin-top:2px',
+			'min-height:0',
+			'line-height:1.2',
 			'color:#ff6688',
 			'text-shadow:0 0 8px rgba(255,80,100,0.7), 1px 1px 0 #000',
 			'opacity:0',
+			'display:none',
 			'transition:opacity 0.18s ease'
 		].join(';');
 		foeEl.textContent = '';
@@ -398,13 +400,14 @@
 		const toastEl = document.createElement('div');
 		toastEl.className = 'combo-meter__toast';
 		toastEl.style.cssText = [
-			'margin-top:10px',
-			'padding:8px 10px',
-			'min-height:42px',
+			'margin-top:6px',
+			'padding:5px 7px',
+			'min-height:0',
 			'border-radius:3px',
 			'background:rgba(0,0,0,0.55)',
 			'border:1px solid rgba(180,200,255,0.35)',
 			'opacity:0',
+			'display:none',
 			'transform:translateY(4px)',
 			'transition:opacity 0.2s ease, transform 0.2s ease',
 			'text-align:right'
@@ -412,21 +415,21 @@
 
 		const toastTitleEl = document.createElement('div');
 		toastTitleEl.style.cssText = [
-			'font-size:13px',
+			'font-size:11px',
 			'font-weight:800',
-			'letter-spacing:0.08em',
-			'line-height:1.2',
+			'letter-spacing:0.06em',
+			'line-height:1.15',
 			'color:#ffffff',
 			'text-shadow:1px 1px 0 #000'
 		].join(';');
 
 		const toastDetailEl = document.createElement('div');
 		toastDetailEl.style.cssText = [
-			'font-size:11px',
+			'font-size:9px',
 			'font-weight:600',
-			'letter-spacing:0.03em',
-			'line-height:1.3',
-			'margin-top:3px',
+			'letter-spacing:0.02em',
+			'line-height:1.25',
+			'margin-top:2px',
 			'color:rgba(220,230,255,0.92)',
 			'text-shadow:1px 1px 0 #000'
 		].join(';');
@@ -436,17 +439,18 @@
 		const recoverEl = document.createElement('div');
 		recoverEl.className = 'combo-meter__recover';
 		recoverEl.style.cssText = [
-			'font-size:12px',
+			'font-size:10px',
 			'font-weight:800',
-			'letter-spacing:0.1em',
-			'margin-top:6px',
-			'padding:6px 8px',
+			'letter-spacing:0.08em',
+			'margin-top:4px',
+			'padding:4px 6px',
 			'border-radius:3px',
 			'background:rgba(0,40,35,0.7)',
 			'border:1px solid rgba(80,255,200,0.55)',
 			'color:#66ffcc',
 			'text-shadow:0 0 10px rgba(80,255,200,0.85), 1px 1px 0 #000',
 			'opacity:0',
+			'display:none',
 			'transition:opacity 0.12s ease'
 		].join(';');
 		recoverEl.textContent = 'RECOVER — dash through or heavy hit';
@@ -454,10 +458,10 @@
 		const timerTrack = document.createElement('div');
 		timerTrack.className = 'combo-meter__timer-track';
 		timerTrack.style.cssText = [
-			'margin-top:10px',
+			'margin-top:6px',
 			'margin-left:auto',
 			'width:100%',
-			'height:7px',
+			'height:5px',
 			'background:rgba(0,0,0,0.55)',
 			'border:1px solid rgba(120,160,255,0.4)',
 			'border-radius:2px',
@@ -559,11 +563,11 @@
 				'  100% { box-shadow: inset 0 0 40px rgba(255, 23, 68, 0.65), inset 0 0 18px rgba(255, 204, 0, 0.45); opacity: 0.95; }',
 				'}',
 				'@media (max-width: 768px) {',
-				'  .combo-meter { right:10px !important; top:16% !important; }',
-				'  .combo-meter__panel { min-width:110px !important; padding:10px 12px 8px !important; }',
-				'  .combo-meter__count { font-size:42px !important; }',
-				'  .combo-meter__rank { font-size:12px !important; letter-spacing:0.14em !important; }',
-				'  .combo-meter__label { font-size:8px !important; }',
+				'  .combo-meter { right:10px !important; top:56px !important; }',
+				'  .combo-meter__panel { min-width:110px !important; max-width:160px !important; padding:8px 10px 6px !important; }',
+				'  .combo-meter__count { font-size:32px !important; }',
+				'  .combo-meter__rank { font-size:10px !important; letter-spacing:0.12em !important; }',
+				'  .combo-meter__label { font-size:7px !important; }',
 				'  .combo-meter__bonus { font-size:8px !important; }',
 				'}'
 			].join('\n');
@@ -608,19 +612,19 @@
 		const isDomTouchActive = (typeof MobileControlsDOM !== 'undefined' && MobileControlsDOM.layer && !MobileControlsDOM.layer.hidden);
 
 		let scale = 1.0;
-		let topPos = '16%';
+		let topPos = '72px';
 
 		if (isMobileUi) {
 			if (isDomTouchActive) {
-				scale = 0.58; // Compact scale when virtual touch controls are active on screen
+				scale = 0.7; // Compact scale when virtual touch controls are active on screen
 				topPos = '56px'; // Position right below top HUD chrome
 			} else {
-				scale = 0.72; // Moderate scale on mobile with Gamepad/Controller
+				scale = 0.82; // Moderate scale on mobile with Gamepad/Controller
 				topPos = '60px';
 			}
 		} else {
-			scale = 0.95; // Desktop/Laptop default scale
-			topPos = '16%';
+			scale = 0.88; // Compact desktop scale — clears gear compare panel
+			topPos = '72px';
 		}
 
 		return { scale, topPos, isMobileUi, isDomTouchActive };
@@ -678,11 +682,11 @@
 		const rank = rankFor(tier, count);
 		const label = rank.letter ? `${rank.letter} · ${rank.name}` : rank.name;
 		meter.rankEl.textContent = label;
-		meter.rankEl.style.fontSize = rank.rankSize || '16px';
+		meter.rankEl.style.fontSize = rank.rankSize || '12px';
 		meter.rankEl.style.color = rank.color;
 		meter.rankEl.style.textShadow = rank.rankShadow || `0 0 14px ${rank.glow}, 1px 1px 0 #000`;
 
-		meter.countEl.style.fontSize = rank.countSize || '64px';
+		meter.countEl.style.fontSize = rank.countSize || '42px';
 		meter.countEl.style.color = rank.countColor || '#ffffff';
 		meter.countEl.style.textShadow = rank.countShadow || `0 0 12px ${rank.glow}, 2px 2px 0 #000`;
 
@@ -692,6 +696,7 @@
 		if (meter.bonusEl) {
 			const hasBonus = !!(rank.bonus && tier >= 1);
 			meter.bonusEl.textContent = hasBonus ? rank.bonus : '';
+			meter.bonusEl.style.display = hasBonus ? 'block' : 'none';
 			meter.bonusEl.style.opacity = hasBonus ? '1' : '0';
 			meter.bonusEl.style.color = tier >= 4 ? '#ffd76a' : (tier === 2 ? '#a3ffcc' : (tier === 3 ? '#ffa6d5' : 'rgba(170,200,255,0.85)'));
 			meter.bonusEl.style.textShadow = tier >= 4
@@ -705,6 +710,7 @@
 		if (meter.foeEl) {
 			const hasFoe = !!(rank.foe && tier >= 1);
 			meter.foeEl.textContent = hasFoe ? rank.foe : '';
+			meter.foeEl.style.display = hasFoe ? 'block' : 'none';
 			meter.foeEl.style.opacity = hasFoe ? '1' : '0';
 		}
 		if (meter.panelEl) {
@@ -807,6 +813,7 @@
 		meter.toastDetailEl.style.display = detail ? 'block' : 'none';
 		meter.toastDetailEl.style.whiteSpace = detail && detail.indexOf('\n') >= 0 ? 'pre-line' : 'normal';
 
+		meter.toastEl.style.display = 'block';
 		meter.toastEl.style.opacity = '1';
 		meter.toastEl.style.transform = 'translateY(0)';
 		meter.toastEl.style.borderColor = opts.border || 'rgba(180,200,255,0.45)';
@@ -816,6 +823,7 @@
 			if (!meter.toastEl) return;
 			meter.toastEl.style.opacity = '0';
 			meter.toastEl.style.transform = 'translateY(4px)';
+			meter.toastEl.style.display = 'none';
 			meter.toastClearTimer = 0;
 		}, holdMs);
 	}
@@ -995,6 +1003,7 @@
 			}, 180);
 		}
 		if (meter.recoverEl && detail && detail.recoveryWindow > 0) {
+			meter.recoverEl.style.display = 'block';
 			meter.recoverEl.style.opacity = '1';
 		}
 		if (count < 1) {
@@ -1020,7 +1029,10 @@
 			`+${(detail && detail.restored) || 0} combo restored`,
 			{ color: '#66ffcc', detailColor: '#b8ffe8', holdMs: 2800, border: 'rgba(80,255,200,0.55)' }
 		);
-		if (meter.recoverEl) meter.recoverEl.style.opacity = '0';
+		if (meter.recoverEl) {
+			meter.recoverEl.style.opacity = '0';
+			meter.recoverEl.style.display = 'none';
+		}
 		if (detail) {
 			refreshFromState(meter, {
 				comboTier: detail.tier,
@@ -1170,7 +1182,9 @@
 			meter.timerFill.style.transform = `scaleX(${ratio})`;
 
 			if (meter.recoverEl) {
-				meter.recoverEl.style.opacity = (state.recoveryWindow > 0) ? '1' : '0';
+				const recovering = state.recoveryWindow > 0;
+				meter.recoverEl.style.display = recovering ? 'block' : 'none';
+				meter.recoverEl.style.opacity = recovering ? '1' : '0';
 			}
 
 			if (tier >= 3 && performance.now() > meter.punchUntil) {

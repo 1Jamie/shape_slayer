@@ -4629,9 +4629,23 @@ class MultiplayerManager {
             
             // Sync Surge Arena specific wave, phase, and pylon states
             if (syncSurgeArena && !this.isHost) {
+                const prevWave = Game.waveNumber;
+                const prevPhase = Game.arenaPhase;
                 if (state.waveNumber !== undefined) Game.waveNumber = state.waveNumber;
                 if (state.arenaPhase !== undefined) Game.arenaPhase = state.arenaPhase;
                 if (state.arenaWavePhase !== undefined) Game.arenaWavePhase = state.arenaWavePhase;
+
+                // Clients don't run spawnWave locally — mirror the host's boss-surge banner
+                // when a hard wave combat phase begins.
+                const nextWave = Game.waveNumber;
+                const enteredHardCombat = Game.arenaPhase === 'combat'
+                    && (typeof GameArena !== 'undefined' && GameArena.isHardWave)
+                    && GameArena.isHardWave(nextWave)
+                    && (prevWave !== nextWave || prevPhase === 'waiting');
+                if (enteredHardCombat && typeof showBossSurgeMessage === 'function') {
+                    showBossSurgeMessage();
+                }
+
                 if (state.waveDirector !== undefined) {
                     if (state.waveDirector) {
                         Game.waveDirector = {
@@ -4649,7 +4663,14 @@ class MultiplayerManager {
                         currentRoom.wavePylon.active = state.arenaPylonActive;
                     }
                     if (state.arenaMachinesAccessible !== undefined) {
+                        const wasOpen = !!currentRoom.machinesAccessible;
                         currentRoom.machinesAccessible = state.arenaMachinesAccessible;
+                        // Clients don't run setMachinesAccessible — mirror the host banner
+                        // when the bay unlocks after a surge clear.
+                        if (state.arenaMachinesAccessible && !wasOpen
+                            && typeof showMachinesOpenMessage === 'function') {
+                            showMachinesOpenMessage();
+                        }
                     }
                 }
             }

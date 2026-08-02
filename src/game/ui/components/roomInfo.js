@@ -115,14 +115,35 @@
 		const useWave = !!(profile && profile.room && profile.room.label === 'wave');
 		if (typeof currentRoom !== 'undefined' && currentRoom && currentRoom.type === 'safe' && !useWave) {
 			roomNumberEl.textContent = 'Safe Room';
+			roomNumberEl.style.color = '#ffffff';
+			roomNumberEl.style.textShadow = '2px 2px 2px rgba(0, 0, 0, 0.8)';
+			panel.style.border = '2px solid #6666ff';
+			panel.style.boxShadow = '0 0 10px rgba(102, 102, 255, 0.5), inset 0 0 0 1px rgba(150, 150, 255, 0.3)';
+			panel.style.background = 'linear-gradient(to bottom, rgba(30, 30, 50, 0.9), rgba(20, 20, 40, 0.9))';
 		} else if (useWave) {
 			const wave = Game.waveNumber || Game.roomNumber || 1;
 			const hard = (typeof GameArena !== 'undefined' && GameArena.isHardWave)
 				? GameArena.isHardWave(wave)
 				: (wave === 8 || (wave >= 15 && wave % 5 === 0));
-			roomNumberEl.textContent = hard ? `Wave ${wave} — Surge` : `Wave ${wave}`;
+			roomNumberEl.textContent = hard ? `Wave ${wave} — SURGE` : `Wave ${wave}`;
+			roomNumberEl.style.color = hard ? '#ff6655' : '#ffffff';
+			roomNumberEl.style.textShadow = hard
+				? '0 0 14px rgba(255, 60, 40, 0.95), 2px 2px 2px rgba(0, 0, 0, 0.85)'
+				: '2px 2px 2px rgba(0, 0, 0, 0.8)';
+			panel.style.border = hard ? '2px solid #ff4433' : '2px solid #6666ff';
+			panel.style.boxShadow = hard
+				? '0 0 16px rgba(255, 50, 40, 0.65), inset 0 0 0 1px rgba(255, 160, 120, 0.35)'
+				: '0 0 10px rgba(102, 102, 255, 0.5), inset 0 0 0 1px rgba(150, 150, 255, 0.3)';
+			panel.style.background = hard
+				? 'linear-gradient(to bottom, rgba(55, 18, 22, 0.94), rgba(30, 10, 14, 0.94))'
+				: 'linear-gradient(to bottom, rgba(30, 30, 50, 0.9), rgba(20, 20, 40, 0.9))';
 		} else {
 			roomNumberEl.textContent = `Room ${Game.roomNumber}`;
+			roomNumberEl.style.color = '#ffffff';
+			roomNumberEl.style.textShadow = '2px 2px 2px rgba(0, 0, 0, 0.8)';
+			panel.style.border = '2px solid #6666ff';
+			panel.style.boxShadow = '0 0 10px rgba(102, 102, 255, 0.5), inset 0 0 0 1px rgba(150, 150, 255, 0.3)';
+			panel.style.background = 'linear-gradient(to bottom, rgba(30, 30, 50, 0.9), rgba(20, 20, 40, 0.9))';
 		}
 		
 		// Update enemy count / door open status

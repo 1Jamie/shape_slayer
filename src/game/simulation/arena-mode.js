@@ -278,6 +278,7 @@
     function setMachinesAccessible(room, accessible) {
         if (!room) return;
         const wantOpen = !!accessible;
+        const wasOpen = !!room.machinesAccessible;
         room.machinesAccessible = wantOpen;
 
         // Sealing the gate while the player (or enemies) sit in the bay leaves them
@@ -291,6 +292,20 @@
             GameBarriers.setOpen(room, MACHINE_GATE_ID, wantOpen);
         }
         setMachineBayVolumeLocked(room, !wantOpen);
+
+        // Announce once when the bay first unlocks after a surge clear.
+        if (wantOpen && !wasOpen) {
+            announceMachinesOpen();
+        }
+    }
+
+    function announceMachinesOpen() {
+        if (typeof showMachinesOpenMessage === 'function') {
+            showMachinesOpenMessage();
+        } else if (typeof Game !== 'undefined') {
+            Game.machinesOpenMessageActive = true;
+            Game.machinesOpenMessageTime = 2.2;
+        }
     }
 
     /**
@@ -711,7 +726,20 @@
 
         if (w) w.enemies = [];
         beginWaveDirector(w, wave, opts);
+
+        if (isHardWave(wave)) {
+            announceBossSurge();
+        }
         return true;
+    }
+
+    function announceBossSurge() {
+        if (typeof showBossSurgeMessage === 'function') {
+            showBossSurgeMessage();
+        } else if (typeof Game !== 'undefined') {
+            Game.bossSurgeMessageActive = true;
+            Game.bossSurgeMessageTime = 2.4;
+        }
     }
 
     function spawnHardBossPhase(world, waveNum) {
