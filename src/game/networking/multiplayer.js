@@ -1054,6 +1054,29 @@ class MultiplayerManager {
             payload.playerStats = state.playerStats;
             hasChanges = true;
         }
+
+        // Surge Arena: combos / style pickups must ride deltas. Full snapshots are only
+        // ~1Hz, and merging the stale baseline into every delta was freezing remote meters.
+        if (!this.valuesEqual(state.playerCombos, baseline.playerCombos)) {
+            payload.playerCombos = state.playerCombos;
+            hasChanges = true;
+        }
+        if (!this.valuesEqual(state.styleCrashPickups, baseline.styleCrashPickups)) {
+            payload.styleCrashPickups = state.styleCrashPickups;
+            hasChanges = true;
+        }
+        if (!this.valuesEqual(state.styleHealOrbs, baseline.styleHealOrbs)) {
+            payload.styleHealOrbs = state.styleHealOrbs;
+            hasChanges = true;
+        }
+        if (state.waveNumber !== baseline.waveNumber) meta.waveNumber = state.waveNumber;
+        if (state.arenaPhase !== baseline.arenaPhase) meta.arenaPhase = state.arenaPhase;
+        if (state.arenaWavePhase !== baseline.arenaWavePhase) meta.arenaWavePhase = state.arenaWavePhase;
+        if (!this.valuesEqual(state.waveDirector, baseline.waveDirector)) meta.waveDirector = state.waveDirector;
+        if (state.arenaPylonActive !== baseline.arenaPylonActive) meta.arenaPylonActive = state.arenaPylonActive;
+        if (state.arenaMachinesAccessible !== baseline.arenaMachinesAccessible) {
+            meta.arenaMachinesAccessible = state.arenaMachinesAccessible;
+        }
         
         if (state.roomNumber !== baseline.roomNumber) meta.roomNumber = state.roomNumber;
         if (state.gameState !== baseline.gameState) meta.gameState = state.gameState;
@@ -1914,7 +1937,7 @@ class MultiplayerManager {
             }
             // Reset prediction state on full sync
             this.lastConfirmedState = null;
-            this.applyGameState(fullState);
+            this.applyGameState(fullState, { syncSurgeArena: true });
             return;
         }
         
@@ -1925,7 +1948,20 @@ class MultiplayerManager {
         
         const merged = this.mergeGameStateDelta(data);
         if (merged) {
-            this.applyGameState(merged);
+            // Only re-apply surge fields when the delta explicitly carried them.
+            // Otherwise every enemy/player delta would rewind to the last full snapshot.
+            const syncSurgeArena = data.playerCombos !== undefined
+                || data.styleCrashPickups !== undefined
+                || data.styleHealOrbs !== undefined
+                || !!(data.meta && (
+                    data.meta.waveNumber !== undefined
+                    || data.meta.arenaPhase !== undefined
+                    || data.meta.arenaWavePhase !== undefined
+                    || data.meta.waveDirector !== undefined
+                    || data.meta.arenaPylonActive !== undefined
+                    || data.meta.arenaMachinesAccessible !== undefined
+                ));
+            this.applyGameState(merged, { syncSurgeArena });
         }
     }
     
@@ -1960,11 +1996,22 @@ class MultiplayerManager {
                 if (data.full === true || data.state) {
                     const fullState = data.state || data;
                     this.latestGameState = this.deepClone(fullState);
-                    this.applyGameState(fullState);
+                    this.applyGameState(fullState, { syncSurgeArena: true });
                 } else if (this.latestGameState) {
                     const merged = this.mergeGameStateDelta(data);
                     if (merged) {
-                        this.applyGameState(merged);
+                        const syncSurgeArena = data.playerCombos !== undefined
+                            || data.styleCrashPickups !== undefined
+                            || data.styleHealOrbs !== undefined
+                            || !!(data.meta && (
+                                data.meta.waveNumber !== undefined
+                                || data.meta.arenaPhase !== undefined
+                                || data.meta.arenaWavePhase !== undefined
+                                || data.meta.waveDirector !== undefined
+                                || data.meta.arenaPylonActive !== undefined
+                                || data.meta.arenaMachinesAccessible !== undefined
+                            ));
+                        this.applyGameState(merged, { syncSurgeArena });
                     }
                 }
             } else if (diff < 0) {
@@ -3568,7 +3615,7 @@ class MultiplayerManager {
     }
     
     // Host helpers: broadcast combat visuals to clients
-    sendDamageNumber({ enemyId = null, x, y, damage, isCrit = false, isWeakPoint = false } = {}) {
+    sendDamageNumber({ enemyId = null, x, y, damage, isCrit = false, isWeakPoint = false, isBackstab = false } = {}) {
         if (!this.isHost || !this.connected) return;
         if (typeof x !== 'number' || typeof y !== 'number' || typeof damage !== 'number') return;
         this.send({
@@ -3579,7 +3626,8 @@ class MultiplayerManager {
                 y,
                 damage: Math.floor(damage),
                 isCrit: !!isCrit,
-                isWeakPoint: !!isWeakPoint
+                isWeakPoint: !!isWeakPoint,
+                isBackstab: !!isBackstab
             }
         });
     }
@@ -3602,7 +3650,7 @@ class MultiplayerManager {
             return;
         }
         
-        const { enemyId, x, y, damage, isCrit, isWeakPoint } = data;
+        const { enemyId, x, y, damage, isCrit, isWeakPoint, isBackstab } = data;
         
         // Validate required fields
         if (typeof x !== 'number' || typeof y !== 'number' || typeof damage !== 'number') {
@@ -3611,7 +3659,7 @@ class MultiplayerManager {
         }
         
         if (typeof DebugFlags !== 'undefined' && DebugFlags.DAMAGE_NUMBERS) {
-            console.log(`[Client] Received damage_number: enemyId=${enemyId}, coords=(${x}, ${y}), damage=${damage}, isCrit=${isCrit}, isWeakPoint=${isWeakPoint}`);
+            console.log(`[Client] Received damage_number: enemyId=${enemyId}, coords=(${x}, ${y}), damage=${damage}, isCrit=${isCrit}, isWeakPoint=${isWeakPoint}, isBackstab=${isBackstab}`);
         }
         
         // Use coordinates from host (accurate at damage time)
@@ -3636,7 +3684,7 @@ class MultiplayerManager {
             if (typeof DebugFlags !== 'undefined' && DebugFlags.DAMAGE_NUMBERS) {
                 console.log(`[Client] Creating damage number at (${displayX}, ${displayY}) with damage=${damage}`);
             }
-            createDamageNumber(displayX, displayY, damage, isCrit, isWeakPoint);
+            createDamageNumber(displayX, displayY, damage, isCrit, isWeakPoint, isBackstab);
         } else {
             console.warn('[Client] createDamageNumber function not available!');
         }
@@ -3661,6 +3709,8 @@ class MultiplayerManager {
                 GameAudio.sounds.hitWeakPoint(intensity);
             } else if (isCrit && GameAudio.sounds.hitCritical) {
                 GameAudio.sounds.hitCritical(intensity);
+            } else if (isBackstab && GameAudio.sounds.hitBackstab) {
+                GameAudio.sounds.hitBackstab(intensity);
             } else if (GameAudio.sounds.hitNormal) {
                 GameAudio.sounds.hitNormal(intensity);
             }
@@ -3807,6 +3857,24 @@ class MultiplayerManager {
             if (delta.meta.totalAlivePlayers !== undefined) base.totalAlivePlayers = delta.meta.totalAlivePlayers;
             if (delta.meta.allPlayersDead !== undefined) base.allPlayersDead = delta.meta.allPlayersDead;
             if (delta.meta.deadPlayers !== undefined) base.deadPlayers = this.deepClone(delta.meta.deadPlayers);
+            if (delta.meta.waveNumber !== undefined) base.waveNumber = delta.meta.waveNumber;
+            if (delta.meta.arenaPhase !== undefined) base.arenaPhase = delta.meta.arenaPhase;
+            if (delta.meta.arenaWavePhase !== undefined) base.arenaWavePhase = delta.meta.arenaWavePhase;
+            if (delta.meta.waveDirector !== undefined) base.waveDirector = this.deepClone(delta.meta.waveDirector);
+            if (delta.meta.arenaPylonActive !== undefined) base.arenaPylonActive = delta.meta.arenaPylonActive;
+            if (delta.meta.arenaMachinesAccessible !== undefined) {
+                base.arenaMachinesAccessible = delta.meta.arenaMachinesAccessible;
+            }
+        }
+
+        if (delta.playerCombos !== undefined) {
+            base.playerCombos = this.deepClone(delta.playerCombos);
+        }
+        if (delta.styleCrashPickups !== undefined) {
+            base.styleCrashPickups = this.deepClone(delta.styleCrashPickups);
+        }
+        if (delta.styleHealOrbs !== undefined) {
+            base.styleHealOrbs = this.deepClone(delta.styleHealOrbs);
         }
         
         if (delta.playerStats) {
@@ -4007,8 +4075,9 @@ class MultiplayerManager {
         }
     }
 
-    applyGameState(state) {
+    applyGameState(state, options = {}) {
         if (!state) return;
+        const syncSurgeArena = options.syncSurgeArena === true;
         
         // Update game state if provided (but don't override local state changes)
         // This is informational only - actual state transitions are controlled by messages
@@ -4512,8 +4581,8 @@ class MultiplayerManager {
                 });
             }
 
-            // Sync Surge Arena specific pickups, orbs, and combos
-            if (state.playerCombos && !this.isHost) {
+            // Sync Surge Arena specific pickups, orbs, and combos (only when explicitly synced)
+            if (syncSurgeArena && state.playerCombos && !this.isHost) {
                 Game.playerCombos = state.playerCombos;
                 if (typeof SurgeArenaRules !== 'undefined' && SurgeArenaRules.syncComboFromNetwork) {
                     Object.keys(state.playerCombos).forEach(playerId => {
@@ -4521,15 +4590,15 @@ class MultiplayerManager {
                     });
                 }
             }
-            if (state.styleCrashPickups !== undefined && !this.isHost) {
+            if (syncSurgeArena && state.styleCrashPickups !== undefined && !this.isHost) {
                 Game.styleCrashPickups = state.styleCrashPickups;
             }
-            if (state.styleHealOrbs !== undefined && !this.isHost) {
+            if (syncSurgeArena && state.styleHealOrbs !== undefined && !this.isHost) {
                 Game.styleHealOrbs = state.styleHealOrbs;
             }
             
             // Sync Surge Arena specific wave, phase, and pylon states
-            if (!this.isHost) {
+            if (syncSurgeArena && !this.isHost) {
                 if (state.waveNumber !== undefined) Game.waveNumber = state.waveNumber;
                 if (state.arenaPhase !== undefined) Game.arenaPhase = state.arenaPhase;
                 if (state.arenaWavePhase !== undefined) Game.arenaWavePhase = state.arenaWavePhase;

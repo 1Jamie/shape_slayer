@@ -2,12 +2,13 @@
 
 // Damage number class for floating damage text
 class DamageNumber {
-    constructor(x, y, damage, isCrit = false, isWeakPoint = false) {
+    constructor(x, y, damage, isCrit = false, isWeakPoint = false, isBackstab = false) {
         this.x = x;
         this.y = y;
         this.damage = damage;
         this.isCrit = isCrit;
         this.isWeakPoint = isWeakPoint;
+        this.isBackstab = isBackstab;
         this.life = 1.5; // fade over 1.5s
         this.maxLife = 1.5;
         this.alpha = 1.0;
@@ -29,7 +30,7 @@ class DamageNumber {
         ctx.save();
         ctx.globalAlpha = this.alpha;
 
-        // Styling based on damage type
+        // Priority: weak point → crit → backstab → normal
         let fontSize, color, prefix = '';
         if (this.isWeakPoint) {
             // Weak point hits: cyan, very large
@@ -41,6 +42,10 @@ class DamageNumber {
             fontSize = 30;
             color = '#ff3333';
             prefix = 'CRIT! ';
+        } else if (this.isBackstab) {
+            // Backstab: muted violet, slightly larger than normal (no shouty prefix)
+            fontSize = 24;
+            color = '#c86bff';
         } else {
             // Normal: white, medium
             fontSize = 20;
@@ -68,7 +73,7 @@ class DamageNumber {
 }
 
 // Create damage number
-function createDamageNumber(x, y, damage, isCrit = false, isWeakPoint = false) {
+function createDamageNumber(x, y, damage, isCrit = false, isWeakPoint = false, isBackstab = false) {
     if (typeof Game === 'undefined') return;
     if (!Game.damageNumbers) Game.damageNumbers = [];
 
@@ -84,10 +89,10 @@ function createDamageNumber(x, y, damage, isCrit = false, isWeakPoint = false) {
         return;
     }
 
-    Game.damageNumbers.push(new DamageNumber(x, y, damage, isCrit, isWeakPoint));
+    Game.damageNumbers.push(new DamageNumber(x, y, damage, isCrit, isWeakPoint, isBackstab));
 
     if (typeof DebugFlags !== 'undefined' && DebugFlags.DAMAGE_NUMBERS) {
-        console.log(`[UI] Damage number created at (${x}, ${y}), damage=${damage}, isCrit=${isCrit}, isWeakPoint=${isWeakPoint}. Total count: ${Game.damageNumbers.length}`);
+        console.log(`[UI] Damage number created at (${x}, ${y}), damage=${damage}, isCrit=${isCrit}, isWeakPoint=${isWeakPoint}, isBackstab=${isBackstab}. Total count: ${Game.damageNumbers.length}`);
     }
 }
 

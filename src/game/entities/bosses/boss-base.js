@@ -104,6 +104,72 @@ class BossBase extends EnemyBase {
         this.applySmoothedDirectionalMovement(dx, dy, this.moveSpeed * speedMultiplier, deltaTime, smoothing);
     }
 
+    /**
+     * Keep combat facing (this.rotation) usable for backstab.
+     * When the boss moved this frame, leave rotation alone (steering already set it).
+     * When idle/stationary, smooth-face the aggro target.
+     * Visual spin (rotationAngle) must stay separate from this.rotation.
+     */
+    updateCombatFacing(deltaTime = 0, fallbackPlayer = null) {
+        const prevX = this._combatFacingLastX;
+        const prevY = this._combatFacingLastY;
+        this._combatFacingLastX = this.x;
+        this._combatFacingLastY = this.y;
+
+        if (prevX !== undefined && prevY !== undefined) {
+            const movedX = this.x - prevX;
+            const movedY = this.y - prevY;
+            const movedDistSq = movedX * movedX + movedY * movedY;
+            const dt = Math.max(deltaTime, 1 / 120);
+            const moveThreshold = Math.max(1.5, (this.moveSpeed || 100) * dt * 0.2);
+            if (movedDistSq > moveThreshold * moveThreshold) {
+                // Movement/steering already owns combat facing this frame.
+                return;
+            }
+        }
+
+        const target = fallbackPlayer || this.getNearestPlayer?.() || null;
+        if (!target || !isFinite(target.x) || !isFinite(target.y)) return;
+
+        const dx = target.x - this.x;
+        const dy = target.y - this.y;
+        if (dx * dx + dy * dy < 1) return;
+
+        const targetAngle = Math.atan2(dy, dx);
+        // Frame-rate independent-ish turn: rotationSmoothing is a 0-1 blend factor per call.
+        const smoothing = Math.min(1, Math.max(0.12, (this.rotationSmoothing || 0.35) * Math.min(1, Math.max(deltaTime, 0) * 60)));
+        this.smoothRotateTo(targetAngle, smoothing);
+    }
+
+    /**
+     * White facing pip (same idea as regular enemies), scaled for boss size.
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {number} [drawRadius] - outer body radius used for pip distance
+     */
+    renderFacingIndicator(ctx, drawRadius = null) {
+        if (!ctx) return;
+        const radius = (typeof drawRadius === 'number' && isFinite(drawRadius))
+            ? drawRadius
+            : (this.size || 40);
+        const pipDistance = radius + 8;
+        const pipSize = Math.max(6, Math.min(10, radius * 0.08));
+        const angle = isFinite(this.rotation) ? this.rotation : 0;
+
+        ctx.save();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(
+            this.x + Math.cos(angle) * pipDistance,
+            this.y + Math.sin(angle) * pipDistance,
+            pipSize,
+            0,
+            Math.PI * 2
+        );
+        ctx.fill();
+        ctx.restore();
+    }
+
     clampToRoom(x, y) {
         const roomWidth = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.width : 2400;
         const roomHeight = (typeof currentRoom !== 'undefined' && currentRoom) ? currentRoom.height : 1350;

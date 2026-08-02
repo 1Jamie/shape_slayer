@@ -334,6 +334,7 @@ class BossTwinPrism extends BossBase {
         }
         
         this.keepInBounds();
+        this.updateCombatFacing(deltaTime, player);
     }
     
     updateDiamondPositions(deltaTime) {
@@ -2051,6 +2052,8 @@ class BossTwinPrism extends BossBase {
         
         // Render hazards
         this.renderHazards(ctx);
+
+        this.renderFacingIndicator(ctx, Math.max(this.size, (this.separation || 0) * 0.35 + this.size * 0.5));
         
         // Render health bar
         this.renderHealthBar(ctx);

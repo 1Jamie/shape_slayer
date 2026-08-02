@@ -3899,11 +3899,6 @@ class EnemyBase {
             this.y = smoothed.y;
             this.rotation = smoothed.rotation;
 
-            // Update rotationAngle if it exists
-            if (this.rotationAngle !== undefined) {
-                this.rotationAngle = smoothed.rotation;
-            }
-
             return;
         }
 
@@ -3950,9 +3945,6 @@ class EnemyBase {
         if (desiredRotation !== undefined) {
             let rotDiff = normalizeAngle(desiredRotation - this.rotation);
             this.rotation += rotDiff * t;
-            if (this.rotationAngle !== undefined) {
-                this.rotationAngle = desiredRotation;
-            }
         }
 
         // Snap the last bit if very close to prevent micro-jitter
@@ -3962,9 +3954,6 @@ class EnemyBase {
             if (desiredRotation !== undefined) {
                 this.rotation = desiredRotation;
                 this.targetRotation = desiredRotation;
-                if (this.rotationAngle !== undefined) {
-                    this.rotationAngle = desiredRotation;
-                }
             }
         }
     }
@@ -3974,12 +3963,17 @@ class EnemyBase {
         // Use authoritative timestamp from host state if available, otherwise use current time
         const stateTimestamp = hostData.timestamp || hostData.serverSendTime || Date.now();
 
+        // Combat facing uses rotation; visual spin (rotationAngle) is separate for spinning bosses.
+        const combatRotation = hostData.rotation !== undefined
+            ? hostData.rotation
+            : (hostData.rotationAngle !== undefined ? hostData.rotationAngle : this.rotation);
+
         // Add state to interpolation buffer for smooth rendering
         if (typeof interpolationManager !== 'undefined' && interpolationManager && this.id) {
             interpolationManager.addEntityState(this.id, stateTimestamp, {
                 x: hostData.x,
                 y: hostData.y,
-                rotation: hostData.rotation !== undefined ? hostData.rotation : (hostData.rotationAngle !== undefined ? hostData.rotationAngle : this.rotation),
+                rotation: combatRotation,
                 timestamp: stateTimestamp
             });
         }
@@ -3987,19 +3981,22 @@ class EnemyBase {
         // Set interpolation targets for smooth movement (fallback if InterpolationManager not available)
         this.targetX = hostData.x;
         this.targetY = hostData.y;
-        this.targetRotation = hostData.rotation;
+        this.targetRotation = combatRotation;
+        // Legacy: only visual angle available — seed combat facing from it once
+        if (hostData.rotation === undefined && hostData.rotationAngle !== undefined) {
+            this.rotation = hostData.rotationAngle;
+        }
         if (hostData.rotationAngle !== undefined) {
             this.rotationAngle = hostData.rotationAngle;
-            this.rotation = hostData.rotationAngle;
-            this.targetRotation = hostData.rotationAngle;
         }
         if (hostData.rotationSpeed !== undefined) {
             this.rotationSpeed = hostData.rotationSpeed;
         }
-        if (hostData.rotationAngle !== undefined) {
-            this.rotationBaseline = hostData.rotationAngle;
-        } else if (hostData.rotation !== undefined) {
+        // Baseline for extrapolation should follow combat facing, not visual spin
+        if (hostData.rotation !== undefined) {
             this.rotationBaseline = hostData.rotation;
+        } else if (hostData.rotationAngle !== undefined) {
+            this.rotationBaseline = hostData.rotationAngle;
         } else {
             this.rotationBaseline = this.rotation;
         }

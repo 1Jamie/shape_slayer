@@ -904,6 +904,49 @@ class Mage extends PlayerBase {
         return damage;
     }
 
+    // Mage HUD uses beam charge segments instead of a single heavy bar
+    buildCooldownHudBars() {
+        const bars = [];
+        const dodgeMaxForUi = Math.max(0.0001, Number.isFinite(this.dodgeCooldownTime) ? this.dodgeCooldownTime : 2.0);
+        if (this.dodgeChargeCooldowns && Array.isArray(this.dodgeChargeCooldowns) && this.dodgeChargeCooldowns.length > 0) {
+            for (let i = 0; i < this.dodgeChargeCooldowns.length; i++) {
+                const rem = Math.max(0, Number.isFinite(this.dodgeChargeCooldowns[i]) ? this.dodgeChargeCooldowns[i] : 0);
+                bars.push({ type: 'dodge', label: 'D', remaining: rem, max: dodgeMaxForUi });
+            }
+        } else {
+            const dodgeRem = (this.cooldowns && this.cooldowns.dodge && Number.isFinite(this.cooldowns.dodge.remaining))
+                ? this.cooldowns.dodge.remaining
+                : Math.max(0, Number.isFinite(this.dodgeCooldown) ? this.dodgeCooldown : 0);
+            bars.push({ type: 'dodge', label: 'Dodge', remaining: dodgeRem, max: dodgeMaxForUi });
+        }
+
+        const specialRem = (this.cooldowns && this.cooldowns.special && Number.isFinite(this.cooldowns.special.remaining))
+            ? this.cooldowns.special.remaining
+            : Math.max(0, Number.isFinite(this.specialCooldown) ? this.specialCooldown : 0);
+        const specialMax = (this.cooldowns && this.cooldowns.special && Number.isFinite(this.cooldowns.special.max))
+            ? this.cooldowns.special.max
+            : Math.max(0.0001, Number.isFinite(this.specialCooldownTime) ? this.specialCooldownTime : 1.0);
+        bars.push({ type: 'special', label: 'Special', remaining: specialRem, max: specialMax });
+
+        const beamMaxForUi = Math.max(0.0001, Number.isFinite(this.heavyAttackCooldownTime) ? this.heavyAttackCooldownTime : 2.0);
+        if (this.beamChargeCooldowns && Array.isArray(this.beamChargeCooldowns) && this.beamChargeCooldowns.length > 0) {
+            for (let i = 0; i < this.beamChargeCooldowns.length; i++) {
+                const rem = Math.max(0, Number.isFinite(this.beamChargeCooldowns[i]) ? this.beamChargeCooldowns[i] : 0);
+                bars.push({ type: 'beam', label: 'B', remaining: rem, max: beamMaxForUi });
+            }
+        } else {
+            const heavyRem = (this.cooldowns && this.cooldowns.heavy && Number.isFinite(this.cooldowns.heavy.remaining))
+                ? this.cooldowns.heavy.remaining
+                : Math.max(0, Number.isFinite(this.heavyAttackCooldown) ? this.heavyAttackCooldown : 0);
+            const heavyMax = (this.cooldowns && this.cooldowns.heavy && Number.isFinite(this.cooldowns.heavy.max))
+                ? this.cooldowns.heavy.max
+                : beamMaxForUi;
+            bars.push({ type: 'heavy', label: 'Heavy', remaining: heavyRem, max: heavyMax });
+        }
+
+        return bars;
+    }
+
     // Override updateClassAbilities for Mage-specific updates
     updateClassAbilities(deltaTime, input) {
         // Mobile/controller blink: tick hold charge, update aim preview, auto-fire at max hold
@@ -963,41 +1006,7 @@ class Mage extends PlayerBase {
             ? 0
             : this.getNextChargeReadyTime(this.beamChargeCooldowns);
 
-        // Override UIBus emission for Mage to send beam charge data instead of single heavy bar
-        // This prevents the base class's single "Heavy" bar from overriding our segmented bars
-        if (typeof window !== 'undefined' && window.UIBus && typeof window.UIBus.emit === 'function') {
-            try {
-                const bars = [];
-                // Dodge bars (use base class logic)
-                const dodgeMaxForUi = Math.max(0.0001, Number.isFinite(this.dodgeCooldownTime) ? this.dodgeCooldownTime : 2.0);
-                if (this.dodgeChargeCooldowns && Array.isArray(this.dodgeChargeCooldowns) && this.dodgeChargeCooldowns.length > 0) {
-                    for (let i = 0; i < this.dodgeChargeCooldowns.length; i++) {
-                        const rem = Math.max(0, Number.isFinite(this.dodgeChargeCooldowns[i]) ? this.dodgeChargeCooldowns[i] : 0);
-                        bars.push({ type: 'dodge', label: 'D', remaining: rem, max: dodgeMaxForUi });
-                    }
-                } else {
-                    bars.push({ type: 'dodge', label: 'Dodge', remaining: this.cooldowns.dodge.remaining, max: dodgeMaxForUi });
-                }
-                // Special (blink)
-                bars.push({ type: 'special', label: 'Special', remaining: this.cooldowns.special.remaining, max: this.cooldowns.special.max });
-                // Beam charges (MAGE-SPECIFIC - send per-charge data instead of single heavy bar)
-                const beamMaxForUi = Math.max(0.0001, Number.isFinite(this.heavyAttackCooldownTime) ? this.heavyAttackCooldownTime : 2.0);
-                if (this.beamChargeCooldowns && Array.isArray(this.beamChargeCooldowns) && this.beamChargeCooldowns.length > 0) {
-                    for (let i = 0; i < this.beamChargeCooldowns.length; i++) {
-                        const rem = Math.max(0, Number.isFinite(this.beamChargeCooldowns[i]) ? this.beamChargeCooldowns[i] : 0);
-                        bars.push({ type: 'beam', label: 'B', remaining: rem, max: beamMaxForUi });
-                    }
-                } else {
-                    // Fallback to single bar if charge system not initialized
-                    bars.push({ type: 'heavy', label: 'Heavy', remaining: this.cooldowns.heavy.remaining, max: this.cooldowns.heavy.max });
-                }
-                window.UIBus.emit('cooldowns:update', { bars });
-                // Set flag to prevent base class from emitting and overwriting our beam charge data
-                this._cooldownsAlreadyEmitted = true;
-            } catch (e) {
-                // Avoid spamming console on every frame
-            }
-        }
+        // Mage beam charges are exposed via buildCooldownHudBars(); base emitLocalCooldownHud handles UIBus
 
         // Update blink decoy - health decay system
         if (this.blinkDecoyActive) {
@@ -1659,6 +1668,8 @@ class Mage extends PlayerBase {
         }
         if (state.beamCharges !== undefined) this.beamCharges = state.beamCharges;
         if (state.beamChargeCooldowns !== undefined) this.beamChargeCooldowns = state.beamChargeCooldowns;
+        // Re-emit after beam charges land (base applyState emitted before these fields)
+        this.emitLocalCooldownHud();
     }
 
     getAdditionalAudioTrackedFields(state) {

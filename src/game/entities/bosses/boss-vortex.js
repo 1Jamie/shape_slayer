@@ -351,7 +351,11 @@ class BossVortex extends BossBase {
         this.lastTargetAngle = Math.atan2(player.y - this.y, player.x - this.x);
 
         this.processKnockback(deltaTime);
-        this.checkPhaseTransition();
+        // Clients mirror phase from applyState; local HP-threshold transitions
+        // re-run harvest restore / chroma / queue wipes and hitch remotes.
+        if (this.isAuthoritative()) {
+            this.checkPhaseTransition();
+        }
         this.updateHazards(deltaTime, player);
         this.checkHazardCollisions(player, deltaTime);
         this.updateWeakPoints(deltaTime);
@@ -374,6 +378,7 @@ class BossVortex extends BossBase {
         this.updateStateMachine(deltaTime, player);
         this.updateWeakPointExposure(deltaTime);
         this.keepInBounds();
+        this.updateCombatFacing(deltaTime, player);
     }
 
     updateStateMachine(deltaTime, player) {
@@ -1485,7 +1490,9 @@ class BossVortex extends BossBase {
         this.rotationSpeed = Math.PI * 0.5;
         if (!this.beamSpawned) {
             this.beamSpawned = true;
-            this.spawnSweepingPulsarBeams();
+            if (this.isAuthoritative()) {
+                this.spawnSweepingPulsarBeams();
+            }
         }
 
         const angularSpeed = Math.PI * (this.phase === 3 ? 0.42 : 0.34);
@@ -1497,7 +1504,9 @@ class BossVortex extends BossBase {
         this.rotationSpeed = Math.PI * 0.42;
         if (!this.beamSpawned) {
             this.beamSpawned = true;
-            this.spawnOrbitalCageBeams();
+            if (this.isAuthoritative()) {
+                this.spawnOrbitalCageBeams();
+            }
         }
 
         this.cageVolleyTimer -= deltaTime;
@@ -1684,8 +1693,10 @@ class BossVortex extends BossBase {
         });
 
         if (this.attackTimer >= holdEnd && !this.harvestRestored) {
-            this.restoreSceneryHarvest();
-            this.addShockRing(this.x, this.y, '#ff6a9f', 210);
+            if (this.isAuthoritative()) {
+                this.restoreSceneryHarvest();
+                this.addShockRing(this.x, this.y, '#ff6a9f', 210);
+            }
         }
     }
 
@@ -1804,13 +1815,20 @@ class BossVortex extends BossBase {
         const nonSceneryEmitters = Array.isArray(room.sceneryLightEmitters)
             ? room.sceneryLightEmitters.filter(emitter => emitter && emitter.type !== 'scenery')
             : [];
-        const sceneryEmitters = layout.cachedBlockedRuns.map(run => ({
+        const sceneryEmitters = layout.cachedBlockedRuns.map((run, index) => ({
+            id: `scenery:${index}:${run.centerX | 0}:${run.centerY | 0}`,
             x: run.centerX,
             y: run.centerY,
             radius: lightRadius + Math.min(140, run.length * (layout.cellSize || 60) * 0.25),
             type: 'scenery'
         }));
-        layout.cachedSceneryLightEmitters = sceneryEmitters.concat(nonSceneryEmitters);
+        const merged = sceneryEmitters.concat(nonSceneryEmitters);
+        for (let i = 0; i < merged.length; i++) {
+            const emitter = merged[i];
+            if (!emitter || emitter.id != null) continue;
+            emitter.id = `${emitter.type || 'emitter'}:${i}:${emitter.x | 0}:${emitter.y | 0}`;
+        }
+        layout.cachedSceneryLightEmitters = merged;
         room.sceneryLightEmitters = layout.cachedSceneryLightEmitters;
     }
 
@@ -1838,10 +1856,13 @@ class BossVortex extends BossBase {
         this.finaleElapsed += deltaTime;
         const previousState = this.finaleState;
         this.finaleState = this.getFinaleStateForElapsed(this.finaleElapsed);
+        const authoritative = this.isAuthoritative();
 
         if (previousState !== this.finaleState) {
             this.spawnFinaleSpectacleBeat(this.finaleState);
-            this.triggerChromaTrauma(5, 0.85);
+            if (authoritative) {
+                this.triggerChromaTrauma(5, 0.85);
+            }
             this.playFinaleStateSound(this.finaleState);
         }
 
@@ -1857,7 +1878,7 @@ class BossVortex extends BossBase {
         } else if (this.finaleState === VORTEX_FINALE_STATES.BLADES) {
             this.rotationSpeed = Math.PI * 1.7;
             this.finaleDamageTimer = Math.max(0, this.finaleDamageTimer - deltaTime);
-            if (this.isAuthoritative()) {
+            if (authoritative) {
                 this.getForceTargets().forEach(target => {
                     if (!this.isInFinaleSafeCorridor(target) && this.finaleDamageTimer <= 0) {
                         target.takeDamage(this.damage * 0.45);
@@ -1876,7 +1897,9 @@ class BossVortex extends BossBase {
             });
             if (!this.attackFired) {
                 this.attackFired = true;
-                this.createShockwave(this.x, this.y, 380, 0.8, this.damage * 0.45);
+                if (authoritative) {
+                    this.createShockwave(this.x, this.y, 380, 0.8, this.damage * 0.45);
+                }
             }
         } else if (this.finaleState === VORTEX_FINALE_STATES.VOLLEY) {
             this.rotationSpeed = Math.PI * 0.55;
@@ -2381,7 +2404,8 @@ class BossVortex extends BossBase {
                 well.activeElapsed += deltaTime;
                 well.armProgress = Math.min(1, well.armProgress + deltaTime * 2.5);
                 well.collapseWarning = Math.max(0, Math.min(1, (well.activeElapsed - (well.collapseAt - 0.45)) / 0.45));
-                if (!well.collapsed && well.activeElapsed >= well.collapseAt) {
+                // Collapse (blink + pathfinding + damage zones) is host-only; remotes get state via sync.
+                if (this.isAuthoritative() && !well.collapsed && well.activeElapsed >= well.collapseAt) {
                     this.collapseGravityWell(well);
                 }
             }
@@ -2624,6 +2648,9 @@ class BossVortex extends BossBase {
     }
 
     triggerChromaTrauma(frames = 5, intensity = 0.7) {
+        // Full-frame chromatic aberration is a known Edge/Chromium hitch; remotes already
+        // get shock rings / spectacle beats from sync without the offscreen channel passes.
+        if (!this.isAuthoritative()) return;
         this.chromaFramesRemaining = Math.max(this.chromaFramesRemaining, frames);
         if (typeof Game !== 'undefined' && typeof Game.triggerChromaticTrauma === 'function') {
             Game.triggerChromaticTrauma(frames, intensity);
@@ -2679,6 +2706,7 @@ class BossVortex extends BossBase {
             this.renderWeakPoints(ctx);
         }
 
+        this.renderFacingIndicator(ctx, this.size);
         this.renderHealthBar(ctx);
         this.renderStatusEffects(ctx);
     }
@@ -2932,8 +2960,8 @@ class BossVortex extends BossBase {
         ctx.save();
         ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = alpha;
-        ctx.shadowColor = `rgba(${colors.r}, ${colors.g}, ${colors.b}, ${0.52 + pulse * 0.18})`;
-        ctx.shadowBlur = 10 + pulse * 6;
+        // Sprites don't survive JSON sync; avoid per-frame shadowBlur (Edge main-thread stalls).
+        ctx.fillStyle = `rgba(${colors.r}, ${colors.g}, ${colors.b}, ${0.55 + pulse * 0.2})`;
         cells.forEach(cell => {
             const relX = (cell.col - block.startCol + 0.5) * cellSize - block.width / 2;
             const relY = (cell.row - block.row + 0.5) * cellSize - block.height / 2;
@@ -4189,7 +4217,14 @@ class BossVortex extends BossBase {
             telegraphActive: this.telegraphActive,
             telegraphType: this.telegraphType,
             gravityWells: this.gravityWells,
-            ghostBlocks: this.ghostBlocks,
+            // Canvas sprites are not JSON-serializable; strip them to keep payloads small.
+            ghostBlocks: Array.isArray(this.ghostBlocks)
+                ? this.ghostBlocks.map((block) => {
+                    if (!block || typeof block !== 'object') return block;
+                    const { sprite, ...rest } = block;
+                    return rest;
+                })
+                : this.ghostBlocks,
             harvestRestored: this.harvestRestored,
             finaleState: this.finaleState,
             finaleElapsed: this.finaleElapsed,

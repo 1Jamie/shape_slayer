@@ -26,6 +26,11 @@ const ROGUE_CONFIG = {
     dodgeSpeed: 720,               // Dash speed (pixels/second)
     dodgeDuration: 0.3,            // Duration of dodge (seconds)
     dodgeDamage: 0.775,            // Damage multiplier during dodge collision
+    // Dash bleed (applied on dodge collision hits)
+    dashBleedPercent: 2,           // % of enemy max HP per second
+    dashBleedDuration: 3,          // Bleed duration (seconds)
+    dashBleedMaxStacks: 5,         // Max bleed stacks on an enemy
+    bleedStackDamageBonus: 0.02,   // +2% damage dealt per bleed stack on the target
     
     // Basic Attack (Knife Throw)
     knifeSpeed: 365,               // Projectile speed (pixels/second)
@@ -60,7 +65,7 @@ const ROGUE_CONFIG = {
         basic: "Quick Stab - Fast triangle projectile",
         heavy: "Fan of Knives - {fanKnifeCount} knives in {fanSpreadAngle|degrees} spread, {fanKnifeDamage|mult} damage each",
         special: "Shadow Clones - Creates {shadowCloneCount} decoys for {shadowCloneDuration}s",
-        passive: "Backstab - 2x damage from behind, {dodgeCharges} dodge charges",
+        passive: "Backstab - 2x damage from behind, dash applies bleed, +{bleedStackDamageBonus|percent} damage per bleed stack, {dodgeCharges} dodge charges",
         baseStats: "{critChance|percent} Base Crit Chance, High Speed"
     },
 
@@ -85,6 +90,52 @@ const ROGUE_CONFIG = {
         }
     }
 };
+
+// Rogue: +2% damage per bleed stack on the target
+function getRogueBleedStackDamageMultiplier(enemy) {
+    if (!enemy || !enemy.bleeding) return 1;
+    const stacks = enemy.bleedStacks || 0;
+    if (stacks <= 0) return 1;
+    return 1 + (ROGUE_CONFIG.bleedStackDamageBonus || 0.02) * stacks;
+}
+
+// Rogue: apply bleed from dash (uses Bleeding Edge stats when available)
+function applyRogueDashBleed(player, enemy, attackerId) {
+    if (!player || !enemy || typeof enemy.applyDebuff !== 'function') return;
+
+    const bleedPercent = (player.itemBleedDamagePercent > 0)
+        ? player.itemBleedDamagePercent
+        : ROGUE_CONFIG.dashBleedPercent;
+    const bleedDuration = (player.itemBleedDuration > 0)
+        ? player.itemBleedDuration
+        : ROGUE_CONFIG.dashBleedDuration;
+    const maxStacks = (player.itemBleedMaxStacks > 0)
+        ? player.itemBleedMaxStacks
+        : ROGUE_CONFIG.dashBleedMaxStacks;
+
+    const enemyMaxHp = enemy.maxHp || enemy.hp;
+    const bleedDPS = enemyMaxHp * (bleedPercent / 100);
+    enemy.applyDebuff({
+        type: 'bleed',
+        dps: bleedDPS,
+        duration: bleedDuration,
+        attackerId: attackerId,
+        maxStacks: maxStacks
+    });
+
+    if (typeof createParticleBurst !== 'undefined') {
+        createParticleBurst(enemy.x, enemy.y, '#ff0000', 5);
+    }
+    if (typeof hostBroadcastCombatFx === 'function') {
+        hostBroadcastCombatFx({
+            kind: 'particle_burst',
+            x: enemy.x,
+            y: enemy.y,
+            color: '#ff0000',
+            count: 5
+        });
+    }
+}
 
 class Rogue extends PlayerBase {
     constructor(x = 400, y = 300) {
@@ -669,7 +720,10 @@ class Rogue extends PlayerBase {
                         // Check for crit
                         const isCrit = Math.random() < this.critChance;
                         const critMultiplier = isCrit ? (2.0 * (this.critDamageMultiplier || 1.0)) : 1.0;
-                        const dodgeDamage = baseDodgeDamage * critMultiplier;
+                        const bleedMult = typeof getRogueBleedStackDamageMultiplier === 'function'
+                            ? getRogueBleedStackDamageMultiplier(enemy)
+                            : 1;
+                        const dodgeDamage = baseDodgeDamage * critMultiplier * bleedMult;
                         
                         // Calculate damage dealt BEFORE applying damage
                         const damageDealt = Math.min(dodgeDamage, enemy.hp);
@@ -679,6 +733,9 @@ class Rogue extends PlayerBase {
                         
                         // Collision during dodge - deal damage
                         enemy.takeDamage(dodgeDamage, attackerId);
+
+                        // Dash also applies bleed
+                        applyRogueDashBleed(this, enemy, attackerId);
                         
                         // Track stats (host/solo only)
                         const isClient = typeof Game !== 'undefined' && Game.isMultiplayerClient && Game.isMultiplayerClient();

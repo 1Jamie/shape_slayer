@@ -755,16 +755,18 @@ function prepareRoomRenderData(room, roomNumber) {
     layout.cachedSwarmHiveClusters = layout.biomeId === 'swarm' ? computeSwarmHiveClusters(layout) : [];
 
     const lightRadius = Math.max(80, layout.cellSize * 1.35);
-    const emitters = layout.cachedBlockedRuns.map(run => ({
+    const emitters = layout.cachedBlockedRuns.map((run, index) => ({
+        id: `scenery:${index}:${run.centerX | 0}:${run.centerY | 0}`,
         x: run.centerX,
         y: run.centerY,
         radius: lightRadius + Math.min(140, run.length * layout.cellSize * 0.25),
         type: 'scenery'
     }));
     const fixtures = Array.isArray(layout.cachedLightFixtures) ? layout.cachedLightFixtures : [];
-    fixtures.forEach(fixture => {
+    fixtures.forEach((fixture, index) => {
         if (!fixture || !fixture.glow) return;
         emitters.push({
+            id: `fixture:${index}:${fixture.x | 0}:${fixture.y | 0}`,
             x: fixture.x,
             y: fixture.y,
             radius: Math.max(110, (fixture.size || layout.cellSize * 0.35) * 5.2),

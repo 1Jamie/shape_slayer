@@ -3029,6 +3029,8 @@ const Game = {
 
         if (typeof multiplayerManager !== 'undefined' && multiplayerManager &&
             typeof multiplayerManager.sendGameState === 'function') {
+            // Force a full snapshot so rejoining clients get fresh surge combo / arena state.
+            multiplayerManager.forceFullState = true;
             multiplayerManager.sendGameState();
         }
     },
@@ -5453,8 +5455,35 @@ const Game = {
             const maxSceneryLights = adaptiveEnabled && this.renderQuality && this.renderQuality.maxSceneryLights
                 ? this.renderQuality.maxSceneryLights
                 : emitters.length;
+            const stickyKey = currentRoom.layout.hash
+                || currentRoom.layoutHash
+                || currentRoom.id
+                || this.roomNumber
+                || 'room';
+            if (this._sceneryLightStickyKey !== stickyKey) {
+                this._sceneryLightStickyKey = stickyKey;
+                this._sceneryLightStickyIds = null;
+            }
+            if (!this._sceneryLightSelectOut) this._sceneryLightSelectOut = [];
+            if (!this._sceneryLightSelectScratch) this._sceneryLightSelectScratch = [];
+            const selectFn = (typeof GameRenderQuality !== 'undefined'
+                && typeof GameRenderQuality.selectSceneryLightsSticky === 'function')
+                ? GameRenderQuality.selectSceneryLightsSticky.bind(GameRenderQuality)
+                : null;
             let sceneryLightsToDraw = emitters;
-            if (maxSceneryLights < emitters.length) {
+            if (selectFn) {
+                const picked = selectFn(emitters, {
+                    maxLights: maxSceneryLights,
+                    camX: activeCamera.x,
+                    camY: activeCamera.y,
+                    isVisible: isVisibleInVignette,
+                    prevIds: this._sceneryLightStickyIds,
+                    out: this._sceneryLightSelectOut,
+                    scratch: this._sceneryLightSelectScratch
+                });
+                sceneryLightsToDraw = picked.selected;
+                this._sceneryLightStickyIds = picked.ids;
+            } else if (maxSceneryLights < emitters.length) {
                 const camX = activeCamera.x;
                 const camY = activeCamera.y;
                 sceneryLightsToDraw = emitters

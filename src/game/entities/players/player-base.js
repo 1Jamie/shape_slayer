@@ -733,31 +733,8 @@ class PlayerBase {
             this.cooldowns.dodge.charges = [this.cooldowns.dodge.remaining];
         }
 
-        // Emit normalized cooldowns JSON for DOM HUD (event-driven, UI-agnostic)
-        // Skip if subclass has already emitted (prevents Mage's beam charges from being overwritten)
-        if (!this._cooldownsAlreadyEmitted && typeof window !== 'undefined' && window.UIBus && typeof window.UIBus.emit === 'function') {
-            try {
-                const bars = [];
-                // Dodge bars: one per charge if available
-                const dodgeMaxForUi = Math.max(0.0001, Number.isFinite(this.dodgeCooldownTime) ? this.dodgeCooldownTime : 2.0);
-                if (this.dodgeChargeCooldowns && Array.isArray(this.dodgeChargeCooldowns) && this.dodgeChargeCooldowns.length > 0) {
-                    for (let i = 0; i < this.dodgeChargeCooldowns.length; i++) {
-                        const rem = Math.max(0, Number.isFinite(this.dodgeChargeCooldowns[i]) ? this.dodgeChargeCooldowns[i] : 0);
-                        bars.push({ type: 'dodge', label: 'D', remaining: rem, max: dodgeMaxForUi });
-                    }
-                } else {
-                    bars.push({ type: 'dodge', label: 'Dodge', remaining: this.cooldowns.dodge.remaining, max: dodgeMaxForUi });
-                }
-                // Special
-                bars.push({ type: 'special', label: 'Special', remaining: this.cooldowns.special.remaining, max: this.cooldowns.special.max });
-                // Heavy
-                bars.push({ type: 'heavy', label: 'Heavy', remaining: this.cooldowns.heavy.remaining, max: this.cooldowns.heavy.max });
-                window.UIBus.emit('cooldowns:update', { bars });
-            } catch (e) {
-                // Avoid spamming console on every frame if something goes wrong
-            }
-        }
-        // Reset flag for next frame
+        // Only the local Game.player drives the HUD — remote MP sims must not overwrite it
+        this.emitLocalCooldownHud();
         this._cooldownsAlreadyEmitted = false;
 
         // Update heavy charge effect animation
@@ -1079,6 +1056,60 @@ class PlayerBase {
         this.startDodge(input, { predictOnly: true });
         this._predictedDodgeActive = true;
         return true;
+    }
+
+    // Only the locally-controlled Game.player should drive the primary cooldown HUD.
+    // Host-simulated remote players also call update(); without this guard their bars overwrite the host HUD.
+    isLocalHudPlayer() {
+        return typeof Game !== 'undefined' && Game.player === this;
+    }
+
+    buildCooldownHudBars() {
+        const bars = [];
+        const dodgeMaxForUi = Math.max(0.0001, Number.isFinite(this.dodgeCooldownTime) ? this.dodgeCooldownTime : 2.0);
+        if (this.dodgeChargeCooldowns && Array.isArray(this.dodgeChargeCooldowns) && this.dodgeChargeCooldowns.length > 0) {
+            for (let i = 0; i < this.dodgeChargeCooldowns.length; i++) {
+                const rem = Math.max(0, Number.isFinite(this.dodgeChargeCooldowns[i]) ? this.dodgeChargeCooldowns[i] : 0);
+                bars.push({ type: 'dodge', label: 'D', remaining: rem, max: dodgeMaxForUi });
+            }
+        } else {
+            const dodgeRem = (this.cooldowns && this.cooldowns.dodge && Number.isFinite(this.cooldowns.dodge.remaining))
+                ? this.cooldowns.dodge.remaining
+                : Math.max(0, Number.isFinite(this.dodgeCooldown) ? this.dodgeCooldown : 0);
+            bars.push({ type: 'dodge', label: 'Dodge', remaining: dodgeRem, max: dodgeMaxForUi });
+        }
+
+        const specialRem = (this.cooldowns && this.cooldowns.special && Number.isFinite(this.cooldowns.special.remaining))
+            ? this.cooldowns.special.remaining
+            : Math.max(0, Number.isFinite(this.specialCooldown) ? this.specialCooldown : 0);
+        const specialMax = (this.cooldowns && this.cooldowns.special && Number.isFinite(this.cooldowns.special.max))
+            ? this.cooldowns.special.max
+            : Math.max(0.0001, Number.isFinite(this.specialCooldownTime) ? this.specialCooldownTime : 1.0);
+        bars.push({ type: 'special', label: 'Special', remaining: specialRem, max: specialMax });
+
+        const heavyRem = (this.cooldowns && this.cooldowns.heavy && Number.isFinite(this.cooldowns.heavy.remaining))
+            ? this.cooldowns.heavy.remaining
+            : Math.max(0, Number.isFinite(this.heavyAttackCooldown) ? this.heavyAttackCooldown : 0);
+        const heavyMax = (this.cooldowns && this.cooldowns.heavy && Number.isFinite(this.cooldowns.heavy.max))
+            ? this.cooldowns.heavy.max
+            : Math.max(0.0001, Number.isFinite(this.heavyAttackCooldownTime) ? this.heavyAttackCooldownTime : 1.5);
+        bars.push({ type: 'heavy', label: 'Heavy', remaining: heavyRem, max: heavyMax });
+
+        return bars;
+    }
+
+    emitLocalCooldownHud() {
+        if (this._cooldownsAlreadyEmitted) return;
+        if (!this.isLocalHudPlayer()) return;
+        if (typeof window === 'undefined' || !window.UIBus || typeof window.UIBus.emit !== 'function') return;
+        try {
+            const bars = this.buildCooldownHudBars();
+            if (bars && bars.length > 0) {
+                window.UIBus.emit('cooldowns:update', { bars });
+            }
+        } catch (e) {
+            // Avoid spamming console on every frame if something goes wrong
+        }
     }
 
     // Update class-specific abilities (override by subclass)
@@ -4536,6 +4567,21 @@ class PlayerBase {
         if (state.dodgeCharges !== undefined) this.dodgeCharges = state.dodgeCharges;
         if (state.maxDodgeCharges !== undefined) this.maxDodgeCharges = state.maxDodgeCharges;
         if (state.dodgeChargeCooldowns !== undefined) this.dodgeChargeCooldowns = state.dodgeChargeCooldowns;
+
+        // MP clients don't run full update(); refresh HUD bars from host-synced cooldowns
+        if (this.isLocalHudPlayer()) {
+            if (!this.cooldowns) this.cooldowns = { dodge: {}, heavy: {}, special: {} };
+            this.cooldowns.dodge.remaining = Math.max(0, Number.isFinite(this.dodgeCooldown) ? this.dodgeCooldown : 0);
+            this.cooldowns.dodge.max = Math.max(0.0001, Number.isFinite(this.dodgeCooldownTime) ? this.dodgeCooldownTime : 2.0);
+            this.cooldowns.heavy.remaining = Math.max(0, Number.isFinite(this.heavyAttackCooldown) ? this.heavyAttackCooldown : 0);
+            this.cooldowns.heavy.max = Math.max(0.0001, Number.isFinite(this.heavyAttackCooldownTime) ? this.heavyAttackCooldownTime : 1.5);
+            this.cooldowns.special.remaining = Math.max(0, Number.isFinite(this.specialCooldown) ? this.specialCooldown : 0);
+            this.cooldowns.special.max = Math.max(0.0001, Number.isFinite(this.specialCooldownTime) ? this.specialCooldownTime : 1.0);
+            if (this.dodgeChargeCooldowns && Array.isArray(this.dodgeChargeCooldowns)) {
+                this.cooldowns.dodge.charges = this.dodgeChargeCooldowns.slice();
+            }
+            this.emitLocalCooldownHud();
+        }
 
         // Derived stats from gear/affixes (only apply if provided by host)
         if (state.damage !== undefined) this.damage = state.damage;

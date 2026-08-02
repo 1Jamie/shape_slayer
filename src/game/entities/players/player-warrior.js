@@ -153,6 +153,7 @@ class Warrior extends PlayerBase {
         this.whirlwindStartTime = 0; // Timestamp for smooth visual rotation
         this.whirlwindDuration = WARRIOR_CONFIG.whirlwindDuration;
         this.whirlwindHitTimer = 0;
+        this._whirlwindPendingCooldown = 0; // Held until whirlwind finishes
 
         // Forward thrust heavy attack
         this.thrustActive = false;
@@ -364,6 +365,15 @@ class Warrior extends PlayerBase {
                 this.whirlwindHitTimer = 0;
                 this._whirlwindKillExtend = 0;
                 this._whirlwindKillCount = 0;
+                // Start cooldown now that whirlwind has finished
+                const pending = this._whirlwindPendingCooldown;
+                this._whirlwindPendingCooldown = 0;
+                if (pending > 0) {
+                    this.specialCooldown = pending;
+                }
+            } else if (this._whirlwindPendingCooldown > 0) {
+                // Freeze special cooldown while whirlwind is still firing
+                this.specialCooldown = this._whirlwindPendingCooldown;
             }
         }
 
@@ -743,6 +753,8 @@ class Warrior extends PlayerBase {
     }
 
     activateWhirlwind() {
+        if (this.whirlwindActive) return;
+
         this.notifyTutorialCombatAction('special');
 
         // Play whirlwind activation sound
@@ -758,8 +770,9 @@ class Warrior extends PlayerBase {
         this._whirlwindKillExtend = 0;
         this._whirlwindKillCount = 0;
         this.whirlwindStartTime = Date.now(); // Track start time for smooth visual rotation
-        // Apply cooldown reduction
+        // Hold cooldown at full until whirlwind ends (kill-extends must not burn CD early)
         const effectiveSpecialCooldown = this.specialCooldownTime * (1 - this.cooldownReduction);
+        this._whirlwindPendingCooldown = effectiveSpecialCooldown;
         this.specialCooldown = effectiveSpecialCooldown;
         this.invulnerable = true;
         this.invulnerabilityTime = WARRIOR_CONFIG.whirlwindInvulnTime;
