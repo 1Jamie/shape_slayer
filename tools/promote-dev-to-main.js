@@ -212,6 +212,18 @@ try {
     run('git checkout main', submoduleDir);
     run('git pull origin main', submoduleDir);
 
+    // Ensure engine submodule README is clean on main
+    const submoduleReadme = path.join(submoduleDir, 'README.md');
+    if (cleanDevBanner(submoduleReadme)) {
+        run('git add README.md', submoduleDir);
+        try {
+            run('git commit -m "docs: strip dev branch banner from engine README on main"', submoduleDir);
+            run('git push origin main', submoduleDir);
+        } catch (e) {
+            if (!isDryRun) console.log('Engine submodule README already clean on main.');
+        }
+    }
+
     // Stage and commit release adjustments
     run('git add .gitmodules README.md src/engine', gameDir);
     try {

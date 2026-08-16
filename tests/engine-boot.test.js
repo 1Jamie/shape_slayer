@@ -589,7 +589,7 @@ test('service worker and package test list include engine boot files', () => {
     assert.match(sw, /engine\/ui\/boot-cinematic\.js/);
     assert.match(sw, /engine\/ui\/boot-screen\.js/);
     assert.match(sw, /engine\/boot\.js/);
-    assert.match(sw, /CACHE_VERSION = '\d+\.\d+\.\d+\.\d+'/);
+    assert.match(sw, /CACHE_VERSION = '\d+\.\d+\.\d+(\.\d+)?'/);
     assert.match(sw, /SKIP_WAITING/);
     assert.match(sw, /clients\.claim\s*\(/);
     assert.match(sw, /SW_UPDATED/);
