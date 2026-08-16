@@ -236,6 +236,11 @@ const GameCombatProjectiles = {
                                     finalDamage *= 2; // 2x damage for backstab
                                 }
                             }
+
+                            // Rogue: bleed stacks boost damage (+2% per stack)
+                            if (typeof getRogueBleedStackDamageMultiplier === 'function') {
+                                finalDamage *= getRogueBleedStackDamageMultiplier(enemy);
+                            }
                         }
 
                         // Apply crit multiplier if applicable (shooterPlayer already defined above)
@@ -375,12 +380,13 @@ const GameCombatProjectiles = {
 
                         // Damage numbers for player projectiles (rogue knives, mage bolts)
                         if (typeof createDamageNumber !== 'undefined') {
-                            createDamageNumber(enemy.x, enemy.y, Math.floor(damageDealt), isCrit, false);
+                            createDamageNumber(enemy.x, enemy.y, Math.floor(damageDealt), isCrit, false, isBackstab);
                         }
                         if (typeof hostBroadcastDamageNumber === 'function') {
                             hostBroadcastDamageNumber(enemy.x, enemy.y, damageDealt, {
                                 enemyId: enemy.id,
-                                isCrit
+                                isCrit,
+                                isBackstab
                             });
                         }
 

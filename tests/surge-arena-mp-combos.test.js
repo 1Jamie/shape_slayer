@@ -124,7 +124,10 @@ test('SurgeArenaRules: Separate combo managers per player and next wave trigger'
         player: { alive: true, cooldownRegenMult: 1 },
         getLocalPlayerId: () => 'local',
         multiplayerEnabled: true,
-        waveNumber: 1
+        isHost: () => true,
+        isMultiplayerClient: () => false,
+        waveNumber: 1,
+        state: 'PLAYING'
     };
     sandbox.Game = mockWorld;
 
@@ -149,6 +152,8 @@ test('SurgeArenaRules: Separate combo managers per player and next wave trigger'
 
     assert.equal(combo1.comboCount, 1, 'Player 1 should have 1 combo point');
     assert.equal(combo2.comboCount, 1, 'Player 2 should have 1 combo point');
+    assert.ok(Object.prototype.hasOwnProperty.call(mockWorld.playerCombos['player-1'], 'decayHold'),
+        'Host sync payload should include decayHold for remotes');
 
     // Client next wave start triggers next_wave_request
     let sentMsg = null;
@@ -158,10 +163,71 @@ test('SurgeArenaRules: Separate combo managers per player and next wave trigger'
         players: [{ id: 'player-1' }, { id: 'player-2' }],
         send: (msg) => { sentMsg = msg; }
     };
+    mockWorld.isHost = () => false;
+    mockWorld.isMultiplayerClient = () => true;
 
     GameBus.emit('arena:startNextWave', { world: mockWorld });
     assert.ok(sentMsg, 'Client should have sent next wave request message');
     assert.equal(sentMsg.type, 'arena_next_wave_request', 'Message type should be arena_next_wave_request');
+});
+
+test('SurgeArenaRules: network clients mirror combo and do not mutate locally', () => {
+    const sandbox = loadSurgeRules();
+    const Rules = sandbox.SurgeArenaRules;
+    const GameBus = sandbox.GameBus;
+
+    const mockWorld = {
+        player: { alive: true, cooldownRegenMult: 1, isDodging: false },
+        getLocalPlayerId: () => 'player-1',
+        multiplayerEnabled: true,
+        isHost: () => false,
+        isMultiplayerClient: () => true,
+        waveNumber: 1,
+        state: 'PLAYING',
+        arenaPhase: 'combat',
+        playerCombos: {}
+    };
+    sandbox.Game = mockWorld;
+    sandbox.multiplayerManager = {
+        lobbyCode: 'ABC',
+        isHost: false,
+        send: () => {}
+    };
+
+    Rules.attach(GameBus);
+
+    GameBus.emit('combat:enemyKilled', {
+        enemy: { id: 'e1' },
+        attackerId: 'player-1',
+        styleTag: 'light'
+    });
+    assert.equal(Rules.getComboState('player-1').comboCount, 0,
+        'Client should not credit local kills into combo');
+
+    Rules.syncComboFromNetwork('player-1', {
+        comboCount: 12,
+        comboTier: 2,
+        comboTimer: 4.5,
+        decayHold: 0.3,
+        recoveryWindow: 0,
+        varietyStreak: 2,
+        highestCombo: 12
+    });
+    assert.equal(Rules.getComboState('player-1').comboCount, 12, 'Network sync should set combo');
+    assert.equal(Rules.getComboState('player-1').decayHold, 0.3, 'Network sync should keep decayHold');
+
+    Rules.update(1.0);
+    assert.equal(Rules.getComboState('player-1').comboCount, 12,
+        'Client update must not locally decay host-synced combo');
+    assert.equal(Rules.getComboState('player-1').comboTimer, 4.5,
+        'Client update must not locally drain comboTimer');
+
+    GameBus.emit('combat:playerDamaged', {
+        playerId: 'player-1',
+        physical: true
+    });
+    assert.equal(Rules.getComboState('player-1').comboCount, 12,
+        'Client must not apply local combo bleed on damage');
 });
 
 test('EnemyBase: Target-driven dynamic speed/CDR style multipliers and transitions', () => {

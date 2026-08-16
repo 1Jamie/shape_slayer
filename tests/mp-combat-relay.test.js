@@ -99,6 +99,77 @@ test('applySyncedRoomLayout skips re-enter when layout hash unchanged', () => {
     assert.ok(source.includes("Game.state === 'ENTERING_ROOM'"));
 });
 
+test('applySyncedRoomLayout does not re-stamp arena barriers from host layout', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'game', 'networking', 'multiplayer.js'), 'utf-8');
+    assert.ok(source.includes('applyBarriers: false'));
+    assert.ok(source.includes('legacyBarrierTag'));
+    assert.ok(source.includes('prevMachinesAccessible'));
+});
+
+test('serializeGameState keeps roomLayout out of roundDeep', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'game', 'networking', 'multiplayer.js'), 'utf-8');
+    assert.ok(source.includes('rounded.roomLayout = roomLayout'));
+    assert.ok(source.includes('invalidates layout.hash'));
+});
+
+test('roundDeep-style float truncation breaks layout hash integrity', () => {
+    // Mirrors why game_state used to warn on every tick: host hashed full-precision
+    // floats, then rounded the payload to 2 decimals before send.
+    function roundDeep(value, decimals = 2) {
+        if (Array.isArray(value)) return value.map((item) => roundDeep(item, decimals));
+        if (value && typeof value === 'object') {
+            const clone = {};
+            Object.keys(value).forEach((key) => {
+                const child = value[key];
+                clone[key] = typeof child === 'number'
+                    ? Math.round(child * 100) / 100
+                    : roundDeep(child, decimals);
+            });
+            return clone;
+        }
+        return value;
+    }
+    function packedGridChecksum(grid) {
+        let hash = 2166136261;
+        for (let i = 0; i < grid.length; i++) {
+            hash ^= grid[i] + i;
+            hash = Math.imul(hash, 16777619);
+        }
+        return hash >>> 0;
+    }
+    function hashString(str) {
+        let hash = 2166136261;
+        for (let i = 0; i < str.length; i++) {
+            hash ^= str.charCodeAt(i);
+            hash = Math.imul(hash, 16777619);
+        }
+        return hash >>> 0;
+    }
+    function computeLayoutHash(layout) {
+        return hashString(JSON.stringify({
+            seed: layout.seed,
+            gridChecksum: packedGridChecksum(layout.grid),
+            spawnZone: layout.spawnZone,
+            paths: layout.paths
+        })).toString(16);
+    }
+
+    const layout = {
+        seed: 'gear:2',
+        grid: [0, 1, 0, 1],
+        spawnZone: { x: 140.3337, y: 675.6666, radius: 80.125 },
+        paths: [{ points: [{ x: 10.111, y: 20.222 }, { x: 30.333, y: 40.444 }] }],
+    };
+    layout.hash = computeLayoutHash(layout);
+
+    const rounded = roundDeep(layout);
+    rounded.hash = layout.hash; // host leaves original hash on the wire
+    assert.notEqual(computeLayoutHash(rounded), rounded.hash);
+
+    // Exact (unrounded) payload keeps integrity
+    assert.equal(computeLayoutHash(layout), layout.hash);
+});
+
 test('server player_state_batch updates lobby player class', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'multiplayer', 'mp-server-worker.js'), 'utf-8');
     assert.ok(source.includes('handlePlayerStateBatch'));

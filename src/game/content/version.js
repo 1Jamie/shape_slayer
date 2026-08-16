@@ -4,7 +4,7 @@
 const GameVersion = {
   // Feature/gameplay releases: bump this and the sw.js CACHE_VERSION base together.
   // Background/PWA-only cache busts: bump only the trailing .N on sw.js CACHE_VERSION.
-  VERSION: '0.9.0',
+  VERSION: '0.9.1',
 
   UPDATE_MESSAGES: {
     '0.2.1': 'Initial early access release! Please report any bugs you find at https://github.com/1jamie/shape_slayer/issues',
@@ -869,6 +869,28 @@ Room 200 is still gonna suck in the fun way i hope, but I'm not handing it to yo
 
 *P.P.S. - If your local co-op partner steals all the gear level ups: the machine is seat-aware, but the game is still a friendship test. Choose wisely.*
 `,
+    '0.9.1': `**UPDATE 0.9.1: OVERLAY FIXES, BLEED MECHANICS & GECKO PERFORMANCE**
+
+**UI & HUD Refinements:**
+• **Overlay Layout Cleanup:** Resolved UI overlaps between the combo meter, gear pickup tooltips, and surge wave snow indicators.
+• **Boss Wave Indicators:** Added clearer visual telegraphs for upcoming boss waves and explicit notifications when upgrade machines open in the arena.
+
+**Gecko / Firefox Rendering Performance:**
+• **Viewport Occlusion Culling & Partial Blitting:** Implemented partial static layer blitting and viewport-based culling tailored for Gecko rendering pipelines, ensuring smooth framerates on Firefox.
+
+**Multiplayer & Co-op Fixes:**
+• **Feat Reward Distribution:** Fixed issue where all feat rewards were incorrectly routed to the host; rewards now properly distribute to the respective player.
+• **Removable Barrier Sync:** Resolved host/client desyncs in Surge Arena caused by removable barriers.
+• **Cooldown Sync Indicators:** Corrected player targeting for multiplayer cooldown indicators to prevent misattributed UI feedback.
+• **Health Target & Net Sync:** Standardized multiplayer target checks onto raw HP values to eliminate client desyncs.
+
+**Combat & Balance Adjustments:**
+• **Rogue Bleed Affliction:** Rogue Dash now inflicts Bleed. Enemies afflicted with Bleed receive +2% bonus damage per stack from all Rogue attacks.
+• **Warrior Cyclone QoL:** Warrior Cyclone cooldown is no longer gated on waiting for the active attack animation to fully finish.
+• **Boss Directionality & Backstabs:** Bosses now feature distinct front and back orientations with visual indicators. Rogue backstabs now display dedicated backstab damage numbers.
+• **Surge Arena Tuning:** Adjusted Surge Arena credit rewards by 25% for better long-term economy balance.
+• **Vortex Boss Stability:** Optimized edge-case physics around the Vortex Boss to prevent client crashes.
+`,
   },
 
   // Update type labels - can be: 'major', 'feature', 'minor', 'hotfix', 'bugfix', 'refactor', 'rebalance'
@@ -890,7 +912,8 @@ Room 200 is still gonna suck in the fun way i hope, but I'm not handing it to yo
     '0.8.0': ['major', 'feature', 'rebalance', 'visuals'],
     '0.8.1': ['minor', 'feature', 'hotfix'],
     '0.8.2': ['minor', 'feature', 'rebalance', 'visuals'],
-    '0.9.0': ['major', 'feature', 'refactor', 'performance']
+    '0.9.0': ['major', 'feature', 'refactor', 'performance'],
+    '0.9.1': ['minor', 'feature', 'bugfix', 'rebalance', 'performance']
   },
 
   // Short patch codenames for the title screen subtitle (VERSION + title)
@@ -901,7 +924,8 @@ Room 200 is still gonna suck in the fun way i hope, but I'm not handing it to yo
     '0.8.0': 'THE "UNDECK YOURSELF" UPDATE',
     '0.8.1': 'THE "STOP TELEPORTING, PLEASE" UPDATE',
     '0.8.2': 'WEIGHT, TIMING & BIOME GEOMETRY',
-    '0.9.0': 'THE "STYLE, SPLITS & ENGINE DIVORCE" UPDATE'
+    '0.9.0': 'THE "STYLE, SPLITS & ENGINE DIVORCE" UPDATE',
+    '0.9.1': 'THE "OVERLAY, BLEED & GECKO PERF" UPDATE'
   }
 };
 

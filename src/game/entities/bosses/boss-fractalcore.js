@@ -98,6 +98,7 @@ class BossFractalCore extends BossBase {
         
         if (this.updateTemporalRewind(deltaTime)) {
             this.keepInBounds();
+            this.updateCombatFacing(deltaTime, player);
             return;
         }
 
@@ -134,6 +135,7 @@ class BossFractalCore extends BossBase {
         }
         
         this.keepInBounds();
+        this.updateCombatFacing(deltaTime, player);
     }
     
     updateFragments(deltaTime) {
@@ -804,6 +806,7 @@ class BossFractalCore extends BossBase {
         }
         
         this.renderHazards(ctx);
+        this.renderFacingIndicator(ctx, this.size);
         this.renderHealthBar(ctx);
 
         // Draw status effect indicators

@@ -50,3 +50,20 @@ test('explicit override wins', () => {
     });
     assert.strictEqual(config.SERVER_URL, 'wss://custom.example.test');
 });
+
+test('shapes-dev.gpe.pet uses production multiplayer server', () => {
+    const config = loadMpConfig({
+        protocol: 'https:',
+        hostname: 'shapes-dev.gpe.pet'
+    });
+    assert.strictEqual(config.SERVER_URL, 'wss://shape-slayer.gpe.pet');
+});
+
+test('other dev domains use production multiplayer server', () => {
+    const config = loadMpConfig({
+        protocol: 'https:',
+        hostname: 'test-dev.gpe.pet'
+    });
+    assert.strictEqual(config.SERVER_URL, 'wss://shape-slayer.gpe.pet');
+});
+

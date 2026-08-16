@@ -28,21 +28,33 @@ const GameRoomTransition = {
             return;
         }
 
-        if (transition.phase === 0) {
+            if (transition.phase === 0) {
             if (typeof currentRoom !== 'undefined' && currentRoom && typeof prepareRoomRenderData === 'function') {
                 prepareRoomRenderData(currentRoom, transition.roomNumber);
             }
             if (typeof resetVoxelStaticCanvas === 'function' && typeof currentRoom !== 'undefined' && currentRoom) {
                 resetVoxelStaticCanvas(currentRoom.width || 2400, currentRoom.height || 1350);
             }
-            if (game.frameBudgetSamples) {
-                game.frameBudgetSamples.length = 0;
-            }
-            if (typeof window !== 'undefined' && window.engine
-                && typeof window.engine.resetFxBoost === 'function') {
-                window.engine.resetFxBoost();
-            }
-            if (typeof game.getBaseRenderQuality === 'function') {
+            // Reset engine samples + tier and re-emit. Do NOT assign getBaseRenderQuality()
+            // after this — that left Game on "normal" while engine.qualityTier stayed LOW,
+            // so the governor never re-applied medium/heavy and FF stayed expensive forever.
+            if (typeof window !== 'undefined' && window.engine) {
+                if (typeof window.engine.resetQualityForNewScene === 'function') {
+                    window.engine.resetQualityForNewScene();
+                } else {
+                    if (typeof window.engine.resetFrameBudgetSamples === 'function') {
+                        window.engine.resetFrameBudgetSamples();
+                    } else if (window.engine.frameBudgetSamples) {
+                        window.engine.frameBudgetSamples.length = 0;
+                    }
+                    if (typeof window.engine.resetFxBoost === 'function') {
+                        window.engine.resetFxBoost();
+                    }
+                    if (typeof game.getBaseRenderQuality === 'function') {
+                        game.renderQuality = game.getBaseRenderQuality();
+                    }
+                }
+            } else if (typeof game.getBaseRenderQuality === 'function') {
                 game.renderQuality = game.getBaseRenderQuality();
             }
             if (typeof Engine !== 'undefined' && Engine.FX && Engine.FX.ShardPool

@@ -27,7 +27,7 @@ function loadGameHelpers() {
             const gecko = this.isGeckoFamilyEngine();
             return {
                 vignetteScale: 0.5,
-                maxSceneryLights: gecko ? 96 : Infinity,
+                maxSceneryLights: gecko ? 128 : Infinity,
                 gearRingPoints: 64,
                 groundLootAnimatedRing: true,
                 remoteFullRender: true,
@@ -84,7 +84,7 @@ function loadGameHelpers() {
             if (frameAvg > thresholds.heavyFrame || renderAvg > thresholds.heavyRender) {
                 this.renderQuality = {
                     vignetteScale: thresholds.heavyVignetteScale,
-                    maxSceneryLights: 36,
+                    maxSceneryLights: 112,
                     gearRingPoints: 24,
                     groundLootAnimatedRing: false,
                     remoteFullRender: false,
@@ -95,7 +95,7 @@ function loadGameHelpers() {
             } else if (frameAvg > thresholds.mediumFrame || renderAvg > thresholds.mediumRender) {
                 this.renderQuality = {
                     vignetteScale: thresholds.mediumVignetteScale,
-                    maxSceneryLights: 64,
+                    maxSceneryLights: 112,
                     gearRingPoints: 32,
                     groundLootAnimatedRing: false,
                     remoteFullRender: true,
@@ -139,7 +139,7 @@ test('gecko base quality soft-caps scenery lights', () => {
     mockUa('Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0');
     const Game = loadGameHelpers();
     const q = Game.getBaseRenderQuality();
-    assert.equal(q.maxSceneryLights, 96);
+    assert.equal(q.maxSceneryLights, 128);
     assert.equal(Game.getDprCap(), 1.5);
     assert.equal(Game.preferSpriteShadows(), true);
 });
@@ -158,7 +158,19 @@ test('servo inherits gecko family policy', () => {
     const Game = loadGameHelpers();
     assert.equal(Game.isGeckoFamilyEngine(), true);
     assert.equal(Game.getDprCap(), 1.5);
-    assert.equal(Game.getBaseRenderQuality().maxSceneryLights, 96);
+    assert.equal(Game.getBaseRenderQuality().maxSceneryLights, 128);
+});
+
+test('gecko heavy vignette scale matches blink degrade scales', () => {
+    mockUa('Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0');
+    // Use live engine thresholds through a thin Core stub
+    const Core = require(path.join(__dirname, '..', 'src', 'engine', 'loop.js'));
+    globalThis.Engine = globalThis.Engine || {};
+    globalThis.Engine.System = DeviceDetection;
+    const engine = new Core({});
+    const t = engine.getFrameBudgetThresholds();
+    assert.equal(t.heavyVignetteScale, 0.33);
+    assert.equal(t.mediumVignetteScale, 0.4);
 });
 
 test('heavy tier actually lowers vignetteScale', () => {
@@ -170,6 +182,36 @@ test('heavy tier actually lowers vignetteScale', () => {
     assert.equal(Game.renderQuality.vignetteScale, 0.33);
     assert.equal(Game.renderQuality.gearRingPoints, 24);
     assert.equal(Game.renderQuality.remoteFullRender, false);
+    assert.equal(Game.renderQuality.maxSceneryLights, 112);
+});
+
+test('gecko medium and heavy share scenery light counts', () => {
+    // Avoid machine cutout flicker when the governor thrashs on the budget line.
+    const rqPath = path.join(__dirname, '..', 'src', 'game', 'presentation', 'render-quality.js');
+    const code = fs.readFileSync(rqPath, 'utf8');
+    const vm = require('node:vm');
+    const sandbox = {
+        window: { engine: { isGeckoFamilyEngine: () => true } },
+        globalThis: {},
+        Engine: {
+            Render: {
+                QualityTier: { HIGH: 0, MEDIUM: 1, LOW: 2 },
+                Quality: { preset() { return {}; } }
+            }
+        }
+    };
+    sandbox.globalThis = sandbox;
+    vm.createContext(sandbox);
+    vm.runInContext(code, sandbox);
+    const RQ = sandbox.GameRenderQuality;
+    const game = { isGeckoFamilyEngine: () => true };
+    const medium = RQ.getRenderQualityForTier(1, game);
+    const heavy = RQ.getRenderQualityForTier(2, game);
+    const high = RQ.getRenderQualityForTier(0, game);
+    assert.equal(medium.maxSceneryLights, heavy.maxSceneryLights);
+    assert.equal(medium.maxSceneryLights, 112);
+    assert.equal(high.maxSceneryLights, 128);
+    assert.ok(medium.vignetteScale > heavy.vignetteScale);
 });
 
 test('gecko enters medium sooner than blink thresholds', () => {

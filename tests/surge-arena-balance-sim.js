@@ -187,6 +187,10 @@ function estimateWarriorBossDps(player, runtime, options, bossHp) {
     };
 }
 
+function emptyTierCounts() {
+    return { gray: 0, green: 0, blue: 0, purple: 0, orange: 0, total: 0 };
+}
+
 function simulateRun(runtime, options, rng) {
     const player = createSimPlayer(runtime);
     player.totalXpEarned = 0;
@@ -207,9 +211,19 @@ function simulateRun(runtime, options, rng) {
     syncSimPlayerCombatStats(player);
 
     const wavesData = [];
+    const groundDropTiers = emptyTierCounts();
+    const groundDropByBand = {
+        '1-10': emptyTierCounts(),
+        '11-20': emptyTierCounts(),
+        '21-30': emptyTierCounts(),
+        '31-40': emptyTierCounts()
+    };
 
     for (let wave = 1; wave <= options.waves; wave++) {
-        runtime.ctx.Game.gameMode = 'surge-arena';
+        // Live Surge Arena: contentGameMode is 'gear'; session id gates arena loot curves.
+        runtime.ctx.Game.gameMode = 'gear';
+        runtime.ctx.Game.activeSessionId = 'surge-arena';
+        runtime.ctx.Game.modeId = 'surge-arena';
         runtime.ctx.Game.waveNumber = wave;
         runtime.ctx.Game.roomNumber = wave; // Sync for scaling selectors
         runtime.ctx.Game.itemsDroppedThisRoom = 0;
@@ -223,11 +237,12 @@ function simulateRun(runtime, options, rng) {
         const queue = buildSpawnQueue(plan.spawnBudget, plan.allowedEnemyTiers, rng);
 
         let comboCount = 0;
+        const waveDropTiers = emptyTierCounts();
 
         // Simulate Combat Phase
         for (const tier of queue) {
             const config = runtime.enemyConfigs[tier];
-            const scaled = runtime.scaleEnemyStats(config, wave);
+            const scaled = runtime.scaleEnemyStats(config, wave, { gameMode: 'surge-arena' });
 
             // Add XP
             applyXp(player, scaled.xpValue, runtime.playerProgression);
@@ -254,6 +269,22 @@ function simulateRun(runtime, options, rng) {
                 const gearDifficulty = runtime.enemyGearDifficulty[tier] || 'basic';
                 const gear = runtime.rollGear(wave, gearDifficulty, rng);
                 if (gear) {
+                    const dropTier = gear.tier || 'gray';
+                    groundDropTiers[dropTier] = (groundDropTiers[dropTier] || 0) + 1;
+                    groundDropTiers.total += 1;
+                    waveDropTiers[dropTier] = (waveDropTiers[dropTier] || 0) + 1;
+                    waveDropTiers.total += 1;
+
+                    let bandKey = null;
+                    if (wave <= 10) bandKey = '1-10';
+                    else if (wave <= 20) bandKey = '11-20';
+                    else if (wave <= 30) bandKey = '21-30';
+                    else if (wave <= 40) bandKey = '31-40';
+                    if (bandKey && groundDropByBand[bandKey]) {
+                        groundDropByBand[bandKey][dropTier] = (groundDropByBand[bandKey][dropTier] || 0) + 1;
+                        groundDropByBand[bandKey].total += 1;
+                    }
+
                     // Equip if better primary stats
                     if (!player.loadout.weapon || (gear.slot === 'weapon' && (gear.stats.damage || 0) > (player.loadout.weapon.stats.damage || 0))) {
                         player.loadout.weapon = gear;
@@ -321,7 +352,7 @@ function simulateRun(runtime, options, rng) {
 
         // Get basic enemy stats for this wave
         const basicConfig = runtime.enemyConfigs.basic;
-        const basicScaled = runtime.scaleEnemyStats(basicConfig, wave);
+        const basicScaled = runtime.scaleEnemyStats(basicConfig, wave, { gameMode: 'surge-arena' });
 
         // Analyze Boss Battle metrics if it is a Surge/Hard Wave
         const hardWave = wave === 8 || (wave >= 15 && wave % 5 === 0);
@@ -360,11 +391,12 @@ function simulateRun(runtime, options, rng) {
             basicDamage: basicScaled.damage,
             bossHp,
             bossDamage,
-            bossTtk
+            bossTtk,
+            groundDrops: waveDropTiers
         });
     }
 
-    return wavesData;
+    return { waves: wavesData, groundDropTiers, groundDropByBand };
 }
 
 function main() {
@@ -391,7 +423,10 @@ Options:
         originalLog(...args);
     };
 
-    const runtime = createBalanceRuntime({ gameMode: 'surge-arena' });
+    // contentGameMode is gear; activeSessionId is set per-wave in simulateRun
+    const runtime = createBalanceRuntime({ gameMode: 'gear' });
+    runtime.ctx.Game.activeSessionId = 'surge-arena';
+    runtime.ctx.Game.modeId = 'surge-arena';
 
     // Load game bus and rules into context
     const ROOT = path.resolve(__dirname, '..');
@@ -420,16 +455,16 @@ Options:
     );
 
     const tierAbbr = { gray: 'Gry', green: 'Grn', blue: 'Blu', purple: 'Pur', orange: 'Org' };
+    const tierKeys = ['gray', 'green', 'blue', 'purple', 'orange'];
 
     for (let wIdx = 0; wIdx < options.waves; wIdx++) {
         const wave = wIdx + 1;
-        const runsAtWave = allRuns.map(run => run[wIdx]);
+        const runsAtWave = allRuns.map(run => run.waves[wIdx]);
 
         const level = summarize(runsAtWave.map(r => r.playerLevel)).median;
         const dps = summarize(runsAtWave.map(r => r.playerDps)).median;
         const items = summarize(runsAtWave.map(r => r.itemStacks)).median;
         const credits = summarize(runsAtWave.map(r => r.credits)).median;
-        const weaponDmg = summarize(runsAtWave.map(r => r.weaponDamage)).median;
         const weaponLvl = summarize(runsAtWave.map(r => r.weaponLevel)).median;
 
         // Weapon tier (most common)
@@ -469,6 +504,39 @@ Options:
             `${bossDmgStr.padEnd(8)} | ` +
             `${bossTtkStr}`
         );
+    }
+    console.log('');
+
+    function formatTierShare(counts) {
+        const total = counts.total || 0;
+        if (!total) return 'no drops';
+        return tierKeys
+            .map(k => `${tierAbbr[k]} ${((counts[k] || 0) / total * 100).toFixed(1)}%`)
+            .join('  ');
+    }
+
+    const mergedBands = {
+        '1-10': emptyTierCounts(),
+        '11-20': emptyTierCounts(),
+        '21-30': emptyTierCounts(),
+        '31-40': emptyTierCounts()
+    };
+    const mergedAll = emptyTierCounts();
+    for (const run of allRuns) {
+        for (const band of Object.keys(mergedBands)) {
+            const src = run.groundDropByBand[band] || emptyTierCounts();
+            for (const k of tierKeys) mergedBands[band][k] += src[k] || 0;
+            mergedBands[band].total += src.total || 0;
+        }
+        for (const k of tierKeys) mergedAll[k] += run.groundDropTiers[k] || 0;
+        mergedAll.total += run.groundDropTiers.total || 0;
+    }
+
+    console.log('=== Ground Drop Tier Histogram (excludes safe-room upgrades) ===');
+    console.log(`All waves: n=${mergedAll.total}  ${formatTierShare(mergedAll)}`);
+    for (const band of Object.keys(mergedBands)) {
+        const c = mergedBands[band];
+        console.log(`W${band.padEnd(6)} n=${String(c.total).padEnd(6)}  ${formatTierShare(c)}`);
     }
     console.log('');
 }

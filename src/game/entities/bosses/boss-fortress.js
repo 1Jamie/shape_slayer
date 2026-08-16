@@ -200,6 +200,7 @@ class BossFortress extends BossBase {
             this.activeKnockbackPulse = null;
         }
         this.keepInBounds();
+        this.updateCombatFacing(deltaTime, player);
     }
 
     updatePhaseController(deltaTime, player) {
@@ -1238,6 +1239,7 @@ class BossFortress extends BossBase {
         this.renderShieldState(ctx);
         this.renderWeakPoints(ctx);
         this.renderHazards(ctx);
+        this.renderFacingIndicator(ctx, Math.max(this.width || this.size, this.height || this.size) * 0.55);
         this.renderHealthBar(ctx);
 
         // Draw status effect indicators

@@ -145,6 +145,17 @@
         return (payload && payload.world) || root.Game || null;
     }
 
+    function isNetworkClient(world) {
+        const w = world || root.Game;
+        if (w && typeof w.isMultiplayerClient === 'function') {
+            return !!w.isMultiplayerClient();
+        }
+        return !!(w && w.multiplayerEnabled
+            && typeof multiplayerManager !== 'undefined'
+            && multiplayerManager
+            && !multiplayerManager.isHost);
+    }
+
     function getTotalPlayerXP(world) {
         const w = world || root.Game;
         if (!w) return 0;
@@ -466,7 +477,12 @@
             comboTimer: pc.comboTimer,
             recoveryWindow: pc.recoveryWindow,
             varietyStreak: pc.varietyStreak,
-            highestCombo: pc.highestCombo
+            highestCombo: pc.highestCombo,
+            decayHold: pc.decayHold || 0,
+            recoveryLost: pc.recoveryLost || 0,
+            apexHoldTimer: pc.apexHoldTimer || 0,
+            lastStyleTag: pc.lastStyleTag || null,
+            lastVarietyTags: Array.isArray(pc.lastVarietyTags) ? pc.lastVarietyTags.slice() : []
         };
 
         if (pc.comboCount > (pc.highestCombo || 0)) {
@@ -1195,6 +1211,9 @@
             return bus.subscribe({
                 'combat:enemyKilled': (payload) => {
                     if (!payload || !payload.enemy) return;
+                    const world = resolveWorld(payload);
+                    // Remotes mirror combo via game_state; do not credit kills locally.
+                    if (isNetworkClient(world)) return;
                     if (payload.isBoss) {
                         if (typeof GameKillRewards !== 'undefined' && GameKillRewards.grantBossKill) {
                             GameKillRewards.grantBossKill(payload);
@@ -1202,7 +1221,6 @@
                     } else if (typeof GameKillRewards !== 'undefined' && GameKillRewards.grantStandardKill) {
                         GameKillRewards.grantStandardKill(payload);
                     }
-                    const world = resolveWorld(payload);
                     
                     const creditedPlayerIds = new Set();
                     const killerId = payload.killerId || payload.attackerId || (payload.projectile && payload.projectile.attackerId) || (world && world.getLocalPlayerId ? world.getLocalPlayerId() : 'local');
@@ -1227,6 +1245,7 @@
                 'combat:enemyDamaged': (payload) => {
                     if (!payload || !payload.enemy) return;
                     const world = resolveWorld(payload);
+                    if (isNetworkClient(world)) return;
                     const attackerId = payload.killerId || payload.attackerId || (payload.projectile && payload.projectile.attackerId) || (world && world.getLocalPlayerId ? world.getLocalPlayerId() : 'local');
                     const pc = getOrCreatePlayerCombo(world, attackerId);
                     pc.onEnemyDamaged(payload, world);
@@ -1234,6 +1253,7 @@
                 'combat:bossThresholdReached': (payload) => {
                     if (!payload || !payload.enemy) return;
                     const world = resolveWorld(payload);
+                    if (isNetworkClient(world)) return;
                     const attackerId = payload.killerId || payload.attackerId || (payload.projectile && payload.projectile.attackerId) || (world && world.getLocalPlayerId ? world.getLocalPlayerId() : 'local');
                     const pc = getOrCreatePlayerCombo(world, attackerId);
                     pc.onBossThreshold(world, payload);
@@ -1242,6 +1262,8 @@
                     if (!payload || payload.physical === false) return;
                     if (payload.physical !== true && payload.physical !== undefined) return;
                     const world = resolveWorld(payload);
+                    // Host owns bleed/crash; clients would desync the meter between snapshots.
+                    if (isNetworkClient(world)) return;
                     const playerId = payload.playerId || (payload.player && (payload.player.id || payload.player.playerId)) || (world && world.getLocalPlayerId ? world.getLocalPlayerId() : 'local');
                     const pc = getOrCreatePlayerCombo(world, playerId);
                     pc.onPhysicalDamage(world);
@@ -1295,6 +1317,7 @@
                     }
                 },
                 'combat:playerDied': () => {
+                    if (isNetworkClient(root.Game)) return;
                     const localId = root.Game && root.Game.getLocalPlayerId ? root.Game.getLocalPlayerId() : 'local';
                     const pc = getOrCreatePlayerCombo(root.Game, localId);
                     pc.reset();
@@ -1321,6 +1344,7 @@
         /** Called from player dodge when overlapping an enemy during recovery. */
         notifyDashThrough(world) {
             const w = world || root.Game;
+            if (isNetworkClient(w)) return;
             const localId = w && w.getLocalPlayerId ? w.getLocalPlayerId() : 'local';
             const pc = getOrCreatePlayerCombo(w, localId);
             pc.onDashThrough(w);
@@ -1330,12 +1354,19 @@
             const world = root.Game;
             if (!world || world.state !== 'PLAYING') return;
 
-            _tickDt = dt;
-            _tickWorld = world;
-            playerCombos.forEach(tickSinglePlayerCombo);
-            _tickWorld = null;
+            const networkClient = isNetworkClient(world);
+            // Clients mirror host combo state; local decay/bleed fights the 1Hz sync.
+            if (!networkClient) {
+                _tickDt = dt;
+                _tickWorld = world;
+                playerCombos.forEach(tickSinglePlayerCombo);
+                _tickWorld = null;
+            }
             updateStyleCrashPickups(dt, world);
             updateStyleHealOrbs(dt, world);
+
+            // Clients do not own combo recovery, dash-through, or wave directing.
+            if (networkClient) return;
 
             const localId = world.getLocalPlayerId ? world.getLocalPlayerId() : 'local';
             const pc = getOrCreatePlayerCombo(world, localId);
@@ -1382,9 +1413,6 @@
 
             if (world.arenaPhase !== 'combat') return;
             if (world.arenaWavePhase === 'boss') return;
-
-            const isClient = world.multiplayerEnabled && typeof multiplayerManager !== 'undefined' && multiplayerManager && !multiplayerManager.isHost;
-            if (isClient) return; // Clients do not run wave spawning/directing authority!
 
             if (typeof WaveDirector === 'undefined' || !WaveDirector.update) return;
 

@@ -19,7 +19,8 @@ function hostBroadcastDamageNumber(x, y, damage, options = {}) {
         y,
         damage,
         isCrit: !!options.isCrit,
-        isWeakPoint: !!options.isWeakPoint
+        isWeakPoint: !!options.isWeakPoint,
+        isBackstab: !!options.isBackstab
     });
 }
 
@@ -1011,6 +1012,11 @@ function processMeleeHitOnEnemy(player, enemies, hitbox, enemy, playerId, bodyHi
                         window.trackLifetimeStat('totalBackstabDamage', backstabExtraDamage);
                     }
                 }
+
+                // Rogue: bleed stacks boost damage (+2% per stack)
+                if (player.playerClass === 'triangle' && typeof getRogueBleedStackDamageMultiplier === 'function') {
+                    finalDamage *= getRogueBleedStackDamageMultiplier(enemy);
+                }
                 
                 // Legacy execute bonus
                 if (player.executeBonus && player.executeBonus > 0) {
@@ -1327,13 +1333,14 @@ function processMeleeHitOnEnemy(player, enemies, hitbox, enemy, playerId, bodyHi
                         damageX = enemy.x + enemy.weakPoints[0].offsetX;
                         damageY = enemy.y + enemy.weakPoints[0].offsetY;
                     }
-                    createDamageNumber(damageX, damageY, damageDealt, isCrit, hitWeakPoint);
+                    createDamageNumber(damageX, damageY, damageDealt, isCrit, hitWeakPoint, isBackstab);
                     
                     // In multiplayer, send damage number event to clients
                     hostBroadcastDamageNumber(damageX, damageY, damageDealt, {
                         enemyId: enemy.id,
                         isCrit,
-                        isWeakPoint: hitWeakPoint
+                        isWeakPoint: hitWeakPoint,
+                        isBackstab
                     });
                 }
                 
@@ -1468,12 +1475,14 @@ function checkEnemiesVsPlayer(player, enemies) {
                     return; // Skip to next player
                 }
 
-                // Artillery Barrage proximity tracking
+                // Artillery Barrage proximity tracking (per-player)
                 if (typeof LedgerManager !== 'undefined' && LedgerManager.recordEvent) {
                     const pdx = enemy.x - p.x;
                     const pdy = enemy.y - p.y;
                     LedgerManager.recordEvent('enemyProximity', {
-                        dist: Math.sqrt(pdx * pdx + pdy * pdy)
+                        dist: Math.sqrt(pdx * pdx + pdy * pdy),
+                        player: p,
+                        playerId: id
                     });
                 }
                 

@@ -170,8 +170,17 @@
      * Attach machines / gate / pylon from GameArenaLayout anchors.
      * Layout collision already owned by the topology director.
      */
-    function attachArenaFixtures(room, anchors) {
+    /**
+     * @param {object} room
+     * @param {object} anchors
+     * @param {{ applyBarriers?: boolean }} [options]
+     *   applyBarriers (default true): stamp machine-bay gate into the layout.
+     *   Multiplayer clients must pass false — host serializes the already-stamped
+     *   grid, and re-creating a closed gate here desyncs walkability / prediction.
+     */
+    function attachArenaFixtures(room, anchors, options) {
         if (!room || !room.layout || !anchors) return room;
+        const applyBarriers = !options || options.applyBarriers !== false;
         const bay = anchors.machineBay;
         const pylon = anchors.pylon;
         const spawn = anchors.spawnLip;
@@ -196,30 +205,39 @@
                     range: 60
                 }
             ];
-            room.machinesAccessible = false;
+            // Host/build path seals by default; synced clients keep prior/network flag.
+            if (applyBarriers || room.machinesAccessible == null) {
+                room.machinesAccessible = false;
+            }
             room.allowSafeRoomMachines = true;
             room.machineBay = { x: bay.x, y: bay.y, w: bay.w, h: bay.h };
-            if (typeof GameBarriers !== 'undefined' && GameBarriers.create) {
-                GameBarriers.create(room, {
-                    id: MACHINE_GATE_ID,
-                    x: bay.x - 16,
-                    y: bay.y + bay.h - 6,
-                    w: bay.w + 32,
-                    h: 52,
-                    closed: true,
-                    label: 'Machine Bay Gate'
-                });
+            if (applyBarriers && typeof GameBarriers !== 'undefined' && GameBarriers.create) {
+                const existingGate = (typeof GameBarriers.get === 'function')
+                    ? GameBarriers.get(room, MACHINE_GATE_ID)
+                    : null;
+                if (!existingGate) {
+                    GameBarriers.create(room, {
+                        id: MACHINE_GATE_ID,
+                        x: bay.x - 16,
+                        y: bay.y + bay.h - 6,
+                        w: bay.w + 32,
+                        h: 52,
+                        closed: true,
+                        label: 'Machine Bay Gate'
+                    });
+                }
             }
         }
 
         if (pylon) {
+            const prevActive = room.wavePylon ? !!room.wavePylon.active : false;
             room.wavePylon = {
                 x: pylon.x,
                 y: pylon.y,
                 range: 230,
                 padRadius: 195,
                 lootClearRadius: 230,
-                active: false,
+                active: applyBarriers ? false : prevActive,
                 label: 'Wave Trigger'
             };
             // Gore-clean pad sits to the right of the wave pylon.
@@ -231,13 +249,16 @@
                 label: 'Clear Viscera'
             };
             // Session spawn / revive is the wave pylon plaza (not the south lip).
-            room.layout.spawnZone = {
-                x: pylon.x,
-                y: pylon.y,
-                radius: Math.max(180, pylon.clearRadius || 200)
-            };
+            // Host layouts already carry the plaza spawnZone — don't overwrite on sync.
+            if (applyBarriers || !room.layout.spawnZone) {
+                room.layout.spawnZone = {
+                    x: pylon.x,
+                    y: pylon.y,
+                    radius: Math.max(180, pylon.clearRadius || 200)
+                };
+            }
             room.spawnZones = [room.layout.spawnZone];
-        } else if (spawn && room.layout.spawnZone) {
+        } else if (spawn && room.layout.spawnZone && applyBarriers) {
             room.layout.spawnZone.x = spawn.x;
             room.layout.spawnZone.y = spawn.y;
             room.layout.spawnZone.radius = spawn.radius || 200;
@@ -257,6 +278,7 @@
     function setMachinesAccessible(room, accessible) {
         if (!room) return;
         const wantOpen = !!accessible;
+        const wasOpen = !!room.machinesAccessible;
         room.machinesAccessible = wantOpen;
 
         // Sealing the gate while the player (or enemies) sit in the bay leaves them
@@ -270,6 +292,20 @@
             GameBarriers.setOpen(room, MACHINE_GATE_ID, wantOpen);
         }
         setMachineBayVolumeLocked(room, !wantOpen);
+
+        // Announce once when the bay first unlocks after a surge clear.
+        if (wantOpen && !wasOpen) {
+            announceMachinesOpen();
+        }
+    }
+
+    function announceMachinesOpen() {
+        if (typeof showMachinesOpenMessage === 'function') {
+            showMachinesOpenMessage();
+        } else if (typeof Game !== 'undefined') {
+            Game.machinesOpenMessageActive = true;
+            Game.machinesOpenMessageTime = 2.2;
+        }
     }
 
     /**
@@ -690,7 +726,20 @@
 
         if (w) w.enemies = [];
         beginWaveDirector(w, wave, opts);
+
+        if (isHardWave(wave)) {
+            announceBossSurge();
+        }
         return true;
+    }
+
+    function announceBossSurge() {
+        if (typeof showBossSurgeMessage === 'function') {
+            showBossSurgeMessage();
+        } else if (typeof Game !== 'undefined') {
+            Game.bossSurgeMessageActive = true;
+            Game.bossSurgeMessageTime = 2.4;
+        }
     }
 
     function spawnHardBossPhase(world, waveNum) {

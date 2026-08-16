@@ -188,6 +188,37 @@ test('Render host configures DPR, camera transforms, culling, and quality', () =
     ]);
 });
 
+test('StaticLayer source-rect draw supports viewport clips', () => {
+    const released = [];
+    const pool = {
+        acquire: (width, height) => createMockCanvas(width, height),
+        release: canvas => released.push(canvas)
+    };
+    const layers = new Render.StaticLayer({ canvasPool: pool });
+    layers.bake('room', {
+        width: 100,
+        height: 80,
+        dprCap: 1,
+        draw: (ctx) => {
+            ctx.fillRect(0, 0, 100, 80);
+        }
+    });
+    const target = createMockCanvas();
+    assert.equal(layers.draw(target.ctx, 'room', {
+        x: 10, y: 20, width: 40, height: 30,
+        sx: 5, sy: 6, sw: 40, sh: 30
+    }), true);
+    const call = target.ctx.calls.find(c => c[0] === 'drawImage');
+    assert.ok(call);
+    assert.equal(call.length, 10); // drawImage(img, sx,sy,sw,sh, dx,dy,dw,dh)
+    assert.equal(call[2], 5);
+    assert.equal(call[3], 6);
+    assert.equal(call[4], 40);
+    assert.equal(call[5], 30);
+    assert.equal(call[6], 10);
+    assert.equal(call[7], 20);
+});
+
 test('StaticLayer bakes, draws, and releases pooled canvases', () => {
     const released = [];
     const pool = {

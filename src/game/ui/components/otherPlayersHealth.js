@@ -227,7 +227,7 @@
 				hpBarFill.style.background = 'linear-gradient(to bottom, #ff6666, #cc0000)';
 			}
 
-			hpText.textContent = `${Math.floor(hp)}/${Math.floor(maxHp)}`;
+			hpText.textContent = `${Math.floor(rawHp)}/${Math.floor(maxHp)}`;
 		}
 
 		// Update Scratch bar for remote player

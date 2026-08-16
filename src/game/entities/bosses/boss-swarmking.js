@@ -179,10 +179,8 @@ class BossSwarmKing extends BossBase {
         this.updatePheromoneMinions(deltaTime);
         this.damagePlayersAlongPheromoneTrails(deltaTime);
 
-        // Update rotation
+        // Visual spin only — combat facing (this.rotation) stays for backstab
         this.rotationAngle += this.rotationSpeed * deltaTime;
-        this.rotation = this.rotationAngle;
-        this.targetRotation = this.rotationAngle;
 
         // Phase-based behavior
         if (this.phase === 1) {
@@ -199,6 +197,7 @@ class BossSwarmKing extends BossBase {
         // Update minions list (remove dead ones)
         this.minions = this.minions.filter(m => m && m.alive);
 
+        this.updateCombatFacing(deltaTime, player);
         this.visualRotationAngle = this.rotationAngle;
     }
 
@@ -1842,6 +1841,9 @@ class BossSwarmKing extends BossBase {
         // Render hazards
         this.renderHazards(ctx);
 
+        // Combat facing pip (independent of visual spin)
+        this.renderFacingIndicator(ctx, this.size + ((this.spikeExtension || 0) * (this.maxSpikeExtension || 0)));
+
         // Render health bar
         this.renderHealthBar(ctx);
 
@@ -1906,8 +1908,6 @@ class BossSwarmKing extends BossBase {
             this.serverRotationAngle = state.rotationAngle;
             if (!isClient || !this.clientSpin) {
                 this.rotationAngle = state.rotationAngle;
-                this.rotation = state.rotationAngle;
-                this.targetRotation = state.rotationAngle;
                 this.visualRotationAngle = state.rotationAngle;
             }
         }
@@ -1972,7 +1972,7 @@ class BossSwarmKing extends BossBase {
             const desiredSpin = this.shouldClientSpin(this.phase, this.state);
             if (desiredSpin) {
                 if (!this.clientSpin || this.clientSpin.state !== this.state || this.clientSpin.phase !== this.phase) {
-                    const baseAngle = this.serverRotationAngle !== undefined ? this.serverRotationAngle : this.rotation;
+                    const baseAngle = this.serverRotationAngle !== undefined ? this.serverRotationAngle : this.rotationAngle;
                     this.clientSpin = {
                         state: this.state,
                         phase: this.phase,
@@ -2015,10 +2015,10 @@ class BossSwarmKing extends BossBase {
                     this.visualRotationAngle = this.serverRotationAngle !== undefined ? this.serverRotationAngle : this.rotation;
                 }
             } else {
-                this.visualRotationAngle = this.serverRotationAngle !== undefined ? this.serverRotationAngle : this.rotation;
+                this.visualRotationAngle = this.serverRotationAngle !== undefined ? this.serverRotationAngle : this.rotationAngle;
             }
         } else {
-            this.visualRotationAngle = this.rotation;
+            this.visualRotationAngle = this.rotationAngle;
         }
     }
 

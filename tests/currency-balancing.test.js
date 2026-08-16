@@ -117,13 +117,12 @@ test('Combat credit scaling with ARENA_CREDIT_SCALE and Style Engine', (t) => {
     globalThis.GameKillRewards.awardDeathCredits(mockEnemy, mockWorldGear);
     assert.equal(savedCurrency.pop(), 1);
 
-    // 2. Arena Mode D-Rank kill (0.35 * 1.0) -> Math.floor(1 * 1.0 * 0.35) = 0 (or 0.35 floor)
-    // For 3-credit mob (RectangleEnemy) in Arena D-Rank: Math.floor(3 * 1.0 * 0.35) = 1
+    // 2. Arena Mode D-Rank kill (0.421875 * 1.0): Math.floor(3 * 1.0 * 0.421875) = 1
     const mockRec = { constructor: { name: 'RectangleEnemy' } }; // 3 base credits
     globalThis.GameKillRewards.awardDeathCredits(mockRec, mockWorldArena);
     assert.equal(savedCurrency.pop(), 1);
 
-    // 3. Arena Mode S-Rank kill (3.0x combo): Math.floor(3 * 3.0 * 0.35) = Math.floor(3.15) = 3 credits
+    // 3. Arena Mode S-Rank kill (3.0x combo): Math.floor(3 * 3.0 * 0.421875) = Math.floor(3.796875) = 3
     globalThis.GameKillRewards.awardDeathCredits(mockRec, mockWorldArenaS);
     assert.equal(savedCurrency.pop(), 3);
 });

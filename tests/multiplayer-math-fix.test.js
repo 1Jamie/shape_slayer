@@ -98,3 +98,67 @@ test('applyState on host/solo triggers applyLevelUpBonuses when level increases'
     assert.ok(Math.abs(player.baseDamage - 10.9) < 1e-5, `Expected 10.9 damage, got ${player.baseDamage}`);
     assert.equal(player.lastLevelBonusesApplied, 2);
 });
+
+test('applyState skipLevelUp restores level without heal or stat re-scaling', () => {
+    const { PlayerBase, sandbox } = loadPlayerBase();
+    sandbox.Game = {
+        multiplayerEnabled: true,
+        getLocalPlayerId: () => 'local',
+        isMultiplayerClient: () => false
+    };
+    sandbox.multiplayerManager = { isHost: true };
+
+    const player = new PlayerBase(0, 0);
+    player.playerClass = 'square';
+    player.baseDamage = 10;
+    player.baseMaxHp = 100;
+    player.maxHp = 100;
+    player.hp = 40;
+    player.level = 1;
+    player.lastLevelBonusesApplied = 1;
+
+    player.applyState({
+        level: 5,
+        lastLevelBonusesApplied: 5,
+        hp: 40,
+        maxHp: 100,
+        baseDamage: 10,
+        baseMaxHp: 100
+    }, { skipLevelUp: true });
+
+    assert.equal(player.level, 5);
+    assert.equal(player.lastLevelBonusesApplied, 5);
+    assert.equal(player.hp, 40);
+    assert.equal(player.baseDamage, 10);
+});
+
+test('applyState with lastLevelBonusesApplied already caught up skips level-up heal', () => {
+    const { PlayerBase, sandbox } = loadPlayerBase();
+    sandbox.Game = {
+        multiplayerEnabled: true,
+        getLocalPlayerId: () => 'host',
+        isMultiplayerClient: () => true
+    };
+    sandbox.multiplayerManager = { isHost: false };
+
+    const player = new PlayerBase(0, 0);
+    player.playerClass = 'square';
+    player.playerId = 'client';
+    player.baseDamage = 10;
+    player.baseMaxHp = 100;
+    player.maxHp = 100;
+    player.hp = 40;
+    player.level = 1;
+    player.lastLevelBonusesApplied = 1;
+
+    player.applyState({
+        level: 4,
+        lastLevelBonusesApplied: 4,
+        hp: 40,
+        maxHp: 157
+    });
+
+    assert.equal(player.level, 4);
+    assert.equal(player.lastLevelBonusesApplied, 4);
+    assert.equal(player.hp, 40);
+});

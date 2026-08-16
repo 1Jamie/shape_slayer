@@ -623,7 +623,12 @@ function getRoomStaticCacheScale(room) {
     const roomHeight = Math.max(1, room && room.height ? room.height : 1350);
     const dpr = (typeof Game !== 'undefined' && Game && Game.dpr) ? Game.dpr : (typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1);
     const pixelCapScale = Math.sqrt(ROOM_STATIC_CACHE_MAX_PIXELS / Math.max(1, roomWidth * roomHeight));
-    return Math.max(0.25, Math.min(dpr, ROOM_STATIC_CACHE_MAX_DPR, pixelCapScale));
+    let scale = Math.max(0.25, Math.min(dpr, ROOM_STATIC_CACHE_MAX_DPR, pixelCapScale));
+    // Gecko pays heavily for large drawImage uploads; keep baked static nearer 1x.
+    if (typeof Game !== 'undefined' && Game && typeof Game.isGeckoFamilyEngine === 'function' && Game.isGeckoFamilyEngine()) {
+        scale = Math.min(scale, 1);
+    }
+    return scale;
 }
 
 function releaseRoomRenderCaches(room) {
@@ -724,7 +729,7 @@ function computeSwarmHiveClusters(layout) {
 function prepareRoomRenderData(room, roomNumber) {
     if (!room || !room.layout) return;
     const layout = room.layout;
-    const generatedKey = `${layout.hash || room.layoutHash || 'no-hash'}:${layout.biomeId || room.biomeId || 'unknown'}`;
+    const generatedKey = `${layout.hash || room.layoutHash || 'no-hash'}:${layout.biomeId || room.biomeId || 'unknown'}:lights-cluster-v1`;
     if (layout.renderDataKey === generatedKey) return;
 
     layout.cachedBlockedRuns = computeBlockedRuns(layout);
@@ -755,22 +760,29 @@ function prepareRoomRenderData(room, roomNumber) {
     layout.cachedSwarmHiveClusters = layout.biomeId === 'swarm' ? computeSwarmHiveClusters(layout) : [];
 
     const lightRadius = Math.max(80, layout.cellSize * 1.35);
-    const emitters = layout.cachedBlockedRuns.map(run => ({
+    const rawEmitters = layout.cachedBlockedRuns.map((run, index) => ({
+        id: `scenery:${index}:${run.centerX | 0}:${run.centerY | 0}`,
         x: run.centerX,
         y: run.centerY,
         radius: lightRadius + Math.min(140, run.length * layout.cellSize * 0.25),
         type: 'scenery'
     }));
     const fixtures = Array.isArray(layout.cachedLightFixtures) ? layout.cachedLightFixtures : [];
-    fixtures.forEach(fixture => {
+    fixtures.forEach((fixture, index) => {
         if (!fixture || !fixture.glow) return;
-        emitters.push({
+        rawEmitters.push({
+            id: `fixture:${index}:${fixture.x | 0}:${fixture.y | 0}`,
             x: fixture.x,
             y: fixture.y,
             radius: Math.max(110, (fixture.size || layout.cellSize * 0.35) * 5.2),
             type: 'fixture'
         });
     });
+
+    const emitters = (typeof GameRenderQuality !== 'undefined'
+        && typeof GameRenderQuality.clusterSceneryLightEmitters === 'function')
+        ? GameRenderQuality.clusterSceneryLightEmitters(rawEmitters, { cellSize: layout.cellSize || 60 })
+        : rawEmitters;
 
     layout.cachedSceneryLightEmitters = emitters;
     room.sceneryLightEmitters = emitters;
@@ -829,7 +841,57 @@ function renderCachedRoomStaticLayer(ctx, roomNumber) {
     if (typeof DebugFlags !== 'undefined' && DebugFlags.USE_CACHING === false) return false;
     const cache = prepareRoomRenderCaches(currentRoom, roomNumber);
     if (!cache || !cache.staticLayer) return false;
-    return !!cache.staticLayer.draw(ctx, cache.key);
+
+    const layer = cache.staticLayer.layers && cache.staticLayer.layers.get(cache.key);
+    if (!layer || !layer.canvas) {
+        return !!cache.staticLayer.draw(ctx, cache.key);
+    }
+
+    // Blit only the camera view (plus margin). Full-room drawImage of a ~1080p bake
+    // dominates Gecko frame time even though most pixels are off-screen.
+    const game = (typeof Game !== 'undefined') ? Game : null;
+    const camera = (game && (game._activeRenderCamera || game.camera)) || null;
+    const viewport = (game && game._activeRenderViewport) || null;
+    if (!camera || !game) {
+        return !!cache.staticLayer.draw(ctx, cache.key);
+    }
+
+    const zoom = (typeof game.getViewZoom === 'function') ? game.getViewZoom() : 1;
+    const viewW = viewport ? viewport.w : ((game.config && game.config.width) || 1280);
+    const viewH = viewport ? viewport.h : ((game.config && game.config.height) || 720);
+    const margin = 96;
+    const halfW = (viewW * 0.5) / Math.max(0.001, zoom);
+    const halfH = (viewH * 0.5) / Math.max(0.001, zoom);
+    const shakeX = (game.screenShakeOffset && game.screenShakeOffset.x) || 0;
+    const shakeY = (game.screenShakeOffset && game.screenShakeOffset.y) || 0;
+
+    let left = camera.x - halfW - margin - Math.abs(shakeX) / Math.max(0.001, zoom);
+    let top = camera.y - halfH - margin - Math.abs(shakeY) / Math.max(0.001, zoom);
+    let right = camera.x + halfW + margin + Math.abs(shakeX) / Math.max(0.001, zoom);
+    let bottom = camera.y + halfH + margin + Math.abs(shakeY) / Math.max(0.001, zoom);
+
+    left = Math.max(0, left);
+    top = Math.max(0, top);
+    right = Math.min(layer.logicalW, right);
+    bottom = Math.min(layer.logicalH, bottom);
+    const destW = right - left;
+    const destH = bottom - top;
+    if (destW <= 1 || destH <= 1) return true;
+
+    const dpr = layer.dpr || 1;
+    const sx = Math.max(0, Math.floor(left * dpr));
+    const sy = Math.max(0, Math.floor(top * dpr));
+    const sw = Math.max(1, Math.min(layer.canvas.width - sx, Math.ceil(destW * dpr)));
+    const sh = Math.max(1, Math.min(layer.canvas.height - sy, Math.ceil(destH * dpr)));
+
+    ctx.imageSmoothingEnabled = true;
+    return !!cache.staticLayer.draw(ctx, cache.key, {
+        x: left,
+        y: top,
+        width: destW,
+        height: destH,
+        sx, sy, sw, sh
+    });
 }
 
 // Render room background with biome styling (should be called inside camera transform)
@@ -2517,7 +2579,37 @@ function renderRoomObstacles(ctx, roomNumber, options = {}) {
     const strokeAlpha = occlude ? 0.95 : 0.82;
     const shadowBlur = occlude ? 0 : 9;
 
+    // Occlude only needs on-screen silhouettes (gore canvas stays fully stored).
+    // Skipping off-camera obstacle redraw is look-identical and saves a lot on FF.
+    let viewLeft = -Infinity;
+    let viewTop = -Infinity;
+    let viewRight = Infinity;
+    let viewBottom = Infinity;
+    if (occlude && typeof Game !== 'undefined' && Game) {
+        const cam = Game._activeRenderCamera || Game.camera;
+        if (cam) {
+            const zoom = (typeof Game.getViewZoom === 'function') ? Game.getViewZoom() : 1;
+            const vp = Game._activeRenderViewport;
+            const vw = vp ? vp.w : ((Game.config && Game.config.width) || 1280);
+            const vh = vp ? vp.h : ((Game.config && Game.config.height) || 720);
+            const margin = 96;
+            const halfW = (vw * 0.5) / Math.max(0.001, zoom) + margin;
+            const halfH = (vh * 0.5) / Math.max(0.001, zoom) + margin;
+            viewLeft = cam.x - halfW;
+            viewRight = cam.x + halfW;
+            viewTop = cam.y - halfH;
+            viewBottom = cam.y + halfH;
+        }
+    }
+    const rectInView = (x, y, w, h) => (
+        x + w >= viewLeft && x <= viewRight && y + h >= viewTop && y <= viewBottom
+    );
+    const pointInView = (x, y, rad) => (
+        x + rad >= viewLeft && x - rad <= viewRight && y + rad >= viewTop && y - rad <= viewBottom
+    );
+
     const drawSolidBlock = (x, y, width, height, layout, row, startCol, runLength) => {
+        if (occlude && !rectInView(x, y, width, height)) return;
         const borderInset = 4;
         ctx.fillStyle = `rgba(${Math.floor(r * (occlude ? 0.42 : 0.28))}, ${Math.floor(g * (occlude ? 0.42 : 0.28))}, ${Math.floor(b * (occlude ? 0.42 : 0.28))}, ${occlude ? 0.94 : 0.78})`;
         ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${occlude ? 1 : 0.98})`;
@@ -2596,6 +2688,7 @@ function renderRoomObstacles(ctx, roomNumber, options = {}) {
         const cellSize = layout.cellSize;
         const centerX = col * cellSize + cellSize / 2;
         const centerY = row * cellSize + cellSize / 2;
+        if (occlude && !pointInView(centerX, centerY, cellSize)) return;
         const radius = cellSize * 0.48;
         ctx.fillStyle = `rgba(${Math.floor(r * fillMul)}, ${Math.floor(g * fillMul)}, ${Math.floor(b * (fillMul + 0.06))}, ${fillAlpha})`;
         ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${strokeAlpha})`;
@@ -2677,6 +2770,22 @@ function renderRoomObstacles(ctx, roomNumber, options = {}) {
                 y: cell.row * layout.cellSize + layout.cellSize / 2
             };
         });
+        if (occlude && cells.length) {
+            let minX = cells[0].x;
+            let maxX = cells[0].x;
+            let minY = cells[0].y;
+            let maxY = cells[0].y;
+            for (let i = 1; i < cells.length; i++) {
+                const cell = cells[i];
+                if (cell.x < minX) minX = cell.x;
+                if (cell.x > maxX) maxX = cell.x;
+                if (cell.y < minY) minY = cell.y;
+                if (cell.y > maxY) maxY = cell.y;
+            }
+            if (!rectInView(minX - radius, minY - radius, (maxX - minX) + radius * 2, (maxY - minY) + radius * 2)) {
+                return;
+            }
+        }
 
         if (!occlude) {
             const padRadius = radius * 0.98;
@@ -2759,7 +2868,8 @@ function renderRoomObstacles(ctx, roomNumber, options = {}) {
             prepareRoomRenderData(currentRoom, roomNumber);
         }
         ctx.shadowColor = biome.accentColor;
-        ctx.shadowBlur = 8;
+        // Occlude must never inherit a non-zero blur — Gecko taxes soft shadows hard.
+        ctx.shadowBlur = occlude ? 0 : 8;
         ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.16)`;
         ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.55)`;
         ctx.lineWidth = 1.5;

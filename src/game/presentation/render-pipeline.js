@@ -40,12 +40,24 @@
         resetDprBaseline(ctx, frame.dpr || 1);
     }
 
-    function withWorldContext(frame, ctx, drawFn) {
-        enterWorldContext(frame, ctx);
+    let _worldCtxHeld = false;
+
+    function withWorldContext(frame, ctx, drawFn, options) {
+        // Hold camera across consecutive world stages so FF/Chrome don't pay
+        // enter/leave (setTransform + state reset) per stage. Look-identical.
+        const hold = !!(options && options.hold);
+        const resume = !!(options && options.resume);
+        if (!resume || !_worldCtxHeld) {
+            enterWorldContext(frame, ctx);
+            _worldCtxHeld = true;
+        }
         try {
             drawFn();
         } finally {
-            leaveWorldContext(frame, ctx);
+            if (!hold) {
+                leaveWorldContext(frame, ctx);
+                _worldCtxHeld = false;
+            }
         }
     }
 
@@ -74,6 +86,10 @@
                 target: worldTargetName,
                 draw(frame, ctx) {
                     // Screen-space clear; no camera. Prefer active viewport size when split.
+                    if (_worldCtxHeld) {
+                        leaveWorldContext(frame, ctx);
+                        _worldCtxHeld = false;
+                    }
                     resetDprBaseline(ctx, frame.dpr || 1);
                     game.renderPlayingWorldClear(ctx, frame.viewport);
                 }
@@ -84,7 +100,7 @@
                 draw(frame, ctx) {
                     withWorldContext(frame, ctx, () => {
                         timeCoarse(game, 'static', () => game.renderPlayingWorldStatic(ctx));
-                    });
+                    }, { hold: true });
                 }
             },
             {
@@ -109,12 +125,21 @@
                 id: 'worldGlow',
                 target: worldTargetName,
                 draw(frame, ctx) {
-                    // Skip secondary ambient glows when quality governor signals LOW (tier 2)
-                    if (frame.quality === 2 || (frame.bag && frame.bag.quality === 2)) return;
+                    // Skip secondary ambient glows on LOW / heavy presets.
+                    // (frame.quality is the renderQuality object, not the numeric tier.)
+                    const q = frame.quality || (frame.bag && frame.bag.quality) || game.renderQuality;
+                    const engineTier = (typeof window !== 'undefined' && window.engine)
+                        ? window.engine.qualityTier
+                        : null;
+                    const tiers = (typeof Engine !== 'undefined' && Engine.Render && Engine.Render.QualityTier)
+                        ? Engine.Render.QualityTier
+                        : { LOW: 2 };
+                    const heavyPreset = !!(q && q.remoteFullRender === false && q.gearRingPoints <= 24);
+                    if (engineTier === tiers.LOW || heavyPreset) return;
                     withWorldContext(frame, ctx, () => {
                         const lists = frame.bag.visibleLists || game.visibleFrameLists;
                         game.renderWorldGlows(ctx, lists);
-                    });
+                    }, { resume: true, hold: true });
                 }
             },
             {
@@ -124,7 +149,7 @@
                     withWorldContext(frame, ctx, () => {
                         const lists = frame.bag.visibleLists || game.visibleFrameLists;
                         game.renderWorldBodies(ctx, lists);
-                    });
+                    }, { resume: true, hold: true });
                 }
             },
             // NOTE: live voxel/fluid particles are already drawn inside renderWorldBodies
@@ -137,7 +162,7 @@
                         if (game.particleSystem && typeof game.particleSystem.render === 'function') {
                             game.particleSystem.render(ctx);
                         }
-                    });
+                    }, { resume: true });
                 }
             },
             {

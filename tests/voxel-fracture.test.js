@@ -52,6 +52,7 @@ function loadVoxelFractureModule() {
             }
         },
         Math,
+        Number,
         Uint8Array,
         Float32Array,
         Int16Array,
@@ -170,6 +171,37 @@ test('God-Tier Multi-Variable Voxel Disintegration Engine', async (t) => {
         // Low-stress connected clumps should often keep non-rect outlines.
         assert.ok(sawNonRect || particles.some((p) => p.cellCount > 1),
             'should preserve multi-cell assembled pieces, not only 1x1 cubes');
+    });
+
+    await t.test('renderVoxelDamage skips pristine enemies without allocating a grid', () => {
+        const env = loadVoxelFractureModule();
+        let canvasCreates = 0;
+        const prevCreate = env.Engine.Graphics.createCanvas;
+        env.Engine.Graphics.createCanvas = (w, h) => {
+            canvasCreates++;
+            return prevCreate(w, h);
+        };
+
+        const enemy = {
+            shape: 'diamond',
+            size: 30,
+            maxHp: 100,
+            x: 100,
+            y: 100,
+            color: '#ff00aa',
+            _voxelGrid: null,
+            _voxelHitSeq: 0
+        };
+        const ctx = createMockCtx();
+        const drawn = env.renderVoxelDamage(ctx, enemy, enemy.color, () => {});
+        assert.equal(drawn, false);
+        assert.equal(enemy._voxelGrid, null);
+        assert.equal(canvasCreates, 0, 'pristine render must not allocate offscreen canvases');
+
+        env.flagVoxelDamage(enemy, 20, 100, 100, 'slash');
+        assert.ok(enemy._voxelGrid, 'first hit should lazy-create the voxel grid');
+        assert.ok(enemy._voxelGrid.destroyedCount > 0);
+        assert.ok(canvasCreates > 0);
     });
 
     await t.test('flagVoxelDamage triggers multi-variable disintegration flight and settling', () => {
@@ -323,6 +355,53 @@ test('God-Tier Multi-Variable Voxel Disintegration Engine', async (t) => {
 
         const far = { x: 20, y: 20, size: 20 };
         assert.ok(env.getCombatClarityIntensity(far) < peak * 0.5, 'far entities should get weaker shield');
+    });
+
+    await t.test('combat clarity ignores NaN particle coords and never feeds non-finite gradients', () => {
+        const env = loadVoxelFractureModule();
+        env.resetVoxelStaticCanvas(400, 300);
+
+        const player = { x: 200, y: 150, size: 25, sizeMultiplier: 1 };
+        // Inject a corrupted fluid particle — previously this made d2 > r2 false and
+        // permanently poisoned intensity to NaN (createRadialGradient then threw).
+        const slot = 0;
+        env.VoxelParticlePool.alive[slot] = 1;
+        env.VoxelParticlePool.type[slot] = 1;
+        env.VoxelParticlePool.px[slot] = NaN;
+        env.VoxelParticlePool.py[slot] = NaN;
+        env.VoxelParticlePool.vx[slot] = 0;
+        env.VoxelParticlePool.vy[slot] = 0;
+        env.VoxelParticlePool.cr[slot] = 1;
+        env.VoxelParticlePool.cg[slot] = 0;
+        env.VoxelParticlePool.cb[slot] = 0;
+        env.VoxelParticlePool._activeCount = 1;
+        env.VoxelParticlePool._activeIndices[0] = slot;
+
+        const sample = env.sampleCombatDebrisVolume(200, 150, 80);
+        assert.equal(sample.intensity, 0);
+        assert.ok(Number.isFinite(sample.intensity));
+
+        player._clarityShield = NaN;
+        const intensity = env.getCombatClarityIntensity(player);
+        assert.equal(intensity, 0);
+        assert.ok(Number.isFinite(player._clarityShield));
+
+        let gradientCalls = 0;
+        const ctx = createMockCtx();
+        ctx.createRadialGradient = (x0, y0, r0, x1, y1, r1) => {
+            gradientCalls++;
+            for (const v of [x0, y0, r0, x1, y1, r1]) {
+                if (!Number.isFinite(v)) {
+                    throw new TypeError('The provided double value is non-finite.');
+                }
+            }
+            return { addColorStop: () => {} };
+        };
+        assert.doesNotThrow(() => env.drawCombatClarityBoost(ctx, player));
+        assert.equal(gradientCalls, 0, 'non-finite shield should skip draw entirely');
+
+        // Entity with NaN pose must also no-op instead of throwing.
+        assert.doesNotThrow(() => env.drawCombatClarityBoost(ctx, { x: NaN, y: NaN, size: 25 }));
     });
 
     await t.test('clarity body tint shifts more when spray matches body than when colors already contrast', () => {
@@ -818,6 +897,54 @@ test('God-Tier Multi-Variable Voxel Disintegration Engine', async (t) => {
         };
         env.renderVoxelStaticLayer(ctx);
         assert.equal(drew, true, 'dirty static layer must blit to the world');
+    });
+
+    await t.test('renderVoxelStaticLayer viewport-clips when camera is present', () => {
+        const env = loadVoxelFractureModule();
+        env.resetVoxelStaticCanvas(2400, 1350);
+        env.VoxelStaticCanvas.dirty = true;
+        env.Game = {
+            camera: { x: 400, y: 300 },
+            config: { width: 1280, height: 720 },
+            getViewZoom: () => 1,
+            screenShakeOffset: { x: 0, y: 0 }
+        };
+        let lastArgs = null;
+        const ctx = {
+            imageSmoothingEnabled: false,
+            drawImage: (...args) => { lastArgs = args; }
+        };
+        env.renderVoxelStaticLayer(ctx);
+        assert.ok(lastArgs, 'must blit');
+        // 9-arg source-rect form: canvas, sx, sy, sw, sh, dx, dy, dw, dh
+        assert.equal(lastArgs.length, 9, 'camera path must use source-rect drawImage');
+        const [, sx, sy, sw, sh, dx, dy, dw, dh] = lastArgs;
+        assert.ok(sx >= 0 && sy >= 0);
+        assert.ok(sw > 0 && sh > 0);
+        assert.ok(dw < 2400 || dh < 1350, 'clipped blit should be smaller than full room');
+        assert.ok(dx >= 0 && dy >= 0);
+    });
+
+    await t.test('drawCombatClarityBoost uses a baked soft sprite instead of live gradients', () => {
+        const env = loadVoxelFractureModule();
+        let gradientCalls = 0;
+        let drewSprite = false;
+        const ctx = createMockCtx();
+        ctx.createRadialGradient = () => {
+            gradientCalls++;
+            return { addColorStop: () => {} };
+        };
+        ctx.drawImage = () => { drewSprite = true; };
+
+        const entity = {
+            x: 100,
+            y: 80,
+            size: 24,
+            _clarityShield: 0.8
+        };
+        env.drawCombatClarityBoost(ctx, entity, { intensity: 0.8 });
+        assert.equal(drewSprite, true, 'clarity should blit soft sprite');
+        assert.equal(gradientCalls, 0, 'main ctx must not build live radials');
     });
 
     await t.test('ShardPool grounded shards stay flat 2D without height bounce', () => {

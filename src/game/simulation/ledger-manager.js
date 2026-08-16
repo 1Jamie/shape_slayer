@@ -12,9 +12,20 @@ const LedgerManager = (function () {
     const SHADOW_RIPOSTE_WINDOW_MS = 1000;
     const ARTILLERY_PROXIMITY_PX = 150;
 
-    let runState = createEmptyRunState();
+    // Per-player feat progress (host simulates remotes; must not pool across earners)
+    const playerRunStates = new Map();
+    // Shared frame-damage peak for global records (max across participants)
+    let sharedFrameState = createEmptySharedFrameState();
     let dirty = false;
     let pendingPersist = null;
+
+    function createEmptySharedFrameState() {
+        return {
+            frameDamagePeak: 0,
+            frameDamageAccum: 0,
+            lastFrameId: -1
+        };
+    }
 
     function createEmptyRunState() {
         return {
@@ -64,6 +75,48 @@ const LedgerManager = (function () {
         return Game.player || null;
     }
 
+    function getLocalPlayerId() {
+        if (typeof Game !== 'undefined' && typeof Game.getLocalPlayerId === 'function') {
+            return Game.getLocalPlayerId() || 'local';
+        }
+        return 'local';
+    }
+
+    function resolvePlayerId(playerOrId) {
+        if (playerOrId == null) return getLocalPlayerId();
+        if (typeof playerOrId === 'string' || typeof playerOrId === 'number') {
+            return String(playerOrId);
+        }
+        if (playerOrId.playerId != null) return String(playerOrId.playerId);
+        if (playerOrId.id != null) return String(playerOrId.id);
+        return getLocalPlayerId();
+    }
+
+    function getPlayerRunState(playerOrId) {
+        const id = resolvePlayerId(playerOrId);
+        if (!playerRunStates.has(id)) {
+            playerRunStates.set(id, createEmptyRunState());
+        }
+        return playerRunStates.get(id);
+    }
+
+    function isOnlineMultiplayer() {
+        return typeof Game !== 'undefined'
+            && !!Game.multiplayerEnabled
+            && typeof multiplayerManager !== 'undefined'
+            && !!multiplayerManager;
+    }
+
+    /**
+     * Solo + local split share this machine's save.
+     * Online MP: only the local seat writes meta; remotes get grants via shards_update.
+     */
+    function isLocalMetaEarner(playerOrId) {
+        if (!isOnlineMultiplayer()) return true;
+        const playerId = resolvePlayerId(playerOrId);
+        return playerId === getLocalPlayerId();
+    }
+
     function resolveClassKey(player) {
         const p = player || getLocalPlayer();
         if (!p) return null;
@@ -71,6 +124,22 @@ const LedgerManager = (function () {
             return SaveSystem.engineClassToLedgerKey(p.playerClass);
         }
         return null;
+    }
+
+    function collectRunParticipants() {
+        if (typeof Game !== 'undefined' && typeof Game.collectTelemetryParticipants === 'function') {
+            return Game.collectTelemetryParticipants(true) || [];
+        }
+        const local = getLocalPlayer();
+        if (!local) return [];
+        return [{ player: local, playerId: getLocalPlayerId() }];
+    }
+
+    function resetSameSlotRerolls() {
+        playerRunStates.forEach((rs) => {
+            rs.sameSlotRerolls = {};
+            rs.maxSameSlotRerolls = 0;
+        });
     }
 
     // --- Run timing (epoch stamps) ---
@@ -139,6 +208,7 @@ const LedgerManager = (function () {
         const open = t.safeRoomIntervals.length && t.safeRoomIntervals[t.safeRoomIntervals.length - 1].exit == null;
         if (open) return;
         t.safeRoomIntervals.push({ enter: now || Date.now(), exit: null });
+        resetSameSlotRerolls();
     }
 
     function stampSafeRoomExit(now) {
@@ -205,8 +275,10 @@ const LedgerManager = (function () {
     // --- Run lifecycle ---
 
     function beginRun(player) {
-        runState = createEmptyRunState();
-        runState.classKey = resolveClassKey(player);
+        playerRunStates.clear();
+        sharedFrameState = createEmptySharedFrameState();
+        const rs = getPlayerRunState(player || getLocalPlayer());
+        rs.classKey = resolveClassKey(player);
         stampRunStart(Date.now());
         dirty = false;
     }
@@ -233,11 +305,10 @@ const LedgerManager = (function () {
     }
 
     /**
-     * Complete a feat: first time unlocks + full payout; later times count + reduced payout.
-     * @returns {{ ok: boolean, firstUnlock: boolean, count: number, paid: object }|false}
+     * Apply feat completion + payout to the local SaveSystem.
+     * Used by host/solo for local earners, and by clients receiving feat grants.
      */
-    function completeFeat(featId) {
-        if (!isHostOrSolo()) return false;
+    function applyFeatGrant(featId) {
         if (!allowsMetaProgression()) return false;
         if (typeof SaveSystem === 'undefined' || !SaveSystem.recordFeatCompletion) return false;
 
@@ -284,13 +355,48 @@ const LedgerManager = (function () {
         return { ok: true, firstUnlock, count, paid };
     }
 
+    // Piggyback on shards_update (already host→target routed) so the relay needs no new message type.
+    function sendFeatCompletedToRemote(playerId, featId) {
+        if (!playerId || !featId) return;
+        if (typeof multiplayerManager === 'undefined' || !multiplayerManager || !multiplayerManager.send) return;
+        multiplayerManager.send({
+            type: 'shards_update',
+            data: {
+                targetPlayerId: playerId,
+                shardsEarned: 0,
+                featId,
+                reason: 'feat'
+            }
+        });
+    }
+
+    /**
+     * Complete a feat for an earner. Host/solo evaluates; remotes are granted via net message.
+     * @param {string} featId
+     * @param {object|string|null} earner player instance or playerId
+     * @returns {{ ok: boolean, firstUnlock?: boolean, count?: number, paid?: object, remote?: boolean }|false}
+     */
+    function completeFeat(featId, earner) {
+        if (!isHostOrSolo()) return false;
+        if (!allowsMetaProgression()) return false;
+
+        const playerId = resolvePlayerId(earner);
+        if (isLocalMetaEarner(playerId)) {
+            return applyFeatGrant(featId);
+        }
+
+        sendFeatCompletedToRemote(playerId, featId);
+        return { ok: true, remote: true, playerId };
+    }
+
     // Back-compat alias used by instrumentation call sites
-    function tryUnlockFeat(featId) {
-        const result = completeFeat(featId);
+    function tryUnlockFeat(featId, earner) {
+        const result = completeFeat(featId, earner);
         return !!(result && result.ok);
     }
 
-    function getProgressSnapshot() {
+    function getProgressSnapshot(playerOrId) {
+        const runState = getPlayerRunState(playerOrId);
         return {
             blocksThisRun: runState.blocksThisRun,
             maxWhirlwindSession: runState.whirlwindSessionMax,
@@ -319,9 +425,23 @@ const LedgerManager = (function () {
         const amount = Number(data && data.damage) || 0;
         if (amount <= 0) return;
 
+        const player = data && data.player;
+        const playerId = resolvePlayerId(player || (data && data.playerId));
+        const runState = getPlayerRunState(playerId);
+        const writeMeta = isLocalMetaEarner(playerId);
+
         const frameId = (typeof Game !== 'undefined' && Game.frameCount != null)
             ? Game.frameCount
             : Math.floor(Date.now() / 16);
+
+        if (frameId !== sharedFrameState.lastFrameId) {
+            if (sharedFrameState.frameDamageAccum > sharedFrameState.frameDamagePeak) {
+                sharedFrameState.frameDamagePeak = sharedFrameState.frameDamageAccum;
+            }
+            sharedFrameState.frameDamageAccum = 0;
+            sharedFrameState.lastFrameId = frameId;
+        }
+        sharedFrameState.frameDamageAccum += amount;
 
         if (frameId !== runState.lastFrameId) {
             if (runState.frameDamageAccum > runState.frameDamagePeak) {
@@ -332,20 +452,23 @@ const LedgerManager = (function () {
         }
         runState.frameDamageAccum += amount;
 
-        if (typeof SaveSystem !== 'undefined') {
-            SaveSystem.setGlobalMax('maxSingleHit', Math.max(runState.frameDamagePeak, runState.frameDamageAccum));
+        if (writeMeta && typeof SaveSystem !== 'undefined') {
+            SaveSystem.setGlobalMax('maxSingleHit', Math.max(
+                sharedFrameState.frameDamagePeak,
+                sharedFrameState.frameDamageAccum
+            ));
         }
 
-        const classKey = resolveClassKey(data && data.player);
-        if (classKey && data && data.weaponType && typeof SaveSystem !== 'undefined') {
+        const classKey = resolveClassKey(player);
+        if (writeMeta && classKey && data && data.weaponType && typeof SaveSystem !== 'undefined') {
             SaveSystem.bumpClassStat(classKey, `weaponHits.${data.weaponType}`, 1);
         }
 
-        if (data && data.isBasic) {
-            if (classKey) SaveSystem.bumpClassStat(classKey, 'basicSwings', 1);
+        if (writeMeta && data && data.isBasic && classKey) {
+            SaveSystem.bumpClassStat(classKey, 'basicSwings', 1);
         }
-        if (data && data.isHeavy) {
-            if (classKey) SaveSystem.bumpClassStat(classKey, 'heavySwings', 1);
+        if (writeMeta && data && data.isHeavy && classKey) {
+            SaveSystem.bumpClassStat(classKey, 'heavySwings', 1);
         }
 
         if (data && data.isBackstabCrit) {
@@ -353,12 +476,12 @@ const LedgerManager = (function () {
             if (runState.consecutiveBackstabCrits > runState.maxConsecutiveBackstabs) {
                 runState.maxConsecutiveBackstabs = runState.consecutiveBackstabCrits;
             }
-            if (classKey === 'rogue' && typeof SaveSystem !== 'undefined') {
+            if (writeMeta && classKey === 'rogue' && typeof SaveSystem !== 'undefined') {
                 SaveSystem.setClassStatMax('rogue', 'maxConsecutiveBackstabs', runState.maxConsecutiveBackstabs);
                 SaveSystem.setClassStatMax('rogue', 'consecutiveBackstabs', runState.maxConsecutiveBackstabs);
             }
             if (runState.consecutiveBackstabCrits >= 8) {
-                tryUnlockFeat('surgical_strike');
+                tryUnlockFeat('surgical_strike', player || playerId);
                 runState.consecutiveBackstabCrits = 0; // need a fresh streak for the next completion
             }
         } else if (data && data.breaksBackstabCombo) {
@@ -366,15 +489,43 @@ const LedgerManager = (function () {
         }
     }
 
+    function evaluateRoomClearFeatsForPlayer(player, playerId, data) {
+        const runState = getPlayerRunState(playerId);
+        const roomNumber = Number(data && data.roomNumber) || 0;
+        const isCombat = !!(data && data.isCombat);
+        const classKey = resolveClassKey(player);
+        let hpPct = Number(data && data.hpPct);
+        if (player && player.maxHp > 0) {
+            hpPct = player.hp / player.maxHp;
+        }
+
+        if (isCombat && Number.isFinite(hpPct) && hpPct < 0.05 && hpPct >= 0) {
+            tryUnlockFeat('close_call', player || playerId);
+        }
+
+        // Artillery Barrage: mid-game combat wave cleared with no enemy within 150px
+        if (isCombat && classKey === 'mage' && roomNumber >= 10 && roomNumber < 40) {
+            if (runState.roomEnemyMinDist >= ARTILLERY_PROXIMITY_PX) {
+                tryUnlockFeat('artillery_barrage', player || playerId);
+            }
+        }
+
+        runState.hammerHealThisRoom = 0;
+        runState.hammerHealRoomPct = 0;
+        runState.vampiricAwardedThisRoom = false;
+        runState.roomEnemyMinDist = Infinity;
+    }
+
     function recordRoomCleared(data) {
         if (!isHostOrSolo()) return;
         const roomNumber = Number(data && data.roomNumber) || 0;
-        const hpPct = Number(data && data.hpPct);
         const biomeName = (data && data.biomeName) || 'None';
-        const isCombat = !!(data && data.isCombat);
-        const classKey = resolveClassKey(data && data.player);
+        const primaryPlayer = (data && data.player) || getLocalPlayer();
+        const primaryId = resolvePlayerId(primaryPlayer || (data && data.playerId));
+        const classKey = resolveClassKey(primaryPlayer);
 
-        if (typeof SaveSystem !== 'undefined') {
+        // Global / class room records: only the local earner's clear writes this machine's save
+        if (isLocalMetaEarner(primaryId) && typeof SaveSystem !== 'undefined') {
             const isCoop = typeof Game !== 'undefined' && Game.localSplitEnabled;
             const records = SaveSystem.getGlobalRecords();
             if (isCoop) {
@@ -391,24 +542,21 @@ const LedgerManager = (function () {
             if (classKey) SaveSystem.bumpClassStat(classKey, 'roomsCleared', 1);
         }
 
-        if (isCombat && Number.isFinite(hpPct) && hpPct < 0.05 && hpPct >= 0) {
-            tryUnlockFeat('close_call');
+        const participants = collectRunParticipants();
+        if (participants.length > 0) {
+            participants.forEach((entry) => {
+                if (!entry || !entry.player) return;
+                evaluateRoomClearFeatsForPlayer(entry.player, entry.playerId || resolvePlayerId(entry.player), data);
+            });
+        } else if (primaryPlayer) {
+            evaluateRoomClearFeatsForPlayer(primaryPlayer, primaryId, data);
         }
-
-        // Artillery Barrage: mid-game combat wave cleared with no enemy within 150px
-        if (isCombat && classKey === 'mage' && roomNumber >= 10 && roomNumber < 40) {
-            if (runState.roomEnemyMinDist >= ARTILLERY_PROXIMITY_PX) {
-                tryUnlockFeat('artillery_barrage');
-            }
-        }
-
-        runState.hammerHealThisRoom = 0;
-        runState.hammerHealRoomPct = 0;
-        runState.vampiricAwardedThisRoom = false;
-        runState.roomEnemyMinDist = Infinity;
     }
 
     function recordBossRoomEnter(data) {
+        const player = data && data.player;
+        const playerId = resolvePlayerId(player || (data && data.playerId));
+        const runState = getPlayerRunState(playerId);
         const hpPct = Number(data && data.hpPct);
         if (Number.isFinite(hpPct)) {
             runState.enteredBossHpPct = hpPct;
@@ -418,11 +566,15 @@ const LedgerManager = (function () {
 
     function recordBossKilled(data) {
         if (!isHostOrSolo()) return;
-        if (runState.underdogArmed) {
-            tryUnlockFeat('underdog');
-        }
-        runState.underdogArmed = false;
-        runState.enteredBossHpPct = null;
+
+        // Underdog: each player who entered low-HP earns independently
+        playerRunStates.forEach((rs, playerId) => {
+            if (rs.underdogArmed) {
+                tryUnlockFeat('underdog', playerId);
+            }
+            rs.underdogArmed = false;
+            rs.enteredBossHpPct = null;
+        });
 
         // Phantom Execution
         const player = (data && data.player) || getLocalPlayer();
@@ -430,14 +582,17 @@ const LedgerManager = (function () {
         if (classKey === 'rogue' && player && player._lastBossCloneHitAt) {
             const now = (data && data.now) || Date.now();
             if (now - player._lastBossCloneHitAt <= PHANTOM_WINDOW_MS) {
-                tryUnlockFeat('phantom_execution');
+                tryUnlockFeat('phantom_execution', player);
             }
         }
     }
 
     function recordDodge(data) {
         if (!isHostOrSolo()) return;
-        const classKey = resolveClassKey(data && data.player);
+        const player = data && data.player;
+        const playerId = resolvePlayerId(player);
+        if (!isLocalMetaEarner(playerId)) return;
+        const classKey = resolveClassKey(player);
         if (classKey && typeof SaveSystem !== 'undefined') {
             SaveSystem.bumpClassStat(classKey, 'totalDodges', 1);
         }
@@ -446,9 +601,11 @@ const LedgerManager = (function () {
     function recordPerfectDodge(data) {
         if (!isHostOrSolo()) return;
         const player = data && data.player;
+        const playerId = resolvePlayerId(player);
+        const runState = getPlayerRunState(playerId);
         const classKey = resolveClassKey(player);
         const now = (data && data.now) || Date.now();
-        if (classKey && typeof SaveSystem !== 'undefined') {
+        if (isLocalMetaEarner(playerId) && classKey && typeof SaveSystem !== 'undefined') {
             SaveSystem.bumpClassStat(classKey, 'perfectDodges', 1);
         }
         if (player) {
@@ -458,7 +615,7 @@ const LedgerManager = (function () {
         // Keep last 5s window
         runState.perfectDodgeTimes = runState.perfectDodgeTimes.filter(t => now - t <= 5000);
         if (runState.perfectDodgeTimes.length >= 3) {
-            tryUnlockFeat('shadow_step');
+            tryUnlockFeat('shadow_step', player || playerId);
             runState.perfectDodgeTimes = []; // fresh window for next completion
         }
     }
@@ -466,15 +623,16 @@ const LedgerManager = (function () {
     function recordPerfectInterrupt(data) {
         if (!isHostOrSolo()) return;
         const player = data && data.player;
+        const playerId = resolvePlayerId(player);
         const classKey = resolveClassKey(player);
-        if (classKey && typeof SaveSystem !== 'undefined') {
+        if (isLocalMetaEarner(playerId) && classKey && typeof SaveSystem !== 'undefined') {
             SaveSystem.bumpClassStat(classKey, 'perfectInterrupts', 1);
         }
         // Any enemy counts: the dodged foe usually can't re-telegraph inside the window
         if (classKey === 'rogue' && player && player._lastPerfectDodgeAt) {
             const now = (data && data.now) || Date.now();
             if (now - player._lastPerfectDodgeAt <= SHADOW_RIPOSTE_WINDOW_MS) {
-                tryUnlockFeat('shadow_riposte');
+                tryUnlockFeat('shadow_riposte', player);
                 // Consume the dodge stamp so one PD can't chain-pay multiple interrupts
                 player._lastPerfectDodgeAt = 0;
             }
@@ -483,14 +641,17 @@ const LedgerManager = (function () {
 
     function recordBlock(data) {
         if (!isHostOrSolo()) return;
+        const player = data && data.player;
+        const playerId = resolvePlayerId(player);
+        const runState = getPlayerRunState(playerId);
         runState.blocksThisRun += 1;
-        const classKey = resolveClassKey(data && data.player);
-        if (classKey === 'warrior' && typeof SaveSystem !== 'undefined') {
+        const classKey = resolveClassKey(player);
+        if (isLocalMetaEarner(playerId) && classKey === 'warrior' && typeof SaveSystem !== 'undefined') {
             SaveSystem.bumpClassStat('warrior', 'blocksExecuted', 1);
         }
         // Award every 15 blocks in a run (15, 30, 45...)
         if (runState.blocksThisRun > 0 && runState.blocksThisRun % 15 === 0) {
-            tryUnlockFeat('immovable_object');
+            tryUnlockFeat('immovable_object', player || playerId);
         }
     }
 
@@ -521,74 +682,86 @@ const LedgerManager = (function () {
 
     function recordWhirlwindTick(data) {
         if (!isHostOrSolo()) return;
+        const player = data && data.player;
+        const playerId = resolvePlayerId(player);
+        const runState = getPlayerRunState(playerId);
         const elapsed = Number(data && data.elapsed) || 0;
         if (elapsed > runState.whirlwindSessionMax) {
             runState.whirlwindSessionMax = elapsed;
-            if (typeof SaveSystem !== 'undefined') {
+            if (isLocalMetaEarner(playerId) && typeof SaveSystem !== 'undefined') {
                 SaveSystem.setClassStatMax('warrior', 'maxWhirlwindTime', elapsed);
             }
         }
         // Once per whirlwind session when crossing 6s
-        const player = data && data.player;
         const sessionId = player && player._whirlwindSessionId != null
             ? player._whirlwindSessionId
             : 'default';
         if (elapsed > 6 && runState.cycloneAwardedSessionId !== sessionId) {
             runState.cycloneAwardedSessionId = sessionId;
-            tryUnlockFeat('cyclone_engine');
+            tryUnlockFeat('cyclone_engine', player || playerId);
         }
     }
 
     function recordShoutHits(data) {
         if (!isHostOrSolo()) return;
+        const player = data && data.player;
+        const playerId = resolvePlayerId(player);
+        const runState = getPlayerRunState(playerId);
         const count = Number(data && data.count) || 0;
         if (count > runState.shoutMultiPeak) {
             runState.shoutMultiPeak = count;
-            if (typeof SaveSystem !== 'undefined') {
+            if (isLocalMetaEarner(playerId) && typeof SaveSystem !== 'undefined') {
                 SaveSystem.setClassStatMax('tank', 'shoutMultiStuns', count);
             }
         }
         if (count >= 8) {
-            tryUnlockFeat('sonic_boom');
+            tryUnlockFeat('sonic_boom', player || playerId);
         }
     }
 
     function recordHammerLifesteal(data) {
         if (!isHostOrSolo()) return;
+        const player = data && data.player;
+        const playerId = resolvePlayerId(player);
+        const runState = getPlayerRunState(playerId);
         const healed = Number(data && data.healed) || 0;
         const maxHp = Number(data && data.maxHp) || 0;
         if (healed <= 0) return;
         runState.hammerHealThisRoom += healed;
-        if (typeof SaveSystem !== 'undefined') {
+        if (isLocalMetaEarner(playerId) && typeof SaveSystem !== 'undefined') {
             SaveSystem.bumpClassStat('tank', 'hammerLifeStolen', healed);
         }
         if (maxHp > 0) {
             runState.hammerHealRoomPct = runState.hammerHealThisRoom / maxHp;
             if (runState.hammerHealRoomPct >= 0.3 && !runState.vampiricAwardedThisRoom) {
                 runState.vampiricAwardedThisRoom = true;
-                tryUnlockFeat('vampiric_bulwark');
+                tryUnlockFeat('vampiric_bulwark', player || playerId);
             }
         }
     }
 
     function recordShieldRetaliateKill(data) {
         if (!isHostOrSolo()) return;
+        const player = data && data.player;
         const enemy = data && data.enemy;
         if (enemy && (enemy.isElite || enemy.eliteAffix)) {
             // Prefer charging elites
             const charging = !!(enemy.isCharging || enemy.charging || (enemy.eliteAffix && enemy.eliteAffix.type === 'explosiveAttacks'));
             if (charging || enemy.isElite) {
-                tryUnlockFeat('return_to_sender');
+                tryUnlockFeat('return_to_sender', player || (data && data.playerId));
             }
         }
     }
 
     function recordBeamPierce(data) {
         if (!isHostOrSolo()) return;
+        const player = data && data.player;
+        const playerId = resolvePlayerId(player);
+        const runState = getPlayerRunState(playerId);
         const count = Number(data && data.count) || 0;
         if (count > runState.beamPiercePeak) {
             runState.beamPiercePeak = count;
-            if (typeof SaveSystem !== 'undefined') {
+            if (isLocalMetaEarner(playerId) && typeof SaveSystem !== 'undefined') {
                 SaveSystem.setClassStatMax('mage', 'beamMultiPierces', count);
             }
         }
@@ -599,13 +772,16 @@ const LedgerManager = (function () {
                 : Math.floor(Date.now() / 200);
             if (runState.hyperBeamAwardedPulse !== pulseKey) {
                 runState.hyperBeamAwardedPulse = pulseKey;
-                tryUnlockFeat('hyper_beam_lineup');
+                tryUnlockFeat('hyper_beam_lineup', player || playerId);
             }
         }
     }
 
     function recordBlink(data) {
         if (!isHostOrSolo()) return;
+        const player = data && data.player;
+        const playerId = resolvePlayerId(player);
+        if (!isLocalMetaEarner(playerId)) return;
         const dist = Number(data && data.distance) || 0;
         if (dist > 0 && typeof SaveSystem !== 'undefined') {
             SaveSystem.bumpClassStat('mage', 'distanceBlinked', dist);
@@ -616,7 +792,7 @@ const LedgerManager = (function () {
         if (!isHostOrSolo()) return;
         // Lethal cluster: decoy took significant damage while player blinked away
         if (data && data.lethal) {
-            tryUnlockFeat('perfect_displace');
+            tryUnlockFeat('perfect_displace', (data && data.player) || (data && data.playerId));
         }
     }
 
@@ -624,19 +800,22 @@ const LedgerManager = (function () {
         if (!isHostOrSolo()) return;
         const hpPct = Number(data && data.hpPct);
         if (Number.isFinite(hpPct) && hpPct < 0.1 && hpPct > 0) {
-            tryUnlockFeat('volcano_surfer');
+            tryUnlockFeat('volcano_surfer', (data && data.player) || (data && data.playerId));
         }
     }
 
     function recordSafeRoomReroll(data) {
         if (!isHostOrSolo()) return;
+        const player = data && data.player;
+        const playerId = resolvePlayerId(player);
+        const runState = getPlayerRunState(playerId);
         const slotKey = (data && data.slotKey) || 'unknown';
         runState.sameSlotRerolls[slotKey] = (runState.sameSlotRerolls[slotKey] || 0) + 1;
         const n = runState.sameSlotRerolls[slotKey];
         if (n > runState.maxSameSlotRerolls) runState.maxSameSlotRerolls = n;
         // Award every 5 rerolls on the same slot (5, 10, 15...)
         if (n > 0 && n % 5 === 0) {
-            tryUnlockFeat('perfectionist');
+            tryUnlockFeat('perfectionist', player || playerId);
         }
     }
 
@@ -655,6 +834,9 @@ const LedgerManager = (function () {
 
     function recordVanguardThrust(data) {
         if (!isHostOrSolo()) return;
+        const player = data && data.player;
+        const playerId = resolvePlayerId(player);
+        const runState = getPlayerRunState(playerId);
         // Once per boss instance per run (avoid spam while lingering in slam AoE)
         const enemy = data && data.enemy;
         const eid = enemy
@@ -662,11 +844,14 @@ const LedgerManager = (function () {
             : 'boss';
         if (runState.vanguardAwardedEnemyIds[eid]) return;
         runState.vanguardAwardedEnemyIds[eid] = true;
-        tryUnlockFeat('vanguard_thrust');
+        tryUnlockFeat('vanguard_thrust', player || playerId);
     }
 
-    function recordEnemyProximity(dist) {
+    function recordEnemyProximity(data) {
+        const dist = Number(data && data.dist);
         if (!Number.isFinite(dist)) return;
+        const playerId = resolvePlayerId((data && data.player) || (data && data.playerId));
+        const runState = getPlayerRunState(playerId);
         if (dist < runState.roomEnemyMinDist) {
             runState.roomEnemyMinDist = dist;
         }
@@ -682,17 +867,22 @@ const LedgerManager = (function () {
         const timing = finalizeRunTiming((data && data.now) || Date.now());
 
         // Flush frame peak
-        if (runState.frameDamageAccum > runState.frameDamagePeak) {
-            runState.frameDamagePeak = runState.frameDamageAccum;
+        if (sharedFrameState.frameDamageAccum > sharedFrameState.frameDamagePeak) {
+            sharedFrameState.frameDamagePeak = sharedFrameState.frameDamageAccum;
         }
-        
+        playerRunStates.forEach((rs) => {
+            if (rs.frameDamageAccum > rs.frameDamagePeak) {
+                rs.frameDamagePeak = rs.frameDamageAccum;
+            }
+        });
+
         const isCoop = typeof Game !== 'undefined' && Game.localSplitEnabled;
 
         if (typeof SaveSystem !== 'undefined') {
             if (isCoop) {
-                SaveSystem.setGlobalMax('coopMaxSingleHit', runState.frameDamagePeak);
+                SaveSystem.setGlobalMax('coopMaxSingleHit', sharedFrameState.frameDamagePeak);
             } else {
-                SaveSystem.setGlobalMax('maxSingleHit', runState.frameDamagePeak);
+                SaveSystem.setGlobalMax('maxSingleHit', sharedFrameState.frameDamagePeak);
             }
         }
 
@@ -711,7 +901,7 @@ const LedgerManager = (function () {
             if (typeof SaveSystem !== 'undefined') {
                 const waves = Math.max(0, (Game.waveNumber || 1) - 1);
                 const records = SaveSystem.getGlobalRecords();
-                
+
                 if (isCoop) {
                     const prevHighestWave = records.coopArenaHighestWave || 0;
                     if (waves > prevHighestWave) {
@@ -784,7 +974,7 @@ const LedgerManager = (function () {
             case 'safeRoomReroll': return recordSafeRoomReroll(data);
             case 'voxelsDestroyed': return recordVoxelsDestroyed(data);
             case 'vanguardThrust': return recordVanguardThrust(data);
-            case 'enemyProximity': return recordEnemyProximity(data && data.dist);
+            case 'enemyProximity': return recordEnemyProximity(data);
             case 'cloneHit': return recordCloneHitByBoss(data && data.player, data && data.now);
             case 'runEnded': return recordRunEnded(data);
             case 'runStart': return beginRun(data && data.player);
@@ -801,9 +991,14 @@ const LedgerManager = (function () {
         beginRun,
         tryUnlockFeat,
         completeFeat,
+        applyFeatGrant,
         FEAT_REPEAT_PAYOUT_RATIO,
         getProgressSnapshot,
-        getRunState: () => runState,
+        getRunState: (playerOrId) => getPlayerRunState(playerOrId),
+        getPlayerRunState,
+        resolvePlayerId,
+        isLocalMetaEarner,
+        resetSameSlotRerolls,
         // timing
         createEmptyRunTiming,
         ensureRunTiming,

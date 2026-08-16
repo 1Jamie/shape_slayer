@@ -169,8 +169,21 @@
                 setTimeout(() => audio().playChime(659, 0.2, 0.25), 160);
             },
 
+            bossSurgeWarning() {
+                audio().playSweep(220, 90, 0.45, 'sawtooth', 0.28);
+                setTimeout(() => audio().playBeep(160, 0.12, 'square', 0.22), 90);
+                setTimeout(() => audio().playBeep(120, 0.18, 'square', 0.26), 220);
+                setTimeout(() => audio().playThud(1.3), 280);
+            },
+
             doorOpen() {
                 audio().playSweep(200, 400, 0.4, 'sine', 0.25);
+            },
+
+            machinesOpen() {
+                audio().playSweep(240, 520, 0.35, 'sine', 0.22);
+                setTimeout(() => audio().playChime(523, 0.18, 0.22), 90);
+                setTimeout(() => audio().playChime(659, 0.22, 0.24), 180);
             },
 
             majorSpawn() {
